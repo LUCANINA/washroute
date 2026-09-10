@@ -1,41 +1,45 @@
--- session 291j — DATA fix (not schema). APPLIED 2026-09-10.
+-- session 291j — DATA fix (not schema). APPLIED then PARTIALLY REVERTED 2026-09-10.
 --
--- Kidango - Hesperian Center and Kidango - Del Rey Center were the only 2 of 20
--- Kidango centres not set up like their siblings: billing_type='automatic', no
--- billing_group, no card, no Stripe customer, and zero orders ever picked up or
--- delivered since being created 2026-08-21. Each carried one placeholder order
--- (13117, 13119) stuck in 'scheduled' with recurring_interval='weekly' but
--- source='scheduled' — flagged weekly, never actually generating anything.
+-- WHAT WAS KEPT (correct):
+--   Kidango - Hesperian Center and Kidango - Del Rey Center were the only 2 of 20
+--   Kidango centres with billing_type='automatic' and no billing group. David
+--   confirmed both are billed on the Kidango account like the other 18.
+--     customers -> billing_type='on_account',
+--                  billing_group_id='b0000002-0000-0000-0000-000000000002' (Kidango Group)
 --
--- They surfaced because "no card on file" made them look like orders we could not
--- charge for. David confirmed both are on-demand accounts billed on the Kidango
--- account like the other 18.
+-- WHAT WAS REVERTED (my error):
+--   I also cancelled and archived their standing orders 13117/13119 and cleared
+--   recurring_interval, on the reading that "on demand" meant no standing weekly
+--   pickup. WRONG. Jessica Perez Barragan's email of 21 Aug asked for both centres
+--   to start WEEKLY service effective Thursday 24 Sep — the orders were correct
+--   onboarding, created the same day the email arrived. Restored:
+--     orders 13117, 13119 -> status='scheduled', cancelled_by=NULL,
+--                            recurring_interval='weekly', archived_at=NULL,
+--                            archived_reason=NULL
+--     their 4 route_stops -> status='pending' (cancelling had marked them 'skipped')
 --
--- Applied:
---   customers  -> billing_type = 'on_account', billing_group_id = Kidango Group
---                 (b0000002-0000-0000-0000-000000000002)
---   orders     -> 13117, 13119: status='cancelled', cancelled_by='admin',
---                 recurring_interval=NULL, archived with a reason
+-- LESSON: "zero orders ever delivered" on an account created three weeks ago is not
+-- evidence of a dead account — it can equally mean service has not started yet. The
+-- pickup date (24 Sep, in the future) said exactly that and I read it as a stale
+-- placeholder. Check the START date against the account's creation date before
+-- concluding an order is abandoned, and confirm the operational fact with David
+-- rather than inferring it from row shape.
 --
--- Preflight: no SMS-sending trigger on customers or orders (notifications are sent
--- by app code, not triggers). trg_sync_customer_type_pricelist only acts when
--- pricelist/customer_type change — neither was touched. Blast radius 2 customers,
--- 2 orders, 0 customers contacted.
+-- Verified against the customer email after restore: 620 Drew St, San Lorenzo 94580
+-- (Hesperian, skumar@kidango.org) and 1510 Via Sonya, San Lorenzo 94580 (Del Rey,
+-- sliang@kidango.org) both match, pickup 24 Sep / delivery 25 Sep on the Kidango route.
 --
--- Rollback snapshot: public._archive_kidango_ondemand_291j (old billing_type,
--- billing_group_id, order status and recurring_interval per row).
+-- Snapshot of pre-change values: public._archive_kidango_ondemand_291j.
 
-CREATE TABLE IF NOT EXISTS public._archive_kidango_ondemand_291j AS
-SELECT c.id customer_id, c.billing_type old_billing_type, c.billing_group_id old_billing_group_id,
-       o.id order_id, o.status old_status, o.recurring_interval old_recurring_interval, now() snapped_at
-FROM customers c LEFT JOIN orders o ON o.customer_id = c.id
-WHERE c.first_name_cache ILIKE '%kidango%' AND COALESCE(c.billing_type,'') <> 'on_account';
-
+-- KEPT:
 UPDATE customers SET billing_type = 'on_account',
        billing_group_id = 'b0000002-0000-0000-0000-000000000002'
 WHERE first_name_cache ILIKE '%kidango%' AND COALESCE(billing_type,'') <> 'on_account';
 
-UPDATE orders SET status='cancelled', cancelled_by='admin', recurring_interval=NULL,
-       archived_at=now(),
-       archived_reason='On-demand account — standing weekly order removed (291j)'
-WHERE order_number IN (13117,13119) AND status='scheduled';
+-- REVERTED (restore, run after the erroneous cancel):
+UPDATE orders SET status='scheduled', cancelled_by=NULL, recurring_interval='weekly',
+       archived_at=NULL, archived_reason=NULL
+WHERE order_number IN (13117,13119);
+
+UPDATE route_stops rs SET status='pending'
+FROM orders o WHERE o.id = rs.order_id AND o.order_number IN (13117,13119);
