@@ -4694,6 +4694,10 @@
   // time the panel opens (see _ensurePosIntakeFeesSync below for why).
   let _posIntakePricelist  = 'Delivery';
   let _posIntakeFeeExempt  = false;
+  // Session 291L: the customer's standing discount (NON PROFIT, SENIORS, ...), or null.
+  // See _posDiscountLine below for why this panel has to compute it rather than
+  // preserve whatever discount row the order arrived with.
+  let _posIntakeDiscount   = null;
 
   // ── POS intake fee resolution (session 219) ───────────────────────────
   // Root-cause fix for the Covenant House / Onika Crossman / Kasa Hotels /
@@ -4744,6 +4748,48 @@
     return out;
   }
 
+  // ── POS intake discount (session 291L) ────────────────────────────────
+  // Root-cause fix for the Kidango over-billing. Two bugs compounded:
+  //   1. trg_create_recurring_order_fn copies the previous order's line_items
+  //      verbatim for per-bag customers (`v_line_items := NEW.line_items`), so
+  //      the discount row minted months ago rides forward week after week.
+  //   2. THIS panel rebuilt base + overage from the CURRENT service price but
+  //      preserved that stale discount row untouched, and passed
+  //      p_discount_id: null, erasing the order's discount reference entirely.
+  // So the base tracked the price and the discount never did. When the bag rate
+  // went $59 -> $65 in June, the 5% NON PROFIT line stayed at $2.95 instead of
+  // $3.25 on every Kidango order, in every month since — $516.00 over-billed to
+  // a nonprofit across 206 delivered orders before anyone noticed. The same
+  // staleness applied to bag counts: order #14226 grew from 3 bags to 8 at
+  // intake, the base scaled, the discount did not.
+  //
+  // The discount is now DERIVED here, exactly like base and overage, from the
+  // customer's current discount row — never preserved from the order.
+  //
+  // Scope mirrors admin's policy (session 146): a percent discount applies to
+  // all SERVICE charges — base + overage + addons + addon services + preference-
+  // linked services — and never to the delivery fee / same-day surcharge bundle.
+  // A fixed-dollar discount deducts its flat value regardless of scope.
+  const _POS_DISCOUNTABLE_TYPES = ['addon', 'addon_service', 'pref_service'];
+  function _posDiscountLine(baseAmt, overageAmt, preserved) {
+    const d = _posIntakeDiscount;
+    if (!d) return null;
+    const addonTotal = (preserved || [])
+      .filter(li => _POS_DISCOUNTABLE_TYPES.includes(li.type))
+      .reduce((s, li) => s + Number(li.amount || 0), 0);
+    const discountable = Number(baseAmt || 0) + Number(overageAmt || 0) + addonTotal;
+    if (discountable <= 0) return null;
+    let amt;
+    if (d.type === 'percent') {
+      amt = Math.round(discountable * (parseFloat(d.value) / 100) * 100) / 100;
+    } else {
+      amt = Math.min(parseFloat(d.value) || 0, discountable);
+    }
+    if (!(amt > 0)) return null;
+    const label = d.type === 'percent' ? `${d.name} (${d.value}% off)` : d.name;
+    return { type: 'discount', label, amount: -amt };
+  }
+
   async function openPosIntake(orderId) {
     const order = (queueOrders || []).find(o => o.id === orderId);
     if (!order) { showToast(t('Order not found'), 'error'); return; }
@@ -4768,14 +4814,24 @@
     // right delivery fee for THIS customer before the panel is shown.
     _posIntakePricelist = 'Delivery';
     _posIntakeFeeExempt = false;
+    _posIntakeDiscount  = null;
     if (order.customer_id) {
       const { data: custRow } = await db.from('customers')
-        .select('pricelist, fee_exempt')
+        .select('pricelist, fee_exempt, discount_id')
         .eq('id', order.customer_id)
         .maybeSingle();
       if (custRow) {
         _posIntakePricelist = custRow.pricelist || 'Delivery';
         _posIntakeFeeExempt = !!custRow.fee_exempt;
+        // Session 291L: fetched fresh, like pricelist and fee_exempt. The order's
+        // own discount row is never trusted — see _posDiscountLine.
+        if (custRow.discount_id) {
+          const { data: discRow } = await db.from('discounts')
+            .select('id, name, type, value, active')
+            .eq('id', custRow.discount_id)
+            .maybeSingle();
+          if (discRow && discRow.active) _posIntakeDiscount = discRow;
+        }
       }
     }
     await loadPosServiceFees();
@@ -4911,14 +4967,18 @@
     // fee / same-day surcharge fresh when the order didn't already have one,
     // so weighing an order in here charges the same as weighing it in on
     // the admin dashboard. See _ensurePosIntakeFeesSync for why this was needed.
+    // Session 291L: 'discount' joins base + overage as a DERIVED row — dropped from
+    // the preserved set and recomputed below. Preserving it is what let a stale $2.95
+    // ride on top of a $65 base for four months. See _posDiscountLine.
     const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
     const preserved = _ensurePosIntakeFeesSync(
-      existing.filter(li => li.type !== 'base' && li.type !== 'overage'),
+      existing.filter(li => li.type !== 'base' && li.type !== 'overage' && li.type !== 'discount'),
       !!_posIntakeOrder.is_same_day
     );
+    const discLine = _posDiscountLine(p.base, p.overage, preserved);
     const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
 
-    const total = Math.round((p.base + p.overage + preservedTotal) * 100) / 100;
+    const total = Math.round((p.base + p.overage + preservedTotal + (discLine ? discLine.amount : 0)) * 100) / 100;
 
     const fmt = n => '$' + Number(n).toFixed(2);
     const summary = document.getElementById('posIntakeSummary');
@@ -4944,6 +5004,10 @@
         <span>${esc(li.label || li.type)}</span>
         <span>${fmt(li.amount)}</span>
       </div>`).join('')}
+      ${discLine ? `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--green)">
+        <span>${esc(discLine.label)}</span>
+        <span>${fmt(discLine.amount)}</span>
+      </div>` : ''}
       <div style="display:flex;justify-content:space-between;padding:8px 0 2px;margin-top:6px;border-top:1px solid var(--gray-200);font-weight:800;font-size:15px">
         <span>${t('Total')}</span>
         <span>${fmt(total)}</span>
@@ -4984,11 +5048,12 @@
     // saw on screen a moment ago.
     const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
     const preserved = _ensurePosIntakeFeesSync(
-      existing.filter(li => li.type !== 'base' && li.type !== 'overage'),
+      existing.filter(li => li.type !== 'base' && li.type !== 'overage' && li.type !== 'discount'),
       !!_posIntakeOrder.is_same_day
     );
+    const discLine = _posDiscountLine(p.base, p.overage, preserved);
     const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
-    const total = Math.round((p.base + p.overage + preservedTotal) * 100) / 100;
+    const total = Math.round((p.base + p.overage + preservedTotal + (discLine ? discLine.amount : 0)) * 100) / 100;
 
     // Rebuild line_items: base + (overage if any) + everything preserved from the
     // original booking. Same shape admin uses so downstream consumers (receipt
@@ -5000,6 +5065,7 @@
       lineItems.push({ type: 'overage', label: p.overageLabel, amount: p.overage, taxable: false });
     }
     preserved.forEach(li => lineItems.push(li));
+    if (discLine) lineItems.push(discLine);
 
     // Attribute the action to the active cashier (PIN-locked) or the device.
     const actorName = (shift?.cashier_first_name && shift?.cashier_last_name)
@@ -5013,7 +5079,9 @@
       p_total_amount:   total,
       p_line_items:     lineItems,
       p_service_id:     _posIntakeSvc.id,
-      p_discount_id:    null,
+      // Session 291L: was hardcoded null, which erased the order's discount
+      // reference at intake even when one applied.
+      p_discount_id:    _posIntakeDiscount ? _posIntakeDiscount.id : null,
       p_is_same_day:    !!_posIntakeOrder.is_same_day,
       p_notes:          notes || null,
       p_credit_applied: 0,
