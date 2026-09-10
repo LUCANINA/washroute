@@ -227,7 +227,12 @@
     .badge-red    { background: var(--red-light);    color: var(--red); }
     .badge-blue   { background: var(--blue-light);   color: var(--blue); }
     .badge-gray   { background: var(--gray-100);     color: var(--gray-600); }
-    .badge-purple { background: var(--accent-light); color: var(--accent); }
+    /* Named "purple" but pointing at --accent, i.e. the clickable blue. A Folding
+       badge in button-blue is the "blue = clickable" rule broken in the one place
+       it matters most, on a table full of real buttons. Folding is an ordinary
+       in-process state: neutral. Kept under the old class name so the ~6 call
+       sites (statusBadge map) do not all have to change. */
+    .badge-purple { background: var(--gray-100); color: var(--gray-600); }
 
     /* ── ADVANCE BUTTON ── */
     .btn-advance { background: none; border: 1px solid var(--gray-300); border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 600; cursor: pointer; color: var(--gray-600); transition: all .12s; white-space: nowrap; }
@@ -848,11 +853,28 @@
        widest words at 6 chars. MEASURED in a headless browser, not guessed: NORMAL
        renders 63.84px, so the original 62px was silently exceeded and the column
        was not actually fixed. 68px covers NORMAL and URGENT. */
+    /* ── COLOUR VOCABULARY (session 291) ─────────────────────────────────────
+       Four words, each meaning exactly one thing. Use the TOKENS, never a hex —
+       every hardcoded colour on this page was a hue that had drifted out of the
+       system (orange #c2410c, indigo #3730a3) or a token re-spelled by hand.
+
+         var(--accent) BLUE  = clickable. NOTHING else is this colour.
+         var(--green)        = healthy / settled / done.
+         var(--amber)        = needs a human eventually.
+         var(--red)          = needs a human now, or failed.
+         greys               = neutral. Labels, taxonomy, inactive states.
+
+       Colour is never the ONLY carrier of meaning here: every chip also spells
+       out its word, so the screen survives greyscale and colour blindness. */
     .issue-pri-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; flex-shrink: 0; display: inline-block; box-sizing: border-box; min-width: 68px; text-align: center; letter-spacing: .02em; }
-    .pri-badge-urgent { background: #fee2e2; color: #991b1b; }
-    .pri-badge-high   { background: #ffedd5; color: #c2410c; }
-    .pri-badge-normal { background: #dbeafe; color: #1d4ed8; }
-    .pri-badge-low    { background: var(--gray-100); color: var(--gray-500); }
+    /* A severity ramp, so it earns two colours — but only two. NORMAL used to be
+       blue, which collided with "clickable"; HIGH used to be an orange that exists
+       nowhere else in the app. Below HIGH nothing needs a colour: the list is
+       sorted by priority and the word is written on the pill. */
+    .pri-badge-urgent { background: var(--red-light);   color: var(--red); }
+    .pri-badge-high   { background: var(--amber-light); color: var(--amber); }
+    .pri-badge-normal { background: var(--gray-100);    color: var(--gray-600); }
+    .pri-badge-low    { background: var(--gray-100);    color: var(--gray-400); }
 
     /* Issue detail slide-over */
     .issue-detail { position:fixed;top:0;right:0;bottom:0;width:480px;background:white;box-shadow:-6px 0 40px rgba(0,0,0,.18);z-index:1200;transform:translateX(calc(100% + 60px));transition:transform .22s ease;display:flex;flex-direction:column;overflow:hidden; }
@@ -876,7 +898,10 @@
     .issue-comment-box { display:flex;gap:8px;align-items:flex-end; }
     .issue-comment-input { flex:1;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit;resize:none;outline:none;min-height:38px;max-height:100px; }
     .issue-comment-input:focus { border-color:var(--accent); }
-    .issue-cat-badge { font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:#f0fdf4;color:#166534;display:inline-block;box-sizing:border-box;min-width:64px;text-align:center;white-space:nowrap; }
+    /* Was green (#f0fdf4/#166534). Green means healthy in this vocabulary, and a
+       category is not a health signal -- "Other" rendered green read as "fine".
+       A taxonomy label is neutral. */
+    .issue-cat-badge { font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--gray-100);color:var(--gray-600);display:inline-block;box-sizing:border-box;min-width:64px;text-align:center;white-space:nowrap; }
 
     /* Overview's Open Issues list: fixed-width trailing columns so the category
        chip, the attention flag and the meta all start at the same x on every row
@@ -890,7 +915,10 @@
     .issue-row-ov .issue-row-attn  { flex:0 0 120px; display:flex; align-items:center; }
     .issue-row-ov .issue-row-meta  { flex:0 0 250px; text-align:right; overflow:hidden; text-overflow:ellipsis; }
     /* Open issue that's gone 7+ days without resolution — flags admin to act. */
-    .issue-attention-badge { font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;white-space:nowrap;flex-shrink:0; }
+    /* Amber is correct here (needs a human eventually); it was just hand-spelled.
+       The border is dropped -- no other chip has one, and it made this the only
+       outlined pill on the page for no reason beyond emphasis. */
+    .issue-attention-badge { font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:var(--amber-light);color:var(--amber);white-space:nowrap;flex-shrink:0; }
 
     /* Issue create modal */
     .issue-create-overlay { position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1300;display:flex;align-items:center;justify-content:center; }
@@ -1722,7 +1750,7 @@
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
                   <div class="card-title">For your review</div>
-                  <span id="reschedule-count-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
+                  <span id="reschedule-count-badge" style="font-size:13px;font-weight:700;color:var(--red);background:var(--red-light);border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
                 <div class="card-sub" id="forreview-count-sub" style="margin-top:2px">Loading…</div>
               </div>
@@ -1737,7 +1765,7 @@
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
                   <div class="card-title">Bags Not On Rack</div>
-                  <span id="bagcheck-count-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
+                  <span id="bagcheck-count-badge" style="font-size:13px;font-weight:700;color:var(--red);background:var(--red-light);border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
               </div>
               <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
@@ -1751,7 +1779,7 @@
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
                   <div class="card-title">Unpaid Orders</div>
-                  <span id="unpaid-count-badge" style="font-size:13px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
+                  <span id="unpaid-count-badge" style="font-size:13px;font-weight:700;color:var(--red);background:var(--red-light);border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
                 <div class="card-sub" id="unpaid-count-sub" style="margin-top:2px">Loading…</div>
               </div>
@@ -27218,7 +27246,7 @@ ${noActivityNote}
       if (!res.ok) throw new Error('SMS send failed');
       _nudgeSent.add(custId);
       btn.textContent = '✓ Nudged';
-      btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
+      btn.style.color = 'var(--green)'; btn.style.background = 'var(--green-light)';
       showToast(`Nudge sent to ${name}`, 'success');
     } catch (e) {
       btn.disabled = false; btn.textContent = 'Nudge';
@@ -27264,9 +27292,9 @@ ${noActivityNote}
         let actionCell = '';
         if (!hasOrder && phone) {
           if (_nudgeSent.has(c.id)) {
-            actionCell = `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">✓ Nudged</span>`;
+            actionCell = `<span style="font-size:11px;font-weight:600;color:var(--gray-600);background:var(--gray-100);border-radius:8px;padding:4px 9px;white-space:nowrap">✓ Nudged</span>`;
           } else {
-            actionCell = `<button onclick="event.stopPropagation();nudgeNewCustomer('${c.id}','${esc(firstName.replace(/'/g,"\\\\'"))}','${esc(phone)}',this)" style="font-size:11px;font-weight:700;color:var(--accent);background:#eff6ff;border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">Nudge</button>`;
+            actionCell = `<button onclick="event.stopPropagation();nudgeNewCustomer('${c.id}','${esc(firstName.replace(/'/g,"\\\\'"))}','${esc(phone)}',this)" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:8px;padding:4px 9px;cursor:pointer;white-space:nowrap">Nudge</button>`;
           }
         } else if (!hasOrder && !phone) {
           actionCell = `<span style="font-size:11px;color:var(--gray-400)">No phone</span>`;
@@ -27297,7 +27325,7 @@ ${noActivityNote}
     el.innerHTML = `<div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
       ${data.map((r,i)=>`
         <div style="${i>0?'border-top:1px solid var(--gray-100);padding-top:10px':''}display:flex;align-items:center;gap:10px;">
-          <div style="width:10px;height:10px;border-radius:50%;background:${r.color||'#3b82f6'};flex-shrink:0;"></div>
+          <div style="width:10px;height:10px;border-radius:50%;background:${r.color||'var(--accent)'};flex-shrink:0;"></div>
           <div style="flex:1;min-width:0;">
             <div style="font-weight:600;font-size:13px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.name}</div>
             <div style="font-size:12px;color:var(--gray-500);">${r.completed_stops||0} / ${r.total_stops||0} stops</div>
@@ -27504,13 +27532,18 @@ ${noActivityNote}
   function _unpaidRowHtml(o) {
     const cust = `${o.first_name_cache || ''} ${o.last_name_cache || ''}`.trim() || 'Unknown';
     const isOnAcct = o.bucket === 'on_account';
+    // Tokens, not hand-spelled hex. INVOICED was indigo (#e0e7ff/#3730a3) -- a
+    // sixth hue that meant nothing, on a branch that can no longer even render
+    // since on_account left this widget. Neutral.
+    const _chip = (bg, fg, txt) =>
+      `<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:${bg};color:${fg}">${txt}</span>`;
     const billingBadge = o.has_failed_charge || o.billing_status === 'failed'
-      ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fee2e2;color:#991b1b">FAILED</span>'
+      ? _chip('var(--red-light)', 'var(--red)', 'FAILED')
       : isOnAcct
-        ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#e0e7ff;color:#3730a3">INVOICED</span>'
-        : '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fef3c7;color:#92400e">UNPAID</span>';
+        ? _chip('var(--gray-100)', 'var(--gray-600)', 'INVOICED')
+        : _chip('var(--amber-light)', 'var(--amber)', 'UNPAID');
     const baseAction = isOnAcct
-      ? '<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">Bill by invoice</span>'
+      ? '<span style="font-size:11px;font-weight:600;color:var(--gray-600);background:var(--gray-100);border-radius:8px;padding:4px 9px;white-space:nowrap">Bill by invoice</span>'
       : _deliveredActionBtn(o);
     // Session 291 (David): there is NO manual "Write off" button, on purpose. It was
     // built, then removed the moment it was seen on the row -- a one-click,
@@ -27526,10 +27559,12 @@ ${noActivityNote}
       ? `${baseAction}<button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;margin-left:6px;color:var(--accent)" onclick="event.stopPropagation();unarchiveOrder('${o.id}',${o.order_number})" title="Un-archive">Restore</button>`
       : baseAction;
     const archivedTag = o.is_archived
-      ? `<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--gray-100);color:var(--gray-600);margin-left:5px" title="${esc(o.archived_reason || 'Set aside earlier')}">ARCHIVED</span>`
+      ? `<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--gray-100);color:var(--gray-500);margin-left:5px" title="${esc(o.archived_reason || 'Set aside earlier')}">ARCHIVED</span>`
       : '';
+    // Rule 5 of the dashboard rules: the value whose non-zero state means "act"
+    // must not render in neutral grey. 30+ days owing is that value.
     const ageTag = Number(o.age_days) >= 30
-      ? `<span style="font-size:10.5px;color:#991b1b;font-weight:600;margin-left:6px">${o.age_days}d</span>` : '';
+      ? `<span style="font-size:10.5px;color:var(--red);font-weight:600;margin-left:6px">${o.age_days}d</span>` : '';
     return `<tr style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">
       <td class="td-mono">#${o.order_number}</td>
       <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)}${ageTag}</td>

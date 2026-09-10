@@ -2254,6 +2254,30 @@ third time. Declined cards sort first (those need chasing), then oldest first. W
 buckets MEAN is kept as a comment where UNPAID_GROUPS used to be, since that knowledge
 is real even though the sections were not.
 
+**Colour vocabulary unified (session 291, `/dashboard-design`).** The Overview had six
+hues doing inconsistent work, most of them hand-spelled hex that bypassed the token
+palette that already existed. Now four words plus grey, documented in a CSS comment above
+`.issue-pri-badge` so it does not drift again:
+
+  `var(--accent)` blue = CLICKABLE, nothing else · `--green` = healthy/settled ·
+  `--amber` = needs a human eventually · `--red` = needs a human now / failed · greys = neutral
+
+Specific fixes: priority NORMAL was **blue** (collided with "clickable") and HIGH was an
+**orange** (`#c2410c`) that existed nowhere else — the ramp is now red → amber → grey → grey,
+which is fine because the list is priority-sorted and every pill spells its word. The
+category chip was **green**, so "Other" read as *healthy*; it is a taxonomy label, so grey.
+`.badge-purple` (Folding, Assembled) actually pointed at `--accent`, i.e. a status badge in
+button-blue on a table full of real buttons — now grey. INVOICED was **indigo**, a sixth hue
+on a branch that can no longer render. Every remaining hardcoded hex on Overview moved onto
+tokens, including the three card count badges. Verified by rendering: red, amber, green,
+blue and greys, nothing else.
+
+**First live auto write-off ran 2026-09-10** (manually, ahead of the 4am cron, at David's
+prompt): #4669 Andrew Chamberlain $53.95 (109 days) and #10471 Kayla Jones $473.95 (50 days).
+Both `written_off_by = 'auto (30-day rule)'`, both accounts frozen with the freeze linked
+back to the causing order, and the run logged itself to `_health_alerts`. Unpaid Orders went
+from $663.35 to $125.45. The mechanism works end to end.
+
 **Lesson worth keeping: a column named `created_at` is not the same as "when this started."**
 For anything generated ahead of time — recurring orders, scheduled runs — `created_at` is
 when WE minted the row, not when the real-world thing began. Any age/staleness rule built
