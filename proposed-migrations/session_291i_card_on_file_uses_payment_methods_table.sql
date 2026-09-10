@@ -1,0 +1,27 @@
+-- session 291i — "has a card on file" must read customer_payment_methods.
+-- APPLIED 2026-09-10.
+--
+-- charge-order (index.ts ~248) loads cards from customer_payment_methods and falls
+-- back to customers.stripe_default_payment_method_id ONLY when that table is empty.
+-- Two places had the test backwards and read only the legacy flat column:
+--
+--   1. sweep_autocharge_ready_orders — gated on stripe_default_payment_method_id
+--      IS NOT NULL, so 15 customers were permanently outside the autocharge safety
+--      net. They pay fine through the primary client-side path (three of them have
+--      24, 25 and 25 paid orders), so nothing was lost — but if a charge ever failed
+--      to fire for them, the sweep could never retry it.
+--
+--   2. v_outstanding_orders.has_card_on_file (added in 291h) — would have told the
+--      dashboard that five long-standing paying customers have no card, and any
+--      "no card on file" alert built on it would have been wrong on day one.
+--
+-- Measured before apply: 1246 customers have both a payment-method row and a
+-- default column; 15 have a row but no default; 0 have a default with no row.
+-- 0 orders became sweep-eligible from this change at apply time.
+--
+-- Both objects now test:
+--   EXISTS (SELECT 1 FROM customer_payment_methods pm WHERE pm.customer_id = c.id)
+--   OR c.stripe_default_payment_method_id IS NOT NULL
+--
+-- Rollback: _archive_sweep_autocharge_291g holds the pre-change function def;
+-- the view reverts to the 291h definition.
