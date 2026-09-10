@@ -1,0 +1,28 @@
+-- Session 291e-2 — write_off_order must recognise an INTERNAL caller.
+-- APPLIED 2026-09-10. Supersedes the guard in 291e; the rest of 291e stands.
+--
+-- CAUGHT BY TESTING, NOT BY READING. 291e gated the automatic path on
+-- auth.role() = 'service_role'. But a pg_cron job that calls a SQL function
+-- directly has no JWT at all:
+--     current_user = 'postgres', auth.role() = NULL, request.jwt.claims = ''
+-- (measured). The guard would have refused every automatic write-off, silently
+-- and forever -- exactly the failure CLAUDE.md describes for cron-called
+-- functions: "no error surfaces anywhere".
+--
+-- Fix: follow assert_staff()'s existing convention rather than inventing a
+-- second one. No JWT claims at all means the caller reached Postgres directly
+-- (pg_cron, or a service_role client); PostgREST ALWAYS sets claims, so an empty
+-- claim string can never be a browser caller.
+--
+--   v_is_auto := (v_claims IS NULL OR v_claims = '')
+--                OR COALESCE(auth.role(), '') = 'service_role';
+--
+-- Full function body is live in the database; see the 291e2 migration in
+-- supabase_migrations for the exact text.
+--
+-- Verified after applying, all four guards firing with their own message:
+--   paid order          -> 'Order #5213 is already paid, nothing to write off.'
+--   on-account order    -> 'Order #1311 belongs to an on-account customer ...'
+--   already written off -> 'Order #6108 is already written_off ...'
+--   nonexistent order   -> 'Order not found.'
+--   anon via PostgREST  -> 401 42501 permission denied for function

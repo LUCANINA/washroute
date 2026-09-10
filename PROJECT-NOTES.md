@@ -2151,6 +2151,53 @@ resolved bag needs nothing. The second query is dropped too rather than left fet
 rows nobody renders. The audit trail is untouched -- `bag_check_resolved_at` /
 `bag_check_resolved_by` are still written by `resolve_missing_bag_and_reassign`.
 
+### Bad-debt write-off (291e) — and the outage it caused
+
+Shipped: `orders.written_off_at/by/reason`, `customers.frozen_by_order_id`, both added to
+the protected-column deny-lists, and `write_off_order()` — admin/manager only, refuses
+paid/refunded/already-written-off and on-account, freezes the customer in the same
+transaction. The 8 legacy write-offs were backfilled and the 2 existing freezes were
+auto-linked to the orders their reason text already named.
+
+**⚠️ IT TOOK THE ORDERS PAGE DOWN.** `frozen_by_order_id REFERENCES orders(id)` created a
+SECOND relationship between `customers` and `orders` (the first being
+`orders.customer_id`). PostgREST resolves embeds by relationship, so every
+`orders(...customers(...))` embed in all four apps instantly returned *"Could not embed
+because more than one relationship was found for 'orders' and 'customers'"*. David saw
+"Failed to load orders" and reported it. Fixed in 291e-3 by keeping the column and
+dropping the constraint — a soft reference does everything that column needs.
+
+**Recovery took a project restart, and that is the part to remember.** Dropping the
+constraint fixed the DATABASE immediately — one FK left, and the Orders page's exact
+select returned 200 from curl, 20 times out of 20. The admin dashboard kept failing
+anyway for another ~20 minutes. `NOTIFY pgrst, 'reload schema'` did not clear it. A DDL
+nudge (`COMMENT ON TABLE orders`) did not clear it. Processing came back partially while
+Orders stayed broken — the signature of some PostgREST workers reloading and others not.
+**Settings → General → Restart project cleared it.** This is the SECOND time this project
+has hit that exact sequence (see session 176/177). Treat it as the known cost of any
+schema change touching relationships: assume the restart is part of the change, not a
+last resort, and do not spend twenty minutes re-probing an API that already answers
+correctly from outside the browser.
+
+**ADD THIS TO THE MIGRATION REVIEW: adding a FK between two tables that already have one
+is a breaking change to every PostgREST embed between them — while dropping nothing,
+renaming nothing, and touching no existing column.** The DROP/RENAME audit does not look
+for it. Before adding any FK, run:
+
+```sql
+SELECT conname, conrelid::regclass, confrelid::regclass FROM pg_constraint
+WHERE contype='f' AND ((conrelid='public.A'::regclass AND confrelid='public.B'::regclass)
+                    OR (conrelid='public.B'::regclass AND confrelid='public.A'::regclass));
+```
+
+Two other bugs were caught by TESTING the function rather than reading it, before the
+outage: (1) `is_admin()` returns true for `laundry_tech` despite its name — it was the
+guard, which would have let the folding floor destroy revenue; now an explicit
+`role IN ('admin','manager')`. (2) The automatic path was gated on
+`auth.role()='service_role'`, but a pg_cron SQL call has `current_user='postgres'`,
+`auth.role()=NULL` and empty claims — every automatic write-off would have been refused
+silently forever. Now follows `assert_staff()`'s convention: no JWT claims = internal.
+
 **Lesson worth keeping: a column named `created_at` is not the same as "when this started."**
 For anything generated ahead of time — recurring orders, scheduled runs — `created_at` is
 when WE minted the row, not when the real-world thing began. Any age/staleness rule built
