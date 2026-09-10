@@ -2198,6 +2198,44 @@ guard, which would have let the folding floor destroy revenue; now an explicit
 `auth.role()=NULL` and empty claims — every automatic write-off would have been refused
 silently forever. Now follows `assert_staff()`'s convention: no JWT claims = internal.
 
+### Write-off: button, nightly job, report (291e/291f)
+
+**Button** — "Write off" on every Unpaid Orders row. Prompts for a reason, states plainly
+that it freezes the account and that the order can never be charged afterwards, then calls
+`write_off_order()`. The RPC is the ONLY path that writes off, so the order update and the
+customer freeze can never drift apart — which is exactly what the old manual SQL ritual
+risked.
+
+**Nightly job** — `auto_write_off_stale_orders(p_dry_run, p_max, p_days)`, 291f. Three
+guards, none optional:
+1. **A charge must have been attempted and FAILED.** An order unpaid because the autocharge
+   sweep broke is a system outage, not bad debt; without this an outage becomes permanent
+   revenue loss plus a mass customer freeze. 0 orders are in that state today, so the guard
+   costs nothing now and prevents a very bad day later.
+2. **Daily cap (default 5) that REFUSES and writes a critical `_health_alerts` row.** A
+   spike means something upstream broke, not that customers all went bad overnight.
+3. **`p_dry_run` DEFAULTS TO TRUE** — a cron job that forgets the argument reports instead
+   of destroying.
+
+Tested: dry run reported 2 candidates / $527.90 and wrote nothing; `p_max:=1` refused,
+logged the critical alert, and wrote nothing. Test alert row deleted afterwards.
+
+**30 days, not 14.** David asked for 14. Measured: 20 orders / $2,158.50 were paid MORE
+than 14 days after delivery in the last year, mostly in the 15–21 day band — the chase
+working. A write-off is not a passive label; `written_off` orders never grow a Charge
+button, so an auto write-off BLOCKS the later collection. At 30 days only ~3 orders / ~$450
+of later-paying money is caught. David agreed to 30 after seeing the numbers.
+
+**Report** — Reports → Bad Debt. Every write-off in a period with date, amount, reason and
+who approved it; `written_off_by` distinguishes a human from the nightly rule, and the
+customer shows a FROZEN chip if still frozen. Opens on a 365-day window because write-offs
+are rare enough that a today-only default would always be empty.
+
+**THE CRON JOB IS NOT SCHEDULED.** Deliberate: the first live run would write off $473.95
+(Kayla Jones, #10471) and freeze her. That is David's call to make with the two candidates
+in front of him, not something to switch on at the end of a session. To enable:
+`SELECT cron.schedule('wr-auto-write-off','0 11 * * *', $$SELECT auto_write_off_stale_orders(false, 5, 30)$$);`
+
 **Lesson worth keeping: a column named `created_at` is not the same as "when this started."**
 For anything generated ahead of time — recurring orders, scheduled runs — `created_at` is
 when WE minted the row, not when the real-world thing began. Any age/staleness rule built

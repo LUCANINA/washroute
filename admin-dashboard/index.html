@@ -2689,6 +2689,25 @@
               <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">Subscriptions</button>
               <button class="rpt-page-tab" onclick="setRptTab('registrations',this)">Registrations</button>
               <button class="rpt-page-tab" onclick="setRptTab('deliverykpis',this)">Delivery KPIs</button>
+              <button class="rpt-page-tab" onclick="setRptTab('baddebt',this)">Bad Debt</button>
+            </div>
+          </div>
+
+          <!-- ── TAB: BAD DEBT (session 291e) ── -->
+          <!-- What Ramona needs at year-end: every write-off in a period with the
+               date, amount, reason and who approved it. Revenue reaches Xero via
+               Stripe payouts (collected money), so an uncollected card order never
+               entered Xero as revenue — there is nothing to reverse. This is a
+               record, not a journal. -->
+          <div id="rpttab-baddebt" style="display:none">
+            <div class="card" style="margin-top:16px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Bad Debt — written off</div>
+                  <div class="card-sub" id="baddebt-sub">Loading…</div>
+                </div>
+              </div>
+              <div id="baddebt-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
           </div>
 
@@ -27476,11 +27495,15 @@ ${noActivityNote}
     const baseAction = isOnAcct
       ? '<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:4px 9px;white-space:nowrap">Bill by invoice</span>'
       : _deliveredActionBtn(o);
+    // Session 291e: every row here is unpaid, non-on-account money, so every row
+    // can be written off. Placed last and styled quietly -- it is the destructive
+    // option, not the first thing to reach for.
+    const woBtn = `<button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;margin-left:6px;color:#991b1b" onclick="event.stopPropagation();writeOffOrder('${o.id}',${o.order_number},${escAttrJSArg(cust)},${escAttrJSArg(fmtMoney(o.amount_due))},this)" title="Record as uncollectible and freeze the account">Write off</button>`;
     // Session 291: archived orders live here now. Keep the one-click Restore that the
     // old "Archived, still owed" section offered, so filing something away stays undoable.
-    const action = o.is_archived
+    const action = (o.is_archived
       ? `${baseAction}<button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;margin-left:6px;color:var(--accent)" onclick="event.stopPropagation();unarchiveOrder('${o.id}',${o.order_number})" title="Un-archive">Restore</button>`
-      : baseAction;
+      : baseAction) + woBtn;
     const archivedTag = o.is_archived
       ? `<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--gray-100);color:var(--gray-600);margin-left:5px" title="${esc(o.archived_reason || 'Set aside earlier')}">ARCHIVED</span>`
       : '';
@@ -27725,6 +27748,43 @@ ${noActivityNote}
     if (currentPage === 'overview') loadOverview();
   }
   window.fyrClearCardError = fyrClearCardError;
+
+  // ── Write off as bad debt (session 291e) ───────────────────────────────────
+  // Two effects in ONE transaction, server-side: the order becomes uncollectible
+  // and the customer is frozen. The RPC is the only place that happens, so the
+  // two can never drift apart -- which is what the old manual SQL ritual risked.
+  //
+  // The RPC re-checks everything this button assumes (admin/manager, not already
+  // settled, not on-account). The confirm below is for the HUMAN, not the guard:
+  // a write-off cannot be undone by clicking again, because a written_off order
+  // never grows a Charge button.
+  async function writeOffOrder(orderId, orderNumber, custName, amountLabel, btn) {
+    if (!orderId) return;
+    const reason = prompt(
+      `Write off #${orderNumber} — ${custName}, ${amountLabel}?\n\n` +
+      `This records the money as uncollectible AND freezes the account, so no new ` +
+      `orders can be placed until it is unfrozen.\n\n` +
+      `The order can no longer be charged afterwards.\n\n` +
+      `Reason (kept for accounting):`,
+      'Uncollectible'
+    );
+    if (reason === null) return;   // cancelled
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Writing off…'; }
+    const { data, error } = await db.rpc('write_off_order', {
+      p_order_id: orderId,
+      p_reason:   (reason || '').trim() || 'Uncollectible',
+      p_actor:    currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Write off'; }
+      showToast('Could not write off: ' + error.message, 'error');
+      return;
+    }
+    showToast(`✓ #${orderNumber} written off — ${custName} is now frozen`, 'success');
+    if (currentPage === 'overview') loadOverview();
+  }
+  window.writeOffOrder = writeOffOrder;
 
   // ── Bags Not On Rack (session 191, reassign-to-resolve added session 193) ──
   // Surfaces delivery stops the driver flagged "Missing" during their pre-departure
@@ -48845,6 +48905,73 @@ ${oneCopy}
     else if (rptTab === 'registrations') loadRegistrationsReport();
     else if (rptTab === 'deliverykpis')  loadDeliveryKpis();
     else if (rptTab === 'subscriptions') loadSubscriptionReport();
+    else if (rptTab === 'baddebt')       loadBadDebtReport();
+  }
+
+  // ── BAD DEBT REPORT (session 291e) ──
+  // Every write-off in the selected period: what was lost, from whom, when, why,
+  // and who approved it. `written_off_by` distinguishes a human from the nightly
+  // 30-day rule, which is the first thing to check if a figure looks wrong.
+  async function loadBadDebtReport() {
+    const el = document.getElementById('baddebt-body');
+    const subEl = document.getElementById('baddebt-sub');
+    if (!el) return;
+    const from = document.getElementById('rpt-from')?.value;
+    const to   = document.getElementById('rpt-to')?.value;
+    if (!from || !to) return;
+
+    let q = db.from('orders')
+      .select('id, order_number, total_amount, written_off_at, written_off_by, written_off_reason, customer_id, customers(first_name_cache, last_name_cache, frozen_at)')
+      .eq('billing_status', 'written_off')
+      .not('written_off_at', 'is', null)
+      .gte('written_off_at', from + 'T00:00:00')
+      .lte('written_off_at', to + 'T23:59:59')
+      .order('written_off_at', { ascending: false });
+
+    const { data, error } = await q;
+    if (error) {
+      el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Could not load bad debt</div><div class="empty-sub">${esc(error.message)}</div></div>`;
+      if (subEl) subEl.textContent = 'Could not load';
+      return;
+    }
+    const rows = data || [];
+    const total = rows.reduce((s2, o) => s2 + Number(o.total_amount || 0), 0);
+    const autoN = rows.filter(o => (o.written_off_by || '').startsWith('auto')).length;
+
+    if (subEl) {
+      subEl.textContent = rows.length
+        ? `${rows.length} order${rows.length !== 1 ? 's' : ''} · ${fmtMoney(total)}${autoN ? ` · ${autoN} automatic` : ''}`
+        : 'Nothing written off in this period';
+    }
+    if (!rows.length) {
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No bad debt in this period</div>';
+      return;
+    }
+
+    el.innerHTML = `<table><thead><tr>
+        <th>Order</th><th>Customer</th><th>Written off</th><th>By</th><th>Reason</th>
+        <th style="text-align:right">Amount</th>
+      </tr></thead><tbody>
+      ${rows.map(o => {
+        const c = o.customers;
+        const name = c ? `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Unknown' : 'Unknown';
+        const frozen = c?.frozen_at
+          ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fef3c7;color:#92400e;margin-left:6px">FROZEN</span>' : '';
+        const isAuto = (o.written_off_by || '').startsWith('auto');
+        return `<tr style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">
+          <td class="td-mono">#${o.order_number}</td>
+          <td class="td-name">${esc(name)}${frozen}</td>
+          <td style="font-size:12px;white-space:nowrap">${fmtDate(o.written_off_at)}</td>
+          <td style="font-size:12px;color:${isAuto ? 'var(--gray-500)' : 'var(--gray-700)'}">${esc(o.written_off_by || '—')}</td>
+          <td style="font-size:12px;color:var(--gray-500)">${esc(o.written_off_reason || '—')}</td>
+          <td style="text-align:right;font-weight:600">${fmtMoney(o.total_amount)}</td>
+        </tr>`;
+      }).join('')}
+      <tr style="border-top:2px solid var(--gray-200);font-weight:700">
+        <td colspan="5" style="text-align:right;padding-right:12px">Total written off</td>
+        <td style="text-align:right">${fmtMoney(total)}</td>
+      </tr>
+    </tbody></table>`;
   }
 
   // Global Quick Range — sets the shared From/To picker and re-runs whatever
@@ -48880,7 +49007,7 @@ ${oneCopy}
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items','possales','launderer','onaccount','invoices','subscriptions','registrations','deliverykpis'].forEach(t => {
+    ['drivers','revenue','items','possales','launderer','onaccount','invoices','subscriptions','registrations','deliverykpis','baddebt'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
@@ -48888,6 +49015,18 @@ ${oneCopy}
     if (tab !== 'onaccount') {
       const oaBar = document.getElementById('oa-action-bar');
       if (oaBar) oaBar.classList.remove('visible');
+    }
+    if (tab === 'baddebt') {
+      // Write-offs are rare (5 in the last 90 days), so the global today-only
+      // default would always show an empty screen. Same reasoning as Invoices.
+      const fromEl = document.getElementById('rpt-from');
+      const toEl   = document.getElementById('rpt-to');
+      if (fromEl && toEl && fromEl.value === toEl.value) {
+        const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+        fromEl.value = addDaysPacific(todayPT, -365);
+        toEl.value   = todayPT;
+        _rptQuickClear();
+      }
     }
     if (tab === 'invoices') {
       // Invoices are monthly, so a today-only range (the global default) would
