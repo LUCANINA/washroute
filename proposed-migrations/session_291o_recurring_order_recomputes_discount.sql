@@ -1,0 +1,40 @@
+-- session 291o — the recurring generator must DERIVE the discount, not copy it.
+-- APPLIED 2026-09-10. Last root cause of the Kidango over-billing.
+--
+-- trg_create_recurring_order_fn seeded each new occurrence with a verbatim copy of
+-- the previous order's line_items, discount row included:
+--     v_line_items   := NEW.line_items;
+-- So a discount computed in March at $59/bag rode forward week after week while the
+-- base was rebuilt at intake from the current $65 — $2.95 against a $65 base, for
+-- four months. 291L stopped POS intake preserving that row; 291o stops it being
+-- minted, so the customer's booking estimate is right too.
+--
+-- TWO branches did the copy, not one:
+--   ~line 151  Commercial pricelist, per-bag sub-branch
+--   ~line 216  the ELSE branch — the DELIVERY pricelist, where Kidango and every
+--              residential recurring customer actually land.
+-- The first attempt patched only the first and was caught by the closing assertion.
+-- That is the session 134 lesson exactly (a migration note claiming "both updated"
+-- while a second reference survived), which is why the assert counts occurrences and
+-- fails closed rather than trusting the edit.
+--
+-- Ordering trap: the 4-space snippet is a SUBSTRING of the 6-space one, so the
+-- 6-space replace must run first or it corrupts the other match.
+--
+-- Scope matches admin (session 146) and POS (291L): a percent discount applies to
+-- base + overage + addon + addon_service + pref_service, never to delivery_fee or
+-- same_day_surcharge. Fixed-dollar discounts are one-time promo/referral codes and
+-- are deliberately NOT re-minted onto every recurring occurrence.
+--
+-- Method: rewritten in place from pg_get_functiondef so signature, volatility and
+-- search_path survive byte-for-byte (session 227); the injected block is dollar-quoted
+-- ($g$) so nothing in it is escape-processed.
+--
+-- VERIFIED after apply, in a transaction rolled back by RAISE: marking Kidango - Ryan
+-- #14234 delivered minted the next occurrence as
+--     base $65.00 + delivery $9.95 − NON PROFIT (5% off) $3.25 = $71.70
+-- which is the correct figure. Confirmed nothing leaked: no order #14727 exists and
+-- #14234 is still ready_for_delivery.
+--
+-- Rollback: public._archive_recurring_fn_291o holds the pre-change
+-- pg_get_functiondef output; EXECUTE it to restore.
