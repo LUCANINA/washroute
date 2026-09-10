@@ -28414,7 +28414,11 @@ ${noActivityNote}
     scheduled:  ['scheduled'],
     in_process: ['picked_up','processing','folding'],
     ready:      ['ready_for_delivery','out_for_delivery'],
-    issues:     ['pickup_failed','delivery_failed','on_hold','skipped'],
+    // Session 291: pickup_failed and skipped removed — the test is "are we holding
+    // the customer's laundry?". We never took it, so nothing is at risk and they are
+    // not critical issues. (Same rule as Overview → For your review.) They remain
+    // visible via the Archived tab and the order's own status badge.
+    issues:     ['delivery_failed','on_hold'],
     delivered:  ['delivered'],  // last DELIVERED_TAB_WINDOW_DAYS (7d) of delivered orders; cancelled are archived
     archived:   ['pickup_failed','delivery_failed','skipped','cancelled'],  // only rows where archived_at IS NOT NULL
   };
@@ -28671,17 +28675,14 @@ ${noActivityNote}
   // when chargeable). This shared helper prevents future drift.
   //
   // Excludes:
-  //   - customer-initiated skips (intentional, not actionable)
-  //   - skipped recurring orders (chain auto-continues)
-  //   - recurring pickup_failed (chain auto-continues, treat as a skip)
+  //   - missed pickups and skips entirely (session 291): we never took the laundry,
+  //     so there is nothing at risk. They are not critical issues.
   // Includes:
   //   - billing_status='failed' on chargeable statuses, EXCEPT on_account customers
   //     (they're billed via invoicing, not Stripe)
   //   - any other status in ORDER_FILTER_GROUPS.issues
   function _isIssueRow(o) {
-    if (o.status === 'skipped' && o.cancelled_by === 'customer') return false;
-    if (o.status === 'skipped' && o.recurring_interval) return false;
-    if (o.status === 'pickup_failed' && o.recurring_interval) return false;
+    if (o.status === 'skipped' || o.status === 'pickup_failed') return false;
     // Session 230: a declined card is an issue in ANY status, not just the three
     // chargeable ones. `delivery_failed` used to fall outside this test — the order
     // still surfaced (delivery_failed is an issue status anyway) but a declined
@@ -28778,7 +28779,7 @@ ${noActivityNote}
       scheduled:  activeOnly.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: activeOnly.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      activeOnly.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
-      issues:     activeOnly.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; if (hasFailedCharge(o) && o.customers?.billing_type !== 'on_account') return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
+      issues:     activeOnly.filter(_isIssueRow).length,
       delivered:  (() => { const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS*24*60*60*1000).toISOString(); return activeOnly.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
       archived:   sourceFiltered.filter(o => o.archived_at).length,
     };

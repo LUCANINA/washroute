@@ -1,0 +1,15 @@
+-- session 291g — sweep_autocharge_ready_orders: include tip-only orders
+--
+-- Bug: the safety-net sweep tested `COALESCE(o.total_amount,0) > 0`, but an order's
+-- charged amount is total_amount + tip. An order with total_amount = 0 and a tip
+-- (e.g. #14692, $5.00 tip, $0 base) could NEVER be picked up by the sweep. The
+-- primary client-side charge path handles these fine (272 such orders paid), so
+-- there was no loss — but there was no safety net either.
+--
+-- Fix: test total + tip. Blast radius measured before apply: exactly 1 eligible
+-- order (#14692, $5.00). charge-order already handles total_amount = 0 with a
+-- dollar tip (computeTipDollars → chargeAmount $5.00).
+--
+-- APPLIED 2026-09-10. Rollback: public._archive_sweep_autocharge_291g holds the
+-- pre-change pg_get_functiondef output; EXECUTE it to restore.
+
