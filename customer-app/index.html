@@ -2177,6 +2177,27 @@ function switchTab(tab) {
 /* ── AUTH PANELS ── */
 let _pendingPhone  = '';  // E.164 phone being verified
 let _awaitingName  = false; // true while new-user name screen is shown
+// ── session 290: duplicate-account guard ──────────────────────────────────
+// The account-matching RPCs (link_phone_auth_account / claim_existing_customer)
+// are what stop a returning customer getting a brand new blank account. For
+// three weeks in Aug-Sep 2026 they failed on EVERY call -- a protected-column
+// trigger added in session 227 blocked the profile_id write -- and because
+// every call site only console.warn'd the error and carried on, the app
+// cheerfully created ~18 duplicate accounts before anyone noticed. Never
+// again: an ERROR from those RPCs now blocks account creation outright.
+// (An RPC that returns NO ROWS is a genuine new customer and is fine.)
+let _accountMatchFailed = false;
+function _recordAccountMatchFailure(where, err) {
+  _accountMatchFailed = true;
+  console.error('[account-match] ' + where + ' FAILED -- refusing to create a duplicate account:', err?.message || err);
+}
+// Call immediately before any customers.insert. Returns true if we must NOT insert.
+function _blockDuplicateInsert(where) {
+  if (!_accountMatchFailed) return false;
+  console.error('[account-match] blocked new-customer insert at ' + where);
+  toast("We couldn't finish signing you in. Please call us at (510) 588-4102 so we don't set up a second account for you.");
+  return true;
+}
 
 function showAuthPanel(name) {
   document.querySelectorAll('.auth-panel').forEach(p => p.classList.remove('active'));
@@ -2282,12 +2303,15 @@ async function handleOTPVerify() {
     // If no direct match, try phone-based matching for imported customers
     if (!cust && user.phone) {
       try {
-        const { data: linked } = await db.rpc('link_phone_auth_account', {
+        const { data: linked, error: linkErr0 } = await db.rpc('link_phone_auth_account', {
           p_phone_digits: user.phone,
           p_new_profile_id: user.id
         });
+        if (linkErr0 && !linkErr0.message?.includes('MULTIPLE_MATCHES')) {
+          _recordAccountMatchFailure('verifyOtp/link_phone_auth_account', linkErr0);
+        }
         if (linked?.length > 0) cust = linked[0];
-      } catch (_) { /* non-fatal — falls through to name collection */ }
+      } catch (e) { _recordAccountMatchFailure('verifyOtp/link_phone_auth_account', e); }
     }
 
     if (!cust || !cust.first_name_cache) {
@@ -2354,7 +2378,7 @@ async function handleNameSubmit() {
       p_sms_consent:     true,
       p_email_consent:   emailConsent
     });
-    if (claimErrName) console.warn('[handleNameSubmit] claim_existing_customer RPC error:', claimErrName.message);
+    if (claimErrName) _recordAccountMatchFailure('handleNameSubmit/claim_existing_customer', claimErrName);
     const existing = (claimedName && claimedName.length > 0) ? claimedName[0] : null;
 
     if (existing) {
@@ -2374,6 +2398,10 @@ async function handleNameSubmit() {
       }
       await db.from('customers').update(updatePatch).eq('id', existing.id);
     } else {
+      if (_blockDuplicateInsert('handleNameSubmit')) {
+        btn.disabled = false; btn.textContent = 'Let\'s go →';
+        return;
+      }
       await db.from('customers').insert({
         profile_id:       user.id,
         first_name_cache: firstName,
@@ -2682,11 +2710,12 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     p_sms_consent:     smsConsent || false,
     p_email_consent:   emailConsent || false
   });
-  if (claimErr) console.warn('[ensureProfile] claim_existing_customer RPC error:', claimErr.message);
+  if (claimErr) _recordAccountMatchFailure('ensureProfile/claim_existing_customer', claimErr);
   let ec = (claimed && claimed.length > 0) ? claimed[0] : null;
 
   // 3. Still nothing — create a fresh customer record
   if (!ec) {
+    if (_blockDuplicateInsert('ensureProfile')) return null;
     await db.from('customers').insert({
       profile_id:       user.id,
       first_name_cache: first || user.user_metadata?.first_name || '',
@@ -2962,6 +2991,9 @@ async function loadUserData() {
         p_phone_digits:   currentUser.phone,
         p_new_profile_id: currentUser.id
       });
+      if (linkErr && !linkErr.message?.includes('MULTIPLE_MATCHES')) {
+        _recordAccountMatchFailure('loadUserData/link_phone_auth_account', linkErr);
+      }
       if (linkErr?.message?.includes('MULTIPLE_MATCHES')) {
         showToast('Multiple accounts share this number — please sign in with your email instead.', 'error');
         setTimeout(() => db.auth.signOut(), 2500);
@@ -2993,8 +3025,7 @@ async function loadUserData() {
       }
       // Zero matches — new customer, fall through to normal account creation
     } catch (e) {
-      console.warn('Phone account link check failed:', e.message);
-      // Non-fatal — continue with normal flow
+      _recordAccountMatchFailure('loadUserData/link_phone_auth_account', e);
     }
   }
 
@@ -3029,7 +3060,7 @@ async function loadUserData() {
       p_sms_consent:     false,
       p_email_consent:   !!m.email_consent
     });
-    if (claimErr2) console.warn('[loadUserData] claim_existing_customer RPC error:', claimErr2.message);
+    if (claimErr2) _recordAccountMatchFailure('loadUserData/claim_existing_customer', claimErr2);
     if (claimed && claimed.length > 0) {
       currentCustomer = claimed[0];
     }
@@ -3057,6 +3088,9 @@ async function loadUserData() {
     const { data: raceCheck } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
     if (raceCheck) {
       currentCustomer = raceCheck;
+    } else if (_blockDuplicateInsert('loadUserData')) {
+      currentCustomer = null;
+      return;
     } else {
       await db.from('customers').insert({
         profile_id: currentUser.id,
@@ -5183,12 +5217,13 @@ async function renderConfirmAuth() {
       p_sms_consent:     !!m.sms_consent,
       p_email_consent:   !!m.email_consent
     });
-    if (claimErr3) console.warn('[renderConfirmAuth] claim_existing_customer RPC error:', claimErr3.message);
+    if (claimErr3) _recordAccountMatchFailure('renderConfirmAuth/claim_existing_customer', claimErr3);
     if (claimed && claimed.length > 0) {
       currentCustomer = claimed[0];
     }
     // RPC returned nothing — create a fresh customer record
     if (!currentCustomer) {
+      if (_blockDuplicateInsert('renderConfirmAuth')) return;
       await db.from('customers').insert({
         profile_id: currentUser.id,
         first_name_cache: first, last_name_cache: last,
