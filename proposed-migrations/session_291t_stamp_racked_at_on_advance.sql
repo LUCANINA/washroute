@@ -1,0 +1,43 @@
+-- session 291t — advance_order_status must stamp racked_at, plus a backfill.
+-- APPLIED 2026-09-11.
+--
+-- THE BUG. Two paths reach 'ready_for_delivery':
+--   rack_order()           the admin rack scan — always set racked_at
+--   advance_order_status() the POS folding queue's "Mark Ready" button and admin
+--                          status changes — NEVER touched racked_at
+-- Daily Revenue groups by racked_at, so everything that went out through the second
+-- path silently vanished from the report. The order_events trail says it plainly: the
+-- missing orders carry a 'status_change -> Ready For Delivery' event attributed to the
+-- folding floor (Martha Cruz 83, Juana Olivar Casiano 74, Yorleny Abiles 53, Angelica
+-- Sanchez 45, ...) and no 'racked' event at all.
+--
+-- SCALE. Excluding walk-ins and on-account: 169 delivered orders all-time worth
+-- $13,652.05 never appeared in Daily Revenue, 41 of them worth $3,847.75 in the last
+-- 30 days. Every one had ready_for_delivery_at, so the history was recoverable.
+--
+-- FIX 1 — advance_order_status stamps racked_at on entry to ready_for_delivery:
+--     racked_at = CASE WHEN p_new_status = 'ready_for_delivery'
+--                        THEN COALESCE(racked_at, NOW()) ELSE racked_at END
+--   COALESCE, never an overwrite: if a real rack scan already stamped it, that is the
+--   true time and must win. Rewritten in place from pg_get_functiondef so signature,
+--   volatility, security and search_path survive byte-for-byte (session 227), with an
+--   assertion and a uniqueness check on the anchor text.
+--   Snapshot: public._archive_advance_order_status_291t
+--
+-- FIX 2 — backfill racked_at := ready_for_delivery_at wherever it was missing on a
+--   ready/out/delivered order. 1,408 rows. trg_stamp_ready_for_delivery_at sets that
+--   column on every path, so it is the honest stand-in for when the order hit the rack.
+--   Snapshot: public._archive_racked_at_backfill_291t (order_id, order_number,
+--   old_racked_at, ready_for_delivery_at).
+--
+-- THE TRAP THE BACKFILL SET, and the client change that had to ship with it: 762 of
+-- the 1,408 were WALK-INS ($47,391). Walk-ins were being excluded from Daily Revenue
+-- only by accident — nothing ever stamped racked_at on one — and the new POS Sales
+-- column (291s) already counts them. Giving them a racked_at would have double-counted
+-- every POS sale. admin-dashboard now excludes source='walk_in' from the accrual query
+-- explicitly, on purpose rather than by side effect. On-account (496 rows) was already
+-- excluded client-side by 291s's cash-basis change.
+--
+-- AFTER: 17 orders worth $2,015.62 still have no racked_at — they have no
+-- ready_for_delivery_at either, so there is nothing to backfill from. Left alone.
+-- Verified Sep 10 unchanged at 54 orders / $4,998.15.

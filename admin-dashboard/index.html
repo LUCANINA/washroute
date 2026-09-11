@@ -51093,6 +51093,11 @@ async function _dvIframeLoaded() {
         const { data, error: e } = await db.from('orders')
           .select('id, order_number, status, billing_status, total_amount, tax_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, racked_at, actual_delivery_at, delivery_window_start, discount_id, is_subscription_order, customer_id, customers(id, first_name_cache, last_name_cache, billing_type)')
           .not('status', 'in', '(cancelled,skipped,pickup_failed)')
+          // Session 291t: walk-ins are the POS Sales column. They used to be excluded
+          // here by accident — nothing stamped racked_at on a walk-in — and the 291t
+          // backfill gave 762 of them one, which would have double-counted them the
+          // moment it ran. Exclude them explicitly, on purpose, not by side effect.
+          .neq('source', 'walk_in')
           .gt('total_amount', 0)
           .not('racked_at', 'is', null)
           .gte('racked_at', fromISO)
