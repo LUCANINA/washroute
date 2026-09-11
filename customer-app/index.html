@@ -913,6 +913,11 @@
         </div>
       </div>
       <div class="auth-bottom-sheet">
+        <!-- Session 292: filled by captureReferralFromUrl() when someone arrives on /r/CODE -->
+        <div id="referral-welcome" style="display:none;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:12px 14px;margin-bottom:14px">
+          <div id="referral-welcome-title" style="font-weight:700;font-size:15px;color:var(--navy)"></div>
+          <div id="referral-welcome-note" style="font-size:13px;color:var(--gray-500);margin-top:2px"></div>
+        </div>
         <h1 class="auth-headline">Premium Wash &amp; Fold for busy households.</h1>
         <p class="auth-subline">Welcome to the Bay's favorite laundry service.</p>
 
@@ -2897,6 +2902,8 @@ async function _handleCustomerSession(event, session) {
     appReady = true;
     _authHandlerRunning = false;
     document.getElementById('bottom-nav').style.display = 'flex';
+
+    applyPendingReferral();   // session 292: a code stashed from /r/CODE before sign-in
 
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('subscribed') === 'true' && SUBSCRIPTIONS_ENABLED()) {
@@ -8311,6 +8318,128 @@ async function removeCard(paymentMethodId) {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+   REFERRALS (session 292)
+   The card only appears when settings.referral_config.enabled is true and
+   'account' is in card_surfaces, so turning the program on or off is a
+   settings change in Admin, never a deploy.
+   ══════════════════════════════════════════════════════════════════════ */
+let _referral = null;
+
+/** Someone arrived on https://app.familylaundry.com/r/JENNY214 */
+async function captureReferralFromUrl() {
+  const m = (window.location.pathname || '').match(/^\/r\/([A-Za-z0-9]{4,24})\/?$/);
+  const qp = new URLSearchParams(window.location.search).get('ref');
+  const code = (m ? m[1] : qp || '').toUpperCase();
+  if (!code) return;
+
+  try { localStorage.setItem('wr_pending_referral', code); } catch (_) {}
+  history.replaceState({}, '', '/');
+
+  try {
+    const { data } = await db.rpc('referral_code_preview', { p_code: code });
+    if (!data?.valid) return;
+    const box   = document.getElementById('referral-welcome');
+    const title = document.getElementById('referral-welcome-title');
+    const note  = document.getElementById('referral-welcome-note');
+    if (!box || !title || !note) return;
+    title.textContent = `${data.referrer_first_name} gave you ${$m(data.friend_credit)} off your first order`;
+    note.textContent  = 'Sign in or create an account and it will be waiting for you.';
+    box.style.display = '';
+  } catch (_) { /* the banner is a nicety — never block sign-in on it */ }
+}
+
+/** Apply a code stashed before sign-in, once we know who they are. */
+async function applyPendingReferral() {
+  let code = null;
+  try { code = localStorage.getItem('wr_pending_referral'); } catch (_) {}
+  if (!code || !currentCustomer?.id) return;
+  try { localStorage.removeItem('wr_pending_referral'); } catch (_) {}
+
+  try {
+    const { data, error } = await db.rpc('claim_referral_code', {
+      p_code: code, p_customer_id: currentCustomer.id
+    });
+    if (error || !data) return;
+    if (data.ok) {
+      const { data: fresh } = await db.from('customers')
+        .select('*').eq('id', currentCustomer.id).maybeSingle();
+      if (fresh) currentCustomer = fresh;
+      setTimeout(() => showToast(data.message, 'success'), 800);
+    } else if (!['unknown_code', 'disabled', 'empty_code'].includes(data.error)) {
+      setTimeout(() => showToast(data.message, 'error'), 800);
+    }
+  } catch (e) { console.warn('applyPendingReferral:', e); }
+}
+
+async function loadReferralCard() {
+  const host = document.getElementById('referral-card');
+  if (!host || !currentCustomer?.id) return;
+  try {
+    const { data, error } = await db.rpc('get_or_create_referral_code', { p_customer_id: currentCustomer.id });
+    if (error || !data?.ok || data.enabled !== true) return;
+    const surfaces = Array.isArray(data.card_surfaces) ? data.card_surfaces : ['account'];
+    if (!surfaces.includes('account')) return;
+    _referral = data;
+
+    const earned = parseFloat(data.credit_earned || 0);
+    const status = data.qualified > 0
+      ? `${data.qualified} friend${data.qualified === 1 ? '' : 's'} ordered · ${$m(earned)} earned`
+      : data.invited > 0
+        ? `${data.invited} invited — credit arrives after their first order`
+        : 'Nobody invited yet';
+
+    host.innerHTML = `
+      <div class="pm-section">
+        <div class="pref-title">Invite a Friend</div>
+        <div style="font-size:14px;color:var(--gray-600);line-height:1.5;margin-bottom:12px">
+          Give a friend ${$m(data.friend_credit)} off their first order. When it is delivered and
+          paid, you get ${$m(data.referrer_credit)} in credit.
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <div style="flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:18px;font-weight:700;
+                      letter-spacing:.06em;color:var(--navy);background:var(--gray-50);
+                      border:1.5px dashed var(--gray-200);border-radius:8px;padding:11px 12px;text-align:center">
+            ${escHtml(data.code)}
+          </div>
+          <button onclick="copyReferralCode()" title="Copy code"
+            style="padding:11px 14px;background:white;color:var(--navy);border:1.5px solid var(--gray-200);
+                   border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Copy</button>
+        </div>
+        <button onclick="shareReferral()"
+          style="width:100%;padding:12px;background:var(--navy);color:white;border:none;border-radius:8px;
+                 font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Text a friend</button>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:8px">${escHtml(status)}</div>
+      </div>`;
+    host.style.display = '';
+  } catch (e) { console.warn('loadReferralCard:', e); }
+}
+
+function copyReferralCode() {
+  if (!_referral?.code) return;
+  navigator.clipboard?.writeText(_referral.code)
+    .then(() => showToast('Code copied', 'success'))
+    .catch(() => showToast('Could not copy — the code is ' + _referral.code, 'error'));
+}
+
+/** Opens the customer's OWN messaging app. We never text their friend for them. */
+function shareReferral() {
+  const msg = _referral?.share_message;
+  if (!msg) return;
+  if (navigator.share) {
+    navigator.share({ text: msg }).catch(() => {});
+    return;
+  }
+  const isIos = /iP(hone|ad|od)/.test(navigator.userAgent);
+  window.location.href = 'sms:' + (isIos ? '&' : '?') + 'body=' + encodeURIComponent(msg);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', captureReferralFromUrl);
+} else {
+  captureReferralFromUrl();
+}
+
 function renderPaymentSection() {
   const el = document.getElementById('payment-method-section');
   if (!el) return;
@@ -8347,7 +8476,7 @@ function renderPaymentSection() {
 
   const promoHtml = `
     <div class="pm-section">
-      <div class="pref-title">Promo Codes</div>
+      <div class="pref-title">Promo &amp; Referral Codes</div>
       ${activeDiscountBanner}
       <div class="pm-row" style="gap:8px;align-items:stretch">
         <input id="promo-code-input" type="text" placeholder="Enter code"
@@ -8420,7 +8549,12 @@ function renderPaymentSection() {
       <button class="card-add-btn" onclick="startCardSetup()">+ Add Card</button>
     </div>`;
 
-  el.innerHTML = creditsHtml + promoHtml + tipHtml + cardHtml;
+  // ── Referral card (session 292) — hidden until loadReferralCard() says the
+  // program is on, so the quiet launch is a settings flip, not a deploy.
+  const referralHtml = `<div id="referral-card" style="display:none"></div>`;
+
+  el.innerHTML = creditsHtml + referralHtml + promoHtml + tipHtml + cardHtml;
+  loadReferralCard();
 }
 
 let _custTipType = currentCustomer?.default_tip_type || '$';
@@ -8493,6 +8627,23 @@ async function applyPromoCode(code, opts = {}) {
     showToast('Please sign in first.', 'error');
     return { ok: false };
   }
+  // Session 292: one box, two kinds of code. Referral codes are checked first;
+  // 'unknown_code' or a disabled program falls through to promo codes, while a
+  // real referral refusal (already used, not a first order) is worth showing.
+  const ref = await db.rpc('claim_referral_code', { p_code: trimmed, p_customer_id: currentCustomer.id });
+  if (!ref.error && ref.data?.ok === true) {
+    const { data: fresh0 } = await db.from('customers')
+      .select('*').eq('id', currentCustomer.id).maybeSingle();
+    if (fresh0) currentCustomer = fresh0;
+    showToast(ref.data.message, 'success');
+    return { ok: true, response: ref.data };
+  }
+  if (!ref.error && ref.data?.ok === false
+      && !['unknown_code', 'disabled', 'empty_code'].includes(ref.data.error)) {
+    showToast(ref.data.message, 'error');
+    return { ok: false, response: ref.data };
+  }
+
   const { data, error } = await db.rpc('redeem_discount_code', {
     p_code:        trimmed,
     p_customer_id: currentCustomer.id,

@@ -1699,6 +1699,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
           Discounts
         </div>
+        <div class="nav-item" data-page="referrals" data-section="settings" onclick="showPage('referrals',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+          Referrals
+        </div>
         <div class="nav-item" data-page="team" data-section="settings" onclick="showPage('team',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
           Team
@@ -3423,6 +3427,44 @@
         </div><!-- /page-racks -->
 
         <!-- ── DISCOUNTS ── -->
+        <!-- ══════════════ REFERRALS (session 292) ══════════════ -->
+        <div class="page" id="page-referrals">
+
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header">
+              <div class="card-title">Referral Terms</div>
+              <div class="card-sub">Changes apply to new referrals only — pairs already claimed keep the amounts they were promised</div>
+            </div>
+            <div id="referral-terms-body" style="padding:16px">
+              <div style="color:var(--gray-500);font-size:13px">Loading…</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header">
+              <div class="card-title">Needs a Decision</div>
+              <div class="card-sub">Pairs held back for the cap, or because a commercial account is billed by invoice</div>
+            </div>
+            <div id="referral-queue-body">
+              <div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div class="card-title">Referrals</div>
+                <div class="card-sub" id="referral-summary">&nbsp;</div>
+              </div>
+              <button class="btn btn-ghost" style="padding:7px 14px;font-size:13px" onclick="loadReferralsPage()">Refresh</button>
+            </div>
+            <div id="referral-list-body">
+              <div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>
+            </div>
+          </div>
+
+        </div>
+
         <div class="page" id="page-discounts">
           <div class="card" style="margin-bottom:20px">
             <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
@@ -8803,7 +8845,7 @@
   function _bkCanWrite() { return BK_WRITE_ROLES.includes(currentUserRole); }
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
                         'reports','smsdelivery','bookkeeping','services','notifications','maps','launderers','racks',
-                        'discounts','team','settings'];
+                        'discounts','referrals','team','settings'];
 
   function canAccessPage(pageId) {
     if (currentUserRole === 'admin') return true;
@@ -9409,10 +9451,10 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', bookkeeping:'Bookkeeping', discounts:'Discounts', settings:'General', team:'Team' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', bookkeeping:'Bookkeeping', discounts:'Discounts', referrals:'Referrals', settings:'General', team:'Team' };
   // Bookkeeping's CTA depends on which sub-tab (Overview/Loans/Payroll) is active —
   // set dynamically by switchBookkeepingView()/updateBookkeepingTopbar(), not here.
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', bookkeeping:'', discounts:'', settings:'', team:'' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', bookkeeping:'', discounts:'', referrals:'', settings:'', team:'' };
 
   // POS launcher — opens the POS app in a new tab (not an SPA page, just an external link)
   function openPosLauncher() {
@@ -9483,11 +9525,12 @@
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
     if (id === 'discounts') renderDiscounts();
+    if (id === 'referrals') loadReferralsPage();
     if (id === 'settings') renderSettingsTab();
     if (id === 'team') loadTeamPage();
 
     // Auto-expand settings nav group when navigating to a settings page
-    const settingsPages = ['services','notifications','maps','launderers','racks','discounts','team','settings'];
+    const settingsPages = ['services','notifications','maps','launderers','racks','discounts','referrals','team','settings'];
     if (settingsPages.includes(id)) {
       const grp = document.getElementById('settings-nav-group');
       if (grp && grp.style.display === 'none') toggleSettingsNav();
@@ -26458,7 +26501,7 @@ ${noActivityNote}
     // Also auto-expand if the current hash is a settings page
     try {
       const hash = location.hash.replace('#','');
-      const settingsPages = ['services','notifications','maps','launderers','racks','discounts','team','settings'];
+      const settingsPages = ['services','notifications','maps','launderers','racks','discounts','referrals','team','settings'];
       if (settingsPages.includes(hash)) {
         const grp = document.getElementById('settings-nav-group');
         const chev = document.getElementById('settings-nav-chevron');
@@ -40460,6 +40503,240 @@ ${oneCopy}
       <div style="width:96px;text-align:right;font-size:12.5px;color:${muted}">${countTxt}</div>
       <div style="width:96px;text-align:right;font-size:12.5px;color:${muted}">${valueTxt}</div>
       <div style="width:110px;text-align:right;font-size:12.5px;color:${muted}">${dateTxt}</div>`;
+  }
+
+  /* ═══════════════════ REFERRALS (session 292) ═══════════════════
+     Terms are read and written through referral_config() /
+     set_referral_config(), never a direct settings select, so this page
+     cannot be broken by the data API not yet seeing a new column.
+     ═══════════════════════════════════════════════════════════════ */
+  let _referralCfg = null;
+
+  async function loadReferralsPage() {
+    await loadReferralTerms();
+    await loadReferralPairs();
+  }
+
+  async function loadReferralTerms() {
+    const host = document.getElementById('referral-terms-body');
+    if (!host) return;
+    const { data, error } = await db.rpc('referral_config');
+    if (error) { host.innerHTML = `<div style="color:var(--red)">Could not load the terms: ${esc(error.message)}</div>`; return; }
+    _referralCfg = data || {};
+    const c = _referralCfg;
+    const surfaces = Array.isArray(c.card_surfaces) ? c.card_surfaces : ['account'];
+    const on = c.enabled === true;
+
+    host.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:18px;border-radius:8px;flex-wrap:wrap;
+                  background:${on ? '#ecfdf5' : 'var(--gray-50)'};border:1px solid ${on ? '#a7f3d0' : 'var(--gray-200)'}">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;font-size:14px;color:var(--gray-900)">
+          <input type="checkbox" id="rf-enabled" ${on ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer">
+          Program ${on ? 'is running' : 'is off'}
+        </label>
+        <div style="font-size:12px;color:var(--gray-500);margin-left:auto">
+          ${on ? 'Turning this off stops new claims. Pairs already in flight are untouched.'
+               : 'Nothing is visible to customers while this is off.'}
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px">
+        <div>
+          <label class="form-label">Friend gets ($)</label>
+          <input type="number" class="form-input" id="rf-friend" step="1" min="0" max="100" value="${Number(c.friend_credit ?? 25)}">
+        </div>
+        <div>
+          <label class="form-label">Referrer gets ($)</label>
+          <input type="number" class="form-input" id="rf-referrer" step="1" min="0" max="100" value="${Number(c.referrer_credit ?? 25)}">
+        </div>
+        <div>
+          <label class="form-label">Referrer paid when</label>
+          <input type="text" class="form-input" value="First order delivered &amp; paid" disabled
+                 title="The only trigger supported today">
+        </div>
+        <div>
+          <label class="form-label">Cap per referrer / 30 days</label>
+          <input type="number" class="form-input" id="rf-cap" step="1" min="1" max="500" value="${Number(c.monthly_cap ?? 10)}">
+        </div>
+        <div>
+          <label class="form-label">Credit expires after (days)</label>
+          <input type="number" class="form-input" id="rf-expiry" step="1" min="0" placeholder="never"
+                 value="${c.credit_expires_days == null ? '' : Number(c.credit_expires_days)}">
+        </div>
+        <div>
+          <label class="form-label">Remind the friend after (days)</label>
+          <input type="number" class="form-input" id="rf-remind" step="1" min="0" placeholder="off"
+                 value="${c.friend_reminder_days == null ? '' : Number(c.friend_reminder_days)}">
+        </div>
+      </div>
+
+      <div style="margin-top:18px;display:flex;flex-direction:column;gap:10px">
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer">
+          <input type="checkbox" id="rf-surface-account" ${surfaces.includes('account') ? 'checked' : ''}>
+          Show the card on the customer&rsquo;s Account screen
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer">
+          <input type="checkbox" id="rf-surface-delivery" ${surfaces.includes('post_delivery') ? 'checked' : ''}>
+          Show it after a delivery <span style="color:var(--gray-500);font-size:12px">— the strongest moment to ask, and the real launch</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer">
+          <input type="checkbox" id="rf-commercial" ${c.commercial_can_refer !== false ? 'checked' : ''}>
+          Commercial accounts can refer <span style="color:var(--gray-500);font-size:12px">— their credit goes on their next invoice</span>
+        </label>
+      </div>
+
+      <div style="margin-top:18px">
+        <label class="form-label">The text your customer sends</label>
+        <textarea class="form-input" id="rf-message" rows="4"
+          style="resize:vertical;font-family:inherit;font-size:13px;line-height:1.6">${esc(c.share_message || '')}</textarea>
+        <div style="font-size:12px;color:var(--gray-500);margin-top:6px">
+          <code>{{code}}</code> and <code>{{link}}</code> are filled in per customer. It opens in their own Messages app — we never text their friend.
+        </div>
+      </div>
+
+      <div style="margin-top:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-primary" style="padding:9px 18px;font-size:13px" onclick="saveReferralTerms()">Save terms</button>
+        <div id="rf-save-note" style="font-size:12px;color:var(--gray-500)">
+          ${c.updated_by ? 'Last changed by ' + esc(String(c.updated_by)) + (c.updated_at ? ' · ' + esc(String(c.updated_at).slice(0,10)) : '') : ''}
+        </div>
+      </div>`;
+  }
+
+  async function saveReferralTerms() {
+    const note = document.getElementById('rf-save-note');
+    const surfaces = [];
+    if (document.getElementById('rf-surface-account').checked)  surfaces.push('account');
+    if (document.getElementById('rf-surface-delivery').checked) surfaces.push('post_delivery');
+
+    const expiryRaw = document.getElementById('rf-expiry').value.trim();
+    const remindRaw = document.getElementById('rf-remind').value.trim();
+
+    const payload = {
+      enabled:              document.getElementById('rf-enabled').checked,
+      friend_credit:        Number(document.getElementById('rf-friend').value),
+      referrer_credit:      Number(document.getElementById('rf-referrer').value),
+      monthly_cap:          Number(document.getElementById('rf-cap').value),
+      credit_expires_days:  expiryRaw === '' ? null : Number(expiryRaw),
+      friend_reminder_days: remindRaw === '' ? null : Number(remindRaw),
+      card_surfaces:        surfaces,
+      commercial_can_refer: document.getElementById('rf-commercial').checked,
+      share_message:        document.getElementById('rf-message').value,
+    };
+
+    if (payload.enabled && surfaces.length === 0
+        && !confirm('The program would be on but the card is hidden everywhere. Customers could still use a code they already have. Save anyway?')) return;
+
+    if (note) note.textContent = 'Saving…';
+    const { data, error } = await db.rpc('set_referral_config', {
+      p_config: payload,
+      p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error)     { showToast('Could not save: ' + error.message, 'error'); if (note) note.textContent = ''; return; }
+    if (!data?.ok) { showToast(data?.message || 'Could not save the terms.', 'error'); if (note) note.textContent = ''; return; }
+    showToast(data.message, 'success');
+    loadReferralTerms();
+  }
+
+  async function loadReferralPairs() {
+    const queueEl = document.getElementById('referral-queue-body');
+    const listEl  = document.getElementById('referral-list-body');
+    const sumEl   = document.getElementById('referral-summary');
+    if (!listEl) return;
+
+    const { data: rows, error } = await db.from('referrals')
+      .select('id, code, status, claimed_at, qualified_at, referrer_credit_amount, referred_credit_amount, hold_reason, released_by, referrer_customer_id, referred_customer_id, qualifying_order_id')
+      .order('claimed_at', { ascending: false })
+      .limit(500);
+
+    if (error) {
+      listEl.innerHTML = `<div style="padding:16px;color:var(--red)">Could not load referrals: ${esc(error.message)}</div>`;
+      return;
+    }
+    const all = rows || [];
+
+    // Names in batches of 100 — a long .in() list fails opaquely.
+    const ids = [...new Set(all.flatMap(r => [r.referrer_customer_id, r.referred_customer_id]))].filter(Boolean);
+    const names = {};
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data: cs } = await db.from('customers')
+        .select('id, first_name_cache, last_name_cache').in('id', ids.slice(i, i + 100));
+      (cs || []).forEach(c => { names[c.id] = [c.first_name_cache, c.last_name_cache].filter(Boolean).join(' ') || '(no name)'; });
+    }
+    const nm = id => esc(names[id] || '—');
+
+    const qualified = all.filter(r => r.status === 'qualified');
+    const issued    = qualified.reduce((t, r) => t + Number(r.referrer_credit_amount || 0) + Number(r.referred_credit_amount || 0), 0);
+    if (sumEl) sumEl.textContent = `${all.length} total · ${qualified.length} qualified · ${fmtMoney(issued)} of credit issued`;
+
+    const held = all.filter(r => r.status === 'flagged' || r.status === 'awaiting_release');
+    queueEl.innerHTML = held.length === 0
+      ? '<div style="padding:16px;color:var(--gray-500);font-size:13px">Nothing waiting.</div>'
+      : `<table><thead><tr>
+           <th>Referrer</th><th>Friend</th><th>Why it is held</th><th style="text-align:right">Credit</th><th></th>
+         </tr></thead><tbody>${held.map(r => `
+           <tr>
+             <td class="td-name">${nm(r.referrer_customer_id)}<div style="font-size:11px;color:var(--gray-400);font-weight:400">${esc(r.code)}</div></td>
+             <td>${nm(r.referred_customer_id)}</td>
+             <td style="font-size:12px;color:var(--gray-600)">${esc(r.hold_reason || r.status)}</td>
+             <td style="text-align:right">${fmtMoney(r.referrer_credit_amount)}</td>
+             <td style="text-align:right;white-space:nowrap">
+               <button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="releaseReferralPair('${r.id}')">Release</button>
+               <button class="btn btn-ghost"   style="padding:5px 12px;font-size:12px" onclick="voidReferralPair('${r.id}')">Void</button>
+             </td>
+           </tr>`).join('')}</tbody></table>`;
+
+    const pill = st => {
+      const map = {
+        qualified:        ['#065f46', '#ecfdf5', 'Qualified'],
+        claimed:          ['#1e40af', '#eff6ff', 'Waiting on first order'],
+        flagged:          ['#92400e', '#fffbeb', 'Flagged'],
+        awaiting_release: ['#92400e', '#fffbeb', 'Awaiting release'],
+        void:             ['var(--gray-500)', 'var(--gray-50)', 'Void'],
+      };
+      const [fg, bg, label] = map[st] || ['var(--gray-500)', 'var(--gray-50)', st];
+      return `<span style="display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;color:${fg};background:${bg}">${esc(label)}</span>`;
+    };
+
+    listEl.innerHTML = all.length === 0
+      ? '<div style="padding:16px;color:var(--gray-500);font-size:13px">No referrals yet.</div>'
+      : `<table><thead><tr>
+           <th>Referrer</th><th>Friend</th><th>Code</th><th>Status</th><th>Claimed</th>
+           <th style="text-align:right">Friend</th><th style="text-align:right">Referrer</th>
+         </tr></thead><tbody>${all.map(r => `
+           <tr>
+             <td class="td-name">${nm(r.referrer_customer_id)}</td>
+             <td>${nm(r.referred_customer_id)}</td>
+             <td class="td-mono">${esc(r.code)}</td>
+             <td>${pill(r.status)}${r.released_by ? `<div style="font-size:11px;color:var(--gray-400)">released by ${esc(r.released_by)}</div>` : ''}</td>
+             <td style="font-size:12px;color:var(--gray-500)">${esc(String(r.claimed_at || '').slice(0, 10))}</td>
+             <td style="text-align:right">${fmtMoney(r.referred_credit_amount)}</td>
+             <td style="text-align:right">${r.status === 'qualified' ? fmtMoney(r.referrer_credit_amount) : '—'}</td>
+           </tr>`).join('')}</tbody></table>`;
+  }
+
+  async function releaseReferralPair(id) {
+    if (!confirm('Release this referral and give the referrer their credit?')) return;
+    const { data, error } = await db.rpc('release_referral', {
+      p_referral_id: id,
+      p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error)     { showToast('Could not release: ' + error.message, 'error'); return; }
+    if (!data?.ok) { showToast(data?.message || 'Could not release it.', 'error'); return; }
+    showToast(data.message, 'success');
+    loadReferralPairs();
+  }
+
+  async function voidReferralPair(id) {
+    const reason = prompt('Why is this referral being voided? This is the only record of it.');
+    if (reason === null) return;
+    const { data, error } = await db.rpc('void_referral', {
+      p_referral_id: id, p_reason: reason,
+      p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error)     { showToast('Could not void: ' + error.message, 'error'); return; }
+    if (!data?.ok) { showToast(data?.message || 'Could not void it.', 'error'); return; }
+    showToast(data.message, 'success');
+    loadReferralPairs();
   }
 
   function renderDiscounts() {
