@@ -2803,7 +2803,7 @@
             <div class="card" style="margin-bottom:0">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
                 <div style="font-size:11.5px;color:var(--gray-500);line-height:1.4">
-                  Delivery orders are grouped by <strong>processed date</strong> (the moment the order reaches the rack) — orders still in processing or folding don't appear yet, and cancelled, skipped, pickup-failed and $0 placeholder orders are excluded. <strong>Subscriptions</strong> and <strong>POS Sales</strong> never reach the rack, so those two are grouped by the day the money was taken. POS is shown net of sales tax. Refunded orders stay counted but deduct in the Refunds column.
+                  Delivery orders are grouped by <strong>processed date</strong> (the moment the order reaches the rack) — orders still in processing or folding don't appear yet, and cancelled, skipped, pickup-failed and $0 placeholder orders are excluded. <strong>Subscriptions</strong>, <strong>POS Sales</strong> and <strong>Commercial</strong> never reach the rack, so those three are grouped by the day the money arrived. POS is shown net of sales tax. Commercial is on-account funds actually received (check, ACH, wire) — their orders are excluded from the columns to the left so nothing is counted twice. Refunded orders stay counted but deduct in the Refunds column.
                 </div>
                 <button class="rev-export-btn" id="rev-export-btn" style="display:none;flex-shrink:0" onclick="exportRevenueCSV()">Export CSV</button>
               </div>
@@ -51091,7 +51091,7 @@ async function _dvIframeLoaded() {
         // actual_delivery_at-with-null-racked_at to cover the 15 pre-racked_at legacy orders.
         // Since PostgREST OR filters are awkward, we do two queries and merge client-side.
         const { data, error: e } = await db.from('orders')
-          .select('id, order_number, status, billing_status, total_amount, tax_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, racked_at, actual_delivery_at, delivery_window_start, discount_id, is_subscription_order, customer_id, customers(id, first_name_cache, last_name_cache)')
+          .select('id, order_number, status, billing_status, total_amount, tax_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, racked_at, actual_delivery_at, delivery_window_start, discount_id, is_subscription_order, customer_id, customers(id, first_name_cache, last_name_cache, billing_type)')
           .not('status', 'in', '(cancelled,skipped,pickup_failed)')
           .gt('total_amount', 0)
           .not('racked_at', 'is', null)
@@ -51120,9 +51120,9 @@ async function _dvIframeLoaded() {
     //   Subscriptions  customer_transactions type='subscription_invoice' — the $275
     //                  monthly plan fee. All of these carry a Stripe payment intent,
     //                  so their processing fees resolve from the same fee map.
-    let posOrders = [], subTx = [];
+    let posOrders = [], subTx = [], commPayments = [];
     {
-      const [posRes, subRes] = await Promise.all([
+      const [posRes, subRes, commRes] = await Promise.all([
         db.from('orders')
           .select('id, total_amount, tax_amount, tip_amount, tip_type, billing_status, stripe_payment_intent_id, created_at')
           .eq('source', 'walk_in')
@@ -51134,14 +51134,33 @@ async function _dvIframeLoaded() {
           .eq('type', 'subscription_invoice')
           .gte('created_at', fromISO).lte('created_at', toISO)
           .order('created_at'),
+        db.from('payments')
+          .select('amount, received_date, voided_at')
+          .is('voided_at', null)
+          .gte('received_date', selFrom).lte('received_date', selTo)
+          .order('received_date'),
       ]);
-      if (posRes.error) console.warn('[revenue] POS fetch failed:', posRes.error.message);
-      if (subRes.error) console.warn('[revenue] subscription fee fetch failed:', subRes.error.message);
-      posOrders = posRes.data || [];
-      subTx     = subRes.data || [];
+      if (posRes.error)  console.warn('[revenue] POS fetch failed:', posRes.error.message);
+      if (subRes.error)  console.warn('[revenue] subscription fee fetch failed:', subRes.error.message);
+      if (commRes.error) console.warn('[revenue] commercial payment fetch failed:', commRes.error.message);
+      posOrders    = posRes.data  || [];
+      subTx        = subRes.data  || [];
+      commPayments = commRes.data || [];
     }
 
-    if (!orders.length && !posOrders.length && !subTx.length) {
+    // ── Commercial (on-account) is CASH BASIS — David: "only received funds" ──
+    // An on-account order is invoiced monthly and paid by check/ACH/wire weeks later,
+    // so recognising it at the rack would book revenue that may never arrive. The
+    // Commercial column is public.payments (voided excluded) on received_date, which
+    // is already a plain date — no timezone conversion.
+    //
+    // Because of that, on-account orders are REMOVED from the accrual columns below.
+    // Leaving them in would count the same job twice: once when it hit the rack and
+    // again when the cheque cleared. Their Services / Add-ons / Overages detail is on
+    // the On Account and Invoices tabs, where it belongs.
+    orders = orders.filter(o => (o.customers?.billing_type || '') !== 'on_account');
+
+    if (!orders.length && !posOrders.length && !subTx.length && !commPayments.length) {
       body.innerHTML = '<div class="rev-empty">No revenue found for this date range.</div>'; return;
     }
 
@@ -51228,15 +51247,17 @@ async function _dvIframeLoaded() {
     // taken. Built as maps rather than merged into byDate because they are a different
     // grouping basis and must stay separable in the row.
     const _pacDate = ts => new Date(ts).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-    const posByDate = {}, subByDate = {};
+    const posByDate = {}, subByDate = {}, commByDate = {};
     posOrders.forEach(o => { const d = _pacDate(o.created_at); (posByDate[d] = posByDate[d] || []).push(o); });
     subTx.forEach(t     => { const d = _pacDate(t.created_at); (subByDate[d] = subByDate[d] || []).push(t); });
+    // received_date is a DATE column — use it as-is, no timezone shift.
+    commPayments.forEach(pm => { const d = pm.received_date; commByDate[d] = (commByDate[d] || 0) + parseFloat(pm.amount || 0); });
 
     // Build rows — only include dates within the user's selected range. The date set is
     // the UNION of all three streams: a day with only a POS sale or only a subscription
     // renewal still has revenue and must get a row.
     const rows = [];
-    const allDates = [...new Set([...Object.keys(byDate), ...Object.keys(posByDate), ...Object.keys(subByDate)])];
+    const allDates = [...new Set([...Object.keys(byDate), ...Object.keys(posByDate), ...Object.keys(subByDate), ...Object.keys(commByDate)])];
     allDates.sort().filter(d => d >= selFrom && d <= selTo).forEach(date => {
       const dayOrders = byDate[date] || [];
       let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, credits = 0, discounts = 0, refunds = 0, total = 0, count = 0, procFees = 0, feeEstimated = false, tax = 0;
@@ -51304,11 +51325,15 @@ async function _dvIframeLoaded() {
         }
       });
 
-      const gross = service + addons + overages + fees + tips + subs + pos;
-      total += subs + pos;
+      // Commercial: funds actually received that day. No processing fee — these arrive
+      // by check, ACH or wire, not through Stripe.
+      const comm = commByDate[date] || 0;
+
+      const gross = service + addons + overages + fees + tips + subs + pos + comm;
+      total += subs + pos + comm;
       count += posCount;
       const net   = total - refunds - procFees;
-      rows.push({ date, service, addons, overages, fees, tips, subs, pos, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count, tax });
+      rows.push({ date, service, addons, overages, fees, tips, subs, pos, comm, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count, tax });
     });
 
     _revReportData = rows;
@@ -51322,6 +51347,7 @@ async function _dvIframeLoaded() {
       acc.tips      += r.tips;
       acc.subs      += r.subs;
       acc.pos       += r.pos;
+      acc.comm      += r.comm;
       acc.gross     += r.gross;
       acc.credits   += r.credits;
       acc.discounts += r.discounts;
@@ -51333,7 +51359,7 @@ async function _dvIframeLoaded() {
       acc.count     += r.count;
       acc.tax       += r.tax;
       return acc;
-    }, { service:0, addons:0, overages:0, fees:0, tips:0, subs:0, pos:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0, tax:0 });
+    }, { service:0, addons:0, overages:0, fees:0, tips:0, subs:0, pos:0, comm:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0, tax:0 });
 
     const $fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const $f  = n => n > 0 ? `$${$fmt(n)}` : `<span class="rev-zero">—</span>`;
@@ -51362,6 +51388,7 @@ async function _dvIframeLoaded() {
         <td>${$f(r.tips)}</td>
         <td>${$f(r.subs)}</td>
         <td>${$f(r.pos)}</td>
+        <td>${$f(r.comm)}</td>
         <td style="font-weight:600;color:var(--gray-700)">${r.gross > 0 ? '$' + $fmt(r.gross) : '<span class=\"rev-zero\">—</span>'}</td>
         <td>${$neg(r.credits)}</td>
         <td>${$neg(r.discounts)}</td>
@@ -51394,6 +51421,7 @@ async function _dvIframeLoaded() {
             <th>Tips</th>
             <th title="Monthly subscription plan fees charged on this day. Grouped by charge date, not by racked date — a plan renewal never reaches the rack.">Subscriptions</th>
             <th title="Walk-in counter sales, net of sales tax. Grouped by sale date. The tax is reported in the Sales Tax pill above.">POS Sales</th>
+            <th title="On-account (commercial) funds actually received that day — check, ACH or wire, voided payments excluded. Cash basis: their orders are deliberately left out of the columns to the left so no job is counted twice.">Commercial</th>
             <th>Gross Revenue</th>
             <th>Credits</th>
             <th>Discounts</th>
@@ -51415,6 +51443,7 @@ async function _dvIframeLoaded() {
             <td>${$ft(tot.tips)}</td>
             <td>${$ft(tot.subs)}</td>
             <td>${$ft(tot.pos)}</td>
+            <td>${$ft(tot.comm)}</td>
             <td style="color:var(--gray-700)">${$ft(tot.gross)}</td>
             <td style="color:var(--red)">−$${$fmt(tot.credits)}</td>
             <td style="color:var(--red)">−$${$fmt(tot.discounts)}</td>
@@ -51433,7 +51462,7 @@ async function _dvIframeLoaded() {
   function exportRevenueCSV() {
     if (!_revReportData.length) return;
     // session 140: include Sales Tax column for tax-filing reconciliation.
-    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Subscriptions','POS Sales','Gross Revenue','Credits Applied','Discounts Applied','Orders','Charged','Card Refunds','Processing Fees','Processing Fees Estimated?','Net Revenue','Sales Tax Collected'];
+    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Subscriptions','POS Sales','Commercial Received','Gross Revenue','Credits Applied','Discounts Applied','Orders','Charged','Card Refunds','Processing Fees','Processing Fees Estimated?','Net Revenue','Sales Tax Collected'];
     const rows = _revReportData.map(r => [
       r.date,
       r.service.toFixed(2),
@@ -51443,6 +51472,7 @@ async function _dvIframeLoaded() {
       r.tips.toFixed(2),
       r.subs.toFixed(2),
       r.pos.toFixed(2),
+      r.comm.toFixed(2),
       r.gross.toFixed(2),
       (-r.credits).toFixed(2),
       (-r.discounts).toFixed(2),
