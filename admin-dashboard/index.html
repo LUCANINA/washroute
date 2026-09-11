@@ -1211,7 +1211,14 @@
     .rpt-drv-tbl tbody tr:hover td { background:var(--gray-50); }
     .rpt-stars { color:#f59e0b;letter-spacing:0;font-size:12px; }
     .rpt-no-data { text-align:center;padding:40px 20px;color:var(--gray-400);font-size:13px; }
-    .rpt-page-tabs { display:flex;gap:0;border-bottom:1px solid var(--gray-100);padding:0 16px;background:white;border-radius:0 0 var(--radius) var(--radius); }
+    /* Session 291u: two-row report nav. Row 1 picks the GROUP, row 2 the report.
+       Eleven flat tabs were one report away from wrapping on a laptop. */
+    .rpt-group-tabs { display:flex;gap:3px;padding:12px 16px 0;background:white;flex-wrap:wrap; }
+    .rpt-group-tab { padding:7px 15px;border-radius:8px;border:none;background:transparent;cursor:pointer;
+                     font-family:inherit;font-size:13px;font-weight:600;color:var(--gray-500);transition:all .12s; }
+    .rpt-group-tab:hover { background:var(--gray-50);color:var(--gray-700); }
+    .rpt-group-tab.active { background:var(--gray-100);color:var(--gray-900); }
+    .rpt-page-tabs { display:flex;gap:0;border-bottom:1px solid var(--gray-100);padding:0 16px;background:white;border-radius:0 0 var(--radius) var(--radius);flex-wrap:wrap; }
     .rpt-page-tab { padding:10px 18px;font-size:13.5px;font-weight:500;color:var(--gray-500);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;font-family:inherit; }
     .rpt-page-tab.active { color:var(--accent);border-bottom-color:var(--accent);font-weight:600; }
     .rpt-sub-subtab.active { background:var(--accent) !important;color:#fff !important; }
@@ -2701,19 +2708,10 @@
               <button class="rpt-quick-btn" onclick="setRptQuickRange('month',this)">This month</button>
               <button class="rpt-quick-btn" onclick="setRptQuickRange('lastmonth',this)">Last month</button>
             </div>
-            <div class="rpt-page-tabs">
-              <button class="rpt-page-tab active" onclick="setRptTab('revenue',this)">Daily Revenue</button>
-              <button class="rpt-page-tab" onclick="setRptTab('items',this)">Items</button>
-              <button class="rpt-page-tab" onclick="setRptTab('possales',this)">POS Sales</button>
-              <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">Drivers</button>
-              <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">Launderers</button>
-              <button class="rpt-page-tab" onclick="setRptTab('onaccount',this)">On Account</button>
-              <button class="rpt-page-tab" onclick="setRptTab('invoices',this)">Invoices</button>
-              <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">Subscriptions</button>
-              <button class="rpt-page-tab" onclick="setRptTab('registrations',this)">Registrations</button>
-              <button class="rpt-page-tab" onclick="setRptTab('deliverykpis',this)">Delivery KPIs</button>
-              <button class="rpt-page-tab" onclick="setRptTab('baddebt',this)">Bad Debt</button>
-            </div>
+            <!-- Session 291u: groups on top, that group's reports beneath. Both rows are
+                 rendered from RPT_GROUPS in JS so the two can never drift apart. -->
+            <div class="rpt-group-tabs" id="rpt-group-tabs"></div>
+            <div class="rpt-page-tabs" id="rpt-page-tabs"></div>
           </div>
 
           <!-- ── TAB: BAD DEBT (session 291e) ── -->
@@ -49129,14 +49127,72 @@ ${oneCopy}
     runCurrentReport();
   }
 
+  // ── Report grouping (session 291u) ────────────────────────────────────
+  // Eleven flat tabs were one report away from wrapping on a laptop. Grouped by the
+  // question each report answers, not by how it was built. ONE definition drives both
+  // rows and the group lookup, so a report can never appear under two headings or
+  // vanish because someone added it to the tab bar and forgot the group list.
+  //
+  // Sidebar was the other candidate and was rejected after seeing it in the real page:
+  // the admin already has a grouped vertical nav, so a second one sat right beside it
+  // doing a different job in the same visual language — and it took ~194px off the
+  // widest table in the app, on top of the 175px the app nav already owns.
+  const RPT_GROUPS = [
+    { key: 'revenue',     label: 'Revenue',     tabs: [
+        ['revenue', 'Daily Revenue'], ['possales', 'POS Sales'], ['items', 'Items'] ] },
+    { key: 'receivables', label: 'Receivables', tabs: [
+        ['onaccount', 'On Account'], ['invoices', 'Invoices'], ['baddebt', 'Bad Debt'] ] },
+    { key: 'operations',  label: 'Operations',  tabs: [
+        ['drivers', 'Drivers'], ['launderer', 'Launderers'], ['deliverykpis', 'Delivery KPIs'] ] },
+    { key: 'customers',   label: 'Customers',   tabs: [
+        ['registrations', 'Registrations'], ['subscriptions', 'Subscriptions'] ] },
+  ];
+  const _rptGroupOf = tab => (RPT_GROUPS.find(g => g.tabs.some(t => t[0] === tab)) || RPT_GROUPS[0]).key;
+  let rptGroup = 'revenue';
+
+  function renderRptTabs() {
+    const gRow = document.getElementById('rpt-group-tabs');
+    const rRow = document.getElementById('rpt-page-tabs');
+    if (!gRow || !rRow) return;
+    gRow.innerHTML = RPT_GROUPS.map(g =>
+      `<button class="rpt-group-tab${g.key === rptGroup ? ' active' : ''}" onclick="setRptGroup('${g.key}')">${g.label}</button>`
+    ).join('');
+    const grp = RPT_GROUPS.find(g => g.key === rptGroup) || RPT_GROUPS[0];
+    rRow.innerHTML = grp.tabs.map(([key, label]) =>
+      `<button class="rpt-page-tab${key === rptTab ? ' active' : ''}" onclick="setRptTab('${key}',this)">${label}</button>`
+    ).join('');
+  }
+  window.renderRptTabs = renderRptTabs;
+
+  // Switching group opens that group's FIRST report — a group header with no report
+  // under it would leave the page showing whatever was open before, which reads broken.
+  function setRptGroup(key) {
+    const grp = RPT_GROUPS.find(g => g.key === key);
+    if (!grp) return;
+    rptGroup = key;
+    setRptTab(grp.tabs[0][0], null);
+  }
+  window.setRptGroup = setRptGroup;
+
+  // Paint both rows once at load. The markup for them is empty in the HTML — it is
+  // rendered from RPT_GROUPS above — so without this the Reports page opens with no
+  // tabs at all until something else calls setRptTab.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderRptTabs);
+  } else {
+    renderRptTabs();
+  }
+
   function setRptTab(tab, btn) {
     rptTab = tab;
-    document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    ['drivers','revenue','items','possales','launderer','onaccount','invoices','subscriptions','registrations','deliverykpis','baddebt'].forEach(t => {
+    rptGroup = _rptGroupOf(tab);   // keep the group row honest when a report is opened directly
+    renderRptTabs();
+    // Derived from RPT_GROUPS, not a second hand-written list — a report added to the
+    // groups above is shown and hidden correctly without touching anything here.
+    RPT_GROUPS.forEach(g => g.tabs.forEach(([t]) => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
-    });
+    }));
     // Hide OA action bar when leaving On Account tab
     if (tab !== 'onaccount') {
       const oaBar = document.getElementById('oa-action-bar');
