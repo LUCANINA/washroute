@@ -13,7 +13,108 @@
 > not here.** If you're working on Loans/Payroll/Reconciliation, load
 > `washroute-bookkeeping` instead of (or in addition to) this file.
 
-*Last updated: September 9, 2026 — Session 290 — **Duplicate accounts: session 227's protected-column trigger silently disabled BOTH account-matching RPCs for three weeks. 16 customers got a second, empty account. Cause fixed, all 16 merged, standing alarm added.***
+*Last updated: September 11, 2026 — Session 291 — **A stale discount line rode forward for four months and over-billed a nonprofit $518. Three writers of that line all fixed. Also: revenue was missing from the Daily Revenue report because only one of two paths stamped `racked_at`. And I broke the Orders page for hours with a variable I deleted but still referenced.***
+
+## Session 291 — discounts, revenue recognition, and a self-inflicted outage
+
+### 1. The Kidango over-billing — $518.10, four months, three causes
+
+**What it looked like.** Kidango's NON PROFIT 5% discount was charging `$2.95` on a `$65` base. 5% of $65 is $3.25. Thirty cents a bag, 209 delivered orders, **$518.10**.
+
+**Where $2.95 came from.** It is exactly 5% of **$59** — the bag price before it rose to $65 in June. The discount was pinned to the old rate while the base tracked the new one.
+
+**Three writers of a discount line; two were copying, not deriving:**
+
+| Writer | Was | Now |
+|---|---|---|
+| Admin intake | correct (session 146 scope) | unchanged |
+| **POS intake** | rebuilt base + overage from the current price, **preserved** the discount row verbatim, and passed `p_discount_id: null` | derives it (**291L**) |
+| **Recurring generator** | `v_line_items := NEW.line_items` — a verbatim copy, discount row included | derives it (**291o**) |
+
+Kidango is weighed in at the **POS**, not the admin dashboard, which is why this never showed up in admin-intaken orders. `record_order_intake` just stores what the client sends, so the fix had to be client-side in `pos/index.html`.
+
+**291o nearly shipped broken.** TWO branches did the verbatim copy — the Commercial per-bag branch (~line 151) and the `ELSE` branch (~line 216), which is the **Delivery** pricelist where Kidango and every residential recurring customer actually live. The first attempt patched only the first. The closing assertion caught it and rolled back. This is the session 134 lesson exactly: a migration note claiming "both updated" while a second reference survives. **Assertions now count occurrences and fail closed.** Ordering trap also recorded: the 4-space snippet is a substring of the 6-space one, so the 6-space replace must run first.
+
+**Verified in a rolled-back transaction** — marking Kidango – Ryan #14234 delivered minted the next occurrence as `$65.00 + $9.95 − $3.25 = $71.70`. Nothing leaked.
+
+### 2. "Has a card on file" was measured against the wrong column (291i)
+
+`charge-order` resolves cards from `customer_payment_methods` and only falls back to `customers.stripe_default_payment_method_id`. Two places read **only** the legacy column:
+
+- `sweep_autocharge_ready_orders` — **15 customers permanently outside the autocharge safety net**, including three with 24, 25 and 25 paid orders. They pay fine through the primary path, so nothing was lost, but a missed charge could never have been retried.
+- `v_outstanding_orders.has_card_on_file` — would have named five long-standing payers as having no card the first time the new stalled-sweep warning fired.
+
+Measured: 1246 customers have both, **15 have a row but no default**, 0 have a default with no row.
+
+### 3. The discount audit — and the false positives that matter
+
+`audits/discount-audit.sql`, re-runnable. Across 834 discount-eligible orders / 101 customers: 501 correct. **Outside Kidango the system is healthy — 6 wrong orders, $30.65.**
+
+**Three classes that look wrong and are not.** These are documented at the top of the audit file; do not "fix" them:
+
+1. Orders from **Mar 31 – May 29** matching a **base-only** calculation — that was the policy before session 146 widened the scope to add-ons. Correct for their time. (44 orders)
+2. Orders with no discount line that **predate the customer's first discounted order** — the discount was granted later. (56 orders)
+3. **Fixed-dollar discounts are one-time promo/referral codes**, not standing rates. Expecting them on every order produces nothing but false positives. The audit only considers `type='percent'`.
+
+**Remediation (291p) split by whether money had moved:** unpaid orders corrected in place (20 orders); **paid** orders got account credits instead ($20.60 across 4 customers), because editing a paid order's `line_items` makes the record disagree with what Stripe actually took.
+
+### 4. Invoice adjustments (291m) — credits on on-account invoices
+
+`invoices` was a flat snapshot (`order_ids` + one `total_amount`) with no room for a line that is not an order, so there was no way to put the $518.10 back. Added `public.invoice_adjustments`: a credit (negative) or surcharge (positive) that waits `pending` until an invoice is issued for its scope, then becomes `applied` and is stamped with that invoice id.
+
+- **Scope rule.** Exactly one of `customer_id` / `billing_group_id`, mirroring `invoices`. A group-scoped adjustment lands **only on a CONSOLIDATED group invoice** — on a `separate`-style group the "group invoice" is really N per-customer invoices and "which one carries the credit" has no answer. Kidango Group is consolidated; HCEB is separate.
+- **Idempotency.** `issue_invoice` **releases** everything currently applied to an invoice back to pending before applying the ids it was given, under the advisory lock that already serialises issuing. So regenerating with an adjustment removed returns it to the pool rather than stranding it, and two clicks cannot put one credit on two invoices. `void_invoice` releases the same way — a voided invoice must not swallow a credit.
+- **Signature change.** `p_adjustment_ids` is a new parameter, so `issue_invoice` was **DROPped and recreated**, not `CREATE OR REPLACE`d — an added parameter makes an overload, and two candidates make every PostgREST call to that RPC ambiguous.
+
+### 5. Daily Revenue was missing whole revenue streams
+
+**Added columns:** Subscriptions (`customer_transactions` type `subscription_invoice`), POS Sales (walk-ins, **net of sales tax**), Commercial (on-account, **cash basis** — `payments.received_date`, David: *"only received funds"*). Because Commercial is cash basis, on-account orders are **removed from the accrual columns** — otherwise the same job counts twice, once at the rack and again when the cheque clears.
+
+**Then the bigger find (291t): `racked_at` was missing on a large share of orders, and the report groups by it.** Two paths reach `ready_for_delivery`:
+
+- `rack_order()` — the admin rack scan. Always stamped it.
+- `advance_order_status()` — **the POS folding queue's "Mark Ready" button**, which is what the laundry techs actually use. Never touched it.
+
+The `order_events` trail made it plain: missing orders carry a `status_change → Ready For Delivery` attributed to the folding floor (Martha Cruz 83, Juana 74, Yorleny 53, Angelica 45) and **no `racked` event at all**. Excluding walk-ins and on-account: **169 delivered orders worth $13,652.05 never appeared in Daily Revenue.**
+
+Fix: `advance_order_status` now sets `racked_at = COALESCE(racked_at, NOW())` on entry to ready_for_delivery — never an overwrite, so a real rack scan still wins. Backfilled 1,408 orders from `ready_for_delivery_at`.
+
+**⚠️ The trap the backfill set.** 762 of those 1,408 were **walk-ins** ($47,391). Walk-ins were excluded from the report only *by accident* — nothing ever stamped `racked_at` on one — and the new POS Sales column already counts them. The backfill would have double-counted every POS sale. The accrual query now excludes `source='walk_in'` **explicitly, on purpose rather than by side effect**. Caught only because the backfill touched far more rows than the 169-row estimate predicted: **when a bulk write touches many more rows than you predicted, stop and find out why.**
+
+### 6. 🔥 I broke the Orders page for hours — and `node --check` is why I missed it
+
+Removing the Orders → Issues tab (291r) deleted `const inIssues = currentOrderFilter === 'issues'` but **missed a second reference to it**, inside a template literal on the status-badge cell. Every `renderOrders()` call threw:
+
+```
+Uncaught (in promise) ReferenceError: inIssues is not defined
+  at renderOrders → loadOrders
+```
+
+The Orders list died on every render and produced the *"Some data failed to load"* banner across the whole app. It was live on the floor for hours.
+
+**Why every check passed.** I verified every edit this session by extracting the inline `<script>` blocks and running `node --check`, and reported "SYNTAX_OK" as though that meant the change was sound. **`node --check` parses. It cannot see an undefined identifier**, and this one sat inside a template literal where nothing short of executing the code would find it.
+
+**Rules from this:**
+
+1. **Deleting an identifier requires a reference count afterwards, not a parse.** `grep -c <name>` must return 0 (or only comment hits) before committing.
+2. A `no-undef` lint in the pre-commit hook would have caught it in the commit that created it. **Still to do.**
+3. It also cost an hour of misdiagnosis: I went looking in the database and built a story out of `pg_stat_statements` totals — which are **cumulative since 2026-05-27, 107 days**. "15.5M realtime calls / 293,298s" is **0.03 cores average**, not a hog. Read `stats_reset` before drawing any conclusion from those numbers.
+
+**Still open:** genuine statement timeouts cluster during the 7–10am rush (137 at 02:00 UTC, 117–218 through 14:00–17:00), with trivial queries 504ing under load. Queries run in 3–7ms in isolation, so it is contention, not plans. Needs catching in the act.
+
+### 7. Smaller things
+
+- **Overview / Orders**: missed pickups and skips removed from both — the test is *"are we holding the customer's laundry?"*. The Orders **Issues tab was then removed entirely** (everything it held is on Overview; Overview's reschedule tile calls the same `_isIssueRow` helper). **`_isIssueRow` must survive** — it is the helper someone deletes along with "the last user" and quietly breaks Overview.
+- **Unpaid Orders** shows declined cards only; a stalled-sweep warning renders inside the same card when an order has been chargeable for >4 hours (~48x normal lag), because hiding awaiting-payment rows is safe only while the sweep works.
+- **`sweep_autocharge_ready_orders`** also gained tip-only eligibility (291g): it tested `total_amount > 0` while the charged amount is total + tip.
+- **Kidango Hesperian + Del Rey** (291j) set to `on_account` + Kidango Group. I also cancelled their standing orders on a wrong reading of "on demand" and **reverted it** — Jessica's 21 Aug email asked for weekly service from 24 Sep. *"Zero orders ever delivered" on a three-week-old account can mean service has not started yet.*
+- **Reports** tabs grouped into two rows (Revenue / Receivables / Operations / Customers) from a single `RPT_GROUPS` definition that drives both rows and the show/hide loop. A sidebar was mocked up and rejected — the admin already has a grouped vertical nav, and a second one beside it cost ~194px of the widest table in the app.
+- **Subscription audit** (`audits/subscription-audit.sql`): billing is clean — no failed charges in 90 days, no unpaid subscription orders, all 86 active subscribers have a card. **Trap recorded in the file:** `subscriptions.overage_amount_due` is always `0.00` and is vestigial; overage is billed on the ORDER as a `lb_overage` line. Reading that column reports a $1,160 "leak" that does not exist.
+- **Churn query bug, also recorded:** building the churn set as `FROM subscriptions WHERE status='cancelled'` and then detecting re-subscribers with `bool_or(status='active')` over that same set can only ever return false — the WHERE runs before the aggregate. It counted a current paying subscriber as churned. Group by customer across **all** their subscriptions, then filter.
+
+---
+
+*Session 290 (previous) — **Duplicate accounts: session 227's protected-column trigger silently disabled BOTH account-matching RPCs for three weeks. 16 customers got a second, empty account. Cause fixed, all 16 merged, standing alarm added.***
 
 **What David saw.** Liz Morris and Kalen Gleeson each logged in and landed in a brand-new empty account — no history, no saved card, no address. Kalen then placed an order under the wrong account and drew a $20 new-customer promo credit he already had.
 
