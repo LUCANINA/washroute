@@ -2003,7 +2003,6 @@
                     <button class="filter-tab active" data-filter="scheduled" onclick="filterOrders('scheduled',this)">Scheduled</button>
                     <button class="filter-tab" data-filter="in_process" onclick="filterOrders('in_process',this)">In Process</button>
                     <button class="filter-tab" data-filter="ready" onclick="filterOrders('ready',this)">Ready</button>
-                    <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
                     <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)" style="display:none">Delivered</button>
                     <button class="filter-tab" data-filter="archived" onclick="filterOrders('archived',this)" style="display:none" title="Archived failed/skipped orders — history preserved, hidden from Overview">Archived</button>
                   </div>
@@ -8224,7 +8223,10 @@
     return `<span style="display:inline-flex;align-items:center;gap:5px;background:${bg};color:${color};border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0"></span>${label}</span>`;
   };
 
-  // Returns an inline action button for the Issues tab row
+  // Session 291: the Orders → Issues tab was removed, and this was its row action.
+  // Kept, unused, because it is the only place the "Request card / Requested / Update
+  // card" ladder is written down — Unpaid Orders renders its own via _deliveredActionBtn.
+  // Delete it only after confirming that ladder is not wanted back.
   const issueActionBtn = (o) => {
     // Session 175: on_account → never show card request/retry actions (see issueBadge)
     if (o.billing_status === 'failed' && o.customers?.billing_type !== 'on_account') {
@@ -8665,7 +8667,9 @@
           const ORDERS_VIEW_SUBS = new Set(['orders', 'map', 'schedule', 'driver-schedule']);
           // Pre-set the order filter before showPage() so loadOrders() fetches the right set
           if (hashPage === 'orders' && hashSub && !ORDERS_VIEW_SUBS.has(hashSub)) {
-            currentOrderFilter = hashSub;
+            // Session 291: the Issues tab is gone; an old #orders/issues link falls back
+            // to Scheduled rather than a filter with no button and no rows.
+            currentOrderFilter = (hashSub === 'issues') ? 'scheduled' : hashSub;
           }
           showPage(hashPage, document.querySelector(`.nav-item[data-page="${hashPage}"]`));
           // Restore sub-tab state (showPage defaults each section to its first tab)
@@ -27700,9 +27704,10 @@ ${noActivityNote}
     }
     const reviewRows = reviewRes.data || [];
 
-    // 1. Needs rescheduling. _isIssueRow lives next to the Orders-tab filter so this
-    //    can never drift from what the Issues tab considers actionable. Billing
-    //    failures are excluded — those are a payment problem, handled on Unpaid Orders.
+    // 1. Needs rescheduling. Since session 291 removed the Orders → Issues tab, this is
+    //    _isIssueRow's only caller — the tab was showing the same rows a second time.
+    //    Billing failures are excluded: those are a payment problem, handled on Unpaid
+    //    Orders.
     const needsReschedule = reschedRes.data.filter(o => _isIssueRow(o) && !hasFailedCharge(o));
     // 2/3/4 from the view.
     const cardErrors = reviewRows.filter(o => o.on_account_card_error && !o.is_archived);
@@ -28483,11 +28488,6 @@ ${noActivityNote}
     scheduled:  ['scheduled'],
     in_process: ['picked_up','processing','folding'],
     ready:      ['ready_for_delivery','out_for_delivery'],
-    // Session 291: pickup_failed and skipped removed — the test is "are we holding
-    // the customer's laundry?". We never took it, so nothing is at risk and they are
-    // not critical issues. (Same rule as Overview → For your review.) They remain
-    // visible via the Archived tab and the order's own status badge.
-    issues:     ['delivery_failed','on_hold'],
     delivered:  ['delivered'],  // last DELIVERED_TAB_WINDOW_DAYS (7d) of delivered orders; cancelled are archived
     archived:   ['pickup_failed','delivery_failed','skipped','cancelled'],  // only rows where archived_at IS NOT NULL
   };
@@ -28587,7 +28587,7 @@ ${noActivityNote}
     // render "Request card" instead of the correct "Update card" / "Requested".
     _sideFetchDone = false;
     _loadOrdersSideFetches().then(() => {
-      if (currentPage === 'orders' && (currentOrderFilter === 'issues' || currentOrderFilter === 'delivered')) {
+      if (currentPage === 'orders' && currentOrderFilter === 'delivered') {
         renderOrders(getFilteredOrders());
       }
     });
@@ -28654,11 +28654,6 @@ ${noActivityNote}
     _loadDeliveredOrders().then(() => {
       // Re-render only if user is still on the orders/delivered tab
       if (currentPage === 'orders' && currentOrderFilter === 'delivered') renderOrders(getFilteredOrders());
-    });
-    _loadOrdersSideFetches().then(() => {
-      // Re-render if user is still on the Issues tab — SMS/email data drives
-      // the "Request card" vs "Requested" vs "Update card" button state there.
-      if (currentPage === 'orders' && currentOrderFilter === 'issues') renderOrders(getFilteredOrders());
     });
   }
 
@@ -28737,11 +28732,17 @@ ${noActivityNote}
     _setSubMoney('ostat-revenue-sub',    revenue);
   }
 
-  // Single source of truth for "what's an Issue row?" — used by the Orders → Issues tab
-  // filter AND the Overview's "needs reschedule" tile. Previously these had two
-  // independent inline filter implementations that were already drifting apart
-  // (Overview tile excluded billing_status='failed' outright; Issues tab kept it
-  // when chargeable). This shared helper prevents future drift.
+  // What counts as an order-level issue: we are holding the customer's laundry and
+  // something is wrong, or their card was declined.
+  //
+  // Session 291 (David): the Orders → Issues TAB was removed — everything this helper
+  // matches is already on Overview (delivery_failed / on_hold in "For your review",
+  // declined cards in "Unpaid Orders"), so the tab was a second copy of a list the
+  // operator had already read. The helper itself stays: Overview's reschedule tile is
+  // now its ONE caller. Do not delete it along with the tab.
+  //
+  // The status list used to live in ORDER_FILTER_GROUPS.issues, which existed only to
+  // feed that tab. It is inlined here now so there is nothing left to drift against.
   //
   // Excludes:
   //   - missed pickups and skips entirely (session 291): we never took the laundry,
@@ -28749,7 +28750,10 @@ ${noActivityNote}
   // Includes:
   //   - billing_status='failed' on chargeable statuses, EXCEPT on_account customers
   //     (they're billed via invoicing, not Stripe)
-  //   - any other status in ORDER_FILTER_GROUPS.issues
+  //   - any status in ISSUE_STATUSES below
+  // pickup_failed and skipped are deliberately absent: the test is "are we holding the
+  // customer's laundry?". We never took it, so nothing is at risk.
+  const ISSUE_STATUSES = ['delivery_failed','on_hold'];
   function _isIssueRow(o) {
     if (o.status === 'skipped' || o.status === 'pickup_failed') return false;
     // Session 230: a declined card is an issue in ANY status, not just the three
@@ -28759,7 +28763,7 @@ ${noActivityNote}
     // on_account customers are billed by invoice, so a failed card stamp on them is
     // a data error, not a collections issue — it shows in Overview's On account group.
     if (hasFailedCharge(o) && o.customers?.billing_type !== 'on_account') return true;
-    return ORDER_FILTER_GROUPS.issues.includes(o.status);
+    return ISSUE_STATUSES.includes(o.status);
   }
 
   // Returns allOrders filtered by currentOrderFilter + orderSearchTerm + _ordersSourceFilter
@@ -28791,9 +28795,7 @@ ${noActivityNote}
     data = data.filter(o => !o.archived_at);
     // No search term — normal tab filtering
     if (currentOrderFilter) {
-      if (currentOrderFilter === 'issues') {
-        data = data.filter(_isIssueRow);
-      } else if (currentOrderFilter === 'delivered') {
+      if (currentOrderFilter === 'delivered') {
         const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
         data = data.filter(o =>
           o.status === 'delivered' &&
@@ -28838,9 +28840,9 @@ ${noActivityNote}
   // Updates each pill button to show its count badge
   // Session 155: counts respect _ordersSourceFilter so the badge numbers
   // match what's actually visible in the list. (Switching to Retail shouldn't
-  // show "Issues 11" if 11 of those are Delivery issues.)
+  // show "Ready 11" if 11 of those are Delivery orders.)
   function updateOrderFilterCounts() {
-    const TAB_LABELS = { scheduled:'Scheduled', in_process:'In Process', ready:'Ready', issues:'Issues', delivered:'Delivered', archived:'Archived' };
+    const TAB_LABELS = { scheduled:'Scheduled', in_process:'In Process', ready:'Ready', delivered:'Delivered', archived:'Archived' };
     // Active-tab counts must exclude archived orders — otherwise Issues would still show rows we've hidden
     const sourceFiltered = allOrders.filter(_orderMatchesSource);
     const activeOnly = sourceFiltered.filter(o => !o.archived_at);
@@ -28848,7 +28850,6 @@ ${noActivityNote}
       scheduled:  activeOnly.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: activeOnly.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      activeOnly.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
-      issues:     activeOnly.filter(_isIssueRow).length,
       delivered:  (() => { const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS*24*60*60*1000).toISOString(); return activeOnly.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
       archived:   sourceFiltered.filter(o => o.archived_at).length,
     };
@@ -28965,7 +28966,7 @@ ${noActivityNote}
         ${thSort('delivery_window_start','Delivery')}
         ${thSort('weight_lbs','Bags')}
         ${thSort('total_amount','Total')}
-        ${['issues','in_process','ready','delivered','archived'].includes(currentOrderFilter) ? '<th style="padding-right:10px"></th>' : ''}
+        ${['in_process','ready','delivered','archived'].includes(currentOrderFilter) ? '<th style="padding-right:10px"></th>' : ''}
       </tr></thead><tbody>
       ${visible.map(o => {
         const custId = o.customers?.id || '';
@@ -28975,13 +28976,10 @@ ${noActivityNote}
           : o.weight_lbs
             ? `<span style="font-weight:600">${bags}</span> <span style="font-size:10px;color:var(--gray-400)">${o.weight_lbs}lb</span>`
             : String(bags);
-        const inIssues = currentOrderFilter === 'issues';
         const inArchived = currentOrderFilter === 'archived';
-        const showAction = ['issues','in_process','ready','delivered','archived'].includes(currentOrderFilter);
+        const showAction = ['in_process','ready','delivered','archived'].includes(currentOrderFilter);
         let actionCell = '';
-        if (inIssues) {
-          actionCell = issueActionBtn(o);
-        } else if (inArchived) {
+        if (inArchived) {
           actionCell = `<button onclick="event.stopPropagation();unarchiveOrder('${o.id}','${o.order_number}')" style="font-size:11px;font-weight:600;color:var(--accent);background:white;border:1px solid var(--accent);border-radius:8px;padding:4px 10px;cursor:pointer;white-space:nowrap" title="Restore order — clears the archive flag">Restore</button>`;
         } else if (showAction) {
           actionCell = _deliveredActionBtn(o);
@@ -29064,8 +29062,13 @@ ${noActivityNote}
   }
 
   async function filterOrders(status, btn) {
+    // Session 291: 'issues' was a tab until it became a duplicate of Overview. A stale
+    // bookmark or #orders/issues hash would otherwise land on a filter no button owns
+    // and render an empty table with nothing highlighted. Send it to Scheduled.
+    if (status === 'issues') status = 'scheduled';
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(t=>t.classList.remove('active'));
-    btn.classList.add('active');
+    if (btn) btn.classList.add('active');
+    else document.querySelector(`#order-filter-tabs .filter-tab[data-filter="${status}"]`)?.classList.add('active');
     clearOrderSelection();
     currentOrderFilter = status || 'scheduled';
     _ordersDisplayCount = ORDERS_PAGE_SIZE;
@@ -29079,10 +29082,6 @@ ${noActivityNote}
       const el = document.getElementById('orders-table-body');
       if (el) el.innerHTML = `<div class="loading"><div class="spinner"></div> Loading…</div>`;
       await _loadDeliveredOrders();
-    }
-    // Lazy-load side-fetches on first visit to issues tab
-    if (status === 'issues' && !_sideFetchDone) {
-      await _loadOrdersSideFetches();
     }
     renderOrders(getFilteredOrders());
     try { history.replaceState(null, '', '#orders/' + currentOrderFilter); } catch(_) {}
