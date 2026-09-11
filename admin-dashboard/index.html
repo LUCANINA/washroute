@@ -28490,6 +28490,49 @@ ${noActivityNote}
   // Statuses eligible for manual admin archive (kept in sync with DB check — see add_archive_columns migration)
   const ARCHIVABLE_STATUSES = ['pickup_failed','delivery_failed','skipped','cancelled'];
 
+  // ── Session 292: what pricelist does THIS ORDER price on? ──
+  //
+  // Session 196 made the SUBSCRIPTION resolve from the order instead of the customer,
+  // which fixed the overage half. It left the other half alone: `pricelist` — and so
+  // the DELIVERY FEE — still came from customers.pricelist at intake time. That is the
+  // half that bit Kate Roberts #14666. She booked on 09 Sep at 18:10 while her plan
+  // covered her; the plan cancelled at period end on 10 Sep at 07:29; she was weighed
+  // in at 08:07. Base $0 (from the order, correct, thanks to 196) + delivery $9.95
+  // (from her now-'Delivery' pricelist, wrong) = $12.95 off her account credit for an
+  // order that should have cost $3.00. link_subscription_on_order_fn then rewrote the
+  // stored line to "Delivery — included" at $0 and dropped total_amount, so the receipt
+  // looked right and the wrong credit transaction stayed put.
+  //
+  // The link alone is not enough either, and that is new here: 196 accepts ANY linked
+  // subscription regardless of when it ended. Candy RamirezHale #14302 is a recurring
+  // order generated on 05 Sep against a plan cancelled 13 Jul, still carrying the
+  // Subscription service — it bills two bags at $0.00. So the test is COVERAGE, not
+  // linkage: a live plan always covers; a cancelled or expired one covers only orders
+  // PLACED on or before it ended (inclusive).
+  //
+  // Every screen that re-prices an EXISTING order goes through this. Screens that price
+  // a NEW order (create-order panel, customer app booking + recurring) correctly use
+  // live customer state and are untouched.
+  //
+  // Returns { pricelist, subRow, covered }. subRow is non-null only when covered.
+  async function resolveOrderPricelist(order, fallbackPricelist) {
+    const _fallback = fallbackPricelist || order?.customers?.pricelist || 'Delivery';
+    if (!order?.subscription_id) return { pricelist: _fallback, subRow: null, covered: false };
+    const { data: subRow } = await db.from('subscriptions')
+      .select('id, usage_lbs_this_period, status, current_period_start, current_period_end, cancelled_at, subscription_plans(name, weight_limit_lbs, overage_price_per_lb, pickup_limit)')
+      .eq('id', order.subscription_id)
+      .maybeSingle();
+    const _placedAt = order.created_at ? new Date(order.created_at) : null;
+    // must match link_subscription_on_order_fn's accepted set
+    const _subLive  = ['active', 'past_due', 'paused'].includes(subRow?.status);
+    const _endsAt   = subRow?.cancelled_at || subRow?.current_period_end;
+    const _covered  = !!subRow && (_subLive || (!!_placedAt && !!_endsAt && _placedAt <= new Date(_endsAt)));
+    if (subRow && !_covered) {
+      console.warn(`Order #${order.order_number}: subscription link is stale (sub ${subRow.status}, ended ${_endsAt}; order placed ${order.created_at}). Pricing as ${_fallback}.`);
+    }
+    return { pricelist: _covered ? 'Subscription' : _fallback, subRow: _covered ? subRow : null, covered: _covered };
+  }
+
   const _orderSelectCols = `id, order_number, status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, billing_status, billing_payment_method, card_brand, card_last4,
                weight_lbs, total_bags, service_id, special_instructions, line_items,
                pickup_window_start, pickup_window_end,
@@ -28499,6 +28542,7 @@ ${noActivityNote}
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
                created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id, source,
+               subscription_id,
                archived_at, archived_reason, archived_by,
                services(name),
                folded_by:folded_by_id(name),
@@ -29101,6 +29145,7 @@ ${noActivityNote}
 
   // ── ORDER DETAIL PANEL ──
   let opCurrentOrderId = null;
+  let opOrderPricelist = null; // session 292: pricelist THIS ORDER prices on, stashed by openOrderPanel so the sync recalc path can read it
   let opCurrentCustId  = null;
   let opIsSameDay                  = false;  // tracks same-day toggle state for current open order
   let _opPreSameDayDeliveryStart   = null;   // saved delivery_window_start before same-day shift (for restore)
@@ -29124,6 +29169,7 @@ ${noActivityNote}
       allOrders.push(o); // add to cache so subsequent opens work
     }
     opCurrentOrderId = orderId;
+    opOrderPricelist = (await resolveOrderPricelist(o)).pricelist; // session 292
     opCurrentCustId  = o.customers?.id || null;
     _opHistoryLoaded = null; // reset history cache for new order
     _opStopInfo = null;      // reset pickup/delivery driver cache for new order
@@ -29861,6 +29907,7 @@ ${noActivityNote}
     document.getElementById('order-panel').classList.remove('open');
     document.getElementById('order-panel-backdrop').classList.remove('open');
     opCurrentOrderId = null;
+    opOrderPricelist = null; // session 292
     opCurrentCustId  = null;
   }
 
@@ -30964,7 +31011,14 @@ ${noActivityNote}
 
     const bags   = parseInt(document.getElementById('op-bags-input')?.value) || 0;
     const weight = parseFloat(document.getElementById('op-weight-input')?.value) || 0;
-    const svc = allServices.find(s => s.id === o.service_id);
+    // Session 292: if the order carries a service from a different pricelist than the
+    // one it actually prices on, use the resolved pricelist's main service — otherwise
+    // the base bills at $0.00/bag (#14302). See resolveOrderPricelist.
+    const _svcRaw = allServices.find(s => s.id === o.service_id);
+    const _svcPL  = opOrderPricelist || o.customers?.pricelist || allCustomers.find(c => c.id === o.customer_id)?.pricelist || 'Delivery';
+    const svc = (_svcRaw && _svcRaw.pricelist && _svcRaw.pricelist !== _svcPL)
+      ? (allServices.find(s => !s.is_addon && s.pricelist === _svcPL) || _svcRaw)
+      : _svcRaw;
     const basePrice  = svc ? parseFloat(svc.base_price || 0) : 0;
     const lbsPerBag  = svc ? parseFloat(svc.lbs_per_bag || 25) : 25;
     const ovgRate    = svc ? parseFloat(svc.overage_rate_per_lb || 3) : 3;
@@ -30972,7 +31026,7 @@ ${noActivityNote}
     const hasOverage = svc?.has_weight_overage && !isPerLb;
 
     // Session 167: pricelist-aware fee lookup
-    const _custPL = o.customers?.pricelist || allCustomers.find(c => c.id === o.customer_id)?.pricelist || 'Delivery';
+    const _custPL = opOrderPricelist || o.customers?.pricelist || allCustomers.find(c => c.id === o.customer_id)?.pricelist || 'Delivery'; // session 292
     const _custFees = getFeesForPricelist(_custPL);
     const deliveryFeeObj = _custFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
@@ -31053,7 +31107,14 @@ ${noActivityNote}
     const weight = parseFloat(document.getElementById('op-weight-input').value) || 0;
     const notes  = document.getElementById('op-notes-input').value.trim();
 
-    const svc = allServices.find(s => s.id === o.service_id);
+    // Session 292: if the order carries a service from a different pricelist than the
+    // one it actually prices on, use the resolved pricelist's main service — otherwise
+    // the base bills at $0.00/bag (#14302). See resolveOrderPricelist.
+    const _svcRaw = allServices.find(s => s.id === o.service_id);
+    const _svcPL  = opOrderPricelist || o.customers?.pricelist || allCustomers.find(c => c.id === o.customer_id)?.pricelist || 'Delivery';
+    const svc = (_svcRaw && _svcRaw.pricelist && _svcRaw.pricelist !== _svcPL)
+      ? (allServices.find(s => !s.is_addon && s.pricelist === _svcPL) || _svcRaw)
+      : _svcRaw;
     const basePrice  = svc ? parseFloat(svc.base_price || 0) : 0;
     const lbsPerBag  = svc ? parseFloat(svc.lbs_per_bag || 25) : 25;
     const ovgRate    = svc ? parseFloat(svc.overage_rate_per_lb || 3) : 3;
@@ -31061,7 +31122,7 @@ ${noActivityNote}
     const hasOverage = svc?.has_weight_overage && !isPerLb;
 
     // Session 167: pricelist-aware fee lookup
-    const _custPL2 = o.customers?.pricelist || allCustomers.find(c => c.id === o.customer_id)?.pricelist || 'Delivery';
+    const _custPL2 = opOrderPricelist || o.customers?.pricelist || allCustomers.find(c => c.id === o.customer_id)?.pricelist || 'Delivery'; // session 292
     const _custFees2 = getFeesForPricelist(_custPL2);
     const deliveryFeeObj = _custFees2.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
@@ -47879,6 +47940,7 @@ ${oneCopy}
     if (_procSub) { db.removeChannel(_procSub); _procSub = null; }
   }
   let procActiveOrder = null, procSvc = null, procSubscription = null;  // session 167: procSubscription holds {plan, usage_lbs_this_period} for subscriber orders
+  let procOrderIsSubscription = false; // session 292: is THIS ORDER covered by a subscription? decides the pricelist, and so the delivery fee
   let procBags = 1, procWeight = '', procAddons = {}, procNotes = '';
   let procAddonServices = {}; // { [serviceId]: { selected: bool, service: {...} } }
   let procAddonPrefQty  = {}; // { [prefGroupId]: qty } — per-item qty for preference-linked services (Shirt Service, Air Dry)
@@ -48087,7 +48149,7 @@ ${oneCopy}
     // Fresh-fetch the order so bags/notes/dates are always current
     // (admin may have changed them in the order panel since the proc queue last loaded)
     const { data: freshOrder } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, subscription_id,
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, subscription_id, created_at,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id, total_amount, line_items, tip_amount, tip_type,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, addresses(id,label,line1,city)),
@@ -48133,23 +48195,26 @@ ${oneCopy}
     // link_subscription_on_order_fn now strips any pay-as-you-go 'overage' line from a
     // subscription order as a DB-level backstop, but the panel must still show the
     // launderer the correct number before they save.
+    // Session 292: the linked-subscription lookup now runs through
+    // resolveOrderPricelist() so the delivery fee reads from the same source as the
+    // base and the overage, and so a long-dead link stops counting. See the helper.
     procSubscription = null;
+    procOrderIsSubscription = false;
     {
-      const _subSel = 'id, usage_lbs_this_period, status, current_period_end, subscription_plans(name, weight_limit_lbs, overage_price_per_lb, pickup_limit)';
       let subRow = null;
       if (order.subscription_id) {
-        ({ data: subRow } = await db.from('subscriptions')
-          .select(_subSel)
-          .eq('id', order.subscription_id)
-          .maybeSingle());
+        const _resolved = await resolveOrderPricelist(order);
+        procOrderIsSubscription = _resolved.covered;
+        subRow = _resolved.subRow;
       } else if (order.customers?.pricelist === 'Subscription') {
         ({ data: subRow } = await db.from('subscriptions')
-          .select(_subSel)
+          .select('id, usage_lbs_this_period, status, current_period_end, subscription_plans(name, weight_limit_lbs, overage_price_per_lb, pickup_limit)')
           .eq('customer_id', order.customers.id)
           .in('status', ['active', 'past_due', 'paused'])   // must match link_subscription_on_order_fn
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle());
+        if (subRow) procOrderIsSubscription = true;
       }
       if (subRow?.subscription_plans) procSubscription = subRow;
     }
@@ -48213,7 +48278,10 @@ ${oneCopy}
     // Resolve the customer's price list — defaults to Delivery if blank.
     // Session 141 pt 8: was hardcoded to Commercial-or-Delivery; now generalised
     // so any admin-created pricelist (HCEB, etc.) resolves to its own service.
-    const pricelist = customerPricelist || 'Delivery';
+    // Session 292: a covered subscription order prices off the Subscription pricelist
+    // even after the customer has moved off it — this is what stops the $9.95 delivery
+    // fee landing on an order that was booked with delivery included.
+    const pricelist = procOrderIsSubscription ? 'Subscription' : (customerPricelist || 'Delivery');
     procPricelist = pricelist; // session 169: stash the fresh pricelist for getDeliveryFees so base + delivery fee use the same source
 
     // Orders are always created with the default Delivery service (saveOrder
@@ -48221,7 +48289,10 @@ ${oneCopy}
     // the matching service in the cache and override so weight-based pricing
     // is correct. Falls back to the default if no service exists on that
     // pricelist (transitional state — admin created the list but no service yet).
-    if (pricelist !== 'Delivery') {
+    // Session 292: also run when the order's OWN service belongs to a different
+    // pricelist than the resolved one — otherwise a stale $0.00/bag Subscription service
+    // rides along on a lapsed subscriber's order and bills the base at zero (#14302).
+    if (!procSvc || procSvc.pricelist !== pricelist) {
       const altSvc = allAddonServicesCache.find(s => !s.is_addon && s.pricelist === pricelist);
       if (altSvc) {
         procSvc = altSvc;
@@ -48593,7 +48664,7 @@ ${oneCopy}
       : 0;
     const total = preTipTotal + tipDollars;
     return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
-             planEffCap, planOvgRate, isSubscription: !!procSubscription,
+             planEffCap, planOvgRate, isSubscription: procOrderIsSubscription || !!procSubscription, // session 292: the ORDER decides
              deliveryFee, sameDaySurcharge, deliveryTotal, discountAmt, subtotal, creditApplied,
              preTipTotal, tipDollars, tipType, tipRaw,
              total };
@@ -48684,6 +48755,7 @@ ${oneCopy}
     procActiveOrder = null; procSvc = null; procSubscription = null;
     procFeeExempt = false; procIsSameDay = false;
     procPricelist = 'Delivery'; // session 169: reset fresh-pricelist stash
+    procOrderIsSubscription = false; // session 292
     procAddonPrefQty = {};
   }
 

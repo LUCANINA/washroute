@@ -1,5 +1,69 @@
 # WashRoute — Project Notes
 
+## Session 292 — Sep 11, 2026: session 196 fixed half of this; here is the other half
+
+**Kate Roberts #14666.** She emailed asking what a $9.95 charge was. She was right, and
+the first reply to her ("you were not billed today") was wrong — see below for why it
+looked that way.
+
+She booked #14666 on 09 Sep at 18:10 while her plan covered her. The plan was set to
+cancel at period end; Stripe cancelled it 10 Sep at 07:29. She was weighed in at 08:07,
+38 minutes into the gap. Session 196 had already made the SUBSCRIPTION resolve from
+`orders.subscription_id`, so base and overage were right. But `const pricelist =
+customerPricelist || 'Delivery'` was left alone, and `procPricelist` is what
+`getDeliveryFees()` reads — so the delivery fee resolved off her now-`Delivery`
+pricelist at $9.95. $12.95 came out of her account credit instead of $3.00 (Oxi).
+
+**Why nobody saw it.** `link_subscription_on_order_fn` then rewrote the stored line to
+"Delivery — included" at $0 and reduced `total_amount`. The receipt was correct. The
+`credit_use` transaction was not. The trigger cleaned the display and left the money
+wrong — worth remembering as a general failure shape.
+
+**The same bug inverted — Candy RamirezHale #14302.** Session 196 accepts ANY linked
+subscription with no test of *when* it ended. Her plan was cancelled 13 Jul; the weekly
+recurring job has kept generating orders against it since, still carrying the
+Subscription service, billing two bags at **$0.00**. #14302 was still `scheduled` as of
+this session.
+
+**The rule.** `resolveOrderPricelist(order)` (admin-dashboard, above `_orderSelectCols`)
+is now the single answer to "what pricelist does THIS ORDER price on?" — a live plan
+(active/past_due/paused, matching the trigger) always covers; a cancelled or expired one
+covers only orders PLACED on or before it ended, inclusive. Wired into the intake panel
+and the order panel (`opRecalcEstimate`, `opSaveDetails`). The main-service lookup now
+also runs whenever the order's own service belongs to a different pricelist than the
+resolved one — that is what stops a stale $0.00/bag service riding along.
+
+Screens that price a NEW order (create-order panel, customer app booking and recurring)
+correctly use live customer state and were not touched.
+
+Test: `node tests/session292_intake_pricing.test.js` — 13 cases, no DB, no browser.
+
+**Known and NOT fixed here:**
+1. **POS intake is the third instance.** `pos/index.html` `_posIntakePricelist` is read
+   fresh from `customers.pricelist` for an existing order (session 219), same pattern.
+   Partly shielded because `_ensurePosIntakeFeesSync` only adds a delivery fee when the
+   order has no fee row — and a subscription order always has the $0 "Delivery — included"
+   row — but the base repricing via `_plPriceMap` is not shielded. Fixing it means
+   duplicating the coverage logic into a second app; left for a deliberate decision.
+2. **`link_subscription_on_order_fn` has no coverage test either.** It keys off
+   `is_subscription_order`, which just mirrors `subscription_id IS NOT NULL`, so it will
+   still zero the delivery fee on a stale-linked order — #14302 lands at $65.00 instead of
+   $74.95. Undercharge, not overcharge, so not urgent. Needs migration review.
+3. **Upstream of all of it:** the recurring generator stamps orders with a subscription
+   the customer no longer has. That is where #14302 came from. Worth a sweep for other
+   lapsed subscribers still on recurring orders.
+
+**Money check.** Kate's $9.95 was credited back 11 Sep 12:02 PT; her $42.10 balance
+reconciles against all 26 transactions. No other customer in the last 120 days was charged
+more credit than their order's line items justified — this was a one-off race, not a leak.
+
+**Process note.** The Mac Book Air clone of this repo was 684 commits behind when this
+session started, so the first cut of this fix was written against an August snapshot and
+thrown away. Check `git fetch && git status` before editing on that machine.
+
+---
+
+
 > **⚠️ Bookkeeping module split out (session 217).** Loans, Payroll, and
 > Reconciliation (the "Bookkeeping" tabs in admin-dashboard) now have their
 > own notes file, **`PROJECT-NOTES-BOOKKEEPING.md`**, and their own skill,
