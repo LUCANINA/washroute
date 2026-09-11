@@ -80,15 +80,44 @@ SELECT count(*) subs,
        round(sum(275 + extra) - sum(bags * 65),2) delta
 FROM p;
 
--- 7. TREND — churn shape.
-WITH c AS (
-  SELECT s.id,
-    round(extract(epoch FROM (s.cancelled_at - s.signup_date))/86400.0) days_lasted,
-    (SELECT count(*) FROM orders o WHERE o.subscription_id = s.id AND o.status = 'delivered') delivered
-  FROM subscriptions s WHERE s.status = 'cancelled'
+-- 7. TREND — churn shape, and whether churners kept buying by the bag.
+--
+-- THE BUG THIS QUERY WAS WRITTEN TO AVOID. The first version built its churn set as
+--   FROM subscriptions s WHERE s.status = 'cancelled'
+-- and then tried to detect re-subscribers with bool_or(s.status = 'active') over that
+-- same set. The WHERE runs before the aggregate, so the active row is never in scope
+-- and the flag can only ever be false. It reported "0 resubscribed" and counted
+-- Olivia Rosaldo-Pratt as churned — she had in fact cancelled one subscription and
+-- started another the SAME DAY (2026-07-30) and is a current paying subscriber. Her
+-- "6 orders, $32" was ordinary subscription billing: $0 base, $3 Oxi each time.
+--
+-- A churned CUSTOMER is one with a cancelled subscription and NO active one. Group by
+-- customer over ALL their subscriptions, then filter.
+WITH cust AS (
+  SELECT c.id, c.first_name_cache||' '||COALESCE(c.last_name_cache,'') cust,
+         bool_or(s.status = 'active') has_active,
+         max(s.cancelled_at) FILTER (WHERE s.status = 'cancelled') last_cancel
+  FROM subscriptions s
+  JOIN customers c ON c.id = s.customer_id
+  GROUP BY 1, 2
+), churned AS (
+  SELECT * FROM cust WHERE NOT has_active AND last_cancel IS NOT NULL
+), post AS (
+  SELECT ch.*,
+    round(extract(epoch FROM (now() - ch.last_cancel))/86400.0) days_since,
+    (SELECT count(*) FROM orders o WHERE o.customer_id = ch.id
+       AND o.status = 'delivered' AND o.created_at > ch.last_cancel) orders_after,
+    (SELECT round(COALESCE(sum(o.total_amount),0),2) FROM orders o WHERE o.customer_id = ch.id
+       AND o.status = 'delivered' AND o.created_at > ch.last_cancel) rev_after
+  FROM churned ch
 )
-SELECT count(*) cancelled, round(avg(days_lasted)) avg_days,
-       round(percentile_cont(0.5) WITHIN GROUP (ORDER BY days_lasted)) median_days,
-       count(*) FILTER (WHERE days_lasted <= 35) churned_in_first_period,
-       count(*) FILTER (WHERE delivered = 0) never_used_it
-FROM c;
+SELECT
+ (SELECT count(*) FROM cust WHERE has_active AND last_cancel IS NOT NULL) resubscribed_same_customer,
+ (SELECT count(*) FROM churned) truly_churned,
+ count(*) FILTER (WHERE orders_after > 0) returned_payg,
+ count(*) FILTER (WHERE orders_after = 0) silent,
+ round(sum(rev_after),2) payg_revenue,
+ -- Most cancellations here are only days old. Segment before drawing conclusions.
+ count(*) FILTER (WHERE days_since >= 45) had_45d_to_return,
+ count(*) FILTER (WHERE days_since >= 45 AND orders_after > 0) returned_of_those
+FROM post;
