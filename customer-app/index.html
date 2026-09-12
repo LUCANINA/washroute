@@ -1404,6 +1404,7 @@
     <div class="detail-body main-content">
       <div class="d-section"><div class="d-section-title">Status</div><div id="d-badge"></div><div id="d-track" style="margin-top:14px"></div></div>
       <div class="d-section"><div class="d-section-title">Order Details</div><div id="d-rows"></div><div id="d-pay-section"></div></div>
+      <div id="d-referral-section"></div>
       <div id="d-edit-section"></div>
       <div id="d-skip-section"></div>
       <div id="d-cancel-section"></div>
@@ -5940,6 +5941,7 @@ async function openDetail(orderId) {
   document.getElementById('d-svc').textContent  = o.services?.name || '—';
   document.getElementById('d-date').textContent = 'Placed ' + fmtDate(o.created_at);
   document.getElementById('d-badge').innerHTML  = buildStatusBadge(o.status);
+  renderPostDeliveryAsk(o);   // session 292 — no-op unless the order is delivered and the surface is on
   document.getElementById('d-track').innerHTML  = ''; // progress bar hidden on detail view
 
   const bags = o.total_bags || 1;
@@ -8372,15 +8374,124 @@ async function applyPendingReferral() {
   } catch (e) { console.warn('applyPendingReferral:', e); }
 }
 
+/** $25 not $25.00, unless the amount really has cents. */
+function referralDollars(n) {
+  const v = Number(n || 0);
+  return '$' + (Number.isInteger(v) ? v : v.toFixed(2));
+}
+
+/** The pitch, written so it never sounds like the customer is paying. */
+function referralPitch(data) {
+  const same = Number(data.friend_credit) === Number(data.referrer_credit);
+  return same
+    ? `Invite a friend and you&rsquo;ll <strong>both get ${referralDollars(data.friend_credit)}</strong>. They save on their
+       first order, and your credit lands once it&rsquo;s delivered and paid.`
+    : `Invite a friend: they get <strong>${referralDollars(data.friend_credit)}</strong> off their first order, and you get
+       <strong>${referralDollars(data.referrer_credit)}</strong> once it&rsquo;s delivered and paid.`;
+}
+
+/** Loaded once per session and shared by both surfaces. */
+async function getReferralState() {
+  if (_referral) return _referral;
+  if (!currentCustomer?.id) return null;
+  try {
+    const { data, error } = await db.rpc('get_or_create_referral_code', { p_customer_id: currentCustomer.id });
+    if (error || !data?.ok) return null;
+    // Only cache a live program. Turning it on in Admin is a settings change, not
+    // a deploy, so a session that started while it was off must not stay dark.
+    if (data.enabled === true) _referral = data;
+    return data;
+  } catch (e) { console.warn('getReferralState:', e); return null; }
+}
+
+function referralSurfaces(data) {
+  return Array.isArray(data?.card_surfaces) ? data.card_surfaces : ['account'];
+}
+
+/* ── the post-delivery ask ──────────────────────────────────────────
+   Shown on a delivered order, at most once per order, snoozed for a
+   week by "Not now", and never shown to someone whose payment failed —
+   asking a favour of a customer you are chasing reads badly. */
+const REF_SNOOZE_KEY = 'wr_ref_ask_snooze';
+const REF_DONE_KEY   = 'wr_ref_ask_done';
+
+function referralAskSnoozed() {
+  try {
+    const until = parseInt(localStorage.getItem(REF_SNOOZE_KEY) || '0', 10);
+    return until > Date.now();
+  } catch (_) { return false; }
+}
+
+function referralAskDoneFor(orderId) {
+  try {
+    return (JSON.parse(localStorage.getItem(REF_DONE_KEY) || '[]')).includes(orderId);
+  } catch (_) { return false; }
+}
+
+function markReferralAskDone(orderId) {
+  try {
+    const seen = JSON.parse(localStorage.getItem(REF_DONE_KEY) || '[]');
+    if (!seen.includes(orderId)) seen.push(orderId);
+    localStorage.setItem(REF_DONE_KEY, JSON.stringify(seen.slice(-20)));
+  } catch (_) {}
+}
+
+function dismissReferralAsk(orderId) {
+  markReferralAskDone(orderId);
+  try { localStorage.setItem(REF_SNOOZE_KEY, String(Date.now() + 7 * 24 * 60 * 60 * 1000)); } catch (_) {}
+  const host = document.getElementById('d-referral-section');
+  if (host) { host.innerHTML = ''; host.style.display = 'none'; }
+}
+
+function shareReferralFrom(orderId) {
+  markReferralAskDone(orderId);
+  shareReferral();
+}
+
+async function renderPostDeliveryAsk(order) {
+  const host = document.getElementById('d-referral-section');
+  if (!host) return;
+  host.innerHTML = ''; host.style.display = 'none';
+
+  if (!order || order.status !== 'delivered') return;
+  if (order.billing_status === 'failed') return;          // chasing payment, not favours
+  if (referralAskSnoozed() || referralAskDoneFor(order.id)) return;
+
+  const data = await getReferralState();
+  if (!data || data.enabled !== true) return;
+  if (!referralSurfaces(data).includes('post_delivery')) return;
+
+  // Any failed charge on the account is also a reason to stay quiet.
+  try {
+    const { count } = await db.from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('customer_id', currentCustomer.id)
+      .eq('billing_status', 'failed');
+    if ((count || 0) > 0) return;
+  } catch (_) { /* if the check fails, fall through and ask */ }
+
+  host.innerHTML = `
+    <div class="d-section">
+      <div style="font-size:16px;font-weight:700;color:var(--navy);letter-spacing:-.01em">Know someone who&rsquo;d love this?</div>
+      <div style="font-size:13.5px;color:var(--gray-600);line-height:1.5;margin:5px 0 13px">${referralPitch(data)}</div>
+      <button onclick="shareReferralFrom('${order.id}')"
+        style="width:100%;padding:12px;background:var(--navy);color:white;border:none;border-radius:8px;
+               font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Text a friend</button>
+      <button onclick="dismissReferralAsk('${order.id}')"
+        style="width:100%;padding:11px;background:transparent;color:var(--gray-500);border:none;
+               font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Not now</button>
+    </div>`;
+  host.style.display = '';
+}
+
 async function loadReferralCard() {
   const host = document.getElementById('referral-card');
   if (!host || !currentCustomer?.id) return;
   try {
-    const { data, error } = await db.rpc('get_or_create_referral_code', { p_customer_id: currentCustomer.id });
-    if (error || !data?.ok || data.enabled !== true) return;
-    const surfaces = Array.isArray(data.card_surfaces) ? data.card_surfaces : ['account'];
-    if (!surfaces.includes('account')) return;
-    _referral = data;
+    const data = await getReferralState();
+    if (!data || data.enabled !== true) return;
+    if (!referralSurfaces(data).includes('account')) return;
+    const pitch = referralPitch(data);
 
     const earned = parseFloat(data.credit_earned || 0);
     const status = data.qualified > 0
@@ -8392,10 +8503,7 @@ async function loadReferralCard() {
     host.innerHTML = `
       <div class="pm-section">
         <div class="pref-title">Invite a Friend</div>
-        <div style="font-size:14px;color:var(--gray-600);line-height:1.5;margin-bottom:12px">
-          Give a friend ${$m(data.friend_credit)} off their first order. When it is delivered and
-          paid, you get ${$m(data.referrer_credit)} in credit.
-        </div>
+        <div style="font-size:14px;color:var(--gray-600);line-height:1.5;margin-bottom:12px">${pitch}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
           <div style="flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:18px;font-weight:700;
                       letter-spacing:.06em;color:var(--navy);background:var(--gray-50);

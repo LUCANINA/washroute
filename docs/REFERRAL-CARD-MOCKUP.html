@@ -1,0 +1,276 @@
+<title>Referral Card Placements</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400&display=swap">
+<style>
+  :root {
+    --page:     #EEF0EE;
+    --ink:      #17212B;
+    --ink-soft: #5C6A72;
+    --rule:     #D6DBD6;
+    --panel:    #FFFFFF;
+    --flag:     #9A5B08;
+    --flag-bg:  #F7EDDD;
+
+    /* the customer app's own tokens, copied from customer-app/index.html */
+    --navy:     #0f2744;
+    --accent:   #2a6fc9;
+    --text:     #1a1a2e;
+    --gray-50:  #f8f9fa;
+    --gray-100: #f1f3f5;
+    --gray-200: #e2e8f0;
+    --gray-400: #94a3b8;
+    --gray-500: #6b7280;
+    --gray-600: #64748b;
+    --green-bg: #ecfdf5;
+    --green-br: #a7f3d0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #12171A; --ink: #E7EDEA; --ink-soft: #9DAAA6; --rule: #2D373B; --panel: #1A2125;
+      --flag: #E0A863; --flag-bg: #2C2417;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #12171A; --ink: #E7EDEA; --ink-soft: #9DAAA6; --rule: #2D373B; --panel: #1A2125;
+    --flag: #E0A863; --flag-bg: #2C2417;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font-family: "Source Serif 4", Georgia, serif; font-size: 16px; line-height: 1.6;
+    padding-inline: 20px; padding-block: 40px 64px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+  h1, h2, h3, .eyebrow, .ui { font-family: Archivo, "Helvetica Neue", Arial, sans-serif; }
+  h1 { font-size: 1.95rem; margin: 0; letter-spacing: -.02em; line-height: 1.15; }
+  h2 { font-size: 1.1rem; margin: 0; letter-spacing: -.01em; }
+  p { margin: 0; max-width: 68ch; }
+  .eyebrow { font-size: .7rem; text-transform: uppercase; letter-spacing: .11em; color: var(--ink-soft); font-weight: 600; }
+  header { display: flex; flex-direction: column; gap: 10px; }
+  header p { color: var(--ink-soft); }
+
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  @media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+  .slot { display: flex; flex-direction: column; gap: 12px; }
+  .slot > .cap { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--rule); padding-top: 12px; }
+  .cap .note { font-size: .88rem; color: var(--ink-soft); }
+  .built { font-family: Archivo, sans-serif; font-size: .66rem; font-weight: 700; letter-spacing: .08em;
+           text-transform: uppercase; padding: 2px 8px; border-radius: 99px; align-self: flex-start; }
+  .built.yes { color: #0E7A63; background: #E2EFEA; }
+  .built.no  { color: var(--flag); background: var(--flag-bg); }
+
+  /* ── phone ─────────────────────────────────────────────── */
+  .phone {
+    background: #fff; border: 1px solid var(--gray-200); border-radius: 26px; padding: 10px;
+    box-shadow: 0 10px 24px rgba(15,39,68,.10); max-width: 100%;
+  }
+  .phone-inner { background: #fff; border-radius: 18px; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); }
+  .statusbar { display: flex; justify-content: space-between; padding: 7px 16px 3px; font-size: 11px; color: var(--gray-400); font-weight: 600; }
+  .appbar { padding: 6px 16px 14px; font-size: 19px; font-weight: 700; color: var(--navy); letter-spacing: -.01em; }
+  .screen-body { padding: 0 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+  .pm-section { border: 1px solid var(--gray-200); border-radius: 12px; padding: 14px; background: #fff; }
+  .pref-title { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 10px; }
+  .pm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .credits-dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; }
+  .credits-label { font-size: 14px; font-weight: 600; color: var(--text); }
+  .credits-note { font-size: 12px; color: var(--gray-400); margin-top: 1px; }
+  .credits-amount { font-size: 16px; font-weight: 700; color: #16a34a; }
+
+  .blurb { font-size: 13.5px; color: var(--gray-600); line-height: 1.5; margin-bottom: 12px; }
+  .coderow { display: flex; align-items: stretch; gap: 8px; margin-bottom: 10px; }
+  .code {
+    flex: 1; font-family: ui-monospace, Menlo, monospace; font-size: 17px; font-weight: 700;
+    letter-spacing: .06em; color: var(--navy); background: var(--gray-50);
+    border: 1.5px dashed var(--gray-200); border-radius: 8px; padding: 11px 12px; text-align: center;
+  }
+  .btn-copy { padding: 11px 14px; background: #fff; color: var(--navy); border: 1.5px solid var(--gray-200);
+              border-radius: 8px; font-size: 13px; font-weight: 600; }
+  .btn-navy { width: 100%; padding: 12px; background: var(--navy); color: #fff; border: none;
+              border-radius: 8px; font-size: 14px; font-weight: 600; text-align: center; }
+  .btn-quiet { width: 100%; padding: 11px; background: transparent; color: var(--gray-500);
+               border: none; font-size: 13px; font-weight: 600; text-align: center; }
+  .status { font-size: 12px; color: var(--gray-400); margin-top: 8px; }
+
+  .delivered {
+    background: var(--green-bg); border: 1px solid var(--green-br); border-radius: 12px; padding: 14px;
+    display: flex; gap: 11px; align-items: flex-start;
+  }
+  .check { width: 22px; height: 22px; border-radius: 50%; background: #16a34a; color: #fff;
+           font-size: 13px; font-weight: 700; display: grid; place-items: center; flex-shrink: 0; }
+  .delivered .t { font-size: 14.5px; font-weight: 700; color: var(--navy); }
+  .delivered .s { font-size: 12.5px; color: var(--gray-600); margin-top: 2px; }
+
+  .ask { border: 1px solid var(--gray-200); border-radius: 12px; padding: 16px; background: #fff; }
+  .ask-h { font-size: 16px; font-weight: 700; color: var(--navy); letter-spacing: -.01em; }
+  .ask-s { font-size: 13.5px; color: var(--gray-600); line-height: 1.5; margin: 5px 0 13px; }
+  .receipt { display: flex; justify-content: space-between; font-size: 13px; color: var(--gray-600);
+             padding: 11px 14px; border: 1px solid var(--gray-200); border-radius: 12px; }
+  .receipt b { color: var(--text); }
+
+  .sms { display: flex; flex-direction: column; gap: 8px; }
+  .bubble { background: #E9EDF2; border-radius: 16px 16px 16px 5px; padding: 11px 14px; font-size: 13.5px;
+            color: var(--text); max-width: 92%; line-height: 1.45; }
+  .bubble.out { background: var(--accent); color: #fff; border-radius: 16px 16px 5px 16px; align-self: flex-end; }
+
+  section { display: flex; flex-direction: column; gap: 14px; }
+  section > .head { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--rule); padding-top: 14px; }
+  dl.sw { margin: 0; display: flex; flex-direction: column; gap: 11px; }
+  dl.sw > div { display: grid; grid-template-columns: 168px 1fr; gap: 14px; }
+  dl.sw dt { font-family: Archivo, sans-serif; font-weight: 600; font-size: .88rem; }
+  dl.sw dd { margin: 0; color: var(--ink-soft); font-size: .95rem; }
+  @media (max-width: 620px) { dl.sw > div { grid-template-columns: 1fr; gap: 2px; } }
+  .flagnote { background: var(--flag-bg); border-left: 3px solid var(--flag); padding: 12px 15px;
+              border-radius: 0 6px 6px 0; font-size: .94rem; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .88em; }
+  footer { border-top: 1px solid var(--rule); padding-top: 13px; font-size: .85rem; color: var(--ink-soft); }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <span class="eyebrow">Family Laundry &middot; Referral program &middot; September 2026</span>
+    <h1>What the customer actually sees</h1>
+    <p>Both placements at real size, with the real copy and the app's own colors. Jenny Brandt is the referrer; her code is the one the system would mint for her.</p>
+  </header>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">The switch</span>
+      <h2>What "Program is off" does when you click it</h2>
+    </div>
+    <p>It is the master switch, and it is enforced in the database, not the interface — so a stale browser tab can't work around it.</p>
+    <dl class="sw">
+      <div><dt>Off &rarr; On</dt><dd>Codes start being minted, the card appears wherever you've ticked a surface, and <code>/r/CODE</code> links begin working. Nothing is sent to anyone — customers have to go find it.</dd></div>
+      <div><dt>On &rarr; Off</dt><dd>New claims stop being accepted and the card disappears from the app. Pairs already claimed are untouched: a friend keeps the $25 already on their account, and if their first order is paid while the switch is off, the referrer is <em>not</em> credited — the pair just waits as <em>claimed</em> until you turn it back on.</dd></div>
+      <div><dt>While off</dt><dd>No code is created even if someone opens their Account screen, so you won't accumulate half-live codes during the quiet week.</dd></div>
+      <div><dt>What it never does</dt><dd>Touch credit already granted, delete pairs, or message anyone.</dd></div>
+    </dl>
+    <p class="flagnote"><strong>Your screenshot is fine, just cropped.</strong> "Cap per referrer / 30 days" and "Credit expires after (days)" are in the same row, off the right edge — the grid fits as many columns as the window allows. Scroll right or narrow the window and they're there.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">Placement 1 &mdash; Account screen</span>
+      <h2>Always there, never in the way</h2>
+    </div>
+    <div class="pair">
+      <div class="slot">
+        <div class="phone"><div class="phone-inner">
+          <div class="statusbar"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+          <div class="appbar">Account</div>
+          <div class="screen-body">
+            <div class="pm-section">
+              <div class="pref-title">Store Credits</div>
+              <div class="pm-row">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div class="credits-dot"></div>
+                  <div>
+                    <div class="credits-label">Account credit</div>
+                    <div class="credits-note">Applied automatically before your card</div>
+                  </div>
+                </div>
+                <div class="credits-amount">$25.00</div>
+              </div>
+            </div>
+
+            <div class="pm-section">
+              <div class="pref-title">Invite a Friend</div>
+              <div class="blurb">Invite a friend and you&rsquo;ll <strong>both get $25</strong>. They save on their first order, and your credit lands once it&rsquo;s delivered and paid.</div>
+              <div class="coderow">
+                <div class="code">JENNY214</div>
+                <div class="btn-copy ui">Copy</div>
+              </div>
+              <div class="btn-navy ui">Text a friend</div>
+              <div class="status">1 friend ordered &middot; $25.00 earned</div>
+            </div>
+
+            <div class="pm-section">
+              <div class="pref-title">Promo &amp; Referral Codes</div>
+              <div class="pm-row">
+                <div style="flex:1;border:1.5px solid var(--gray-200);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--gray-400)">Enter code</div>
+                <div class="btn-copy ui" style="background:var(--navy);color:#fff;border-color:var(--navy)">Apply</div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        <div class="cap">
+          <span class="built yes">Built and live behind the switch</span>
+          <span class="note">The status line is the part that earns repeat referrals — it turns an invite into something with a score. Before anyone has been invited it reads "Nobody invited yet"; after an invite, "2 invited — credit arrives after their first order".</span>
+        </div>
+      </div>
+
+      <div class="slot">
+        <div class="phone"><div class="phone-inner">
+          <div class="statusbar"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+          <div class="appbar">Messages</div>
+          <div class="screen-body">
+            <div style="font-size:12px;color:var(--gray-400);text-align:center">To: Marisol</div>
+            <div class="sms">
+              <div class="bubble out">I use Family Laundry for pickup &amp; delivery — they pick up at the door and bring it back folded. Use my code JENNY214 for $25 off your first order: app.familylaundry.com/r/JENNY214</div>
+              <div class="bubble">wait they pick up?? sending you my address</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="cap">
+          <span class="built yes">Built</span>
+          <span class="note">"Text a friend" opens Jenny's own share sheet, or her Messages app, with this text already written. It arrives from a number Marisol knows — which is why it converts, and why there's no consent problem. You can rewrite this text any time in Settings &rarr; Referrals.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">Placement 2 &mdash; after a delivery</span>
+      <h2>The moment she's holding folded laundry</h2>
+    </div>
+    <div class="pair">
+      <div class="slot">
+        <div class="phone"><div class="phone-inner">
+          <div class="statusbar"><span>4:12</span><span>&#9679;&#9679;&#9679;</span></div>
+          <div class="appbar">Order #14812</div>
+          <div class="screen-body">
+            <div class="delivered">
+              <div class="check">&#10003;</div>
+              <div>
+                <div class="t">Delivered &mdash; 4:08 PM</div>
+                <div class="s">Left at your door. 3 bags, 41 lbs. Thanks, Jenny!</div>
+              </div>
+            </div>
+
+            <div class="receipt"><span>Paid &middot; Visa &bull;&bull;&bull;&bull; 1522</span><span><b>$78.40</b></span></div>
+
+            <div class="ask">
+              <div class="ask-h">Know someone who'd love this?</div>
+              <div class="ask-s">Invite a friend and you&rsquo;ll both get $25 &mdash; they save on their first order, you get credit once it&rsquo;s delivered and paid.</div>
+              <div class="btn-navy ui">Text a friend</div>
+              <div class="btn-quiet ui">Not now</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="cap">
+          <span class="built no">Not built yet</span>
+          <span class="note">The setting exists; the surface doesn't. Ticking "Show it after a delivery" today changes nothing — which is exactly the kind of switch that lies, so it's worth closing before you announce.</span>
+        </div>
+      </div>
+
+      <div class="slot" style="justify-content:flex-start">
+        <div class="cap" style="border-top:none;padding-top:0">
+          <h3 class="ui" style="font-size:.95rem;margin:0 0 6px">Three rules I'd build it with</h3>
+        </div>
+        <dl class="sw" style="gap:13px">
+          <div><dt>Once per order, then quiet</dt><dd>Show it on the delivered screen, and never re-show it for that order. "Not now" dismisses it for a week, not forever.</dd></div>
+          <div><dt>Skip anyone with a balance owing</dt><dd>Asking a favour of someone whose payment just failed reads badly. Collect first.</dd></div>
+          <div><dt>Same card, no second design</dt><dd>It's the Account card with a warmer headline and a dismiss link. One component, two mounts — so a copy change in Settings lands in both places at once.</dd></div>
+        </dl>
+        <p style="font-size:.95rem;color:var(--ink-soft)">Roughly 80 lines in the customer app, no schema change, no new setting. Say the word and it goes in before the quiet week, still switched off.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Colors, type sizes and copy taken from <code>customer-app/index.html</code> as built in session 292 — navy <code>#0f2744</code>, accent <code>#2a6fc9</code>. Amounts read $25 because that is what the terms say today; the card renders whatever you set.
+  </footer>
+
+</div>

@@ -40528,15 +40528,21 @@ ${oneCopy}
     const on = c.enabled === true;
 
     host.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:18px;border-radius:8px;flex-wrap:wrap;
+      <div id="rf-switch-bar" style="display:flex;align-items:center;gap:12px;padding:14px;margin-bottom:18px;border-radius:8px;flex-wrap:wrap;
                   background:${on ? '#ecfdf5' : 'var(--gray-50)'};border:1px solid ${on ? '#a7f3d0' : 'var(--gray-200)'}">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;font-size:14px;color:var(--gray-900)">
-          <input type="checkbox" id="rf-enabled" ${on ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer">
-          Program ${on ? 'is running' : 'is off'}
+        <label class="toggle-switch" title="Enable or disable the referral program">
+          <input type="checkbox" id="rf-enabled" ${on ? 'checked' : ''} onchange="updateReferralSwitchLabel()" />
+          <span class="toggle-slider"></span>
         </label>
-        <div style="font-size:12px;color:var(--gray-500);margin-left:auto">
-          ${on ? 'Turning this off stops new claims. Pairs already in flight are untouched.'
-               : 'Nothing is visible to customers while this is off.'}
+        <div>
+          <div id="rf-switch-label" style="font-weight:700;font-size:14px;color:var(--gray-900)">${on ? 'Enabled' : 'Disabled'}</div>
+          <div id="rf-switch-note" style="font-size:12px;color:var(--gray-500);margin-top:1px">
+            ${on ? 'Customers can claim codes. Switching off stops new claims and leaves pairs in flight untouched.'
+                 : 'Nothing is visible to customers, and no codes are minted.'}
+          </div>
+        </div>
+        <div id="rf-switch-dirty" style="display:none;margin-left:auto;font-size:12px;font-weight:600;color:var(--amber, #92400e)">
+          Not saved yet — press Save terms
         </div>
       </div>
 
@@ -40565,8 +40571,10 @@ ${oneCopy}
         </div>
         <div>
           <label class="form-label">Remind the friend after (days)</label>
-          <input type="number" class="form-input" id="rf-remind" step="1" min="0" placeholder="off"
+          <input type="number" class="form-input" id="rf-remind" step="1" min="0" placeholder="off" disabled
+                 title="The reminder text is not built yet — this stores the number but sends nothing"
                  value="${c.friend_reminder_days == null ? '' : Number(c.friend_reminder_days)}">
+          <div style="font-size:11.5px;color:var(--gray-500);margin-top:4px">Not sending yet — the reminder text still has to be built.</div>
         </div>
       </div>
 
@@ -40595,15 +40603,35 @@ ${oneCopy}
       </div>
 
       <div style="margin-top:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <button class="btn btn-primary" style="padding:9px 18px;font-size:13px" onclick="saveReferralTerms()">Save terms</button>
+        <button class="btn btn-primary" id="rf-save-btn" style="padding:9px 18px;font-size:13px" onclick="saveReferralTerms()">Save terms</button>
         <div id="rf-save-note" style="font-size:12px;color:var(--gray-500)">
           ${c.updated_by ? 'Last changed by ' + esc(String(c.updated_by)) + (c.updated_at ? ' · ' + esc(String(c.updated_at).slice(0,10)) : '') : ''}
         </div>
       </div>`;
   }
 
+  /** The toggle says what it will be, not what it was — with an unsaved flag so
+      nobody reads "Enabled" and walks away without pressing Save. */
+  function updateReferralSwitchLabel() {
+    const on    = document.getElementById('rf-enabled')?.checked;
+    const bar   = document.getElementById('rf-switch-bar');
+    const label = document.getElementById('rf-switch-label');
+    const note  = document.getElementById('rf-switch-note');
+    const dirty = document.getElementById('rf-switch-dirty');
+    if (!bar || !label || !note) return;
+    label.textContent = on ? 'Enabled' : 'Disabled';
+    note.textContent  = on
+      ? 'Customers can claim codes. Switching off stops new claims and leaves pairs in flight untouched.'
+      : 'Nothing is visible to customers, and no codes are minted.';
+    bar.style.background = on ? '#ecfdf5' : 'var(--gray-50)';
+    bar.style.borderColor = on ? '#a7f3d0' : 'var(--gray-200)';
+    const was = _referralCfg?.enabled === true;
+    if (dirty) dirty.style.display = (on === was) ? 'none' : '';
+  }
+
   async function saveReferralTerms() {
     const note = document.getElementById('rf-save-note');
+    const btn  = document.getElementById('rf-save-btn');
     const surfaces = [];
     if (document.getElementById('rf-surface-account').checked)  surfaces.push('account');
     if (document.getElementById('rf-surface-delivery').checked) surfaces.push('post_delivery');
@@ -40627,12 +40655,15 @@ ${oneCopy}
         && !confirm('The program would be on but the card is hidden everywhere. Customers could still use a code they already have. Save anyway?')) return;
 
     if (note) note.textContent = 'Saving…';
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     const { data, error } = await db.rpc('set_referral_config', {
       p_config: payload,
       p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
     });
-    if (error)     { showToast('Could not save: ' + error.message, 'error'); if (note) note.textContent = ''; return; }
-    if (!data?.ok) { showToast(data?.message || 'Could not save the terms.', 'error'); if (note) note.textContent = ''; return; }
+    const done = () => { if (btn) { btn.disabled = false; btn.textContent = 'Save terms'; } };
+    if (error)     { showToast('Could not save: ' + error.message, 'error'); if (note) note.textContent = ''; done(); return; }
+    if (!data?.ok) { showToast(data?.message || 'Could not save the terms.', 'error'); if (note) note.textContent = ''; done(); return; }
+    done();
     showToast(data.message, 'success');
     loadReferralTerms();
   }

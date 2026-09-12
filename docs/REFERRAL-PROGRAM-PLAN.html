@@ -1,0 +1,334 @@
+<title>Family Laundry Referrals</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #EFF1EE;
+    --surface: #FFFFFF;
+    --ink: #17212B;
+    --ink-soft: #5C6A72;
+    --hairline: #D6DBD6;
+    --accent: #0E7A63;
+    --accent-soft: #E2EFEA;
+    --flag: #9A5B08;
+    --flag-soft: #F6ECDC;
+    --shadow: 0 1px 2px rgba(23,33,43,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #12171A;
+      --surface: #1A2125;
+      --ink: #E7EDEA;
+      --ink-soft: #9DAAA6;
+      --hairline: #2D373B;
+      --accent: #5CC9AC;
+      --accent-soft: #1C2E2A;
+      --flag: #E0A863;
+      --flag-soft: #2C2417;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #12171A;
+    --surface: #1A2125;
+    --ink: #E7EDEA;
+    --ink-soft: #9DAAA6;
+    --hairline: #2D373B;
+    --accent: #5CC9AC;
+    --accent-soft: #1C2E2A;
+    --flag: #E0A863;
+    --flag-soft: #2C2417;
+    --shadow: none;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 17px;
+    line-height: 1.62;
+    padding-inline: 20px;
+    padding-block: 48px 72px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 44px; }
+
+  h1, h2, h3, .mono, .eyebrow, th, .tile-n, .step-n { font-family: Archivo, "Helvetica Neue", Arial, sans-serif; }
+  h1 { font-size: 2.15rem; line-height: 1.12; letter-spacing: -.022em; margin: 0; font-weight: 700; text-wrap: balance; }
+  h2 { font-size: 1.22rem; letter-spacing: -.01em; margin: 0; font-weight: 600; text-wrap: balance; }
+  h3 { font-size: .95rem; margin: 0 0 6px; font-weight: 600; letter-spacing: -.005em; }
+  p { margin: 0; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  .eyebrow {
+    font-size: .7rem; text-transform: uppercase; letter-spacing: .11em;
+    color: var(--ink-soft); font-weight: 600;
+  }
+  header { display: flex; flex-direction: column; gap: 12px; }
+  header p.lede { font-size: 1.08rem; color: var(--ink-soft); max-width: 62ch; }
+  .offer {
+    font-family: Archivo, sans-serif; font-weight: 700; font-size: 1.05rem;
+    background: var(--accent-soft); color: var(--ink);
+    border-left: 3px solid var(--accent);
+    padding: 14px 18px; border-radius: 0 6px 6px 0;
+  }
+
+  section { display: flex; flex-direction: column; gap: 16px; }
+  section > .head { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--hairline); padding-top: 14px; }
+  p + p { margin-top: -4px; }
+
+  /* steps */
+  ol.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; counter-reset: s; }
+  ol.steps li { display: grid; grid-template-columns: 26px 1fr; gap: 14px; align-items: start; }
+  .step-n {
+    font-size: .78rem; font-weight: 600; font-variant-numeric: tabular-nums;
+    color: var(--accent); border: 1px solid var(--hairline); border-radius: 50%;
+    width: 26px; height: 26px; display: grid; place-items: center; margin-top: 3px;
+  }
+
+  /* figure row */
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--hairline); border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden; }
+  .tile { background: var(--surface); padding: 16px 18px; display: flex; flex-direction: column; gap: 3px; }
+  .tile-n { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .tile-l { font-size: .78rem; color: var(--ink-soft); font-family: Archivo, sans-serif; line-height: 1.35; }
+
+  /* tables */
+  .scroll { overflow-x: auto; border: 1px solid var(--hairline); border-radius: 8px; background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  th { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .85em; }
+
+  /* rules list */
+  dl.rules { margin: 0; display: flex; flex-direction: column; gap: 12px; }
+  dl.rules > div { display: grid; grid-template-columns: 190px 1fr; gap: 16px; }
+  dl.rules dt { font-family: Archivo, sans-serif; font-weight: 600; font-size: .88rem; }
+  dl.rules dd { margin: 0; color: var(--ink-soft); font-size: .95rem; }
+
+  /* message bubbles */
+  .texts { display: flex; flex-direction: column; gap: 14px; }
+  .bubble {
+    background: var(--surface); border: 1px solid var(--hairline); box-shadow: var(--shadow);
+    border-radius: 16px 16px 16px 4px; padding: 13px 16px; max-width: 46ch;
+    font-size: .96rem;
+  }
+  .bubble .who { font-family: Archivo, sans-serif; font-size: .7rem; text-transform: uppercase; letter-spacing: .09em; color: var(--ink-soft); display: block; margin-bottom: 5px; }
+  .bubble.out { border-radius: 16px 16px 4px 16px; align-self: flex-end; background: var(--accent-soft); }
+
+  .note {
+    background: var(--flag-soft); border-left: 3px solid var(--flag);
+    padding: 12px 16px; border-radius: 0 6px 6px 0; font-size: .94rem;
+  }
+  .note strong { font-family: Archivo, sans-serif; }
+
+  ul.plain { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; font-size: .97rem; }
+  ul.plain li::marker { color: var(--ink-soft); }
+
+  footer { border-top: 1px solid var(--hairline); padding-top: 14px; font-size: .85rem; color: var(--ink-soft); }
+
+  @media (max-width: 620px) {
+    body { font-size: 16px; padding-block: 32px 56px; }
+    h1 { font-size: 1.8rem; }
+    .tiles { grid-template-columns: 1fr; }
+    dl.rules > div { grid-template-columns: 1fr; gap: 2px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <span class="eyebrow">Family Laundry &middot; Program plan &middot; September 2026</span>
+    <h1>Customer referrals, paid in laundry credit</h1>
+    <p class="lede">A two-sided referral program where existing customers text friends from their own phone, and both sides get credit once the friend's first order is actually delivered and paid.</p>
+    <p class="offer">Invite a friend &mdash; you both get $25.</p>
+  </header>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">How it works</span>
+      <h2>Five steps, no cash out the door</h2>
+    </div>
+    <ol class="steps">
+      <li><span class="step-n">1</span><div><strong>The ask lands after a good delivery.</strong> A referral card appears in the customer app on the screen they see after an order is delivered — the moment they are happiest — and permanently in Account. Never at signup, when they have nothing to vouch for yet.</div></li>
+      <li><span class="step-n">2</span><div><strong>They text a friend from their own phone.</strong> Tapping <em>Invite a friend</em> opens their own Messages app with the text and their code prefilled. It arrives from a number the friend recognizes, which is both the reason it converts and the reason we have no consent problem.</div></li>
+      <li><span class="step-n">3</span><div><strong>The friend enters the code before their first order.</strong> $25 lands on the friend's account immediately, so they see it come off at checkout. Credit, not cash — it can only be spent on laundry.</div></li>
+      <li><span class="step-n">4</span><div><strong>The friend's first order is delivered and paid.</strong> Only then does the referrer's $25 appear. Nothing pays out on a signup that never becomes revenue.</div></li>
+      <li><span class="step-n">5</span><div><strong>The referrer gets told.</strong> One SMS naming the friend and the credit. That message is the strongest prompt to refer again, which is why the program compounds instead of firing once.</div></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">Economics</span>
+      <h2>Why $25 / $25 is comfortable at your numbers</h2>
+    </div>
+    <div class="tiles">
+      <div class="tile"><span class="tile-n">$606.76</span><span class="tile-l">Revenue from an average new customer in their first 90 days</span></div>
+      <div class="tile"><span class="tile-n">78.6%</span><span class="tile-l">New customers who place a second order</span></div>
+      <div class="tile"><span class="tile-n">$50</span><span class="tile-l">Maximum cost of a completed referral pair</span></div>
+    </div>
+    <p>Those first two figures come from your own last twelve months — 947 customers whose first paid order was between 3 and 12 months ago, measured over their first 90 days. A $50 reward is <strong>8% of the average new customer's first 90 days</strong>, or 13% against the $380.90 median. Paid acquisition rarely comes close to that.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Where the $50 actually goes</th><th class="num">Amount</th><th>Timing and form</th></tr></thead>
+        <tbody>
+          <tr><td>Friend's first-order credit</td><td class="num">$25</td><td>Comes off a median $77.95 first order, so you still collect ~$52.95 in cash on day one</td></tr>
+          <tr><td>Referrer's credit</td><td class="num">$25</td><td>Spent against a <em>future</em> order from a customer who already orders regularly — a discount on revenue you were going to earn, not money leaving the business</td></tr>
+          <tr><td>Tips</td><td class="num">$0</td><td>Credits apply to the pre-tip subtotal only. Drivers are paid in full on every referred order — that is already how the charge path works</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>At today's volume of about 130 new customers a month, referrals supplying a fifth of them means roughly 26 pairs, or <strong>$1,300 a month in credit issued</strong> against roughly $15,800 of new 90-day revenue.</p>
+    <p>At 50% gross margin the offer holds on every leg, including the one that usually breaks:</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Leg</th><th class="num">Gross profit</th><th class="num">Credit</th><th class="num">Net</th></tr></thead>
+        <tbody>
+          <tr><td>Friend's first order (median $77.95)</td><td class="num">$38.98</td><td class="num">&minus;$25.00</td><td class="num">+$13.98</td></tr>
+          <tr><td>Referrer's next order (average $94.50)</td><td class="num">$47.25</td><td class="num">&minus;$25.00</td><td class="num">+$22.25</td></tr>
+          <tr><td>The pair across the friend's first 90 days</td><td class="num">$303.38</td><td class="num">&minus;$50.00</td><td class="num">+$253.38</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The discounted first order still earns money on its own — $13.98 — so no leg of this is subsidised by hope. The full $50 is <strong>16.5% of the gross profit</strong> a new customer generates in their first 90 days. $25 / $25 is the right opening offer; there's no need to start lower.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">Guardrails</span>
+      <h2>Rules that keep it honest</h2>
+    </div>
+    <p>Every one of these exists because referral programs get gamed, usually by a handful of people creating accounts for themselves.</p>
+    <dl class="rules">
+      <div><dt>New customers only</dt><dd>The code must be claimed before the friend's first paid order. After that, the offer is gone.</dd></div>
+      <div><dt>One referral per person, ever</dt><dd>Enforced in the database, not the interface — a unique constraint on the referred customer.</dd></div>
+      <div><dt>No self-referral</dt><dd>Blocked when the phone number or delivery address matches the referrer's.</dd></div>
+      <div><dt>Ten per referrer per month</dt><dd>Beyond that, pairs still record but sit as <em>flagged</em> for you to release. A genuine ambassador is worth a manual look; a farm is worth catching.</dd></div>
+      <div><dt>Doesn't stack</dt><dd>A referral credit and a first-order promo code can't both apply to the same order. The friend keeps whichever is larger.</dd></div>
+      <div><dt>Commercial accounts can refer</dt><dd>Their contacts know a lot of households, so they're in — but their credit arrives differently, and a referred commercial account is released by hand. See below.</dd></div>
+      <div><dt>Walk-ins excluded</dt><dd>Counter orders are paid at the register and never touch the credit path.</dd></div>
+      <div><dt>Credit, never cash</dt><dd>No payouts, no transfers, no refund of credit. It can only be spent on laundry, which is also what keeps it off your books as an expense.</dd></div>
+    </dl>
+    <p class="note"><strong>Watch for cannibalization.</strong> Some referred customers would have found you anyway. The honest measure is total new customers per month before and after launch — not the referral count, which will always look good.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">The words</span>
+      <h2>What actually gets sent</h2>
+    </div>
+    <p>Codes are the referrer's first name plus three digits — sayable out loud, hard to guess, obviously personal.</p>
+    <div class="texts">
+      <div class="bubble out">
+        <span class="who">Prefilled in the customer's Messages app</span>
+        I use Family Laundry for pickup &amp; delivery — they pick up at the door and bring it back folded. Use my code <span class="mono">JENNY214</span> for $25 off your first order: app.familylaundry.com/r/JENNY214
+      </div>
+      <div class="bubble">
+        <span class="who">To the referrer, once the friend's order is paid &middot; new template <span class="mono">referral_qualified</span></span>
+        Sandra's first order just went out — your $25 credit is on your account and comes off your next pickup automatically. Thanks for the introduction.
+      </div>
+      <div class="bubble">
+        <span class="who">To the friend, once, if they claim a code and don't book within 7 days</span>
+        Your $25 Family Laundry credit from Jenny is still waiting. Book a pickup whenever you're ready: app.familylaundry.com
+      </div>
+    </div>
+    <p>Three messages total, and only the first is something a customer sends. Nothing goes to anyone who hasn't either signed up or chosen to text a friend themselves.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">Build spec</span>
+      <h2>What this is in WashRoute</h2>
+    </div>
+    <p>Credits already work the way this program needs: <span class="mono">customers.credits</span> is applied automatically to the pre-tip subtotal at charge time, deducted on success, and shown in the app's Account screen and Billing History. The program is mostly bookkeeping around that existing behavior.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">referral_codes</td><td>One row per customer: <span class="mono">customer_id</span> (unique), <span class="mono">code</span> (unique, uppercase), <span class="mono">active</span>. Created lazily the first time someone opens the referral card.</td></tr>
+          <tr><td class="mono">referrals</td><td>The pair and its state: referrer, referred customer (<strong>unique</strong>), code used, <span class="mono">claimed_at</span>, <span class="mono">qualifying_order_id</span>, <span class="mono">qualified_at</span>, both credit amounts, and <span class="mono">status</span> of claimed / qualified / flagged / void with a reason.</td></tr>
+          <tr><td class="mono">claim_referral_code()</td><td>Called from the app when the friend enters a code. Same shape as the existing <span class="mono">redeem_discount_code</span> RPC — security definer, self-or-admin guard, returns <span class="mono">{ok, message}</span>. Runs every guardrail above, grants the friend's $25, writes the <span class="mono">referrals</span> row and a <span class="mono">customer_transactions</span> entry.</td></tr>
+          <tr><td class="mono">qualify_referral()</td><td>Called with the order id from the success path in <span class="mono">charge-order</span>, after payment lands, on both the Stripe and credits-only branches. If this is the referred customer's first paid order, it stamps the pair qualified, adds the referrer's $25, logs both sides, and queues the referrer SMS.</td></tr>
+          <tr><td>Customer app</td><td>Referral card on the post-delivery screen and in Account: the code, a share button that opens the native composer, and simple status — invited, ordered, credit earned. A code field on the signup screen, prefilled when someone arrives on a <span class="mono">/r/CODE</span> link.</td></tr>
+          <tr><td class="mono">settings.referral_config</td><td>One jsonb column on the existing singleton <span class="mono">settings</span> row — the same pattern as <span class="mono">invoice_config</span>, so no new table and no new policies. Loaded at startup into a <span class="mono">BIZ_REFERRAL</span> global, and read by both RPCs rather than baked into them.</td></tr>
+          <tr><td>Sidebar &rarr; Settings &rarr; Referrals</td><td>A new nav item directly under Discounts. Top half is the editable terms below; bottom half is the operating view: pairs by status, credit issued vs. revenue from referred customers, a leaderboard, and the flagged queue to release or void.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>The terms you can edit</h3>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Field</th><th>Control</th><th class="num">Opening value</th></tr></thead>
+        <tbody>
+          <tr><td>Program</td><td>On / off master switch — turns off new claims, leaves pairs in flight intact</td><td class="num">On</td></tr>
+          <tr><td>Friend credit</td><td>Dollar amount</td><td class="num">$25</td></tr>
+          <tr><td>Referrer credit</td><td>Dollar amount</td><td class="num">$25</td></tr>
+          <tr><td>Referrer paid when</td><td>First order delivered &amp; paid / first order placed</td><td class="num">Delivered &amp; paid</td></tr>
+          <tr><td>Cap per referrer</td><td>Qualified referrals per rolling 30 days before pairs are flagged</td><td class="num">10</td></tr>
+          <tr><td>Credit expires</td><td>Never, or a number of days</td><td class="num">Never</td></tr>
+          <tr><td>Friend reminder</td><td>Off, or one SMS after N days with no order</td><td class="num">7 days</td></tr>
+          <tr><td>Share message</td><td>The text prefilled in the customer's Messages app, with <span class="mono">{{code}}</span> and <span class="mono">{{link}}</span> tokens</td><td class="num">See above</td></tr>
+          <tr><td>Where the card shows</td><td>Account screen only, or Account plus the post-delivery screen</td><td class="num">Account only</td></tr>
+          <tr><td>Exclusions</td><td>Walk-in orders always excluded; commercial accounts may refer</td><td class="num">Commercial in</td></tr>
+          <tr><td>Who can edit this</td><td>Admins and managers</td><td class="num">&mdash;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note"><strong>Editing terms never changes a pair already in flight.</strong> Both credit amounts are snapshotted onto the <span class="mono">referrals</span> row when the code is claimed, the way <span class="mono">discount_redemptions</span> already snapshots discount values. Raise the offer on Monday and nobody who claimed on Sunday is retroactively re-priced, in either direction.</p>
+    <p>One constraint behind the expiry field: <span class="mono">customers.credit_expires_at</span> is a single date per customer, so two referral credits with different expiries can't be represented. Leaving expiry off avoids that entirely. If you set a number of days, the honest implementation extends one rolling date — and a true per-grant expiry would need a credit ledger, which is a meaningfully bigger build.</p>
+    <h3>Commercial accounts, which don't pay by card</h3>
+    <p>On-account customers are invoiced, and <span class="mono">charge-order</span> refuses them outright — so account credit would sit on their record unspent. Two adjustments, both using machinery that already exists:</p>
+    <ul class="plain">
+      <li><strong>A commercial referrer's $25 rides on their next invoice.</strong> <span class="mono">qualify_referral</span> detects <span class="mono">billing_type = 'on_account'</span> and calls the existing <span class="mono">add_invoice_adjustment</span> RPC for &minus;$25 with a label the customer reads &mdash; <em>Referral credit &mdash; thank you for introducing Sandra Lawson</em> &mdash; instead of touching <span class="mono">credits</span>.</li>
+      <li><strong>A referred commercial account is released by hand.</strong> Their first order isn't card-charged, so nothing automatic ever fires, and their invoice may not be paid for 30 days. The pair lands in the Referrals queue marked <em>awaiting release</em>, and you release it once their invoice is settled. Low volume, no new machinery, and no credit paid out on a commercial account that hasn't paid yet.</li>
+    </ul>
+    <h3>Who can edit the terms</h3>
+    <p>Admins and managers. That needs one small piece of care: the <span class="mono">settings</span> row is admin-only by RLS today, and it also holds the printer token, the Xero period lock and the books-closed date. So rather than loosening that policy, editing goes through a <span class="mono">set_referral_config()</span> RPC that checks for <span class="mono">admin</span> or <span class="mono">manager</span> and writes only <span class="mono">referral_config</span>. Every save records who changed what, so a terms change is never anonymous.</p>
+    <p>Two habits from this codebase apply directly. The new <span class="mono">referral_qualified</span> template stays disabled until it has been tested against your own number — an enabled template plus a backfill is how the mass-SMS incident happened. And <span class="mono">charge-order</span> stays the only writer of billing state: crediting happens inside the RPC it calls, not in the client.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">Launch</span>
+      <h2>Live quietly next week, announce after</h2>
+    </div>
+    <p>Quiet doesn't mean hidden — it means the program is fully working and nothing pushes it. Customers who go looking find it; nobody gets told yet. That gives a week of real pairs at a volume you can read one by one, which is the only way to find the rule that was written wrong.</p>
+    <ol class="steps">
+      <li><span class="step-n">1</span><div><strong>Build, then test the unhappy paths.</strong> Tables, both RPCs, the Settings page. Before anything is on, run the loop end to end on two test accounts: a clean pair, a pair whose first charge <em>fails</em> (no referrer credit should appear), a self-referral attempt, and a code entered by an existing customer. Those four cover almost every way this goes wrong.</div></li>
+      <li><span class="step-n">2</span><div><strong>Go live with the card in Account only.</strong> Program on, post-delivery card off — both are settings, so this is a switch and not a deploy. Send the <span class="mono">referral_qualified</span> SMS to your own number first, then leave it enabled; it only fires on a genuinely qualified pair, which during a quiet week means a handful at most.</div></li>
+      <li><span class="step-n">3</span><div><strong>Observe for a week without touching the dial.</strong> Read every pair by hand: who claimed, what they ordered, whether anything looks like the same household twice. Resist tuning the amounts on a week of single-digit data — the thing to watch is whether the mechanics are correct, not whether the offer is optimal.</div></li>
+      <li><span class="step-n">4</span><div><strong>Then announce, and turn on the post-delivery card.</strong> That card is what makes the program compound, so it's the real launch. One message to the 1,178 customers who ordered in the last 90 days, and the terms stay exactly as tested.</div></li>
+    </ol>
+    <p class="note"><strong>Your stop button is the master switch.</strong> Turning the program off halts new claims immediately and leaves pairs already in flight intact, so nothing has to be unwound in the database if the quiet week shows something unexpected.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>What to watch</th><th class="num">Healthy</th><th>If it's off</th></tr></thead>
+        <tbody>
+          <tr><td>Referral share of new customers</td><td class="num">15&ndash;25%</td><td>Below 10% means the ask isn't being seen — move it, don't raise the reward</td></tr>
+          <tr><td>Code claimed &rarr; first order paid</td><td class="num">&ge; 60%</td><td>Low means friction after the code: booking, card entry, or slot availability</td></tr>
+          <tr><td>Credit issued per new customer</td><td class="num">&le; $50</td><td>Higher means codes are being claimed by existing customers — check the guardrails</td></tr>
+          <tr><td>Flagged pairs</td><td class="num">&lt; 2%</td><td>A spike is usually one person, not a trend. Read the pairs before changing the rules</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <span class="eyebrow">Still open</span>
+      <h2>Three small calls left</h2>
+    </div>
+    <ul class="plain">
+      <li>Who watches the flagged and awaiting-release queue during the quiet week, and how often? A referrer waiting days on their $25 tells friends the program is broken.</li>
+      <li>Should the card appear for a customer with an unpaid balance? Recommendation: no — collect first.</li>
+      <li>Does a commercial referrer's invoice credit need your sign-off before it lands, or should it post automatically once the pair qualifies?</li>
+    </ul>
+  </section>
+
+  <footer>
+    Figures from the WashRoute production database, 11 September 2026: 6,163 customers, 1,178 active in the last 90 days, 2,393 orders in the last 30 days, $94.50 average and $77.95 median paid order, and a 947-customer cohort measured across their first 90 days.
+  </footer>
+
+</div>
