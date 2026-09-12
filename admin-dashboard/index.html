@@ -40571,10 +40571,12 @@ ${oneCopy}
         </div>
         <div>
           <label class="form-label">Remind the friend after (days)</label>
-          <input type="number" class="form-input" id="rf-remind" step="1" min="0" placeholder="off" disabled
-                 title="The reminder text is not built yet — this stores the number but sends nothing"
+          <input type="number" class="form-input" id="rf-remind" step="1" min="0" placeholder="off"
+                 title="Blank or 0 turns the reminder off"
                  value="${c.friend_reminder_days == null ? '' : Number(c.friend_reminder_days)}">
-          <div style="font-size:11.5px;color:var(--gray-500);margin-top:4px">Not sending yet — the reminder text still has to be built.</div>
+          <div style="font-size:11.5px;color:var(--gray-500);margin-top:4px">
+            Also needs <em>Referral Credit Reminder</em> switched on in Notifications.
+          </div>
         </div>
       </div>
 
