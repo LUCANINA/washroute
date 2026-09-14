@@ -498,6 +498,24 @@
     line-height: 1.4;
     margin-bottom: 8px;
   }
+  /* Session 293: customer note banner on the queue card. Attendants missed
+     an order's special instructions entirely because the POS never loaded
+     the field (Meg Lamberton #14559, 09/14) — make it impossible to miss. */
+  .queue-card-note {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #92400e;
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    border-radius: 8px;
+    padding: 7px 9px;
+    margin-bottom: 8px;
+    word-break: break-word;
+  }
   .queue-card-time {
     font-size: 11px;
     color: var(--gray-400);
@@ -2372,6 +2390,11 @@
             </div>
 
             <div id="posIntakeSummary" style="background:var(--gray-50);border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;"></div>
+
+            <!-- Session 293: shows the note already on the order (from the
+                 customer or admin) so the attendant sees it BEFORE weighing.
+                 Read-only; the textarea below appends/overwrites intake notes. -->
+            <div id="posIntakeExistingNote" style="display:none;background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:13px;font-weight:600;color:#92400e;line-height:1.4;"></div>
 
             <div>
               <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-500);margin-bottom:4px;" data-i18n>Notes (optional)</label>
@@ -4257,7 +4280,7 @@
       // The badge in the card render distinguishes walk-in counter-pickups
       // (🏪 Retail) from delivery-bound bags (🚚 For delivery).
       let query = db.from('orders')
-        .select('id, order_number, status, source, site_id, customer_id, service_id, subscription_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at, ready_for_delivery_at, card_brand, card_last4, pos_shift_id, pickup_window_start, delivery_window_start, pickup_run_id, delivery_run_id')
+        .select('id, order_number, status, source, site_id, customer_id, service_id, subscription_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, special_instructions, created_at, updated_at, ready_for_delivery_at, card_brand, card_last4, pos_shift_id, pickup_window_start, delivery_window_start, pickup_run_id, delivery_run_id')
         // Session 156: include 'folding' so bags stay visible through the
         // folding stage. Earlier filter missed it — when an admin assigned
         // a launderer, the bag advanced processing→folding and silently
@@ -4652,6 +4675,16 @@
       </div>
     ` : '';
 
+    // Session 293: special instructions banner. Previously the POS never
+    // even SELECTed special_instructions, so a note an admin/customer left on
+    // a delivery order was invisible to the Foothill attendant and never hit
+    // the printed bag tag. Render it above the line-item detail so it's the
+    // first thing read on the card.
+    const _note = String(order.special_instructions || '').trim();
+    const noteHtml = _note
+      ? `<div class="queue-card-note"><span>📝</span><span>${esc(_note)}</span></div>`
+      : '';
+
     // Time-line label varies by status: dropped off / dropped here / ready
     let timeLabel;
     if (status === 'picked_up')           timeLabel = t('Dropped off');
@@ -4667,6 +4700,7 @@
           ${deliveryBadge}
           <div class="queue-card-order">#${order.order_number}</div>
         </div>
+        ${noteHtml}
         <div class="queue-card-detail">${detail ? esc(detail) : t('No items')}</div>
         <div class="queue-card-time">${timeLabel} ${timeAgo}</div>
         ${launHtml}
@@ -4865,7 +4899,21 @@
       </div>`;
     document.getElementById('posIntakeWeight').value = '';
     document.getElementById('posIntakeBags').value   = order.total_bags || 1;
-    document.getElementById('posIntakeNotes').value  = '';
+    // Session 293: surface any existing special instructions, and prefill the
+    // notes box with them. record_order_intake does
+    // COALESCE(p_notes, special_instructions) — so a blank box never erased the
+    // note, but an attendant typing a fresh note DID. Prefilling makes the edit
+    // additive and visible.
+    const _existingNote = String(order.special_instructions || '').trim();
+    const _noteEl = document.getElementById('posIntakeExistingNote');
+    if (_existingNote) {
+      _noteEl.innerHTML = `📝 ${esc(_existingNote)}`;
+      _noteEl.style.display = '';
+    } else {
+      _noteEl.textContent = '';
+      _noteEl.style.display = 'none';
+    }
+    document.getElementById('posIntakeNotes').value  = _existingNote;
     document.getElementById('posIntakeError').style.display = 'none';
 
     recalcPosIntake();
@@ -5108,6 +5156,9 @@
       total_bags:   bags,
       weight_lbs:   weight,
       status:       'processing',
+      // Session 293: mirror what record_order_intake persisted
+      // (COALESCE(p_notes, special_instructions)) so the bag tag prints the note.
+      special_instructions: notes || _posIntakeOrder.special_instructions || null,
     };
 
     const movedNum = _posIntakeOrder.order_number;
@@ -6763,6 +6814,16 @@ ${taxAmt > 0 ? `    <text-line>${('Tax (' + (TAX_RATE * 100).toFixed(2) + '%)').
     const _deliveryDate = _fmtRcptDate(order.delivery_window_start);
     const _bagsCount    = Number(order.total_bags || 0);
     const _routeName    = escMarkup(order._routeName || '');
+    // Session 293: special instructions print on the bag tag. This is the whole
+    // point of the printed copy for the laundering team — a note like "customer
+    // requests an additional FL bag" has to travel with the bag, not sit in admin.
+    const _rcptNote = escMarkup(String(order.special_instructions || '').trim());
+    const noteXml = _rcptNote ? `
+  <align mode="left">
+    <text-line><bold>** NOTE **</bold></text-line>
+${_rcptNote.replace(/\S{39,}/g, m => m.match(/.{1,38}/g).join(' ')).match(/.{1,38}(\s|$)|\S+/g).map(l => `    <text-line>${l.trim()}</text-line>`).join('\n')}
+  </align>
+  <ruled-line/>` : '';
     const deliveryInfoXml = _isDelivery ? `
   <align mode="left">
 ${_pickupDate   ? `    <text-line>Pickup:   ${_pickupDate}</text-line>\n`   : ''}${_deliveryDate ? `    <text-line>Delivery: ${_deliveryDate}</text-line>\n` : ''}${_bagsCount    ? `    <text-line>Bags:     ${_bagsCount}</text-line>\n`      : ''}${_routeName    ? `    <text-line>Route:    ${_routeName}</text-line>\n`     : ''}  </align>
@@ -6774,7 +6835,7 @@ ${_pickupDate   ? `    <text-line>Pickup:   ${_pickupDate}</text-line>\n`   : ''
     <text-line size="1:2"><bold>Order ${orderNum}</bold></text-line>
     <text-line>${now}</text-line>
   </align>
-  <ruled-line/>${deliveryInfoXml}
+  <ruled-line/>${deliveryInfoXml}${noteXml}
   <align mode="left">
 ${lineItemsXml}
   </align>
@@ -6856,6 +6917,11 @@ ${_deliveryDateH ? `<tr><td>Delivery</td><td style="text-align:right">${_deliver
 ${_bagsCountH    ? `<tr><td>Bags</td><td style="text-align:right">${_bagsCountH}</td></tr>` : ''}
 ${_routeNameH    ? `<tr><td>Route</td><td style="text-align:right">${_routeNameH}</td></tr>` : ''}
 </table>` : '';
+    // Session 293: same note block as the thermal builder.
+    const _rcptNoteH = esc(String(order.special_instructions || '').trim());
+    const noteH = _rcptNoteH
+      ? `<div class="rcpt-note"><strong>** NOTE **</strong><br>${_rcptNoteH}</div>`
+      : '';
     return `<!doctype html><html><head><title>Receipt ${orderNum}</title>
 <style>body{font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:18px;width:280px;}
 .cust{font-size:22px;font-weight:800;text-align:center;letter-spacing:.02em;text-transform:uppercase;margin:0 0 2px}
@@ -6866,13 +6932,15 @@ table{width:100%;border-collapse:collapse;margin:8px 0}
 td{padding:3px 0;border-bottom:1px dotted #ccc}
 .total{font-size:15px;font-weight:700;text-align:right;margin-top:8px}
 .brand{text-align:center;margin-top:14px;font-size:11px;color:#555}
-.foot{text-align:center;margin-top:6px;font-size:11px;color:#555}</style></head>
+.foot{text-align:center;margin-top:6px;font-size:11px;color:#555}
+.rcpt-note{border:2px solid #000;padding:6px 8px;margin:8px 0;font-size:13px;font-weight:700;line-height:1.35}</style></head>
 <body>
 <div class="cust">${esc(custName)}</div>
 ${custAddrLineH}
 <div class="ord">Order ${orderNum}</div>
 <div class="meta">${now}</div>
 ${deliveryInfoH}
+${noteH}
 <table>${rows}${tipRows}</table>
 <div class="total">TOTAL: $${grandTotal}</div>
 ${tenderRows ? `<table>${tenderRows}</table>` : ''}

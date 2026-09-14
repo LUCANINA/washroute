@@ -47700,7 +47700,7 @@ ${oneCopy}
           ? `<div style="font-size:12px;color:var(--gray-500)">👥 Split: <strong style="color:var(--gray-700)">${splitAsgn.map(a => allLaunCache.find(l=>l.id===a.launderer_id)?.name?.split(' ')[0]||'?').join(', ')}</strong> <span style="color:var(--gray-400)">(${splitAsgn[0]?.bags} bags · ${splitAsgn[0]?.weight_lbs||'—'} lbs each)</span></div>`
           : folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
         ${noFolderBadge}
-        ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
+        ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${esc(n)}"</div>` : ''; })()}
         ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
@@ -47774,7 +47774,7 @@ ${oneCopy}
       return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
     }).join('');
     const notesHTML = o.special_instructions
-      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${o.special_instructions}"</div>` : '';
+      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${esc(o.special_instructions)}"</div>` : '';
     const existingAsgn = foldAssignmentsMap[o.id] || [];
     const folderName = existingAsgn.length > 1
       ? null // split — handled separately
@@ -48147,7 +48147,7 @@ ${oneCopy}
       return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
     }).join('');
     const notesHTML = o.special_instructions
-      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${o.special_instructions}"</div>` : '';
+      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${esc(o.special_instructions)}"</div>` : '';
     const folderName = o.folded_by_id ? (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null) : null;
     document.getElementById('rack-body').innerHTML = `
       <div class="intake-section">
@@ -48503,7 +48503,7 @@ ${oneCopy}
           <span>⚖️ ${lbs}</span>
           <span>${_serviceLabelForOrder(o)}</span>
         </div>
-        ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
+        ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${esc(n)}"</div>` : ''; })()}
         ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
@@ -48558,7 +48558,7 @@ ${oneCopy}
           <span>${svcName}</span>
         </div>
         ${premiumOpts.length ? `<div class="proc-card-prefs">${premiumOpts.map(l=>`<span class="proc-card-pref-chip">${l}</span>`).join('')}</div>` : ''}
-        ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
+        ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${esc(n)}"</div>` : ''; })()}
         ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
