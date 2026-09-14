@@ -13409,17 +13409,46 @@ itself still never wraps, because a two-line identity makes every row taller and
 screen that costs more than the width it saves. The full lender string went into a `title` on
 the span in the same commit, so the truncation loses nothing.
 
-**Verified:** re-measured at 1280×800 (0 overflowing nodes outside the close-band table);
-harness run in four batches, 59 groups — 3,468 assertions, 17 red, **all 17 identical on
-`git show HEAD:admin-dashboard/index.html` run through the same harness**: `[history] s240 #10`
-(Tech Debt #19, red on purpose), `stale-anchor-ask` + `rollback-beats-stale` (START HERE §0 —
-they stay red until the books and PayPal agree), and `fix-beats-schedule-ask` (5, pre-existing,
-not previously written down — worth a look on its own).
+**Then David said yes to the consolidation, so it is in this same session.** Booked, Staging,
+Status and Ledger — 272px, and on almost every row a single glyph or nothing at all — became one
+**Checks** column: Lender mark, Ledger mark, staged state, booked exception, in that fixed order.
+Three things made it a move rather than a loss, and all three are the same lesson from s249:
 
-**Where to pick up:** the close band is ~290px wider than a 1280px screen. Closing that without
-deleting anything means merging Booked / Staging / Status / Ledger (272px between them, three of
-the four are a single mark) into one Checks column. That is a design decision on the surface a
-CPA reads to decide, so it is David's call and was left un-made.
+* **Each claim kept its own `data-col`, now on its span inside the cell.** The CSV export and the
+  harness both resolve `data-col` INSIDE a cell now, so every reader follows the claim to its new
+  home instead of counting columns.
+* **The two marks' titles are prefixed `Lender:` and `Ledger:`.** Side by side they no longer have
+  a heading to tell them apart, and an unlabelled tick is a claim that has quietly stopped saying
+  which question it answers.
+* **The healthy staged state is a green dot, not a `scheduled` badge** — s288's rule applied to the
+  second column that repeated itself. The colour, the full sentence on hover, `data-staging` and
+  the export all still carry it; `needs a look` keeps its words, because that is the one state a
+  reader acts on.
+
+**Two bugs fell out of the merge, both of them silent.** `exportRollforwardCSV` read `data-status`
+off the `<td>` while the renderer wrote it on the `<span>`, so **the workpaper has been exporting
+the glyph `✓` where the Status and Ledger verdict sentences belong** — the fallback chain hid it.
+And **Staging was never in the export at all**. Both fixed here.
+
+**Verified:** re-measured at 1280×800 — 0 overflowing nodes outside the close-band table, which is
+1,223px against a 1,098px wrapper (from 1,465). Harness run in four batches, 59 groups — **2,581
+assertions, 17 red, and the same 17 are red on `git show HEAD:admin-dashboard/index.html` through
+the same harness**: `[history] s240 #10` (Tech Debt #19, red on purpose), `stale-anchor-ask` +
+`rollback-beats-stale` (START HERE §0 — they stay red until the books and PayPal agree), and
+`fix-beats-schedule-ask` (5, pre-existing and **not written down anywhere as expected — worth a
+session of its own**). Plus `dashboard-syntax` 17, `copy-budget` 56, `queue-hygiene` 15,
+`audit-regressions` 33, all green.
+
+**Five assertions were repointed, never relaxed, and each one is the same repair:** they read a
+column HEADING and now read the claim's own span — `close-band-columns`' keyed-cell count (direct
+children, or four spans in one cell make an 11-column header report 15), `staging-column`'s
+`scheduled` check, `loan-table-consolidation`'s Status-mark check, the close-band reader's
+`inXero`, and the export's inverse-discrimination rewrite. A test that counts a header goes red on
+a relocation and green on a deletion, which is exactly backwards.
+
+**Where to pick up:** the close band is still ~125px wider than a 1280px screen and scrolls for
+that last stretch, which lands on the Action column. Everything cheap has been spent; the next
+honest 100px is a design question about the seven money columns, not a CSS one.
 
 ### Session 291 cont. 5 (2026-09-09) — THE PREVIEW SAID TIPS WERE NOT AN EXPENSE. THE JOURNAL HAS EXPENSED THEM SINCE AUGUST.
 

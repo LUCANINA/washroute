@@ -459,7 +459,15 @@ function readSurfaces() {
     // fixed this could not be read at a glance.
                 interest: colIx('Interest'), computed: colIx('Books'),
                 closing: colIx('Lender'), variance: colIx('Variance'),
-                status: colIx('Status') };
+    // ── AND FOUR BECAME ONE IN SESSION 292 ───────────────────────────────
+    // Booked, Staging, Status and Ledger merged into a single **Checks** column
+    // so the close band fits a 1280px laptop. Nothing was deleted: each kept its
+    // own data-col on its span inside the cell, which is session 249's pattern
+    // (a claim attached to what it describes, not standing in its own column).
+    // `status` therefore points at Checks and the readers below take the SPAN,
+    // never the cell's text -- the cell's text is now four verdicts run together.
+                checks: colIx('Checks') };
+    C.status = C.checks;
     // `lender` here is the lender's NAME, folded into the Loan cell in session
     // 249 — NOT the Lender column above, which is the lender's BALANCE. Two
     // different facts that ended up sharing a word.
@@ -528,7 +536,24 @@ function readSurfaces() {
                closingSourceRaw: att(tds[C.closingSrc], 'data-closing-source'),
                ledgerNote: att(tds[C.variance], 'data-ledger-note'),
                varianceExplained: att(tds[C.variance], 'data-variance-explained'),
-               variance: c[C.variance], inXero: c[C.status],
+               variance: c[C.variance],
+               // The Lender mark's own verdict, read from its span. Session 292
+               // merged four columns into Checks, so the cell's text is now
+               // every mark at once -- a reader that kept taking it would still
+               // "pass" while meaning nothing in particular.
+               inXero: (() => {
+                 const el = tds[C.checks] && tds[C.checks].querySelector
+                   ? tds[C.checks].querySelector('[data-col="status"]') : null;
+                 return el ? (att(el, 'data-status') || el.textContent.replace(/\s+/g, ' ').trim()) : c[C.checks];
+               })(),
+               // The staged state as a word, from the cell that renders it on
+               // BOTH tables (`_bkLoanStagingCell` writes it), not from a column
+               // heading that no longer exists on this one.
+               staged: (() => {
+                 const el = tds[C.checks] && tds[C.checks].querySelector
+                   ? tds[C.checks].querySelector('[data-col="staging"]') : null;
+                 return el ? att(el, 'data-staging') : '';
+               })(),
                openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
                computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
                // ══ SESSION 247: DRAWN, AND THE SECOND CHECK ════════════════
@@ -1570,7 +1595,9 @@ GROUPS.push({
         const c = [...tr.children].map(td => td.innerText.replace(/\s+/g, ' ').trim());
         // Session 280: identity from data-loan, never from the Loan cell's text —
         // the consolidation folded the lender and the agreement tick into it.
-        const o = { __cells: c.length, __loan: tr.getAttribute('data-loan') || '' };
+        const stg = tr.querySelector('[data-col="staging"]');
+        const o = { __cells: c.length, __loan: tr.getAttribute('data-loan') || '',
+                    __staged: stg ? (stg.getAttribute('data-staging') || '') : '' };
         hdr.forEach((h, i) => o[h] = c[i]); return o;
       });
       const cols = [...document.querySelectorAll('#loans-table-wrap colgroup col')].length;
@@ -1622,14 +1649,20 @@ GROUPS.push({
       const shown = rows.filter(r => stagedNames.has(r.__loan));
       t.eq(shown.length, staged.length,
            'every loan with a staged split is on the table to be seen');
-      t.ok(shown.every(r => /scheduled/.test(r.Staging || '')),
+      // SESSION 292: read the CLAIM, not the word on screen. The healthy staged
+      // state became a green dot (the badge repeated "scheduled" down nine rows
+      // of a table that did not fit a laptop, and nobody ever acted on it); the
+      // state itself is on the cell as data-staging, on both tables, written by
+      // the one renderer. A test that kept counting the visible word would go
+      // red on a relocation and green on a deletion -- backwards, twice.
+      t.ok(shown.every(r => /scheduled/.test(r.__staged || '')),
            "...and each one is marked 'scheduled'",
-           shown.map(r => `${r.Loan}: "${r.Staging}"`).join(' · '));
+           shown.map(r => `${r.Loan}: "${r.__staged}"`).join(' · '));
       const quiet = rows.filter(r => !stagedNames.has(r.__loan));
-      t.ok(quiet.every(r => !/scheduled|needs a look/.test(r.Staging || '')),
+      t.ok(quiet.every(r => !/scheduled|needs a look/.test(r.__staged || '')),
            'a loan with nothing staged claims nothing in the Staging column',
-           quiet.filter(r => /scheduled|needs a look/.test(r.Staging || ''))
-                .map(r => `${r.Loan}: "${r.Staging}"`).join(' · '));
+           quiet.filter(r => /scheduled|needs a look/.test(r.__staged || ''))
+                .map(r => `${r.Loan}: "${r.__staged}"`).join(' · '));
 
       // ── (c) said once, not twice ─────────────────────────────────────────
       // The Type column's "+1 upcoming" badge meant "a newer entry exists and
@@ -1958,8 +1991,13 @@ GROUPS.push({
       const cellCounts = [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => tr.children.length);
       const footCounts = [...document.querySelectorAll('#lcb-table tfoot tr')].map(tr => tr.children.length);
       const keyedHead = document.querySelectorAll('#lcb-table thead th[data-col]').length;
+      // DIRECT CHILDREN ONLY (session 292). The Checks column carries four
+      // data-col spans INSIDE one cell, so a descendant count now reports 15
+      // against an 11-column header -- red for a reason that is the opposite of
+      // the defect this asserts. The claim is "every CELL is keyed", and that is
+      // what this measures; the spans are covered by the readers that use them.
       const keyedBody = [...document.querySelectorAll('#lcb-table tbody tr')]
-        .map(tr => tr.querySelectorAll('[data-col]').length);
+        .map(tr => [...tr.children].filter(td => td.hasAttribute('data-col')).length);
       return { head, rows, cellCounts, footCounts, keyedHead, keyedBody };
     });
 
@@ -2245,7 +2283,7 @@ GROUPS.push({
           if (src.indexOf(keyed) < 0) return { inverseFailed: 'the keyed lookup is no longer in the source' };
           const broken = src.replace(
             /const c = byCol\(tr\);\s*\n\s*const cLoan = c\.loan[\s\S]*?cLedgerMark = c\.ledger;/,
-            'const _td = [...tr.children];\n      const [cLoan, cOpen, cDrawn, cPrin, cInt, cComp, cClose, cVar, cBooked, cStat, cLedgerMark] = _td;');
+            'const _td = [...tr.children];\n      const [cLoan, cOpen, cDrawn, cPrin, cInt, cComp, cClose, cVar, cBooked, cStaged, cStat, cLedgerMark] = _td;');
           if (broken === src) return { inverseFailed: 'the inverse rewrite matched nothing' };
           try { fn = new Function('return (' + broken + ')')(); }
           catch (e) { return { inverseFailed: 'rebuild threw: ' + e.message }; }
@@ -13278,15 +13316,21 @@ GROUPS.push({
          the shared classification says, so the two cannot drift. */
       await p.evaluate(() => switchLoansPeriod('closing'));
       await p.settle();
+      /* SESSION 292: the mark is READ FROM ITS SPAN, not from a column heading.
+         Status merged into the Checks column with Booked, Staging and Ledger so
+         the close band fits a 1280px laptop; it kept `data-col="status"` on its
+         own span, which is where the claim now lives. Asserting on the heading
+         would now be asserting on the layout -- and it would go GREEN the day
+         someone deleted the mark and left the word "Status" in a header. */
       const marks = await p.evaluate(() => {
         // #lcb-table is the close band's own table; the band div wraps more than it.
         const hdr2 = [...document.querySelectorAll('#lcb-table thead th')].map(x => x.textContent.replace(/\s+/g, ' ').trim());
-        const si2 = hdr2.indexOf('Status');
-        return { si2, hdr2, glyphs: [...document.querySelectorAll('#lcb-table tbody tr')]
-          .map(tr => si2 >= 0 && tr.children[si2] ? (tr.children[si2].textContent || '').trim() : '')
-          .filter(g => g !== '') };
+        const cells = [...document.querySelectorAll('#lcb-table tbody tr')]
+          .map(tr => tr.querySelector('[data-col="status"]'));
+        return { si2: cells.filter(Boolean).length, hdr2,
+          glyphs: cells.map(el => el ? (el.textContent || '').trim() : '').filter(g => g !== '') };
       });
-      t.ok(marks.si2 >= 0, 's280: ⭐ Status DOES still exist on the Closing table — it carries the unposted claim too',
+      t.ok(marks.si2 > 0, 's280: ⭐ Status DOES still exist on the Closing table — it carries the unposted claim too',
            JSON.stringify(marks));
       t.ok(marks.glyphs.length > 0 && marks.glyphs.every(g => ['✓', '✗', '·'].includes(g)),
            's280: ...and every mark there is one of the three, not prose',
