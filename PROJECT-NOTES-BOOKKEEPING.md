@@ -13420,7 +13420,24 @@ interface says about them — and this time the decision was ours, made forty mi
 explicitly, because dropping it is the plausible "simplification" that would pass every other
 assertion in the file.
 
-**STILL OPEN — DAVID'S CALL, the seven leftover cards.** All seven are built from
+**DECIDED — ALL SEVEN VOIDED (David, same session).** Both questions went the same way: the four
+future-dated cards go because leaving them invites the `split_collision` that 242 already carries,
+and the three past-dated ones go because **the lender's statement should decide the
+principal/interest allocation, not our derivation** — which is the staging rule applied to the
+Approve path rather than only to the Stage path. Cost accepted: three bank lines stay uncoded until
+their statements arrive.
+
+⚠️ **`void_loan_split` REFUSED THE SQL CONNECTION (`role: none`) — the second gate today that wants
+a human, and the second one that is right.** It accepts `service_role` (like
+`mark_loan_flag_resolved` since s219), but this session's Postgres connection is unauthenticated,
+and **spoofing `request.jwt.claims` to satisfy an authorisation check is not a workaround, it is
+the thing the check exists to stop.** A direct UPDATE would also bypass the RPC's own guards — it
+refuses anything posted/staged/already_in_xero and requires a reason and an actor. So the voids
+were handed to David as a console script running under his own admin session
+(`void-derived-schedule-cards.js`, the `washroute-test` skill's established pattern): same RPC,
+same guards, and HE is recorded as the actor, which is what an auditable void needs.
+
+**THE ORIGINAL LIST, for the record:** All seven are built from
 `derived_from_statements` schedules on loans that no longer stage:
 | | |
 |---|---|
