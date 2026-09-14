@@ -13525,8 +13525,41 @@ reading `indexOf(x) < region.length`, which is true for any string containing `x
 decoration wearing a test's clothes. The ordering claim it was pretending to make is now measured
 against the superseded-guard's own index.
 
-**NOT DEPLOYED — five functions need the CLI**, and until they are, only the dashboard half of the
-rule is live (the button is hidden; the server would still accept a direct call):
+**DEPLOY STATE — MEASURED 2026-09-14 22:20 UTC, ONE OF FIVE IS LIVE.**
+
+| function | version | deployed (UTC) | s293 in the deployed source? |
+|---|---|---|---|
+| `loan-xero-post` | **73** | **2026-09-14 22:14:48** | ✅ `mayPrestage` ×4, `prestageRefusal` ×3, both guard headers ×1 |
+| `loan-ingest-amortization` | 20 | 2026-09-09 02:07:10 | ❌ none |
+| `loan-derive-schedule` | 16 | 2026-09-09 02:07:01 | ❌ none |
+| `loan-ingest-statement` | 56 | 2026-09-09 02:58:03 | ❌ none |
+| `loan-record-principal-payment` | 12 | 2026-09-09 02:07:07 | ❌ none |
+
+**HOW IT WAS MEASURED, because this block has been wrong seven times.** Read the DEPLOYED SOURCE
+(`get_edge_function`), not the version number — **with a CONTROL**, since a zero-marker result is
+worthless if you are grepping the wrong file: `loan-xero-post`'s bundle carries
+`_shared/schedule-provenance.ts` and `guardSched` ×22 (was 17, consistent with the added
+references), so the greps hit a real bundle. The four negatives carry their own control markers
+too (`ensureUpcomingSplit`, `_shared/`, `prestage_enabled`), so they are genuine.
+**AND IT BOOTS** — an unauthenticated POST returns the function's OWN `400 {"error":"loan_split_id
+is required"}`, not a 503 on the CORS preflight, which is what s264's never-booting bundle gave.
+⚠️ On the four that did not move, **`version` AND `updated_at` are both byte-identical to the
+pre-deploy reading**; a successful deploy bumps both, so those commands never reached this project.
+
+⚠️ `lenderIssued` appears 4× in the OLD `_shared/derive-schedule.ts` and is NOT evidence of s293.
+The discriminating marker for the three shared-module consumers is `derived_schedule_cannot_stage`;
+for `loan-ingest-amortization` it is `mayPrestage` + `not_a_lender_issued_schedule`.
+
+**WHAT THIS MEANS — the control itself is live; the rest is hardening.** `loan-xero-post` is the
+branch that writes to Xero, so nothing can stage off a derived schedule and nothing can post a
+future-dated schedule split, today. The notable gap is `loan-ingest-amortization`: its OLD
+auto-enable hook still flips `prestage_enabled` on for any schedule with future rows, whatever its
+provenance — but v73 then refuses to stage it, so it is a nuisance, not a hole. Defense in depth
+doing its job. The other three can only fire `enableStaging` on a loan whose flag is already on,
+and all eight are off.
+
+**STILL TO DEPLOY (no `--no-verify-jwt` on any of these four — that flag broke
+`loan-ingest-statement` in s281):**
 ```
 npx -y supabase@latest functions deploy loan-xero-post --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
 npx -y supabase@latest functions deploy loan-ingest-amortization  --project-ref umjpbuxrdydwejqtensq
