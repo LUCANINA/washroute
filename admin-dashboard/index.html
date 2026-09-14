@@ -26084,7 +26084,32 @@ ${noActivityNote}
     if (!acct || !acct.prestage_enabled) return false;
     const row = (_allLoanAmortRows || []).find(r => r.id === s.amortization_row_id);
     if (!row || !row.row_date) return false;
+    // ── SESSION 293: STAGING IS FOR LENDER-ISSUED SCHEDULES ONLY ────────────
+    // David's rule, enforced server-side in loan-xero-post. Asked here too so
+    // the Stage button is never OFFERED on a loan the server is required to
+    // refuse -- a button that 409s teaches people the product is broken, and
+    // this module's own rule is that a card is a decision, not a gamble.
+    //
+    // ⚠️ THE QUESTION IS ABOUT THIS SPLIT'S OWN SCHEDULE, not the loan's.
+    // `_bkRealSchedulesFor(loanId)` answers "does this loan have a contractual
+    // schedule anywhere", which is the WRONG question here: a loan can hold both
+    // a lender schedule and one we derived, and the card points at one specific
+    // row. Asking the loan-level question would let a derived row stage on the
+    // strength of a contract sitting beside it.
+    if (!_bkScheduleIsContractual(row.schedule_id)) return false;
     return String(row.row_date).slice(0, 10) >= today();
+  }
+
+  // The server's `mayPrestage()` (_shared/schedule-provenance.ts), for one
+  // schedule id. Same allowlists, already declared above and already asserted
+  // against the server copy by tests/schedule-provenance.test.mts.
+  // Unknown id -> false: unknown provenance is not permission.
+  function _bkScheduleIsContractual(scheduleId) {
+    if (!scheduleId) return false;
+    const row = (_allLoanAmortRows || []).find(r => r.schedule_id === scheduleId && r.loan_amortization_schedules);
+    const sc = row && row.loan_amortization_schedules;
+    if (!sc) return false;
+    return _REAL_SCHEDULE_SOURCES.includes(sc.source) && _SCHEDULE_AMORT_TYPES.includes(sc.amort_type);
   }
 
   // The staging proposal view: what will be created in Xero, then one button.

@@ -30,6 +30,10 @@ import {
 import { anchorsByBalanceDate, normalizeBasis } from "./statement-period.ts"
 import { fitScheduleRate, lenderIssuedVerdict } from "./schedule-fit.ts"
 import { scheduleGoesStale } from "./schedule-provenance.ts"
+// SESSION 293: this module writes `source: 'derived_from_statements'` and nothing
+// else, so `mayPrestage` on anything it produces is false BY CONSTRUCTION. It is
+// not imported here for that reason -- the refusal below is unconditional, and a
+// predicate call would imply a case where it could come back true.
 
 export const REAL_SOURCES = ['lender_statement', 'email_pdf_upload', 'portal_manual_pull']
 
@@ -490,14 +494,22 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
       rate_fit_periods: best.periods,
       rate_fit_at: new Date().toISOString(),
     }
-    if (enableStaging) patch.prestage_enabled = true
+    // ── SESSION 293: A DERIVED SCHEDULE CANNOT GRANT STAGING ───────────────
+    // David's rule. This function's whole output is `derived_from_statements`,
+    // i.e. our own arithmetic over the same statements the books are built
+    // from, so honouring `enableStaging` here would be the loan writing itself
+    // a permission slip. `prestage_enabled` is deliberately NOT patched now,
+    // and the caller is told plainly rather than finding out from a card that
+    // never appears. The staging card below is skipped for the same reason.
     await supa.from('loan_accounts').update(patch).eq('id', loan.id)
     return {
       ok: true, dry_run: false, unchanged: true, wrote_no_schedule: true,
       loan: { id: loan.id, name: loan.xero_account_name },
       schedule_id: cand.id, rows_written: 0, future_rows: futureRows.length,
-      ends_short: endsShort, fit, anchor, prestage_enabled: enableStaging,
-      staging: enableStaging ? await ensureUpcomingSplit(supa, loan.id) : { skipped: 'staging not requested' },
+      ends_short: endsShort, fit, anchor, prestage_enabled: false,
+      staging: enableStaging
+        ? { skipped: 'derived_schedule_cannot_stage', detail: 'Pre-staging is only for loans with the lender\'s own amortization schedule (session 293). This schedule was derived from the loan\'s own statements, so it is used for splits and projections but never to create a transaction in Xero ahead of the payment.' }
+        : { skipped: 'staging not requested' },
       stale_staged: [],
       note: `This re-derivation reproduces the schedule already on file (anchor ${last.statement_date}, ${projected.length} rows, identical to the cent), so nothing was written. A duplicate schedule would be a tie for staging-next to break arbitrarily.`,
     }
@@ -531,7 +543,9 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
     rate_fit_periods: best.periods,
     rate_fit_at: new Date().toISOString(),
   }
-  if (enableStaging) acctPatch.prestage_enabled = true
+  // SESSION 293, second of the two sites -- see the note above. Both branches
+  // reach the same write, so both are refused (§231: put the guard where the
+  // branches converge, and when they cannot converge, guard every one of them).
   await supa.from('loan_accounts').update(acctPatch).eq('id', loan.id)
 
   // ── 6. Anything ALREADY staged whose numbers just moved ────────────────────
@@ -565,14 +579,20 @@ export async function deriveSchedule(supa: any, loan: any, opts: DeriveOpts = {}
     }).eq('id', sp.id)
   }
 
-  let staging: any = { skipped: 'staging not requested' }
-  if (enableStaging) staging = await ensureUpcomingSplit(supa, loan.id)
+  // SESSION 293, third site. See the note at the first patch: this path writes a
+  // `derived_from_statements` schedule, which may never grant staging. The card
+  // is NOT created either -- ensureUpcomingSplit would put a stage-shaped card in
+  // front of the CPA that loan-xero-post is now required to refuse, which is a
+  // worse failure than no card: it looks like a bug rather than a policy.
+  const staging: any = enableStaging
+    ? { skipped: 'derived_schedule_cannot_stage', detail: 'Pre-staging is only for loans with the lender\'s own amortization schedule (session 293). This schedule was derived from the loan\'s own statements, so it drives splits and projections but never creates a transaction in Xero ahead of the payment.' }
+    : { skipped: 'staging not requested' }
 
   return {
     ok: true, dry_run: false,
     loan: { id: loan.id, name: loan.xero_account_name },
     schedule_id: sched.id, rows_written: projected.length, future_rows: futureRows.length,
-    ends_short: endsShort, fit, anchor, prestage_enabled: enableStaging, staging,
+    ends_short: endsShort, fit, anchor, prestage_enabled: false, staging,
     payment_day_of_month: payDom, payment_day_divergence: domDivergence,
     stale_staged: staleStaged,
   }

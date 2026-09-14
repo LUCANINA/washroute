@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { ensureUpcomingSplit } from "../_shared/staging-next.ts"
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
+import { mayPrestage, prestageRefusal } from '../_shared/schedule-provenance.ts'
 
 // Ingests a full-life-of-loan amortization schedule (distinct from a monthly statement).
 // The row data is parsed by Claude from the lender's PDF/CSV (formats vary too much
@@ -215,13 +216,34 @@ Deno.serve(async (req) => {
     let staging: any = null
     try {
       const hasFuturePayment = rows.some((r: any) => r.row_type === 'payment' && String(r.row_date) >= new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }))
-      if (hasFuturePayment) {
+
+      // ── SESSION 293: FUTURE ROWS ARE NOT PERMISSION ──────────────────────
+      // This hook read one property of the FILE -- does it contain rows dated
+      // ahead of today -- and granted the loan the right to write forecasts
+      // into Xero. Every derived schedule has future rows by construction, so
+      // the condition was satisfied by our own arithmetic, which is how eleven
+      // loans came to carry the flag when three had a lender document.
+      // The artefact's provenance decides now; the dates only decide WHEN.
+      const ingestedSchedule = { source: source ?? 'claude_assisted_parse', amort_type: amort_type ?? null }
+      const lenderIssued = mayPrestage(ingestedSchedule)
+
+      if (hasFuturePayment && lenderIssued) {
         if (!loanAcct.prestage_enabled) {
           const { error: enableErr } = await supa.from('loan_accounts').update({ prestage_enabled: true }).eq('id', loanAcct.id)
           if (enableErr) throw new Error(`prestage_enabled update failed: ${enableErr.message}`)
         }
         const ensured = await ensureUpcomingSplit(supa, loanAcct.id)
         staging = { prestage_enabled: true, ...ensured }
+      } else if (hasFuturePayment) {
+        // The schedule landed and is useful -- it just does not earn staging.
+        // Say so here rather than silently skipping: a CPA who uploaded a
+        // schedule expecting cards needs to know why none appeared.
+        staging = {
+          prestage_enabled: !!loanAcct.prestage_enabled,
+          action: 'skipped',
+          reason: 'not_a_lender_issued_schedule',
+          detail: prestageRefusal(ingestedSchedule),
+        }
       } else {
         staging = { prestage_enabled: !!loanAcct.prestage_enabled, action: 'skipped', reason: 'no_future_payment_rows' }
       }

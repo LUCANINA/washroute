@@ -4,7 +4,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { ensureUpcomingSplit } from '../_shared/staging-next.ts'
 import { effectiveCloseDate, isPeriodClosed } from '../_shared/close-date.ts'
 import { chooseAutoCandidate, AUTO_PICK_MAX_DAYS } from './pick-candidate.ts'
-import { scheduleGoesStale } from '../_shared/schedule-provenance.ts'
+import { scheduleGoesStale, mayPrestage, prestageRefusal } from '../_shared/schedule-provenance.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
 // Role check: 'cpa' accounts may dry-run (preview) but never post/write.
@@ -1448,6 +1448,32 @@ async function handleRequest(req: Request): Promise<Response> {
             error: 'Refusing to stage: this card\'s amortization schedule could not be read, so there is no way to tell whether its figures are the lender\'s or a projection of our own. Re-generate the split from the current schedule and try again.',
             schedule_id: amortRow.schedule_id,
             lookup_error: guardSchedErr?.message ?? 'no such schedule row',
+          }), { status: 409 })
+        }
+
+        // ── SESSION 293: STAGING IS FOR LENDER-ISSUED SCHEDULES ONLY ────────
+        // David's rule, and this is the branch that matters because it is the
+        // one that CREATES the transaction in Xero. `prestage_enabled` is now
+        // necessary but not sufficient: two functions set that flag
+        // automatically when a schedule appears, and one of them
+        // (loan-derive-schedule) manufactures the schedule out of our own
+        // statements. A permission that grants itself is not a permission.
+        //
+        // Placed FIRST among the schedule guards on purpose. The three checks
+        // below ask whether a projection has gone stale, been superseded, or
+        // been overtaken by a statement -- all of which presuppose that
+        // projecting was allowed. Asking those first produces a true refusal
+        // with the wrong reason on it, and a reason is what the reader acts on.
+        //
+        // Fails CLOSED on an unreadable row (mayPrestage(null) === false), same
+        // direction as every other guard in this block.
+        if (!mayPrestage(guardSched)) {
+          return new Response(JSON.stringify({
+            error: prestageRefusal(guardSched),
+            schedule_id: guardSched.id,
+            schedule_source: guardSched.source ?? null,
+            schedule_amort_type: guardSched.amort_type ?? null,
+            fix: 'Review this period normally instead -- the split itself is unaffected.',
           }), { status: 409 })
         }
 

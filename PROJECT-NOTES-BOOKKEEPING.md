@@ -13381,6 +13381,99 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 293 cont. — THE STAGING RULE: LENDER-ISSUED SCHEDULES ONLY (David, 2026-09-14)
+
+> **David: "New rule: staging only applies to Loans with amortization schedules."**
+> Asked which reading he meant, he chose the narrow one: **a schedule the LENDER ISSUED.**
+
+**THE PREDICATE ALREADY EXISTED AND WAS WIRED TO THE WRONG QUESTION.** `isContractualSchedule()`
+(§268, `_shared/schedule-provenance.ts`) has asked exactly this since September 4 — but it gated a
+STALENESS check, and nothing gated PERMISSION. §231's shape for the seventh time: right logic, one
+branch away from the thing that needed it. The permission was `loan_accounts.prestage_enabled`, a
+boolean **two functions set automatically whenever a schedule appeared** — and one of them,
+`loan-derive-schedule`, manufactures the schedule out of the loan's own statements. So a loan could
+grant itself the right to write forecasts of our own arithmetic into the ledger. Eleven loans
+carried the flag; three had a lender document.
+
+**WHY THIS LINE AND NOT ANOTHER — §246 APPLIED TO A FORECAST INSTEAD OF A BALANCE.** A stage is a
+real entry in Xero made BEFORE the money moves, on the strength of a document. When the document is
+the lender's schedule, the forecast is THEIR figure and the bank feed is a genuine outside check of
+it. When we derived the schedule from the same statements the books are built on, the forecast and
+the thing it is matched against come from one source, and the match can only confirm our own
+arithmetic back to us. **A check whose inputs share a source cannot fail.**
+
+**FOUR ENFORCEMENT POINTS, because they do not converge** (§231: guard every branch that reaches
+the write):
+
+| Where | What changed |
+|---|---|
+| `loan-xero-post` stage branch | `if (!mayPrestage(guardSched))` → 409. **The one that matters** — it is the branch that CREATES the transaction. Placed FIRST among the schedule guards: the three below it ask whether a projection went stale/was superseded, which all presuppose projecting was allowed. Reaching those first returns a true refusal with the wrong reason on it, and the reason is what the reader acts on. |
+| `loan-ingest-amortization` hook | Auto-enable now requires lender provenance. It read one property of the FILE — does it contain future rows — and every derived schedule has those by construction, which is how eleven loans got the flag. Dates decide WHEN; provenance decides WHETHER. |
+| `_shared/derive-schedule.ts` ×3 sites | `enableStaging` is refused outright, not honoured. This module writes `source:'derived_from_statements'` and nothing else, so `mayPrestage` on its output is false BY CONSTRUCTION. **The card is not created either** — `ensureUpcomingSplit` would put a stage-shaped card in front of the CPA that `loan-xero-post` is now required to refuse, which reads as a bug rather than a policy. |
+| `admin-dashboard` `_bkStageEligible` | The Stage button is never OFFERED where the server must refuse. ⚠️ It asks about **this split's own schedule**, not the loan's: a loan can hold both a lender schedule and a derived one, and `_bkRealSchedulesFor(loanId)` would let a derived row stage on the strength of a contract sitting beside it. |
+
+⚠️ **`prestage_enabled` IS NOW NECESSARY BUT NOT SUFFICIENT.** Do not restore a path where the flag
+alone can stage. It is a switch a person can turn on; `mayPrestage` is the reason they are allowed to.
+
+**DATA, applied 2026-09-14.** `prestage_enabled=false` on **242, 243, 244, 251, 253, 284, 332, 338**.
+Still staging: **233 Dexter, 254 PCV, 394 Verdant**. To reverse, set those eight back to true — the
+list is complete here, in the test table, and in the commit message. **284 PayPal 2 stops** despite
+two clean round trips: its schedule is a parse of the lender's payment HISTORY projected forward
+(Tech Debt #33), not a contract, and its 2026-09-02 stage already carried the projection's
+3180.34/234.37 against the lender's 3180.33/234.38.
+
+**THE LIVE STAGES, and the ordering lesson.** The flags went off FIRST, deliberately: the sweep's
+matched branch calls `ensureUpcomingSplit` when `prestage_enabled`, so sweeping first could have
+created a continuation card on a loan that may no longer stage. David deleted the stray
+transactions in Xero by hand; the sweep's `stage_removed_in_xero` branch then returned each split to
+`pending_review` on its own. 243 repaired this session; **242 and 332 were still live in Xero at
+close and need the sweep re-run once deleted.**
+
+⚠️ **`unstage` REFUSES THE INTERNAL SECRET — 403, and that is correct.** It is in `wantsWrite`
+alongside confirm/stage/revert, so it needs a signed-in human. Do not "fix" this by widening the
+gate: deleting a transaction from the ledger is a human action by design (the file says so at
+line 314). The sanctioned automatic path for a stage already removed in Xero is the sweep.
+
+**CRON, same session.** `wr-loan-attribution` `20 */6 * * *` → **`20 13 * * *`** (6:20 AM PT daily),
+per item 1 of the audit above. Measured effect: ~264 Xero calls/day → ~66, about 20% of the daily
+cap returned. Fresh attributions are waiting when David starts rather than regenerated four times
+while nobody reads them.
+
+**TESTS.** `tests/staging-lender-schedule-only.test.mts`, **50 assertions, 0 red**. It pins all
+eleven loans as they stood today, carries a CONTROL (a blanket `() => false` passes the refusal
+table and breaks the three loans that work — so the control is what makes the table mean anything),
+and asserts each of the four enforcement points by REGION and COUNT.
+
+⚠️ **THE TEST CAUGHT §289's LESSON TWICE, ON ITSELF, AND BOTH TIMES THE ASSERTION WAS RIGHT.** The
+client assertion `!includes('_bkRealSchedulesFor')` went red on **the comment I had just written
+explaining why `_bkRealSchedulesFor` is the wrong question here** — prose about the rule defeating
+the grep enforcing it. Scoping to the function body was not enough, because the comment is INSIDE
+the body. **The region had to exclude the explanations before anything could be asserted about the
+code**, so the slice now strips `//` lines. Also found and fixed in the same pass: an assertion
+reading `indexOf(x) < region.length`, which is true for any string containing `x` at all —
+decoration wearing a test's clothes. The ordering claim it was pretending to make is now measured
+against the superseded-guard's own index.
+
+**NOT DEPLOYED — five functions need the CLI**, and until they are, only the dashboard half of the
+rule is live (the button is hidden; the server would still accept a direct call):
+```
+npx -y supabase@latest functions deploy loan-xero-post --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+npx -y supabase@latest functions deploy loan-ingest-amortization  --project-ref umjpbuxrdydwejqtensq
+npx -y supabase@latest functions deploy loan-derive-schedule      --project-ref umjpbuxrdydwejqtensq
+npx -y supabase@latest functions deploy loan-ingest-statement     --project-ref umjpbuxrdydwejqtensq
+npx -y supabase@latest functions deploy loan-record-principal-payment --project-ref umjpbuxrdydwejqtensq
+```
+⚠️ Only `loan-xero-post` takes `--no-verify-jwt`; the other four are `verify_jwt: true` and pasting
+the flag on is what broke `loan-ingest-statement` in s281. The last three carry no change of their
+own — they import `_shared/derive-schedule.ts`, and a shared module only ships with its callers.
+
+**TO VERIFY AFTER DEPLOY, and a version number is not the check (§245–247).** Open a pending
+schedule-sourced card on one of the eight — 244's `2026-09` or 338's `2026-10` — and confirm no
+Stage button, then POST `{loan_split_id, stage:true, confirm:false}` for it and confirm a **409
+naming the schedule's provenance**, not a staging preview. The rows are the other proof: no new
+`loan_splits` row on those loans should ever again carry a `stage_reference`.
+
+
 ### Session 293 (2026-09-14) — AUDIT, NO CODE CHANGED. FOUR THINGS THIS FILE SAYS ARE WRONG.
 
 David asked for a senior-bookkeeper audit of the module: what works, what needs tuning, what to
