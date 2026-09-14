@@ -13426,8 +13426,12 @@ two clean round trips: its schedule is a parse of the lender's payment HISTORY p
 matched branch calls `ensureUpcomingSplit` when `prestage_enabled`, so sweeping first could have
 created a continuation card on a loan that may no longer stage. David deleted the stray
 transactions in Xero by hand; the sweep's `stage_removed_in_xero` branch then returned each split to
-`pending_review` on its own. 243 repaired this session; **242 and 332 were still live in Xero at
-close and need the sweep re-run once deleted.**
+`pending_review` on its own. **ALL THREE ARE DONE, verified 2026-09-14 21:35 UTC** — 243 first,
+then 242 and 332 after David deleted them, each reported by the sweep as `stage_removed_in_xero`.
+(This line read "242 and 332 are still live and need the sweep re-run" for about twenty minutes,
+which is §247's stale-sentence lesson arriving inside the entry that cites it. Measured end state:
+**3 loans with `prestage_enabled` — 233, 254, 394 — 3 live stages, 0 `stage_sweep_flag` rows**, and
+every former staged split back in `pending_review` with `stage_reference` cleared.)
 
 ⚠️ **`unstage` REFUSES THE INTERNAL SECRET — 403, and that is correct.** It is in `wantsWrite`
 alongside confirm/stage/revert, so it needs a signed-in human. Do not "fix" this by widening the
