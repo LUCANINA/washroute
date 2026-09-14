@@ -13381,6 +13381,56 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 293 cont. 2 — TURNING A FEATURE OFF CREATED A PATH, AND IT FAILED OPEN
+
+**David, within the hour of the staging rule shipping: "I'm still being asked to approve staging
+for 2 loans."** He was looking at **"Approve · October"** on a payment due **2026-10-09**.
+
+**THE LINE:** `action: stageable ? 'Stage' : 'Approve'` in `_bkApprovalQueueItems`.
+
+`stageable` is `_bkStageEligible(s)`, which requires `prestage_enabled`. The else-branch was
+written when EVERY loan with schedule cards could stage, so a non-stageable schedule card was
+always a payment that had already happened — a safe assumption, and an invisible one. **Switching
+staging off on eight loans falsified it in one UPDATE.** The cards stayed `pending_review`,
+`stageable` went false, and seven rows silently re-labelled themselves **Approve**. Four were
+future-dated: 242 (09-17), 244 (09-20), 251 (10-02), 338 (10-09).
+
+**§231 WITH A NEW FACE, AND IT IS THE ONE TO CARRY FORWARD.** The guard was one branch away from
+the path that needed it — but the path was created by **DISABLING** a feature, not by adding one.
+A fallback branch inherits every assumption its sibling was guaranteeing; turning the sibling off
+hands those assumptions to code that never checked them. **When switching a capability off, grep
+the else-branch of every test for it.**
+
+**THE COPY WAS THE WORSE HALF.** The row read *"Split worked out: $483.64 went to the loan,
+$159.86 was interest — ready to post"* over a payment that has not happened. A false statement of
+fact, not a mislabelled button (§247: when a decision changes the books, grep the WORDS the
+interface says about them — and this time the decision was ours, made forty minutes earlier).
+
+**FIXED IN BOTH PLACES, because the client is a courtesy and the server is the control:**
+* `_bkApprovalQueueItems` — a future-dated schedule card on a non-staging loan gets **no action at
+  all** and says what it is waiting for. It is not an approval anyone can make.
+* `loan-xero-post`, right after `amortRow` resolves and upstream of every branch —
+  **`confirm === true` never posts a schedule-sourced split dated after Pacific today.**
+  ⚠️ **Scoped `stage !== true`, and that exemption is the whole point:** staging IS a
+  future-dated write by definition, so without it this guard would break 233/254/394 — the three
+  loans the rule exists to protect. A guard that refuses everything is not the rule. Previews are
+  still shown, the same line the close-date guard draws.
+
+**TESTS: 59 assertions, 0 red** (was 50). The new group carries the `stage !== true` control
+explicitly, because dropping it is the plausible "simplification" that would pass every other
+assertion in the file.
+
+**STILL OPEN — DAVID'S CALL, the seven leftover cards.** All seven are built from
+`derived_from_statements` schedules on loans that no longer stage:
+| | |
+|---|---|
+| **Future-dated (4):** 242 09-17, 244 09-20, 251 10-02, 338 10-09 | now inert — no action, unpostable |
+| **Past-dated (3):** 243 09-05, 253 09-03, 332 09-12 | payment HAS happened; approvable, but the allocation is our derivation |
+⚠️ **Leaving the four future ones risks a `split_collision`** when the statement arrives and
+`loan-ingest-statement` raises a `statement_delta` split for the same period — **242 already
+carries an open `split_collision` error**, which is that shape.
+
+
 ### Session 293 cont. — THE STAGING RULE: LENDER-ISSUED SCHEDULES ONLY (David, 2026-09-14)
 
 > **David: "New rule: staging only applies to Loans with amortization schedules."**

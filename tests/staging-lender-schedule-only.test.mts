@@ -161,5 +161,46 @@ ok('...and never falls back to the loan-level question',
   !/_bkRealSchedulesFor\(/.test(eligible),
   'the loan-level helper would let a derived row stage beside a contract')
 
+// ── 5. THE SECOND BRANCH: A FORECAST IS NOT AN APPROVAL ──────────────────────
+// Found by David within the hour, looking at "Approve · October" on a payment
+// due 2026-10-09. Turning staging OFF pushed four future-dated cards into the
+// `stageable ? 'Stage' : 'Approve'` else-branch, which assumed a non-stageable
+// schedule card is a payment that already happened. §231, with the twist that
+// the new path was created by DISABLING a feature rather than adding one.
+console.log('\n  5. a future-dated schedule card can be neither staged nor posted')
+
+const postGuard = xeroPost.slice(
+  xeroPost.indexOf('NEVER POST A SCHEDULED PAYMENT THAT HAS NOT HAPPENED'),
+  xeroPost.indexOf('const principal = Number(split.principal_amount)'))
+ok('the post guard was located', postGuard.length > 400, `${postGuard.length} chars`)
+ok('it refuses on confirm', /confirm === true/.test(postGuard))
+// THE CONTROL, and it is the half that matters: without `stage !== true` this
+// guard would break the three loans that are still allowed to stage, since
+// staging is BY DEFINITION a future-dated write. A guard that refuses
+// everything is not the rule.
+ok('CONTROL — staging is explicitly exempt, or the rule breaks 233/254/394',
+  /stage !== true/.test(postGuard))
+ok('it compares against Pacific today, not UTC',
+  /pacificToday\(\)/.test(postGuard))
+ok('the refusal says the payment has not happened',
+  /has not happened yet/.test(postGuard))
+
+const approvalQueue = (() => {
+  const start = client.indexOf('function _bkApprovalQueueItems()')
+  const end = client.indexOf('\n  }', client.indexOf('awaitingPayment', start)) + 4
+  return client.slice(start, end).split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+})()
+ok('the approval queue region was located', approvalQueue.length > 300 && /awaitingPayment/.test(approvalQueue))
+ok('a future-dated non-stageable card gets NO action',
+  /action: null, onclick: null/.test(approvalQueue))
+ok('...and its reason no longer claims the money moved',
+  !/went to the loan[\s\S]*awaitingPayment/.test(approvalQueue)
+  && /has not happened yet/.test(approvalQueue))
+// The sentence the old branch printed over a payment that had not happened.
+// Kept as a named string so a future edit that reintroduces it goes red here
+// rather than on a CPA's screen (§247: grep the words, not just the numbers).
+ok('MUTATION — the old unconditional claim is gone from the future-dated path',
+  approvalQueue.indexOf('awaitingPayment') < approvalQueue.indexOf('Split worked out'))
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`)
 process.exit(fail ? 1 : 0)

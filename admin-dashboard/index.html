@@ -10697,6 +10697,48 @@
       // the payment, so the CPA just clicks Match). Same review modal; it shows
       // the staging proposal instead of the journal proposal.
       const stageable = _bkStageEligible(s);
+
+      // ── SESSION 293: A FORECAST IS NOT AN APPROVAL ─────────────────────────
+      // `stageable ? 'Stage' : 'Approve'` was a FAIL-OPEN fallback and s293's
+      // staging rule walked straight into it. The else-branch was written on the
+      // assumption that a schedule card which cannot be staged is a payment that
+      // has already happened -- true while every schedule loan could stage.
+      // Turning staging OFF on a loan breaks that assumption: the card stays
+      // pending_review, `stageable` goes false, and the row silently re-labels
+      // itself "Approve", offering to post a journal for money that has not
+      // moved. Measured 2026-09-14, the hour the rule shipped: four of seven
+      // such cards were future-dated (242 09-17, 244 09-20, 251 10-02,
+      // 338 10-09), and David was looking at "Approve · October".
+      //
+      // The reason line was the worse half. It read "Split worked out:
+      // $483.64 went to the loan" -- a sentence asserting a payment that has not
+      // happened. §247: when a decision changes the books, grep the words the
+      // interface says about them.
+      //
+      // A future-dated schedule split on a loan that may not stage is not
+      // actionable by anyone: it is a projection waiting for its payment. It
+      // gets NO action, and says what it is waiting for.
+      const schedRow = s.source === 'amortization_schedule' && s.amortization_row_id
+        ? (_allLoanAmortRows || []).find(r => r.id === s.amortization_row_id)
+        : null;
+      const awaitingPayment = !stageable && schedRow && schedRow.row_date
+        && String(schedRow.row_date).slice(0, 10) > today();
+
+      if (awaitingPayment) {
+        items.push({
+          key: 'appr-split-' + s.id, dot: 'gray',
+          period: s.period_label, loanId: s.loan_account_id,
+          name: `${name} — ${s.period_label}`,
+          reason: _bkOneLine(`Scheduled for ${_bkPlainDate(schedRow.row_date)}: ${fmtMoney(Number(s.total_amount))} projected from this loan's schedule. The payment has not happened yet and this loan does not pre-stage, so there is nothing to post — it will be split from the statement once the payment lands.`),
+          action: null, onclick: null,
+          peek: _bkSplitPeekSpec(s) ? `bkPeekSplitDoc('${s.id}')` : null,
+          archive: true, archiveLabel: 'Ignore',
+          archiveTitle: 'Set this aside — the split is unchanged and still waiting; restore it any time from Ignored',
+          dueKey: String(schedRow.row_date).slice(0, 10),
+        });
+        return;
+      }
+
       items.push({
         key: 'appr-split-' + s.id, dot: 'green',
         // session 276: the period is carried as DATA so the work band can order by

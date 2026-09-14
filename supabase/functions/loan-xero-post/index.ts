@@ -1257,6 +1257,39 @@ async function handleRequest(req: Request): Promise<Response> {
       return new Response(JSON.stringify({ error: 'This split has no statement AND no linked amortization row -- cannot determine a search anchor date.' }), { status: 400 })
     }
 
+    // ── SESSION 293: NEVER POST A SCHEDULED PAYMENT THAT HAS NOT HAPPENED ────
+    // The companion to the staging rule, and the branch it was hiding behind.
+    // A future schedule period has exactly two legitimate fates: it is STAGED
+    // (a lender-issued schedule, pre-split into Xero for the CPA to Match), or
+    // it WAITS for the payment. Posting it is neither -- it books principal and
+    // interest for money that has not moved.
+    //
+    // Nothing enforced this because nothing had to: until s293 every loan with
+    // schedule cards could stage, so the dashboard offered "Stage" and the
+    // question never arose. The moment staging was switched off on eight loans,
+    // `stageable ? 'Stage' : 'Approve'` fell through to Approve on four
+    // future-dated cards and the button did what it said (§231: the guard was
+    // one branch away from the path that needed it -- and this time the path was
+    // created by turning a feature OFF, which is the shape to watch for).
+    //
+    // Scoped to `confirm === true` and NOT to staging: `stage:true` is the
+    // legitimate future-dated write, and a preview may still be shown, because
+    // showing a human what WOULD happen is useful -- the same line the
+    // close-date guard draws, for the same reason.
+    if (confirm === true && stage !== true && isScheduleSourced && amortRow?.row_date) {
+      const schedDay = String(amortRow.row_date).slice(0, 10)
+      if (schedDay > pacificToday()) {
+        return new Response(JSON.stringify({
+          error: `Refusing to post: this period is scheduled for ${schedDay}, which has not happened yet. `
+            + `The figures are a projection from this loan's amortization schedule, not a payment. `
+            + `Wait for the payment to reach the bank feed -- the split is then worked out from what actually moved.`,
+          scheduled_date: schedDay,
+          today_pacific: pacificToday(),
+          fix: 'Nothing to do now. This card becomes postable on its own once the payment lands.',
+        }), { status: 409 })
+      }
+    }
+
     const principal = Number(split.principal_amount)
     const interest = Number(split.interest_amount)
     const totalAmt = Number(split.total_amount)
