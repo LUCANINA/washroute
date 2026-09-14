@@ -13381,6 +13381,46 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 292 (2026-09-14) — THE RIGHT OF THE CLOSE BAND WAS NOT SCROLLED OFF, IT WAS UNREACHABLE
+
+David used Bookkeeping on a 1280×800 laptop over the weekend and could not see the whole page.
+Measured in headless Chromium at that viewport, before any change: **every Bookkeeping surface
+rendered 1,479px wide inside a 1,280px window, and `document.scrollWidth` was 1,280.** Those two
+facts together are the whole bug. The overflow was not scrollable anywhere — it was CLIPPED.
+
+**Root cause, one line, and it is not a Bookkeeping line.** `.main` is a flex item
+(`.layout { display:flex }`), so its default `min-width: auto` let its widest child stretch it
+past the viewport; the close band's 13-column table wants 1,465px, so the whole page grew to fit
+it. `body { overflow-x: hidden }` — there since the app shell was written — then clipped the
+excess with no scrollbar. **The table's own `overflow-x:auto` wrapper (session 280) was correct
+and had never once been able to fire**, because its parent always had room. Fix: `.main { min-width: 0 }`.
+A guard one branch away from the path that needed it (s231), expressed in CSS.
+
+**Everything else on the page fits at 1280 now** — Overview, Payroll and the Loans chrome measure
+zero overflowing nodes. The close-band table is the one surface still wider than the window
+(1,367px against a 1,075px wrapper) and it now SCROLLS inside its card, with the Loan column
+frozen so a row keeps its identity once it does.
+
+Second half, all scoped to `@media (max-width: 1440px)` and all of it pixels, never claims
+(LESS IS BEST's limit): table 13px → 12.5px, cell padding 11/7 → 9/5, header letter-spacing
+.055em → .025em, `.content` padding 20 → 14, and the intake dropzone from 270px of an 800px-tall
+screen down to ~150. The Loan cell is capped at 200px with the LENDER line ellipsised — the name
+itself still never wraps, because a two-line identity makes every row taller and on a short
+screen that costs more than the width it saves. The full lender string went into a `title` on
+the span in the same commit, so the truncation loses nothing.
+
+**Verified:** re-measured at 1280×800 (0 overflowing nodes outside the close-band table);
+harness run in four batches, 59 groups — 3,468 assertions, 17 red, **all 17 identical on
+`git show HEAD:admin-dashboard/index.html` run through the same harness**: `[history] s240 #10`
+(Tech Debt #19, red on purpose), `stale-anchor-ask` + `rollback-beats-stale` (START HERE §0 —
+they stay red until the books and PayPal agree), and `fix-beats-schedule-ask` (5, pre-existing,
+not previously written down — worth a look on its own).
+
+**Where to pick up:** the close band is ~290px wider than a 1280px screen. Closing that without
+deleting anything means merging Booked / Staging / Status / Ledger (272px between them, three of
+the four are a single mark) into one Checks column. That is a design decision on the surface a
+CPA reads to decide, so it is David's call and was left un-made.
+
 ### Session 291 cont. 5 (2026-09-09) — THE PREVIEW SAID TIPS WERE NOT AN EXPENSE. THE JOURNAL HAS EXPENSED THEM SINCE AUGUST.
 
 David, on the Aug 24–30 payroll: *"We need to adjust how Tips are allocated. They should be

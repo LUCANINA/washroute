@@ -125,7 +125,14 @@
     .sidebar-user-role { font-size: 12px; color: rgba(255,255,255,.45); }
 
     /* ── MAIN ── */
-    .main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; }
+    /* Session 292: min-width:0 is load-bearing, not cosmetic. .main is a flex
+       item, so its default min-width:auto let a wide child (the close band's
+       13-column table) stretch the whole page past the viewport -- and
+       body{overflow-x:hidden} then CLIPPED it. On a 1280px laptop the right
+       edge of the table was not scrolled off, it was unreachable. With this,
+       .main stops at the viewport and the table's own overflow-x:auto
+       wrapper does the scrolling it was always meant to do. */
+    .main { margin-left: var(--sidebar-w); flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .topbar { background: white; border-bottom: 1px solid var(--gray-200); padding: 0 28px; height: 56px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 50; }
     .topbar-title { font-size: 15px; font-weight: 600; color: var(--gray-900); flex: 1; }
     .content { padding: 20px; flex: 1; }
@@ -3781,6 +3788,38 @@
             .lcb-table tbody tr { transition: background .12s; }
             .lcb-table tbody tr:hover { background: var(--gray-50); }
             .lcb-table td.lcb-n { text-align: right; white-space: nowrap; }
+
+            /* ── Session 292: the close band on a 13" laptop (1280px) ──────────
+               David used this on a 1280-wide screen and could not see the right
+               of the page. Root cause was .main's flex min-width (fixed in the
+               APP SHELL block); this is the second half — at 1440px and under
+               the table gets denser so MORE of it fits before the wrapper has
+               to scroll, and the Loan column freezes so a row keeps its
+               identity once it does. Nothing is removed at any width: same
+               columns, same figures, same tooltips (LESS IS BEST's limit — cut
+               the pixels, never the claim). */
+            @media (max-width: 1440px) {
+              .content { padding: 14px; }
+              .lcb-table { font-size: 12.5px; }
+              .lcb-table thead th { padding: 0 5px 9px; letter-spacing: .025em; }
+              .lcb-table tbody td { padding: 9px 5px; }
+              .lcb-table tfoot td { padding: 11px 8px; }
+              /* The loan name is the one cell that can give width back without
+                 losing anything. The NAME still never wraps -- it is the row's
+                 identity and a two-line identity makes every row taller, which
+                 on a 800px-tall laptop costs more than the width it saves. The
+                 LENDER line under it truncates instead: it is context, the full
+                 string stays in the title attribute, and nothing is lost. */
+              .lcb-table tbody td:first-child { max-width: 200px; }
+              .lcb-lender { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            }
+            /* The row's identity stays put when the wrapper scrolls. Opaque
+               background on both states, or the scrolled columns slide under a
+               transparent cell and the two readings overlap. */
+            .lcb-table thead th:first-child,
+            .lcb-table tbody td:first-child,
+            .lcb-table tfoot td:first-child { position: sticky; left: 0; z-index: 1; background: #fff; }
+            .lcb-table tbody tr:hover td:first-child { background: var(--gray-50); }
             /* The loan is the row's identity, so it carries the row's weight.
                The lender under it is context, set two steps quieter — one
                reading, not two facts competing. */
@@ -4274,6 +4313,17 @@
             .bk-dropzone:hover .bk-drop-icon, .bk-dropzone.drag .bk-drop-icon { background: #fff; }
             .bk-drop-title { font-size: 16px; font-weight: 650; color: var(--gray-900); margin-bottom: 4px; }
             .bk-drop-sub { font-size: 12.5px; color: var(--gray-500); }
+            /* Session 292, laptop pass. The intake dropzone was 270px of an
+               800px-tall screen for a target you can also click, so the close
+               band started below the fold. Same target, same words, a third of
+               the room. Placed HERE, after the base rule -- the same media
+               query lives up beside .lcb-table, and a copy there would lose to
+               these later declarations at equal specificity. */
+            @media (max-width: 1440px) {
+              .bk-dropzone { padding: 16px 20px; margin-bottom: 14px; }
+              .bk-drop-icon { width: 30px; height: 30px; margin: 0 auto 7px; font-size: 15px; }
+              .bk-drop-title { font-size: 14.5px; }
+            }
             /* Batch sorting card (session 224): the dump-everything flow. One
                row per dropped file, grouped into piles; spacing + hairline
                dividers only inside the card (one contrast step, session 219). */
@@ -20965,7 +21015,7 @@
       ].filter(Boolean).join(' · ');
 
       return `<tr onclick="_bkOpenLoanFromRow(event,'${esc(a.id)}')" style="cursor:pointer" data-loan-id="${esc(a.id)}" data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
-        <td data-col="loan" data-agreement="${agreement.has ? '1' : '0'}"><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${agreement.has ? `<span class="lit-agree" title="${esc(agreement.title)}" aria-label="Agreement on file">\u2713</span>` : ''}${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender">${esc(a.lender || '')}</span></td>
+        <td data-col="loan" data-agreement="${agreement.has ? '1' : '0'}"><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${agreement.has ? `<span class="lit-agree" title="${esc(agreement.title)}" aria-label="Agreement on file">\u2713</span>` : ''}${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender" title="${esc(a.lender || '')}">${esc(a.lender || '')}</span></td>
         <td class="lcb-c" data-col="source" data-close-basis="${esc(a.close_basis || '')}" title="${esc(basis.title)}">${basis.cell}</td>
         <td class="lcb-n" data-col="opening" data-amount="${r.opening ? r.opening.amount : ''}" data-source="${esc((r.opening && r.opening.source) || '')}" data-source-label="${esc(r.opening ? _closeOpeningSourceLabel(r.opening.source) : '')}"${r.opening && !r.opening.authoritative ? ' data-opening-soft="1"' : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}${openTitle ? ` title="${esc(openTitle)}"` : ''}>${openCell}</td>
         <td class="lcb-n" data-col="drawn" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-gross="${r.drawnGross == null ? '' : r.drawnGross}" data-drawn-netted="${r.drawnGross == null ? '' : r.drawnNetted}" data-staged-interest="${r.stagedInterest || ''}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
