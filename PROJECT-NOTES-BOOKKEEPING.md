@@ -13525,7 +13525,32 @@ reading `indexOf(x) < region.length`, which is true for any string containing `x
 decoration wearing a test's clothes. The ordering claim it was pretending to make is now measured
 against the superseded-guard's own index.
 
-**DEPLOY STATE — MEASURED 2026-09-14 22:20 UTC, ONE OF FIVE IS LIVE.**
+**✅ DEPLOY STATE — ALL FIVE LIVE, RE-MEASURED 2026-09-14 22:31 UTC.** The 22:20 reading below
+(one of five) was correct WHEN TAKEN; the remaining four went out at 22:30:09–22:30:20, sequentially
+within eleven seconds. Both indicators moved on every one — **version +1 AND `updated_at` from
+2026-09-09 to 2026-09-14 22:30** — which is what distinguishes a real deploy from a cached read.
+
+| function | version (was) | deployed (UTC) | proof marker in the DEPLOYED source |
+|---|---|---|---|
+| `loan-xero-post` | 73 (72) | 22:14:48 | `mayPrestage` ×4, `prestageRefusal` ×3, both guard headers |
+| `loan-ingest-amortization` | 21 (20) | 22:30:09 | `mayPrestage` ×3, `not_a_lender_issued_schedule` ×1 |
+| `loan-derive-schedule` | 17 (16) | 22:30:12 | `derived_schedule_cannot_stage` ×2 |
+| `loan-ingest-statement` | 57 (56) | 22:30:16 | `derived_schedule_cannot_stage` ×2 |
+| `loan-record-principal-payment` | 13 (12) | 22:30:20 | `derived_schedule_cannot_stage` ×2 |
+
+⚠️ **BOOT IS PROVEN FOR `loan-xero-post` ONLY, AND SAY SO RATHER THAN IMPLYING MORE.** It is
+`verify_jwt: false`, so an unauthenticated POST returned the FUNCTION'S OWN
+`400 {"error":"loan_split_id is required"}` — its words, not the gateway's, which is what a bundle
+that never booted cannot produce (s264). **The other four are `verify_jwt: true`, where a no-auth
+probe gets a 401 from the GATEWAY and proves nothing about boot** (s289's recorded limitation — do
+not re-derive it, and do not present a 401 as a boot check). Their evidence is the deployed source
+plus both moved indicators, which is strong but is not boot.
+
+**WHAT CLOSES IT, and it arrives on its own:** the next schedule upload on any of the eight
+disabled loans should return `staging.reason = 'not_a_lender_issued_schedule'` and leave
+`prestage_enabled` false. That is a ROWS-level proof (§245–247) and needs no probe.
+
+**The 22:20 reading, kept because the sequence is the lesson:**
 
 | function | version | deployed (UTC) | s293 in the deployed source? |
 |---|---|---|---|
