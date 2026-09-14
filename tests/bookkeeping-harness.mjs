@@ -12424,40 +12424,51 @@ GROUPS.push({
   name: 'fix-beats-schedule-ask',
   async run(t) {
     const p = await newHarnessPage({ tab: 'loans' });
-    const fordRow = async () => {
-      const cb = (await p.surfaces()).loans.closeBand;
-      return cb.rows.find(r => /4140/.test(r.name || ''));
-    };
 
-    /* ── 1. THE PRECONDITIONS ARE REAL ────────────────────────────────────
-     * Every clause the pre-278 code used to send this row to 'decide' is STILL
-     * TRUE. That is what makes the assertion below a test rather than a
-     * coincidence: the row is not 'fix' because the conditions lapsed. */
-    const pre = await p.evaluate(() => {
-      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '61564140');
-      if (!a) return { err: 'no 4140' };
-      const c = _loanScheduleChoice(a);
+    /* ── 1. THE SUBJECT IS CHOSEN FROM THE FIXTURE, NOT TYPED HERE ─────────
+     * ⚠️ SESSION 292: this group was pinned to E-Transit 4140 and went red when
+     * the DATA moved under it, not the code. 4140's balance_vs_lender findings
+     * were all RESOLVED on 2026-09-08, so the row has no difference left to
+     * walk and correctly offers nothing — the precondition lapsed, which is the
+     * one thing the old comment above swore had not happened. Five red
+     * assertions, none of them about a defect.
+     *
+     * The claim this group protects is not about one loan: **a row that meets
+     * every precondition for a prepared correction offers that correction.**
+     * So the subject is now SELECTED by those preconditions, the way
+     * `staging-column` selects its loans from the fixture's own splits. Pinning
+     * a test to a row id makes it a transcript of one afternoon's data (s245).
+     *
+     * The non-vacuity guard below is the half that matters: every assertion
+     * after it is about the chosen row, and "no row qualifies" would otherwise
+     * pass as silence. */
+    const pick = await p.evaluate(() => {
+      const open = (id) => !!(_reconFindings || []).find(f =>
+        f.loan_account_id === id && f.check_key === 'balance_vs_lender' && f.status === 'open');
+      const cands = (_allLoanAccounts || []).filter(a =>
+        a.close_basis === 'lender_statement' && a.prestage_enabled === true
+        && (_loanScheduleChoice(a) || {}).unsettled === true && open(a.id));
       return {
-        unsettled: c.unsettled,
-        prestage: a.prestage_enabled === true,
-        closeBasis: a.close_basis,
-        finding: !!(_reconFindings || []).find(f =>
-          f.loan_account_id === a.id && f.check_key === 'balance_vs_lender' && f.status === 'open'),
+        n: cands.length,
+        name: cands.length ? (cands[0].xero_account_name || cands[0].lender_account_number) : '',
+        all: cands.map(a => a.xero_account_name || a.lender_account_number),
       };
     });
-    t.ok(!pre.err, 'the fixture carries E-Transit 4140', pre.err || '');
-    t.eq(pre.unsettled, true, 'its schedule choice is UNSETTLED — the old ask would have fired');
-    t.eq(pre.prestage, true, '...and prestaging is on, which is what pulled it into scope');
-    t.eq(pre.closeBasis, 'lender_statement', '⭐ and it closes on the LENDER’S statements, not on a schedule');
-    t.eq(pre.finding, true, '...and it has an open balance-vs-lender finding to walk');
+    t.ok(pick.n > 0,
+         'the fixture carries a loan with every precondition the old ask fired on — unsettled schedule, prestaging on, closing on the LENDER\u2019S statements, and an open balance-vs-lender finding to walk',
+         JSON.stringify(pick));
+    const subjectRow = async () => {
+      const cb = (await p.surfaces()).loans.closeBand;
+      return cb.rows.find(r => (r.loanAttr || r.name) === pick.name);
+    };
 
-    const row = await fordRow();
-    t.ok(!!row, 'and the close band renders a row for it');
+    const row = pick.n ? await subjectRow() : null;
+    t.ok(!!row, `and the close band renders a row for it (${pick.name})`);
     if (row) {
       t.eq(row.grade, 'A', '⭐ its closing figure is grade A — the lender’s own document, not the projection');
       t.eq(row.action, 'fix',
-           '⭐ so the row offers the CORRECTION — the prepared $415.88 journal has a way in from the row where it is noticed',
-           JSON.stringify({ action: row.action, text: row.actionText }));
+           '⭐ so the row offers the CORRECTION — a prepared journal has a way in from the row where it is noticed',
+           JSON.stringify({ loan: pick.name, action: row.action, text: row.actionText }));
       t.ok(/find the fix/i.test(row.actionText || ''),
            '...and it says so in words', JSON.stringify(row.actionText));
     }
@@ -12492,7 +12503,7 @@ GROUPS.push({
      * whole 'decide' branch back into renderLoansCloseBand from this test's own
      * source, and confirm 4140's prepared correction is hidden again. Never by
      * editing index.html (session 245). */
-    const rev = await p.evaluate(() => {
+    const rev = await p.evaluate((SUBJECT) => {
       const real = renderLoansCloseBand;
       const src = real.toString();
       const anchor = "const queuedCell = action.cell ? '' : _bkQueueCellHtml(queued, month);";
@@ -12515,14 +12526,14 @@ GROUPS.push({
       catch (e) { return { ok: false, why: 'compile: ' + e.message }; }
       window.renderLoansCloseBand();
       const tr = [...document.querySelectorAll('#lcb-table tbody tr')]
-        .find(x => /4140/.test(x.getAttribute('data-loan') || ''));
+        .find(x => (x.getAttribute('data-loan') || '') === SUBJECT);
       const cell = tr && tr.querySelector('[data-col="action"]');
       const out = { ok: true, action: cell && cell.getAttribute('data-action'),
                     text: cell ? cell.innerText.trim() : '' };
       window.renderLoansCloseBand = real;
       real();
       return out;
-    });
+    }, pick.name);
     t.ok(rev.ok, 'CONTROL: the pre-288 "Which schedule?" branch could be rebuilt in page context',
          JSON.stringify(rev));
     if (rev.ok) {
@@ -12530,12 +12541,12 @@ GROUPS.push({
            '⭐ CONTROL: with that branch back, the row asks "Which schedule?" again — the defect, reproduced',
            JSON.stringify(rev));
       t.ok(!/find the fix/i.test(rev.text || ''),
-           '⭐ CONTROL: ...and the prepared $415.88 correction has no way in from the row where it is noticed',
+           '⭐ CONTROL: ...and the prepared correction has no way in from the row where it is noticed',
            JSON.stringify(rev.text));
     }
     /* AND IT IS REALLY GONE AFTERWARDS — a control that leaves its own damage
        behind would poison every later read of this page. */
-    const after = await fordRow();
+    const after = await subjectRow();
     t.eq(after && after.action, 'fix', 'CONTROL: ...and the real renderer is restored',
          JSON.stringify(after && after.action));
 

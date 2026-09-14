@@ -13446,9 +13446,42 @@ children, or four spans in one cell make an 11-column header report 15), `stagin
 `inXero`, and the export's inverse-discrimination rewrite. A test that counts a header goes red on
 a relocation and green on a deletion, which is exactly backwards.
 
+### `fix-beats-schedule-ask`: FIVE RED ASSERTIONS AND NOT ONE DEFECT — the fixture moved
+
+The five reds this session inherited turned out to be **a test pinned to a row id, outlived by its
+own data.** The group asserts that a loan meeting every precondition for a prepared correction
+offers that correction, and it named E-Transit 4140. **4140's `balance_vs_lender` findings are all
+`resolved` in the fixture — the last on 2026-09-08** — so the row has no difference left to walk
+and correctly offers nothing. The product is right; the subject evaporated.
+
+The comment above the group swore the opposite: *"Every clause the pre-278 code used to send this
+row to 'decide' is STILL TRUE... the row is not 'fix' because the conditions lapsed."* The clause it
+could not check was the one that lapsed.
+
+**The repair is `staging-column`'s pattern, and the group already had the answer written above it.**
+The subject is SELECTED from the fixture by the preconditions themselves — `close_basis =
+lender_statement`, prestaging on, schedule choice unsettled, an open `balance_vs_lender` — with a
+loud non-vacuity assertion first, because "no row qualifies" would otherwise pass as silence. It
+picks **Funding Circle** today and will pick whatever qualifies tomorrow. Twelve assertions, all
+green, and the discrimination control still reproduces the pre-288 defect and restores the real
+renderer. Nothing was relaxed: the claim is unchanged and is now stated over the population rather
+than over one afternoon's row.
+
+**The general form, and it is the third time this module has met it:** a test pinned to a specific
+row, period or figure is a transcript unless the pin comes from the fixture (s245's transcription
+lesson; s265's clock-from-`pulled_at`). A pinned test does not fail loudly when its subject is
+resolved — it fails misleadingly, accusing the code.
+
+**Two things seen while reading the table and worth knowing, neither a defect:** Rapid Credit Line
+carries an open `balance_vs_lender` and offers no action, which is correct — it TIES to the cent
+this month, and the finding is about something outside the closing month. And the close band
+independently reproduces START HERE §0: **Paypal 2, −$3,120.61, material.**
+
 **Where to pick up:** the close band is still ~125px wider than a 1280px screen and scrolls for
 that last stretch, which lands on the Action column. Everything cheap has been spent; the next
-honest 100px is a design question about the seven money columns, not a CSS one.
+honest 100px is a design question about the seven money columns, not a CSS one. **Suite is now
+2,581 assertions with 12 red, all twelve expected and named: `[history] s240 #10` (Tech Debt #19)
+and the eleven in `stale-anchor-ask` / `rollback-beats-stale` that §0 holds open.**
 
 ### Session 291 cont. 5 (2026-09-09) — THE PREVIEW SAID TIPS WERE NOT AN EXPENSE. THE JOURNAL HAS EXPENSED THEM SINCE AUGUST.
 
