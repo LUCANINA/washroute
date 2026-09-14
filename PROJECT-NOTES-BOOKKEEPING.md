@@ -13381,6 +13381,76 @@ picked up the new anchor.
 
 ## Session Log
 
+### Session 293 (2026-09-14) — AUDIT, NO CODE CHANGED. FOUR THINGS THIS FILE SAYS ARE WRONG.
+
+David asked for a senior-bookkeeper audit of the module: what works, what needs tuning, what to
+park. Every figure below is MEASURED against production on 2026-09-14, after the 19:44 UTC run.
+The readable write-up is a published artifact; the four corrections belong here, because three
+of them contradict standing claims in this file.
+
+**1. 🔴 THE BIGGEST XERO SPEND IS A CRON, NOT A HUMAN CLICKING. `wr-loan-attribution`
+(`20 */6 * * *`) walks `loan-find-difference` across THREE loans four times a day: 252–296 calls
+daily against the 1,000/day cap, every day, measured from `xero_api_usage`.** A full
+`reconciliation-run` costs 25. Session 291 concluded *"the scheduled run is NOT what empties the
+day; repeated clicks and by-id hydration are"* — that was right about the run and wrong about the
+cause. The 00:20 / 06:20 / 12:20 / 18:20 rows are unmistakable and nobody reads their output: the
+three `loan_attributions` headlines regenerated today are about a 2026-01-02 payment and a
+2026-05-11 payment, unchanged for weeks. **Fix the cadence before building the cache** — s291's
+cache proposal is correct in shape but would be caching a walk that should not be running. Cheapest
+honest fix: re-walk a loan only when its statements, splits or balances moved since the last run.
+
+**2. THE STAGE → MATCH → CONTINUATION LOOP IS PROVEN LIVE. SIX TIMES.** This file still holds the
+auto-stage cron (Task 7) behind *"a full stage→match→continuation loop proven live"*. Measured from
+`loan_splits.stage_reference`: twelve stages created, **six completed the whole trip** — 254
+(staged 8/21 → posted 9/02), 233 (8/21 → 9/01), 394 (8/21 → 9/11), 338 (8/24 → 9/10), 284 twice
+(8/25 → 8/28, 8/31 → 9/04) — each matched within 0–2 days of its scheduled date, and 233/254/394 each
+carry the NEXT card, auto-created. ⚠️ **The gate should be lifted per BASIS, not globally:** all
+three contract-schedule loans completed clean; the friction is entirely on derived-schedule loans
+(see 3).
+
+**3. 🟠 DAVID'S BACKBURNER HYPOTHESIS IS CORRECT AND THE DATA IS ONE-SIDED.** Eleven loans carry
+`prestage_enabled`. Only THREE are backed by a schedule the lender sent (233 Dexter, 254 PCV, 394
+Verdant, all `claude_assisted_parse`/`client_parsed_verified`); one off the lender's own history CSV
+(284); **seven run off `derived_from_statements` — our own arithmetic** (242, 243, 244, 251, 253,
+332, 338). Every clean round trip was a contract-schedule loan. Every stuck stage is derived: 243
+carries `duplicate_suspected` (below), 332 is two days past its date unmatched, 242 has never
+completed one. **And `chosen_schedule_id` is NULL on all eleven** — Tech Debt #48 is not a risk, it
+is the live state: where a loan has 2–4 derived schedules, a sort key decides which one writes a
+real transaction into Xero. 244 is already living it (split tied to the superseded schedule, payment
+day re-measured 20th → 9th). **Recommended to David: `prestage_enabled=false` on 242/243/244/251/253/332,
+keep the split proposal and one-click post.** Those six all send statements; splitting after the
+fact unwinds nothing. Not done — his call.
+
+**4. 🔴 A DUPLICATE IS LIVE IN XERO ON 243 AND HAS BEEN FOR SIX DAYS, correctly diagnosed and never
+escalated.** Someone clicked Create instead of Match on 2026-09-08 ($2,065.75, txn
+`5fe38b35-7db5-4eee-942b-cc190cc846b0`), so the account carries that AND `WR-STAGE 243 2026-09-05`.
+The sweep found it on 9/10 and has re-found it every morning since. **Two defects, and the second is
+the general one:** a `stage_sweep_flag` raises no reconciliation finding, so nothing reaches the
+Issues queue — a flag that only writes itself a note is not a control; and the sweep **APPENDS** its
+paragraph to `review_notes` daily, so the row now carries five identical 300-word blocks on the very
+field `_bkSplitPostingHold` regexes (Tech Debt #30). Replace the note for a recurring condition,
+never append.
+
+**Also measured, for the record.** $2,337,063.92 of book debt across 14 active loans; 5 tied
+independently, 2 tie by construction (233, 394 — the module labels this honestly), 3 explained, 3
+exceptions totalling $3,642.48 (0.16%), 1 not comparable (304). Payroll: 12/12 posted with journals,
+0 attention flags, 34 employees mapped, 1 unmapped line — this half is finished, stop spending time
+on it. `settings.books_closed_through` is STILL 2026-06-30 and `xero_period_lock_date` is STILL null
+— §230's central assumption has not been maintained for a month; the ask to Ramona is one setting.
+304 Stripe is the one item getting WORSE: not lender-comparable at all, and its stored balances now
+disagree with Xero by $688.16 (21 dates) and **$1,880.89 as at 2026-09-14** (10 dates), a gap that
+grew $1,192.73 this week. 394 Verdant's `close_basis` says `lender_statement` while it has no lender
+document on file at all — the gate is asking for paper that is never coming; set it to
+`amortization_schedule` or get a statement.
+
+**DEPLOY STATE, MEASURED 2026-09-14 20:0x UTC via `list_edge_functions`** (the START HERE block is
+stale a SEVENTH time — it names v81/v46): `reconciliation-run` **v84**, `loan-find-difference`
+**v48**, both updated 2026-09-10; `loan-xero-post` v72; `loan-bundle` v59; `xero-read` v23. So
+s291's `voided_since_last_run` and both meters did ship. Not verified by probe or by rows in this
+session — this is a version comparison and nothing more, which is exactly what this file warns is
+insufficient. **Whoever picks this up: probe before relying on it.**
+
+
 ### Session 292 (2026-09-14) — THE RIGHT OF THE CLOSE BAND WAS NOT SCROLLED OFF, IT WAS UNREACHABLE
 
 David used Bookkeeping on a 1280×800 laptop over the weekend and could not see the whole page.
