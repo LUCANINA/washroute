@@ -197,8 +197,24 @@
     .nav-btn.active svg { transform: scale(1.12); }
 
     /* ── HOME ── */
-    .home-hero { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); padding: 22px 20px 28px; color: white; flex-shrink: 0; }
-    .home-greeting { font-size: 22px; font-weight: 800; }
+    .home-hero { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); padding: 30px 22px 34px; color: white; flex-shrink: 0; }
+    .home-greeting { font-size: 24px; font-weight: 800; }
+    #screen-home .section { padding-top: 28px; }
+    #screen-home .section-title { margin-bottom: 14px; }
+    #screen-home .home-cta-section { padding-top: 22px !important; }
+    /* Home invite strip — pinned above the tab bar, deliberately quieter than "Schedule a Pickup" */
+    .ref-strip { position: fixed; left: 50%; transform: translateX(-50%); width: calc(100% - 36px); max-width: 394px;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 70px); z-index: 90; display: flex; align-items: center; gap: 12px;
+      padding: 12px 10px 12px 14px; background: white; border: 1px solid var(--gray-100); border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(15,23,42,.06); }
+    .ref-strip .ri { width: 34px; height: 34px; border-radius: 9px; background: #ecfdf5; display: grid; place-items: center; flex-shrink: 0; }
+    .ref-strip .ri svg { width: 18px; height: 18px; stroke: #0f766e; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .ref-strip .rt { flex: 1; min-width: 0; }
+    .ref-strip .r1 { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ref-strip .r2 { font-size: 12px; color: var(--gray-500); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ref-strip .rb { font-size: 13px; font-weight: 700; color: var(--navy); background: white; border: 1.5px solid var(--gray-200); border-radius: 8px; padding: 7px 12px; font-family: inherit; cursor: pointer; flex-shrink: 0; }
+    .ref-strip .rx { color: var(--gray-400); font-size: 20px; line-height: 1; padding: 4px 6px; background: none; border: none; cursor: pointer; flex-shrink: 0; }
+    #screen-home.has-ref-strip .main-content { padding-bottom: 164px; }
     .home-sub { font-size: 13.5px; color: rgba(255,255,255,.6); margin-top: 3px; }
     .stats-row { display: flex; gap: 10px; margin-top: 18px; }
     .stat-chip { flex: 1; background: rgba(255,255,255,.12); border-radius: 10px; padding: 12px 8px; text-align: center; }
@@ -464,6 +480,59 @@
     .signout-btn { margin: 6px 18px 20px; width: calc(100% - 36px); padding: 13px; background: #fef2f2; color: #dc2626; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
     .signout-btn:hover { opacity: .8; }
     .mi-value { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+    .mi-badge { font-size: 11px; font-weight: 700; border-radius: 10px; padding: 3px 8px; white-space: nowrap; }
+    .mi-badge.warn { background: #fef3c7; color: #92400e; }
+    .mi-badge.good { background: #dcfce7; color: #166534; }
+    /* Profile hub */
+    .pf-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--gray-400); margin: 4px 2px 8px; }
+    .pf-card { background: white; border: 1px solid var(--gray-100); border-radius: 12px; margin-bottom: 22px; }
+    .pf-row { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-bottom: 1px solid var(--gray-100); cursor: pointer; }
+    .pf-row:last-child { border-bottom: none; }
+    .pf-main { flex: 1; min-width: 0; }
+    .pf-title { font-size: 15px; font-weight: 600; color: var(--text); }
+    .pf-val { font-size: 13px; color: var(--gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pf-val:empty { display: none; }
+    .pf-edit { font-size: 13px; font-weight: 600; color: var(--accent); }
+    .pf-row .mi-chev { flex-shrink: 0; }
+    .pf-item { border-bottom: 1px solid var(--gray-100); }
+    .pf-item:last-child { border-bottom: none; }
+    .pf-item .pf-row { border-bottom: none; }
+    .pf-editor { display: none; padding: 0 14px 14px; }
+    .pf-item.open .pf-editor { display: block; }
+    .pf-item.open .pf-edit { visibility: hidden; }
+    .pf-item.open .pf-val { display: none; }
+    .pf-editor .field { margin-bottom: 0; }
+    .pf-editor .field + .field { margin-top: 12px; }
+    .pf-note { font-size: 12px; color: var(--gray-500); line-height: 1.45; margin-top: 8px; }
+    .pf-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+    .pf-actions button { padding: 9px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .pf-cancel { background: white; color: var(--gray-600); border: 1.5px solid var(--gray-200); }
+    .pf-save { background: var(--navy); color: white; border: 1.5px solid var(--navy); }
+    .pf-save:disabled { opacity: .6; }
+    .pf-val.pf-saved { color: #16a34a; }
+    /* Rewards */
+    .rw-tabs { display: flex; background: white; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; padding: 0 18px; }
+    .rw-tab { flex: 1; background: none; border: none; border-bottom: 3px solid transparent; padding: 13px 0 11px; font-family: inherit; font-size: 15px; font-weight: 600; color: var(--gray-400); cursor: pointer; }
+    .rw-tab.active { color: var(--navy); border-bottom-color: var(--navy); }
+    .rw-invite { text-align: center; padding: 4px 4px 0; }
+    .rw-invite svg.rw-gift { width: 100%; max-width: 260px; height: auto; display: block; margin: 0 auto 8px; }
+    .rw-invite h2 { font-size: 22px; font-weight: 800; color: var(--text); margin: 0 0 4px; }
+    .rw-invite .rw-sub { font-size: 14px; color: var(--gray-500); margin-bottom: 14px; }
+    .rw-code { display: inline-block; font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size: 26px; font-weight: 700; letter-spacing: .1em; color: var(--navy); border: 2px solid var(--navy); border-radius: 10px; padding: 10px 22px; background: white; cursor: pointer; }
+    .rw-copyhint { font-size: 12px; color: var(--gray-400); margin: 6px 0 16px; }
+    .rw-pitch { font-size: 14px; color: var(--gray-600); line-height: 1.5; margin: 0 0 18px; }
+    .rw-send { width: 100%; padding: 14px; background: var(--navy); color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .rw-status { font-size: 12px; color: var(--gray-400); margin-top: 10px; }
+    .rw-balance { background: var(--navy); color: white; border-radius: 12px; padding: 16px 18px; margin-bottom: 24px; }
+    .rw-balance .rw-k { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .65; }
+    .rw-balance .rw-amt { font-size: 30px; font-weight: 800; margin: 4px 0 2px; }
+    .rw-balance .rw-note { font-size: 12px; opacity: .7; }
+    .rw-balance + .rw-disc { margin-top: -12px; }
+    .rw-disc { background: white; border: 1px solid var(--gray-100); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+    .rw-disc-ic { width: 38px; height: 38px; border-radius: 10px; background: #ecfdf5; color: #0f766e; font-weight: 800; font-size: 15px; display: grid; place-items: center; flex-shrink: 0; }
+    .rw-k2 { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--gray-400); }
+    .rw-disc-main { font-size: 16px; font-weight: 700; color: var(--text); margin-top: 2px; }
+    .rw-disc-sub { font-size: 12px; color: var(--gray-500); margin-top: 1px; }
 
     /* ── ACCOUNT SUB-PANELS ── */
     .sub-panel { position: fixed; top: 0; bottom: 0; left: 50%; width: 100%; max-width: 430px; background: var(--gray-50); z-index: 200; display: flex; flex-direction: column; transform: translateX(-50%) translateX(100%); transition: transform .28s cubic-bezier(.4,0,.2,1); overflow: hidden; }
@@ -1137,12 +1206,14 @@
         <div class="section-title">Active Orders</div>
         <div id="home-active"></div>
       </div>
-      <div class="section" style="padding-top:14px;padding-bottom:24px">
+      <div class="section home-cta-section" style="padding-top:14px;padding-bottom:24px">
         <button class="btn-primary" onclick="goTo('new-order')" style="font-size:16px;padding:16px">
           + Schedule a Pickup
         </button>
       </div>
     </div>
+    <!-- Home invite strip — filled by renderHomeReferralStrip() only when eligible -->
+    <div class="ref-strip" id="home-ref-strip" style="display:none"></div>
   </div>
 
   <!-- ═══ NEW ORDER ═══ -->
@@ -1433,40 +1504,42 @@
     </div>
     <div class="main-content" style="padding: 0 0 100px;">
       <div class="acct-menu">
-        <!-- Account Details / Contact Info -->
-        <div class="menu-item" onclick="loadContactDetails();openSubPanel('sub-contact')">
+        <!-- Profile hub (session 2026-09-15 restructure): contact info,
+             addresses, payment cards and subscription all live one level down -->
+        <div class="menu-item" onclick="openProfilePanel()">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
-            <div><div class="mi-label">Account Details</div></div>
-          </div>
-          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <!-- Order History -->
-        <div class="menu-item" onclick="goTo('orders')">
-          <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M9 12h6M9 16h4"/></svg></div>
-            <div><div class="mi-label">Order History</div></div>
-          </div>
-          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <!-- My Addresses -->
-        <div class="menu-item" onclick="openSubPanel('sub-addresses')">
-          <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
             <div>
-              <div class="mi-label">My Addresses</div>
-              <div class="mi-value" id="acct-menu-addr-count"></div>
+              <div class="mi-label">Profile</div>
+              <div class="mi-value">Contact, addresses, payment, plan</div>
             </div>
           </div>
-          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="mi-badge warn" id="acct-menu-profile-badge" style="display:none">Add card</span>
+            <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+          </div>
         </div>
-        <!-- Payment Method -->
-        <div class="menu-item" onclick="openSubPanel('sub-payment')">
+        <!-- Rewards: credits, invite a friend, promo codes -->
+        <div class="menu-item" onclick="openSubPanel('sub-rewards')">
           <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg></div>
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M12 8S10.5 3 7.5 4 9 8 12 8zm0 0s1.5-5 4.5-4S15 8 12 8z"/></svg></div>
             <div>
-              <div class="mi-label">Payment Settings</div>
-              <div class="mi-value" id="acct-menu-card-info"></div>
+              <div class="mi-label">Rewards</div>
+              <div class="mi-value">Credits, discounts, invite friends</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="mi-badge good" id="acct-menu-rewards-badge" style="display:none"></span>
+            <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+          </div>
+        </div>
+        <!-- Laundry Preferences (now also holds Default Tip) -->
+        <div class="menu-item" onclick="openPrefsSubPanel()">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+            <div>
+              <div class="mi-label">Laundry Preferences</div>
+              <div class="mi-value">Detergent, care notes, default tip</div>
             </div>
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
@@ -1474,7 +1547,7 @@
         <!-- Billing History (session 141) -->
         <div class="menu-item" onclick="openBillingHistory()">
           <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
             <div>
               <div class="mi-label">Billing History</div>
               <div class="mi-value" id="acct-menu-billing-info"></div>
@@ -1482,30 +1555,11 @@
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
-        <!-- Laundry Preferences -->
-        <div class="menu-item" onclick="openPrefsSubPanel()">
-          <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
-            <div><div class="mi-label">Laundry Preferences</div></div>
-          </div>
-          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
         <!-- Pricing -->
         <div class="menu-item" onclick="openPricingPanel()">
           <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1-3 2.3c0 3 6 1.7 6 4.8 0 1.3-1.3 2.4-3 2.4s-3-1.1-3-2.5M12 5.5v1.5M12 17v1.5"/></svg></div>
             <div><div class="mi-label">Pricing</div></div>
-          </div>
-          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <!-- Subscription — hidden behind SUBSCRIPTIONS_ENABLED feature flag -->
-        <div class="menu-item" id="acct-menu-plan-item" onclick="openSubPanel('sub-plan')" style="display:none">
-          <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
-            <div>
-              <div class="mi-label">Subscription</div>
-              <div class="mi-value" id="acct-menu-plan-name"></div>
-            </div>
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
@@ -1515,6 +1569,86 @@
   </div>
 
   <!-- ═══ ACCOUNT SUB-PANELS ═══ -->
+  <!-- Profile hub — must stay ABOVE its child panels in the DOM (same z-index,
+       so later panels paint on top when opened from here). -->
+  <div class="sub-panel" id="sub-profile">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-profile')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Profile</div>
+    </div>
+    <div class="sub-panel-body">
+      <div class="pf-label">Contact</div>
+      <div class="pf-card" id="pf-contact-card">
+        <div class="pf-item" id="pf-item-name">
+          <div class="pf-row" onclick="pfToggle('name')"><div class="pf-main"><div class="pf-title">Name</div><div class="pf-val" id="pf-name">—</div></div><span class="pf-edit">Edit</span></div>
+          <div class="pf-editor">
+            <div class="field-row">
+              <div class="field"><label>First name</label><input type="text" id="pf-in-first" autocomplete="given-name"></div>
+              <div class="field"><label>Last name</label><input type="text" id="pf-in-last" autocomplete="family-name"></div>
+            </div>
+            <div class="pf-actions"><button class="pf-cancel" onclick="pfToggle(null)">Cancel</button><button class="pf-save" id="pf-save-name" onclick="pfSave('name')">Save</button></div>
+          </div>
+        </div>
+        <div class="pf-item" id="pf-item-phone">
+          <div class="pf-row" onclick="pfToggle('phone')"><div class="pf-main"><div class="pf-title">Phone</div><div class="pf-val" id="pf-phone">—</div></div><span class="pf-edit">Edit</span></div>
+          <div class="pf-editor">
+            <div class="field"><label>Mobile number</label><input type="tel" id="pf-in-phone" autocomplete="tel" placeholder="(555) 000-0000" oninput="this.value=pfFormatPhone(this.value)"></div>
+            <div class="pf-actions"><button class="pf-cancel" onclick="pfToggle(null)">Cancel</button><button class="pf-save" id="pf-save-phone" onclick="pfSave('phone')">Save</button></div>
+          </div>
+        </div>
+        <div class="pf-item" id="pf-item-email">
+          <div class="pf-row" onclick="pfToggle('email')"><div class="pf-main"><div class="pf-title">Email</div><div class="pf-val" id="pf-email">—</div></div><span class="pf-edit">Edit</span></div>
+          <div class="pf-editor">
+            <div class="field"><label>Email</label><input type="email" id="pf-in-email" autocomplete="email" autocapitalize="off"></div>
+            <div class="pf-note">We'll send a confirmation link to the new address. Your email won't change until you click it.</div>
+            <div class="pf-actions"><button class="pf-cancel" onclick="pfToggle(null)">Cancel</button><button class="pf-save" id="pf-save-email" onclick="pfSave('email')">Send link</button></div>
+          </div>
+        </div>
+        <div class="pf-item" id="pf-item-password">
+          <div class="pf-row" onclick="pfToggle('password')"><div class="pf-main"><div class="pf-title">Password</div><div class="pf-val" id="pf-pw-val">••••••••</div></div><span class="pf-edit" id="pf-pw-edit">Change</span></div>
+          <div class="pf-editor">
+            <div class="field"><label>New password</label><input type="password" id="pf-in-pw" autocomplete="new-password" placeholder="At least 8 characters"></div>
+            <div class="field"><label>Confirm new password</label><input type="password" id="pf-in-pw2" autocomplete="new-password" placeholder="Repeat new password"></div>
+            <div class="pf-actions"><button class="pf-cancel" onclick="pfToggle(null)">Cancel</button><button class="pf-save" id="pf-save-password" onclick="pfSave('password')">Save</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="pf-label">Account</div>
+      <div class="pf-card">
+        <div class="pf-row" onclick="openSubPanel('sub-addresses')">
+          <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+          <div class="pf-main"><div class="pf-title">Addresses</div><div class="pf-val" id="acct-menu-addr-count"></div></div><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <div class="pf-row" onclick="openSubPanel('sub-payment')">
+          <div class="mi-icon"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg></div>
+          <div class="pf-main"><div class="pf-title">Payment</div><div class="pf-val" id="acct-menu-card-info"></div></div>
+          <span class="mi-badge warn" id="pf-payment-badge" style="display:none">Required</span><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <!-- Subscription — hidden behind SUBSCRIPTIONS_ENABLED feature flag -->
+        <div class="pf-row" id="acct-menu-plan-item" onclick="openSubPanel('sub-plan')" style="display:none">
+          <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
+          <div class="pf-main"><div class="pf-title">Subscription</div><div class="pf-val" id="acct-menu-plan-name"></div></div><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rewards — credits, referral, promo codes. Rendered by renderPaymentSection(). -->
+  <div class="sub-panel" id="sub-rewards">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-rewards')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Rewards</div>
+    </div>
+    <div class="rw-tabs" id="rw-tabs" style="display:none">
+      <button class="rw-tab active" data-tab="invite" onclick="setRewardsTab('invite')">Invite Friends</button>
+      <button class="rw-tab" data-tab="credits" onclick="setRewardsTab('credits')">Credits &amp; Discounts</button>
+    </div>
+    <div class="sub-panel-body">
+      <div class="rw-pane" id="rw-pane-invite" style="display:none"><div id="referral-card"></div></div>
+      <div class="rw-pane" id="rw-pane-credits"><div id="rewards-section"></div></div>
+    </div>
+  </div>
+
   <div class="sub-panel" id="sub-addresses">
     <div class="sub-panel-header">
       <button class="sub-back-btn" onclick="closeSubPanel('sub-addresses')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -1530,7 +1664,7 @@
   <div class="sub-panel" id="sub-payment">
     <div class="sub-panel-header">
       <button class="sub-back-btn" onclick="closeSubPanel('sub-payment')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
-      <div class="sub-panel-title">Payment Settings</div>
+      <div class="sub-panel-title">Payment</div>
     </div>
     <div class="sub-panel-body">
       <div id="payment-method-section"></div>
@@ -1565,6 +1699,7 @@
         <textarea id="pref-notes" rows="3" placeholder="e.g. Hang dry delicates, separate darks…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none"></textarea>
       </div>
       <button class="pref-save-btn" onclick="savePreferences()" style="margin-top: 14px">Save Preferences</button>
+      <div id="prefs-tip-section" style="margin-top:24px;padding-top:20px;border-top:1px solid var(--gray-100)"></div>
     </div>
   </div>
 
@@ -1628,7 +1763,7 @@
   <div class="sub-panel" id="sub-contact">
     <div class="sub-panel-header">
       <button class="sub-back-btn" onclick="closeSubPanel('sub-contact')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
-      <div class="sub-panel-title">Account Details</div>
+      <div class="sub-panel-title">Contact Info</div>
     </div>
     <div class="sub-panel-body">
 
@@ -3419,6 +3554,8 @@ async function loadHome() {
   // Load subscription card (front and center for subscribers)
   await renderHomeSubscriptionCard();
 
+  renderHomeReferralStrip();   // fire-and-forget; never blocks the order list
+
   if (!currentCustomer) { renderNoActive(); return; }
   try {
     const { data: orders, error } = await db.from('orders')
@@ -5028,9 +5165,20 @@ function buildConfirmSummary() {
     + (draft.recurring ? ` · <span style="color:var(--gray-500)">${escHtml(freqLabel)}</span>` : '');
 
   // Final total including tip (also used by the sticky CTA bar below).
+  // 2026-09-15: show the customer's standing % discount and credit in the
+  // estimate. Mirrors billing (admin calcProcTotal / charge-order): the %
+  // applies to service + add-on lines only (never delivery / same-day fees),
+  // credit comes off after the discount, and the tip is added last.
+  // Display only — placeOrder() computes its own stored total.
+  const discPct       = currentCustomerDiscount ? Number(currentCustomerDiscount.value || 0) : 0;
+  const discAmt       = discPct > 0 ? Math.round((baseTotal + addonsTotal) * discPct) / 100 : 0;
+  const afterDisc     = Math.round((total - discAmt) * 100) / 100;
+  const creditBal     = parseFloat(currentCustomer?.credits || 0);
+  const creditAmt     = creditBal > 0 ? Math.min(creditBal, afterDisc) : 0;
+  const preTipTotal   = Math.round((afterDisc - creditAmt) * 100) / 100;
   const tipAmtVal     = parseFloat(draft.tipAmount || 0);
-  const tipDollarsVal = draft.tipType === '%' ? Math.round(total * tipAmtVal) / 100 : tipAmtVal;
-  const finalTotal    = total + (tipAmtVal > 0 ? tipDollarsVal : 0);
+  const tipDollarsVal = draft.tipType === '%' ? Math.round(preTipTotal * tipAmtVal) / 100 : tipAmtVal;
+  const finalTotal    = preTipTotal + (tipAmtVal > 0 ? tipDollarsVal : 0);
 
   document.getElementById('confirm-summary').innerHTML = `
     <div class="confirm-summary-card">
@@ -5077,6 +5225,8 @@ function buildConfirmSummary() {
       ${addonRows}
       ${routeFees.map(f => `<div class="d-row"><span class="d-key">${escHtml(f.name)}</span><span class="d-val">+${$m(parseFloat(f.amount||0))}</span></div>`).join('')}
       ${sameDayFee > 0 ? `<div class="d-row"><span class="d-key">⚡ Same-day surcharge</span><span class="d-val" style="color:var(--accent);font-weight:600;">+${$m(sameDayFee)}</span></div>` : ''}
+      ${discAmt > 0 ? `<div class="d-row"><span class="d-key" style="color:var(--green);font-weight:600">${escHtml(currentCustomerDiscount.name)} (${discPct}%)</span><span class="d-val" style="color:var(--green);font-weight:600">−${$m(discAmt)}</span></div>` : ''}
+      ${creditAmt > 0 ? `<div class="d-row"><span class="d-key" style="color:var(--green);font-weight:600">Account credit</span><span class="d-val" style="color:var(--green);font-weight:600">−${$m(creditAmt)}</span></div>` : ''}
       ${tipAmtVal > 0 ? `<div class="d-row"><span class="d-key">${draft.tipType === '%' ? `Team Tip (${tipAmtVal}%)` : 'Team Tip'}</span><span class="d-val" style="color:var(--green);font-weight:600;">+${$m(tipDollarsVal)}</span></div>` : ''}
       <div class="d-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:14px">
         <span class="d-key" style="font-weight:700;font-size:15px">Estimated Total</span>
@@ -5096,7 +5246,12 @@ function buildConfirmSummary() {
   // here without having visited the Account page (loadPromoCodeData is fast).
   renderConfirmPromoSection();
   if (currentCustomer?.id) {
-    loadPromoCodeData().then(() => renderConfirmPromoSection()).catch(() => {});
+    const before = currentCustomerDiscount?.id || null;
+    loadPromoCodeData().then(() => {
+      // Discount arrived/changed after first paint → redo the estimate once.
+      if ((currentCustomerDiscount?.id || null) !== before) buildConfirmSummary();
+      else renderConfirmPromoSection();
+    }).catch(() => {});
   }
 }
 
@@ -8391,21 +8546,82 @@ function referralPitch(data) {
 }
 
 /** Loaded once per session and shared by both surfaces. */
+let _referralOffUntil = 0;   // 2026-09-15: Home now asks too — don't re-hit the RPC on every Home load while the program is off
 async function getReferralState() {
   if (_referral) return _referral;
   if (!currentCustomer?.id) return null;
+  if (_referralOffUntil > Date.now()) return null;
   try {
     const { data, error } = await db.rpc('get_or_create_referral_code', { p_customer_id: currentCustomer.id });
     if (error || !data?.ok) return null;
     // Only cache a live program. Turning it on in Admin is a settings change, not
     // a deploy, so a session that started while it was off must not stay dark.
     if (data.enabled === true) _referral = data;
+    else _referralOffUntil = Date.now() + 10 * 60 * 1000;
     return data;
   } catch (e) { console.warn('getReferralState:', e); return null; }
 }
 
 function referralSurfaces(data) {
   return Array.isArray(data?.card_surfaces) ? data.card_surfaces : ['account'];
+}
+
+/* ── the home-screen invite strip (2026-09-15) ────────────────────────
+   Shown only when 'home' is in card_surfaces, the customer has had at
+   least one delivery, has no failed charge, and hasn't dismissed it in
+   the last 30 days. Sits above the tab bar, below everything else. */
+const REF_HOME_SNOOZE_KEY = 'wr_ref_home_snooze';
+
+async function renderHomeReferralStrip() {
+  const host = document.getElementById('home-ref-strip');
+  const screen = document.getElementById('screen-home');
+  const hide = () => { if (host) { host.style.display = 'none'; host.innerHTML = ''; } screen?.classList.remove('has-ref-strip'); };
+  if (!host || !currentCustomer?.id) return hide();
+  try {
+    const until = parseInt(localStorage.getItem(REF_HOME_SNOOZE_KEY) || '0', 10);
+    if (until > Date.now()) return hide();
+  } catch (_) {}
+
+  const data = await getReferralState();
+  if (!data || data.enabled !== true || !referralSurfaces(data).includes('home')) return hide();
+
+  try {
+    const [deliv, failed] = await Promise.all([
+      db.from('orders').select('id', { count: 'exact', head: true })
+        .eq('customer_id', currentCustomer.id).eq('status', 'delivered'),
+      db.from('orders').select('id', { count: 'exact', head: true })
+        .eq('customer_id', currentCustomer.id).eq('billing_status', 'failed'),
+    ]);
+    if (deliv.error || failed.error) return hide();          // unsure → stay quiet
+    if ((deliv.count || 0) === 0 || (failed.count || 0) > 0) return hide();
+  } catch (_) { return hide(); }
+
+  const offer = `Give ${referralDollars(data.friend_credit)}, get ${referralDollars(data.referrer_credit)}`;
+  const joined = Number(data.qualified || 0);
+  const line1 = joined > 0
+    ? `${referralDollars(data.credit_earned)} earned · ${joined} friend${joined === 1 ? '' : 's'}`
+    : offer;
+  const line2 = joined > 0 ? `${offer} — invite more` : 'Share your code with a friend';
+
+  host.innerHTML = `
+    <div class="ri"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M12 8S10.5 3 7.5 4 9 8 12 8zm0 0s1.5-5 4.5-4S15 8 12 8z"/></svg></div>
+    <div class="rt"><div class="r1">${escHtml(line1)}</div><div class="r2">${escHtml(line2)}</div></div>
+    <button class="rb" onclick="openRewardsInvite()">Invite</button>
+    <button class="rx" onclick="dismissHomeReferralStrip()" aria-label="Hide">×</button>`;
+  host.style.display = '';
+  screen?.classList.add('has-ref-strip');
+}
+
+function dismissHomeReferralStrip() {
+  try { localStorage.setItem(REF_HOME_SNOOZE_KEY, String(Date.now() + 30 * 24 * 60 * 60 * 1000)); } catch (_) {}
+  const host = document.getElementById('home-ref-strip');
+  if (host) { host.style.display = 'none'; host.innerHTML = ''; }
+  document.getElementById('screen-home')?.classList.remove('has-ref-strip');
+}
+
+function openRewardsInvite() {
+  goTo('account');
+  setTimeout(() => { setRewardsTab('invite'); openSubPanel('sub-rewards'); }, 200);
 }
 
 /* ── the post-delivery ask ──────────────────────────────────────────
@@ -8501,25 +8717,29 @@ async function loadReferralCard() {
         : 'Nobody invited yet';
 
     host.innerHTML = `
-      <div class="pm-section">
-        <div class="pref-title">Invite a Friend</div>
-        <div style="font-size:14px;color:var(--gray-600);line-height:1.5;margin-bottom:12px">${pitch}</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-          <div style="flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:18px;font-weight:700;
-                      letter-spacing:.06em;color:var(--navy);background:var(--gray-50);
-                      border:1.5px dashed var(--gray-200);border-radius:8px;padding:11px 12px;text-align:center">
-            ${escHtml(data.code)}
-          </div>
-          <button onclick="copyReferralCode()" title="Copy code"
-            style="padding:11px 14px;background:white;color:var(--navy);border:1.5px solid var(--gray-200);
-                   border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Copy</button>
-        </div>
-        <button onclick="shareReferral()"
-          style="width:100%;padding:12px;background:var(--navy);color:white;border:none;border-radius:8px;
-                 font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Text a friend</button>
-        <div style="font-size:12px;color:var(--gray-400);margin-top:8px">${escHtml(status)}</div>
+      <div class="rw-invite">
+        <svg class="rw-gift" viewBox="0 0 260 170" aria-hidden="true">
+          <rect x="20" y="22" width="220" height="140" rx="60" fill="var(--gray-100)"/>
+          <g fill="#5eead4"><circle cx="48" cy="60" r="4"/><circle cx="214" cy="52" r="3"/><circle cx="222" cy="120" r="4"/><circle cx="60" cy="140" r="3"/></g>
+          <g stroke="#7dd3fc" stroke-width="3" stroke-linecap="round"><path d="M130 14v12M110 22l6 8M150 22l-6 8"/></g>
+          <g fill="none" stroke="#64748b" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+            <rect x="88" y="66" width="84" height="20" rx="2" fill="white"/>
+            <path d="M94 86l4 60h64l4-60" fill="white"/>
+            <path d="M130 66v80"/>
+            <path d="M130 64c-10-18-30-22-32-10s20 10 32 10zM130 64c10-18 30-22 32-10s-20 10-32 10z"/>
+          </g>
+        </svg>
+        <h2>Earn Laundry Credit!</h2>
+        <div class="rw-sub">Share your code</div>
+        <div class="rw-code" onclick="copyReferralCode()" title="Tap to copy">${escHtml(data.code)}</div>
+        <div class="rw-copyhint">Tap code to copy</div>
+        <p class="rw-pitch">${pitch}</p>
+        <button class="rw-send" onclick="shareReferral()">Send Invite</button>
+        <div class="rw-status">${escHtml(status)}</div>
       </div>`;
-    host.style.display = '';
+    // Program is on → show the tab bar and land on Invite.
+    const tabs = document.getElementById('rw-tabs');
+    if (tabs && tabs.style.display === 'none') { tabs.style.display = ''; setRewardsTab('invite'); }
   } catch (e) { console.warn('loadReferralCard:', e); }
 }
 
@@ -8555,37 +8775,31 @@ function renderPaymentSection() {
   const credits = parseFloat(c?.credits || 0);
   const hasCredits = credits > 0;
 
-  // ── Credits ──
-  const creditsHtml = `
-    <div class="pm-section">
-      <div class="pref-title">Store Credits</div>
-      <div class="pm-row">
-        <div style="display:flex;align-items:center;gap:10px">
-          <div class="credits-dot${hasCredits ? '' : ' empty'}"></div>
-          <div>
-            <div class="credits-label">${hasCredits ? 'Account credit' : 'No credits'}</div>
-            <div class="credits-note">${hasCredits ? 'Applied automatically before your card' : 'Credits will appear here when added'}</div>
-          </div>
-        </div>
-        <div class="credits-amount${hasCredits ? '' : ' empty'}">${$m(credits)}</div>
-      </div>
+  // ── Credits & standing discount ──
+  const disc = currentCustomerDiscount;
+  const balanceHtml = `
+    <div class="rw-balance">
+      <div class="rw-k">Credit balance</div>
+      <div class="rw-amt">${$m(credits)}</div>
+      <div class="rw-note">${hasCredits ? 'Applied automatically to your next order, before your card' : 'Earn credit by inviting friends'}</div>
     </div>`;
+  const discountHtml = disc ? `
+    <div class="rw-disc">
+      <div class="rw-disc-ic">%</div>
+      <div style="flex:1;min-width:0">
+        <div class="rw-k2">Your discount</div>
+        <div class="rw-disc-main">${Number(disc.value)}% off every order</div>
+        <div class="rw-disc-sub">${escHtml(disc.name)}</div>
+      </div>
+      <span class="mi-badge good">Ongoing</span>
+    </div>` : '';
+  // Balance card is hidden when there's no credit but there is a discount.
+  const creditsHtml = (hasCredits || !disc ? balanceHtml : '') + discountHtml;
 
   // ── Promo Codes (session 141) ──
-  const activeDiscountBanner = currentCustomerDiscount
-    ? `<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
-         <div style="font-size:18px">🎟️</div>
-         <div>
-           <div style="font-weight:600;font-size:14px;color:var(--navy)">${escHtml(currentCustomerDiscount.name)}</div>
-           <div style="font-size:12px;color:var(--gray-500)">${currentCustomerDiscount.value}% off every order</div>
-         </div>
-       </div>`
-    : '';
-
   const promoHtml = `
     <div class="pm-section">
-      <div class="pref-title">Promo &amp; Referral Codes</div>
-      ${activeDiscountBanner}
+      <div class="pref-title">Have a Code?</div>
       <div class="pm-row" style="gap:8px;align-items:stretch">
         <input id="promo-code-input" type="text" placeholder="Enter code"
           autocapitalize="characters" autocorrect="off" spellcheck="false"
@@ -8595,7 +8809,7 @@ function renderPaymentSection() {
           style="padding:10px 18px;background:var(--navy);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Apply</button>
       </div>
       <div style="font-size:12px;color:var(--gray-400);margin-top:8px">
-        Past codes appear in <a href="#" onclick="closeSubPanel('sub-payment');setTimeout(openBillingHistory,200);return false" style="color:var(--accent);text-decoration:none;font-weight:600">Billing History</a>.
+        Works for credit and discount codes. Past codes appear in <a href="#" onclick="openBillingHistory();return false" style="color:var(--accent);text-decoration:none;font-weight:600">Billing History</a>.
       </div>
     </div>`;
 
@@ -8625,7 +8839,7 @@ function renderPaymentSection() {
   const now = new Date();
   let cardsListHtml = '';
   if (currentCards.length === 0) {
-    cardsListHtml = `<div class="no-card-box"><p>No card on file. Add one and we'll charge you automatically after each order.</p></div>`;
+    cardsListHtml = `<div class="no-card-box"><div style="font-weight:700;color:var(--text);margin-bottom:4px">No card on file</div><p>Add a card and we'll charge it automatically once each order is delivered.</p></div>`;
   } else {
     cardsListHtml = currentCards.map(card => {
       const brand   = (card.card_brand || 'card').toUpperCase();
@@ -8652,17 +8866,22 @@ function renderPaymentSection() {
 
   const cardHtml = `
     <div class="pm-section">
-      <div class="pref-title">Payment Cards</div>
+      <div class="pref-title">Cards</div>
       ${cardsListHtml}
-      <button class="card-add-btn" onclick="startCardSetup()">+ Add Card</button>
+      <button class="card-add-btn" onclick="startCardSetup()"${currentCards.length === 0 ? ' style="background:var(--navy);color:white;border-color:var(--navy)"' : ''}>${currentCards.length === 0 ? '+ Add Card' : '+ Add Another Card'}</button>
     </div>`;
 
   // ── Referral card (session 292) — hidden until loadReferralCard() says the
   // program is on, so the quiet launch is a settings flip, not a deploy.
-  const referralHtml = `<div id="referral-card" style="display:none"></div>`;
 
-  el.innerHTML = creditsHtml + referralHtml + promoHtml + tipHtml + cardHtml;
-  loadReferralCard();
+  // 2026-09-15 restructure: Payment = cards only; credits/referral/promo → Rewards;
+  // default tip → Laundry Preferences.
+  el.innerHTML = cardHtml;
+  const rw = document.getElementById('rewards-section');
+  if (rw) { rw.innerHTML = creditsHtml + promoHtml; loadReferralCard(); }
+  const tipEl = document.getElementById('prefs-tip-section');
+  if (tipEl && !tipEl.contains(document.activeElement)) tipEl.innerHTML = tipHtml;
+  updateAccountBadges();
 }
 
 let _custTipType = currentCustomer?.default_tip_type || '$';
@@ -8915,12 +9134,12 @@ function renderConfirmPromoSection() {
   const prevVal = sec.querySelector('#confirm-promo-input')?.value || '';
 
   const credits = parseFloat(currentCustomer?.credits || 0);
-  const activePctRow = currentCustomerDiscount
+  const activePctRow = '' && currentCustomerDiscount
     ? `<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--green);font-weight:600;margin-bottom:8px">
          ✓ ${escHtml(currentCustomerDiscount.name)} (${currentCustomerDiscount.value}% off) is active on your account
        </div>`
     : '';
-  const creditRow = credits > 0
+  const creditRow = '' && credits > 0
     ? `<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--green);font-weight:600;margin-bottom:8px">
          💰 ${$m(credits)} account credit will apply at billing
        </div>`
@@ -9048,7 +9267,7 @@ async function loadAccount() {
       const dc = currentCards.find(c => c.is_default) || currentCards[0];
       cardPart = `•••• ${dc.card_last4} + ${currentCards.length - 1} more`;
     }
-    cardEl.textContent = credits > 0 ? `${$m(credits)} credits · ${cardPart}` : cardPart;
+    cardEl.textContent = cardPart;
   }
 
   // Session 141 pt 12: populate Billing History sub-label with a transaction
@@ -9642,6 +9861,7 @@ async function saveContactInfo() {
     document.getElementById('acct-name').textContent   = `${first} ${last}`.trim() || 'You';
 
     showToast('Details saved!', 'success');
+    return true;
   } catch (e) {
     console.error('saveContactInfo:', e);
     showToast('Could not save — please try again', 'error');
@@ -9668,6 +9888,7 @@ async function saveEmailChange() {
     const { error } = await db.auth.updateUser({ email });
     if (error) throw error;
     showToast('Check your inbox — click the link to confirm your new email.', 'success');
+    return true;
   } catch (e) {
     console.error('saveEmailChange:', e);
     showToast(e.message || 'Could not update email — please try again', 'error');
@@ -9787,12 +10008,145 @@ async function savePasswordChange() {
     document.getElementById('cd-new-pw').value     = '';
     document.getElementById('cd-confirm-pw').value = '';
     showToast('Password changed successfully!', 'success');
+    return true;
   } catch (e) {
     showToast(e.message || 'Could not change password — please try again', 'error');
   } finally {
     // session 111d: respect the dynamic label (Set Password vs Change Password)
     btn.disabled = false; btn.textContent = isPasswordlessUser() ? 'Set Password' : 'Change Password';
   }
+}
+
+// ── Profile hub / Rewards helpers (2026-09-15 restructure) ──
+function pfFormatPhone(v) {
+  const d = String(v || '').replace(/\D/g, '').replace(/^1(?=\d{10})/, '').slice(0, 10);
+  if (d.length < 4) return d;
+  if (d.length < 7) return `(${d.slice(0,3)}) ${d.slice(3)}`;
+  return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+}
+
+let _pfPendingEmail = null;
+function pfRefresh() {
+  const set = (id, v) => { const e = document.getElementById(id); if (e) { e.textContent = v || '—'; e.classList.remove('pf-saved'); } };
+  const first = currentProfile?.first_name || currentCustomer?.first_name_cache || '';
+  const last  = currentProfile?.last_name  || currentCustomer?.last_name_cache  || '';
+  set('pf-name', `${first} ${last}`.trim());
+  set('pf-phone', pfFormatPhone(currentCustomer?.phone_cache || currentProfile?.phone || currentUser?.phone || ''));
+  const email = currentUser?.email || currentCustomer?.email_cache || '';
+  set('pf-email', _pfPendingEmail ? `${email} · pending: ${_pfPendingEmail}` : email);
+  const noPw = isPasswordlessUser();
+  set('pf-pw-val', noPw ? 'Not set' : '••••••••');
+  const pe = document.getElementById('pf-pw-edit'); if (pe) pe.textContent = noPw ? 'Set' : 'Change';
+}
+
+document.addEventListener('keydown', (e) => {
+  const item = e.target?.closest?.('#pf-contact-card .pf-item.open');
+  if (!item) return;
+  if (e.key === 'Enter') { e.preventDefault(); pfSave(item.id.replace('pf-item-', '')); }
+  if (e.key === 'Escape') { e.preventDefault(); pfToggle(null); }
+});
+
+function openProfilePanel() {
+  pfToggle(null);
+  pfRefresh();
+  updateAccountBadges();
+  openSubPanel('sub-profile');
+}
+
+// Open one inline editor (or close all with null), pre-filled from current data.
+function pfToggle(key) {
+  document.querySelectorAll('#pf-contact-card .pf-item').forEach(el => {
+    const open = key && el.id === 'pf-item-' + key && !el.classList.contains('open');
+    el.classList.toggle('open', !!open);
+  });
+  if (!key) return;
+  const item = document.getElementById('pf-item-' + key);
+  if (!item?.classList.contains('open')) return;
+  const v = (id, val) => { const e = document.getElementById(id); if (e) e.value = val; };
+  if (key === 'name') {
+    v('pf-in-first', currentProfile?.first_name || currentCustomer?.first_name_cache || '');
+    v('pf-in-last',  currentProfile?.last_name  || currentCustomer?.last_name_cache  || '');
+  } else if (key === 'phone') {
+    v('pf-in-phone', pfFormatPhone(currentCustomer?.phone_cache || ''));
+  } else if (key === 'email') {
+    v('pf-in-email', currentUser?.email || currentCustomer?.email_cache || '');
+  } else if (key === 'password') {
+    v('pf-in-pw', ''); v('pf-in-pw2', '');
+  }
+  const first = item.querySelector('input');
+  if (first) setTimeout(() => first.focus(), 50);
+}
+
+// Inline save — copies values into the (hidden) Contact Info form and reuses
+// its proven save functions, so the data path is unchanged.
+async function pfSave(key) {
+  const btn = document.getElementById('pf-save-' + key);
+  const val = id => document.getElementById(id)?.value ?? '';
+  loadContactDetails();   // fill hidden form with current values first
+  const cd = (id, x) => { document.getElementById(id).value = x; };
+  let ok = false;
+  if (btn) btn.disabled = true;
+  try {
+    if (key === 'name') {
+      cd('cd-first', val('pf-in-first').trim()); cd('cd-last', val('pf-in-last').trim());
+      ok = await saveContactInfo();
+    } else if (key === 'phone') {
+      const digits = val('pf-in-phone').replace(/\D/g, '');
+      if (digits && digits.length !== 10) { showToast('Please enter a 10-digit phone number', 'error'); return; }
+      cd('cd-phone', digits);
+      ok = await saveContactInfo();
+    } else if (key === 'email') {
+      const email = val('pf-in-email').trim().toLowerCase();
+      cd('cd-email', email);
+      ok = await saveEmailChange();
+      if (ok) _pfPendingEmail = email;
+    } else if (key === 'password') {
+      cd('cd-new-pw', val('pf-in-pw')); cd('cd-confirm-pw', val('pf-in-pw2'));
+      ok = await savePasswordChange();
+      cd('cd-new-pw', ''); cd('cd-confirm-pw', '');
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+  if (!ok) return;
+  if (key === 'phone') {
+    const f = pfFormatPhone(currentCustomer?.phone_cache || '');
+    const ap = document.getElementById('acct-phone'); if (ap) ap.textContent = f;
+  }
+  pfToggle(null);
+  pfRefresh();
+  const valEl = document.getElementById({ name: 'pf-name', phone: 'pf-phone', email: 'pf-email', password: 'pf-pw-val' }[key]);
+  if (valEl && key !== 'email') {
+    const prev = valEl.textContent;
+    valEl.textContent = 'Saved ✓'; valEl.classList.add('pf-saved');
+    setTimeout(() => { valEl.textContent = prev; valEl.classList.remove('pf-saved'); }, 1500);
+  }
+}
+
+function setRewardsTab(tab) {
+  document.querySelectorAll('#rw-tabs .rw-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  const inv = document.getElementById('rw-pane-invite');
+  const cr  = document.getElementById('rw-pane-credits');
+  if (inv) inv.style.display = tab === 'invite' ? '' : 'none';
+  if (cr)  cr.style.display  = tab === 'credits' ? '' : 'none';
+}
+
+function openContactPanel() {
+  loadContactDetails();
+  openSubPanel('sub-contact');
+}
+
+function updateAccountBadges() {
+  const noCard = !currentCards || currentCards.length === 0;
+  const pb = document.getElementById('acct-menu-profile-badge');
+  if (pb) pb.style.display = noCard ? '' : 'none';
+  const pay = document.getElementById('pf-payment-badge');
+  if (pay) pay.style.display = noCard ? '' : 'none';
+  const credits = parseFloat(currentCustomer?.credits || 0);
+  const rb = document.getElementById('acct-menu-rewards-badge');
+  const disc = currentCustomerDiscount;
+  const label = credits > 0 ? $m(credits) : disc ? `${Number(disc.value)}% off` : '';
+  if (rb) { rb.textContent = label; rb.style.display = label ? '' : 'none'; }
 }
 
 function openSubPanel(id) {
@@ -9871,7 +10225,13 @@ async function openPricingPanel() {
     section('Add-ons',           addons,  fmtSvcPrice) +
     section('Fees & Surcharges', charges, fmtFeePrice) +
     section('Rewards',           rewards, fmtFeePrice);
-  body.innerHTML = html || '<div style="padding:40px;text-align:center;color:var(--gray-400)">No pricing info available.</div>';
+  // 2026-09-15: remind discount holders the listed prices are before their %.
+  const _disc = currentCustomerDiscount;
+  const discNote = (_disc && html)
+    ? `<div style="margin:0 18px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:10px 12px;font-size:13px;color:#065f46;display:flex;gap:10px;align-items:center">
+         <span style="font-weight:800">%</span><span>Your <b>${Number(_disc.value)}% ${escHtml(_disc.name)}</b> comes off service prices at checkout.</span>
+       </div>` : '';
+  body.innerHTML = html ? discNote + html : '<div style="padding:40px;text-align:center;color:var(--gray-400)">No pricing info available.</div>';
   } catch (err) {
     console.error('openPricingPanel:', err);
     toast('Failed to load pricing — please try again');

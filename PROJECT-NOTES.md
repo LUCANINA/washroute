@@ -1,5 +1,33 @@
 # WashRoute — Project Notes
 
+## Session 293 — Sep 15, 2026: customer-app Account restructure, home invite strip, discount display
+
+**What changed (customer-app, plus one admin checkbox).**
+- Account menu is now Profile · Rewards · Laundry Preferences · Billing History · Pricing. Order History
+  removed (duplicate of the Orders tab).
+- **Profile** (`#sub-profile`) is a hub: Contact rows edit INLINE (`pfToggle` / `pfSave`), plus
+  Addresses, Payment, Subscription. `pfSave` copies values into the hidden `#sub-contact` form and
+  calls the existing `saveContactInfo` / `saveEmailChange` / `savePasswordChange` (now return `true`
+  on success). `#sub-contact` must stay — PASSWORD_RECOVERY opens it.
+  DOM order matters: `#sub-profile` and `#sub-rewards` sit ABOVE their child panels (same z-index).
+- **Payment** is cards only. Missing card → "Add card" badge on Profile row, "Required" on Payment row.
+- **Rewards** (`#sub-rewards`): tabs Invite Friends / Credits & Discounts. Tabs only show when the
+  referral program is on. `renderPaymentSection()` now fills `#payment-method-section` (cards),
+  `#rewards-section` (credits, discount card, code box) and `#prefs-tip-section` (Default Tip moved
+  to Laundry Preferences).
+- **Home**: "More room" spacing; invite strip `#home-ref-strip` pinned above the tab bar
+  (`renderHomeReferralStrip`). Shows only if `card_surfaces` includes `'home'` (new admin checkbox
+  "Show a small invite strip on the Home screen"), customer has ≥1 delivered order, no failed charge,
+  not dismissed in 30 days (`wr_ref_home_snooze`). `getReferralState` now caches "program off" for
+  10 min so Home doesn't hit the RPC every load.
+- **Discounts**: standing % discount shows as a card on Credits & Discounts ("Ongoing" — `discounts` has
+  no expiry column), "X% off" badge on the Rewards row, a green note on Pricing, and discount + credit
+  lines on the Confirm estimate. Estimate mirrors billing: % on service + add-ons only (never
+  delivery/same-day), credit after discount, tip last. **Display only** — `placeOrder()` total untouched.
+  Known gap: the Confirm estimate still shows no sales tax.
+
+**To launch the home strip:** Admin → referral settings → tick the Home checkbox → Save.
+
 ## Session 292 — Sep 11, 2026: session 196 fixed half of this; here is the other half
 
 **Kate Roberts #14666.** She emailed asking what a $9.95 charge was. She was right, and

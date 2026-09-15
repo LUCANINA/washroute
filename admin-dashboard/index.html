@@ -40763,6 +40763,10 @@ ${oneCopy}
           Show the card on the customer&rsquo;s Account screen
         </label>
         <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer">
+          <input type="checkbox" id="rf-surface-home" ${surfaces.includes('home') ? 'checked' : ''}>
+          Show a small invite strip on the Home screen <span style="color:var(--gray-500);font-size:12px">— only after a customer&rsquo;s first delivery</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer">
           <input type="checkbox" id="rf-surface-delivery" ${surfaces.includes('post_delivery') ? 'checked' : ''}>
           Show it after a delivery <span style="color:var(--gray-500);font-size:12px">— the strongest moment to ask, and the real launch</span>
         </label>
@@ -40814,6 +40818,7 @@ ${oneCopy}
     const surfaces = [];
     if (document.getElementById('rf-surface-account').checked)  surfaces.push('account');
     if (document.getElementById('rf-surface-delivery').checked) surfaces.push('post_delivery');
+    if (document.getElementById('rf-surface-home')?.checked)    surfaces.push('home');
 
     const expiryRaw = document.getElementById('rf-expiry').value.trim();
     const remindRaw = document.getElementById('rf-remind').value.trim();
