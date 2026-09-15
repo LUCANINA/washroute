@@ -1363,7 +1363,9 @@ if (PREVIEW_MODE) {
    normally use email magic links, but PWA reload + a stale token in the
    URL would produce the same SIGNED_OUT symptom. Defensive parity with
    customer-app. Idempotent. */
-(function _stripAuthUrlParams() {
+// Session 293: strip only AFTER supabase-js has consumed the URL (its _initialize()
+// runs after an await, so a synchronous strip erased invite/reset tokens first).
+function _stripAuthUrlParams() {
   try {
     const u = new URL(window.location.href);
     const authParams = ['token_hash', 'type', 'code', 'error', 'error_code', 'error_description', 'access_token', 'refresh_token', 'expires_in', 'expires_at', 'token_type'];
@@ -1376,7 +1378,8 @@ if (PREVIEW_MODE) {
     }
     if (touched) history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
   } catch (e) { console.warn('_stripAuthUrlParams non-fatal:', e?.message); }
-})();
+}
+db.auth.initialize().catch(() => {}).finally(_stripAuthUrlParams);
 // Session 137 security: returns the logged-in driver's JWT for staff-protected
 // edge functions (e.g. send-sms). Returns null when no valid session is
 // available — callers MUST handle this and prompt sign-in rather than send

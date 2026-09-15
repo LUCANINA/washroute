@@ -7962,7 +7962,9 @@
   /* Strip auth-flow URL params after Supabase init — see customer-app for
      full rationale (Emily Wong "thrown out" Apr 28, 2026). Defensive parity
      across all three apps. Idempotent. */
-  (function _stripAuthUrlParams() {
+  // Session 293: strip only AFTER supabase-js has consumed the URL (its _initialize()
+  // runs after an await, so a synchronous strip erased invite/reset tokens first).
+  function _stripAuthUrlParams() {
     try {
       const u = new URL(window.location.href);
       const authParams = ['token_hash', 'type', 'code', 'error', 'error_code', 'error_description', 'access_token', 'refresh_token', 'expires_in', 'expires_at', 'token_type'];
@@ -7975,7 +7977,8 @@
       }
       if (touched) history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
     } catch (e) { console.warn('_stripAuthUrlParams non-fatal:', e?.message); }
-  })();
+  }
+  db.auth.initialize().catch(() => {}).finally(_stripAuthUrlParams);
 
   // Batched-IN helper. PostgREST encodes .in() in the URL; with too many UUIDs
   // the URL exceeds the server's max length and the query silently returns no
