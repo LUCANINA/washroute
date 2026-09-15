@@ -32690,11 +32690,19 @@ ${oneCopy}
       <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminInitCardForm('${customerId}')">💳 Add Card Manually</button>`;
   }
 
+  // Session 293: the card functions now require the signed-in staff session
+  // (they used to trust the anon key + a customer id from the body).
+  async function _cardFnHeaders() {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) throw new Error('Your session expired — please sign in again.');
+    return { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${session.access_token}` };
+  }
+
   async function adminSetDefaultCard(customerId, paymentMethodId) {
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/set-default-card`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: await _cardFnHeaders(),
         body: JSON.stringify({ customer_id: customerId, payment_method_id: paymentMethodId }),
       });
       const result = await res.json();
@@ -32714,7 +32722,7 @@ ${oneCopy}
         : { customer_id: customerId };
       const res = await fetch(`${SUPA_URL}/functions/v1/remove-card`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: await _cardFnHeaders(),
         body: JSON.stringify(body),
       });
       const result = await res.json();
@@ -32832,7 +32840,7 @@ ${oneCopy}
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/create-setup-intent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: await _cardFnHeaders(),
         body: JSON.stringify({ customerId }),
       });
       const result = await res.json();
@@ -33604,7 +33612,7 @@ ${oneCopy}
 
       const res = await fetch(`${SUPA_URL}/functions/v1/save-payment-method`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: await _cardFnHeaders(),
         body: JSON.stringify({ customerId: _cardCustomerId, paymentMethodId: pmId }),
       });
       const result = await res.json();

@@ -28,6 +28,23 @@
 
 **To launch the home strip:** Admin → referral settings → tick the Home checkbox → Save.
 
+**Cards on file — in-app sheet + secured card functions.**
+- Customer Payment page: real brand/last4/expiry list, tap a card → Make default / Replace / Remove;
+  "+ Add payment method" opens a bottom sheet with the Stripe Payment Element (cards incl. Apple/Google
+  Pay; SetupIntent `payment_method_types: ['card']`, no Link). `startCardSetup()` now just opens the sheet
+  (no more Stripe Checkout redirect from the customer app).
+- `create-setup-intent`, `save-payment-method`, `remove-card`, `set-default-card` now live in
+  `supabase/functions/` (source was only on Supabase before). All four check the caller:
+  Bearer JWT required, anon key rejected, staff roles (admin/manager/attendant/laundry_tech) or the
+  customer who owns `customers.profile_id`. All still `verify_jwt: false` (auth is in code).
+  Admin callers now send the staff session via `_cardFnHeaders()`.
+- save-payment-method: rejects non-card / Link PMs, dedupes by card fingerprint+expiry, honours `makeDefault`.
+- remove-card: a CUSTOMER can't remove their last card while an order is in progress or a charge failed (409).
+- **44 existing customers have `card_brand='link'` rows (last4 0000, exp 12/2040)** from Stripe Checkout
+  Link saves — may be charging a bank account. Left untouched; app labels them "Link wallet — consider
+  replacing". David's two test Link rows were deleted. Admin "send card link" (create-checkout) still
+  uses Checkout — turn Link off in Stripe Dashboard → Settings → Payment methods to stop new ones.
+
 **Referral amounts — one source of truth.** A leftover `service_fees` row "Refer-a-Friend Credit" ($10,
 category 'Reward') was shown on the customer Pricing page while the real terms were $15/$15. It was
 display-only (nothing in billing reads it). Retired: row set `is_active=false, show_in_app=false`

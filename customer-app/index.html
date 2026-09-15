@@ -668,6 +668,26 @@
 
     /* Cards */
     .card-section { padding: 0 18px 18px; }
+    .pm-card-row { display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--gray-100); cursor: pointer; }
+    .pm-card-row:last-child { border-bottom: none; }
+    .pm-card-row:active { background: var(--gray-50); }
+    .pm-chip { width: 44px; height: 30px; border-radius: 6px; color: #fff; font-size: 10px; font-weight: 800; display: grid; place-items: center; letter-spacing: .02em; flex-shrink: 0; }
+    .pm-card-name { font-size: 15px; font-weight: 600; color: var(--text); }
+    .pm-card-sub { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+    .pm-card-sub.soon { color: #b45309; }
+    .pm-card-sub.expired { color: #dc2626; font-weight: 600; }
+    .pm-card-more { color: var(--gray-400); font-size: 20px; padding: 0 4px; }
+    .pm-foot { font-size: 12px; color: var(--gray-500); text-align: center; margin-top: 14px; line-height: 1.5; }
+    .sheet-ov { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 700; opacity: 0; transition: opacity .2s; }
+    .sheet-ov.open { opacity: 1; }
+    .sheet { position: fixed; left: 50%; bottom: 0; width: 100%; max-width: 430px; transform: translate(-50%, 100%); z-index: 701; background: white; border-radius: 20px 20px 0 0; padding: 10px 18px calc(env(safe-area-inset-bottom, 0px) + 22px); box-shadow: 0 -8px 30px rgba(0,0,0,.15); transition: transform .25s cubic-bezier(.4,0,.2,1); max-height: 92vh; overflow-y: auto; }
+    .sheet.open { transform: translate(-50%, 0); }
+    .sheet-grab { width: 40px; height: 5px; border-radius: 3px; background: var(--gray-200); margin: 0 auto 14px; }
+    .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .sheet-title { font-size: 18px; font-weight: 800; color: var(--text); }
+    .sheet-x { background: none; border: none; font-size: 26px; line-height: 1; color: var(--gray-400); cursor: pointer; padding: 0 4px; }
+    .sheet-err { display: none; background: #fef2f2; color: #b91c1c; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 12px; }
+    .sheet-legal { font-size: 11px; color: var(--gray-400); text-align: center; margin-top: 10px; line-height: 1.4; }
     .card-box { display: flex; align-items: center; justify-content: space-between; background: white; border: 1.5px solid var(--gray-200); border-radius: 12px; padding: 14px 16px; margin-bottom: 8px; }
     .card-left { display: flex; align-items: center; gap: 12px; }
     .card-chip { background: var(--navy); color: white; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 6px; text-transform: uppercase; letter-spacing: .4px; flex-shrink: 0; }
@@ -8409,47 +8429,243 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId, opts
 }
 
 /* ── CARD MANAGEMENT ── */
-async function startCardSetup() {
-  const btn = document.getElementById('btn-add-card') || document.querySelector('.card-add-btn') || document.querySelector('.cpb-add');
-  if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
-  try {
-    const { data: { session } } = await db.auth.getSession();
-    const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        type: 'setup',
-        userId: currentUser.id,
-        successUrl: window.location.origin + window.location.pathname,
-        cancelUrl:  window.location.origin + window.location.pathname,
-      }),
-    });
-    const { url, error } = await res.json();
-    if (error) throw new Error(error);
-    window.location.href = url;
-  } catch (e) {
-    toast('Error: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = '+ Add Card'; }
+// Session 293: adding a card happens in an in-app sheet (Stripe Payment Element),
+// not a redirect to Stripe Checkout. Kept under the old name for existing callers.
+function startCardSetup() { openAddCardSheet(); }
+
+const CARD_BRANDS = {
+  visa:       { name: 'Visa',       chip: 'VISA', bg: '#1a1f71' },
+  mastercard: { name: 'Mastercard', chip: 'MC',   bg: '#eb001b' },
+  amex:       { name: 'Amex',       chip: 'AMEX', bg: '#2e77bb' },
+  discover:   { name: 'Discover',   chip: 'DISC', bg: '#f58220' },
+  diners:     { name: 'Diners',     chip: 'DC',   bg: '#0079be' },
+  jcb:        { name: 'JCB',        chip: 'JCB',  bg: '#0b4ea2' },
+  unionpay:   { name: 'UnionPay',   chip: 'UP',   bg: '#d10429' },
+  link:       { name: 'Link wallet', chip: 'LINK', bg: '#0f7a4d' },   // legacy Stripe Checkout saves (placeholder last4/expiry)
+};
+function cardBrandName(b) { return CARD_BRANDS[b]?.name || (b ? b.charAt(0).toUpperCase() + b.slice(1) : 'Card'); }
+function cardBrandChip(b) {
+  const x = CARD_BRANDS[b] || { chip: String(b || 'CARD').slice(0, 4).toUpperCase(), bg: 'var(--navy)' };
+  return `<div class="pm-chip" style="background:${x.bg}">${escHtml(x.chip)}</div>`;
+}
+function cardExpiryState(card) {
+  if (card.card_brand === 'link') return { text: 'Saved with Stripe Link — consider replacing with a card', cls: 'soon' };
+  const m = Number(card.card_exp_month), y = Number(card.card_exp_year);
+  if (!m || !y) return { text: '', cls: '' };
+  const label = `${String(m).padStart(2, '0')}/${String(y).slice(-2)}`;
+  const now = new Date();
+  const monthsLeft = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
+  if (monthsLeft < 0)  return { text: `Expired ${label}`, cls: 'expired' };
+  if (monthsLeft <= 2) return { text: `Expires ${label} · expiring soon`, cls: 'soon' };
+  return { text: `Expires ${label}`, cls: '' };
+}
+
+async function cardFnHeaders() {
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) throw new Error('Please sign in again.');
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` };
+}
+
+async function reloadCards() {
+  if (!currentCustomer?.id) { currentCards = []; return; }
+  const { data: cards } = await db.from('customer_payment_methods')
+    .select('id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at')
+    .eq('customer_id', currentCustomer.id)
+    .order('is_default', { ascending: false })
+    .order('created_at', { ascending: false });
+  currentCards = cards || [];
+  const d = currentCards.find(c => c.is_default) || null;
+  currentCustomer.stripe_default_payment_method_id = d?.stripe_payment_method_id || null;
+  currentCustomer.card_last4 = d?.card_last4 || null;
+  currentCustomer.card_brand = d?.card_brand || null;
+  currentCustomer.card_exp_month = d?.card_exp_month || null;
+  currentCustomer.card_exp_year = d?.card_exp_year || null;
+}
+
+function afterCardsChanged() {
+  renderPaymentSection();
+  const cardEl = document.getElementById('acct-menu-card-info');
+  if (cardEl) {
+    const d = currentCards.find(c => c.is_default) || currentCards[0];
+    cardEl.textContent = d ? `${cardBrandName(d.card_brand)} •••• ${d.card_last4}` : 'No card on file';
   }
+  const cardPrompt = document.getElementById('home-card-prompt');
+  if (cardPrompt) cardPrompt.style.display = currentCards.length === 0 ? '' : 'none';
+}
+
+// ── Generic bottom sheet ──
+function openSheet(id, html) {
+  closeSheet(id, true);
+  const ov = document.createElement('div');
+  ov.className = 'sheet-ov'; ov.id = id + '-ov';
+  ov.onclick = () => closeSheet(id);
+  const sh = document.createElement('div');
+  sh.className = 'sheet'; sh.id = id; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true');
+  sh.innerHTML = `<div class="sheet-grab"></div>${html}`;
+  document.body.appendChild(ov); document.body.appendChild(sh);
+  requestAnimationFrame(() => { ov.classList.add('open'); sh.classList.add('open'); });
+  return sh;
+}
+function closeSheet(id, instant) {
+  const ov = document.getElementById(id + '-ov'), sh = document.getElementById(id);
+  if (!ov && !sh) return;
+  if (id === 'addcard-sheet' && _acElement) { try { _acElement.unmount(); } catch (_) {} _acElement = null; _acElements = null; }
+  if (instant) { ov?.remove(); sh?.remove(); return; }
+  ov?.classList.remove('open'); sh?.classList.remove('open');
+  setTimeout(() => { ov?.remove(); sh?.remove(); }, 260);
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('addcard-sheet')) closeSheet('addcard-sheet');
+  else if (document.getElementById('cardact-sheet')) closeSheet('cardact-sheet');
+});
+
+// ── Add payment method ──
+let _acElements = null, _acElement = null, _acReplacing = null;
+
+async function openAddCardSheet(opts = {}) {
+  if (!currentCustomer?.id) { toast('Please sign in first'); return; }
+  _acReplacing = opts.replace || null;
+  const makeDefaultChecked = currentCards.length === 0 || !!opts.replace;
+  openSheet('addcard-sheet', `
+    <div class="sheet-head">
+      <div class="sheet-title">${opts.replace ? 'Replace card' : 'Add payment method'}</div>
+      <button class="sheet-x" onclick="closeSheet('addcard-sheet')" aria-label="Close">×</button>
+    </div>
+    <div id="addcard-pe" style="min-height:180px"><div style="text-align:center;color:var(--gray-400);padding:60px 0">Loading secure form…</div></div>
+    <label style="display:${currentCards.length === 0 ? 'none' : 'flex'};align-items:center;gap:8px;font-size:14px;margin:14px 0 4px;color:var(--text)">
+      <input type="checkbox" id="addcard-default" ${makeDefaultChecked ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--navy)"> Make this my default
+    </label>
+    <div class="sheet-err" id="addcard-err"></div>
+    <button class="rw-send" id="addcard-save" style="margin-top:14px;opacity:.6" disabled onclick="saveNewCard()">Save card</button>
+    <div class="sheet-legal">By saving, you allow Family Laundry to charge this card for future orders. 🔒 Secured by Stripe</div>`);
+
+  const errEl = document.getElementById('addcard-err');
+  try {
+    const StripeFactory = await _loadStripeJs();
+    if (!StripeFactory) throw new Error('Could not load the secure card form');
+    if (!_stripeInstance) _stripeInstance = StripeFactory(STRIPE_PK);
+    const res = await fetch(`${SUPA_URL}/functions/v1/create-setup-intent`, {
+      method: 'POST', headers: await cardFnHeaders(),
+      body: JSON.stringify({ customerId: currentCustomer.id }),
+    });
+    const out = await res.json();
+    if (!res.ok || out.error) throw new Error(out.error || 'Could not start card setup');
+    if (!document.getElementById('addcard-sheet')) return;   // closed while loading
+    _acElements = _stripeInstance.elements({
+      clientSecret: out.clientSecret,
+      appearance: { theme: 'stripe', variables: { colorPrimary: '#13284a', borderRadius: '10px', fontSizeBase: '15px' } },
+    });
+    _acElement = _acElements.create('payment', {
+      layout: { type: 'tabs' },
+      wallets: { applePay: 'auto', googlePay: 'auto' },
+    });
+    document.getElementById('addcard-pe').innerHTML = '';
+    _acElement.mount('#addcard-pe');
+    _acElement.on('ready', () => {
+      const b = document.getElementById('addcard-save');
+      if (b) { b.disabled = false; b.style.opacity = '1'; }
+    });
+  } catch (e) {
+    const pe = document.getElementById('addcard-pe');
+    if (pe) pe.innerHTML = '';
+    if (errEl) { errEl.textContent = e.message + ' — please try again.'; errEl.style.display = 'block'; }
+  }
+}
+
+async function saveNewCard() {
+  const btn = document.getElementById('addcard-save');
+  const errEl = document.getElementById('addcard-err');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  if (!_stripeInstance || !_acElements) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const { setupIntent, error } = await _stripeInstance.confirmSetup({ elements: _acElements, redirect: 'if_required' });
+    if (error) throw new Error(error.message || 'This card could not be verified');
+    if (!setupIntent || setupIntent.status !== 'succeeded') throw new Error('Card setup did not finish. Please try again.');
+    const pmId = typeof setupIntent.payment_method === 'string' ? setupIntent.payment_method : setupIntent.payment_method?.id;
+    const makeDefault = !!document.getElementById('addcard-default')?.checked;
+    const res = await fetch(`${SUPA_URL}/functions/v1/save-payment-method`, {
+      method: 'POST', headers: await cardFnHeaders(),
+      body: JSON.stringify({ customerId: currentCustomer.id, paymentMethodId: pmId, makeDefault }),
+    });
+    const out = await res.json();
+    if (!res.ok || out.error) throw new Error(out.error || 'Could not save card');
+
+    // "Replace" = new card saved as default, then the old one removed.
+    const replacing = _acReplacing;
+    if (replacing && replacing !== out.card?.stripe_payment_method_id) {
+      const r = await fetch(`${SUPA_URL}/functions/v1/remove-card`, {
+        method: 'POST', headers: await cardFnHeaders(),
+        body: JSON.stringify({ customer_id: currentCustomer.id, payment_method_id: replacing }),
+      });
+      if (!r.ok) console.warn('replace: old card not removed', await r.text());
+    }
+    await reloadCards();
+    closeSheet('addcard-sheet');
+    afterCardsChanged();
+    toast(out.duplicate ? 'That card was already saved' : replacing ? 'Card replaced' : 'Card saved');
+  } catch (e) {
+    if (errEl) { errEl.textContent = e.message; errEl.style.display = 'block'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Save card'; }
+  }
+}
+
+// ── Card options ──
+function openCardActions(pmId) {
+  const card = currentCards.find(c => c.stripe_payment_method_id === pmId);
+  if (!card) return;
+  const st = cardExpiryState(card);
+  const id = escHtml(pmId);
+  openSheet('cardact-sheet', `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      ${cardBrandChip(card.card_brand)}
+      <div><div style="font-weight:700;font-size:16px">${escHtml(cardBrandName(card.card_brand))} •••• ${escHtml(card.card_last4 || '')}</div>
+      <div class="pm-card-sub ${st.cls}">${st.text}${card.is_default ? ' · Default' : ''}</div></div>
+    </div>
+    <div class="pf-card" style="margin-bottom:12px">
+      ${card.is_default ? '' : `<div class="pf-row" onclick="makeCardDefault('${id}')"><div class="pf-main"><div class="pf-title">Make default</div></div></div>`}
+      <div class="pf-row" onclick="closeSheet('cardact-sheet', true);openAddCardSheet({ replace: '${id}' })"><div class="pf-main"><div class="pf-title">Replace with a new card</div></div></div>
+      <div class="pf-row" onclick="closeSheet('cardact-sheet', true);removeCard('${id}')"><div class="pf-main"><div class="pf-title" style="color:#dc2626">Remove card</div></div></div>
+    </div>
+    <button class="card-add-btn" onclick="closeSheet('cardact-sheet')">Cancel</button>`);
+}
+
+async function makeCardDefault(pmId) {
+  closeSheet('cardact-sheet');
+  try {
+    const res = await fetch(`${SUPA_URL}/functions/v1/set-default-card`, {
+      method: 'POST', headers: await cardFnHeaders(),
+      body: JSON.stringify({ customer_id: currentCustomer.id, payment_method_id: pmId }),
+    });
+    const out = await res.json();
+    if (!res.ok || out.error) throw new Error(out.error || 'Could not change your default card');
+    await reloadCards();
+    afterCardsChanged();
+    toast('Default card updated');
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 async function removeCard(paymentMethodId) {
   if (!currentCustomer) return;
-  if (!await confirmDialog({ title: 'Remove this card?', message: 'You can add a new one any time.', confirmLabel: 'Remove card', danger: true })) return;
+  const _rc = currentCards.find(c => c.stripe_payment_method_id === paymentMethodId);
+  const _rcMsg = currentCards.length <= 1
+    ? "It's your only card — you'll need to add one before your next order is charged."
+    : (_rc?.is_default ? 'Your most recently added card will become the default.' : 'You can add a new one any time.');
+  if (!await confirmDialog({ title: `Remove ${_rc ? cardBrandName(_rc.card_brand) + ' •••• ' + _rc.card_last4 : 'this card'}?`, message: _rcMsg, confirmLabel: 'Remove card', danger: true })) return;
   try {
     const body = paymentMethodId
       ? { customer_id: currentCustomer.id, payment_method_id: paymentMethodId }
       : { customer_id: currentCustomer.id };
     const res = await fetch(`${SUPA_URL}/functions/v1/remove-card`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      headers: await cardFnHeaders(),
       body: JSON.stringify(body),
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Failed to remove card');
+    // Session 293: server may promote a different default — trust the server.
+    await reloadCards();
 
     // Remove from local currentCards array
     if (paymentMethodId) {
@@ -8474,12 +8690,10 @@ async function removeCard(paymentMethodId) {
       currentCustomer.card_last4 = currentCustomer.card_brand = currentCustomer.card_exp_month = currentCustomer.card_exp_year = null;
     }
 
-    renderPaymentSection();
-    const cardPrompt = document.getElementById('home-card-prompt');
-    if (cardPrompt) cardPrompt.style.display = currentCards.length === 0 ? '' : 'none';
+    afterCardsChanged();
     toast('Card removed');
   } catch (e) {
-    toast('Error removing card: ' + e.message, 'error');
+    showToast(e.message || 'Could not remove card', 'error');
   }
 }
 
@@ -8843,41 +9057,36 @@ function renderPaymentSection() {
       </div>
     </div>`;
 
-  // ── Payment Cards ──
-  const now = new Date();
+  // ── Payment methods (session 293: in-app sheet, real card details) ──
   let cardsListHtml = '';
   if (currentCards.length === 0) {
-    cardsListHtml = `<div class="no-card-box"><div style="font-weight:700;color:var(--text);margin-bottom:4px">No card on file</div><p>Add a card and we'll charge it automatically once each order is delivered.</p></div>`;
+    cardsListHtml = `
+      <div class="no-card-box" style="padding:22px">
+        <div style="font-size:28px">💳</div>
+        <div style="font-weight:700;color:var(--text);margin:6px 0 4px">No payment method yet</div>
+        <p>Add a card or Apple Pay. We only charge after your order is delivered.</p>
+      </div>`;
   } else {
-    cardsListHtml = currentCards.map(card => {
-      const brand   = (card.card_brand || 'card').toUpperCase();
-      const exp     = (card.card_exp_month && card.card_exp_year)
-        ? `${String(card.card_exp_month).padStart(2,'0')}/${String(card.card_exp_year).slice(-2)}` : '';
-      const expYr   = card.card_exp_year, expMo = card.card_exp_month;
-      const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr === now.getFullYear() && expMo < now.getMonth() + 1));
-      const pmId    = card.stripe_payment_method_id;
+    cardsListHtml = `<div class="pf-card" style="margin-bottom:14px">${currentCards.map(card => {
+      const st = cardExpiryState(card);
       return `
-        <div class="card-box">
-          <div class="card-left">
-            <div class="card-chip">${brand}</div>
-            <div>
-              <div class="card-info">•••• ${card.card_last4}${exp ? `  <span class="card-sub" style="display:inline;margin-left:6px">Exp ${exp}</span>` : ''}${expired ? ' <span style="color:#dc2626;font-size:11px;font-weight:700">EXPIRED</span>' : ''}</div>
-            </div>
+        <div class="pm-card-row" onclick="openCardActions('${escHtml(card.stripe_payment_method_id)}')">
+          ${cardBrandChip(card.card_brand)}
+          <div style="flex:1;min-width:0">
+            <div class="pm-card-name">${escHtml(cardBrandName(card.card_brand))}${card.card_brand === 'link' ? '' : ' •••• ' + escHtml(card.card_last4 || '')}</div>
+            <div class="pm-card-sub ${st.cls}">${st.text}</div>
           </div>
-          <div class="card-right">
-            ${card.is_default ? '<span class="card-default-badge">DEFAULT</span>' : ''}
-            <button class="card-remove-btn" onclick="removeCard('${pmId}')" title="Remove card">×</button>
-          </div>
+          ${card.is_default ? '<span class="mi-badge good">Default</span>' : ''}
+          <span class="pm-card-more" aria-label="Card options">⋯</span>
         </div>`;
-    }).join('');
+    }).join('')}</div>`;
   }
 
   const cardHtml = `
-    <div class="pm-section">
-      <div class="pref-title">Cards</div>
-      ${cardsListHtml}
-      <button class="card-add-btn" onclick="startCardSetup()"${currentCards.length === 0 ? ' style="background:var(--navy);color:white;border-color:var(--navy)"' : ''}>${currentCards.length === 0 ? '+ Add Card' : '+ Add Another Card'}</button>
-    </div>`;
+    <div class="pf-label">Payment methods</div>
+    ${cardsListHtml}
+    <button class="card-add-btn" onclick="openAddCardSheet()"${currentCards.length === 0 ? ' style="background:var(--navy);color:white;border-color:var(--navy)"' : ''}>+ Add payment method</button>
+    <div class="pm-foot">We charge your default card after each order is delivered.<br>🔒 Secured by Stripe — we never see your full card number.</div>`;
 
   // ── Referral card (session 292) — hidden until loadReferralCard() says the
   // program is on, so the quiet launch is a settings flip, not a deploy.
