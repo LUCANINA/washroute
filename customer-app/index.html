@@ -2497,7 +2497,7 @@ async function _acctRecPhone() {
 }
 async function _acctRecBack() {
   closeSheet('acctrec-sheet', true);
-  try { await db.auth.signOut(); } catch (_) {}
+  try { await db.auth.signOut({ scope: 'local' }); } catch (_) {}
   _accountMatchFailed = false;
   _awaitingName = false;
   _pendingPhone = '';
@@ -3075,7 +3075,7 @@ async function handleSignOut() {
   };
 
   try {
-    await db.auth.signOut();
+    await db.auth.signOut({ scope: 'local' });
   } catch (err) {
     console.error('Sign-out error:', err);
   }
@@ -3164,7 +3164,7 @@ async function _handleCustomerSession(event, session) {
         if (!s && appReady) {
           console.warn('Cached session expired — forcing re-auth');
           clearUserCache(currentUser.id);
-          db.auth.signOut();
+          db.auth.signOut({ scope: 'local' });
         }
       });
       // Background refresh: pull fresh customer row from the DB so any fields
@@ -3304,7 +3304,7 @@ async function loadUserData() {
       }
       if (linkErr?.message?.includes('MULTIPLE_MATCHES')) {
         showToast('Multiple accounts share this number — please sign in with your email instead.', 'error');
-        setTimeout(() => db.auth.signOut(), 2500);
+        setTimeout(() => db.auth.signOut({ scope: 'local' }), 2500);
         return;
       }
       if (linked?.length > 0) {
@@ -5921,7 +5921,7 @@ async function placeOrder() {
   if (!_sess) {
     btn.disabled = false; btn.textContent = 'Place Order';
     toast('Your session has expired — please sign in again.');
-    setTimeout(() => db.auth.signOut(), 1500);
+    setTimeout(() => db.auth.signOut({ scope: 'local' }), 1500);
     return;
   }
 
@@ -6009,7 +6009,7 @@ async function placeOrder() {
   if (error) {
     if (error.message?.includes('auth required') || error.message?.includes('row-level security')) {
       toast('Your session has expired — please sign in again.');
-      setTimeout(() => db.auth.signOut(), 1500);
+      setTimeout(() => db.auth.signOut({ scope: 'local' }), 1500);
     } else if (error.message?.includes('Base line item amount must be > 0') || error.message?.includes('No active service available')) {
       // Server caught an unpriced order — defense in depth against the "services
       // didn't load before submit" race. Tell the customer to retry.

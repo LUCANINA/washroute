@@ -8659,8 +8659,24 @@
   }
 
   async function handleSignOut() {
-    await db.auth.signOut();
+    await db.auth.signOut({ scope: 'local' });
     showLoginScreen();
+  }
+
+  // ── Revoked-session handling (session 294) ──
+  // A JWT stays signature-valid after its server session is revoked (e.g. the
+  // same person signed out on another device). Table reads keep working, but
+  // edge functions that check /auth/v1/user answer "Invalid or expired session".
+  // When that happens, say so plainly and send the admin back to the login screen.
+  function isRevokedSessionError(msg) {
+    return /invalid or expired session|session expired|session_not_found|session not found/i.test(String(msg || ''));
+  }
+  let _revokedSessionHandled = false;
+  async function handleRevokedSession() {
+    if (_revokedSessionHandled) return;
+    _revokedSessionHandled = true;
+    showToast('You were signed out on another device. Please sign in again.', 'error', 5000);
+    try { await handleSignOut(); } finally { setTimeout(() => { _revokedSessionHandled = false; }, 3000); }
   }
 
   // ── DEFERRED SESSION HANDLER ──
@@ -8708,7 +8724,7 @@
 
         if (role === 'customer' || role === 'driver') {
           _pendingAccessDeniedMsg = 'Access denied. This dashboard is for staff only.';
-          await db.auth.signOut();
+          await db.auth.signOut({ scope: 'local' });
           return;
         }
 
@@ -39376,6 +39392,8 @@ ${oneCopy}
   // messages routinely carry raw Supabase error strings and customer names, so this
   // element must never become a markup sink.
   function showToast(msg, type='', durationMs=3000, action=null) {
+    // Any error toast caused by a revoked login becomes a clear sign-in prompt (session 294)
+    if (type === 'error' && isRevokedSessionError(msg)) { handleRevokedSession(); return; }
     const t = document.getElementById('toast');
     clearTimeout(t._hideTimer);
     t.textContent = msg;

@@ -3101,7 +3101,7 @@
     if (error || !data) {
       console.error('[POS] loadDevice error:', error);
       showToast(t('No device linked to this login. Contact admin.'), 'error');
-      await db.auth.signOut();
+      await db.auth.signOut({ scope: 'local' });
       setTimeout(()=>showAuthScreen('screen-login'),400);
       return false;
     }
@@ -3142,7 +3142,7 @@
     shift = null;
     device = null;
     cart = []; currentCustomer = null;
-    await db.auth.signOut();
+    await db.auth.signOut({ scope: 'local' });
     showAuthScreen('screen-login');
     const em = document.getElementById('login-email'); if (em) em.focus();
   }

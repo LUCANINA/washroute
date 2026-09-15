@@ -2487,7 +2487,7 @@ async function doSignOut() {
   if (msgSubscription) { db.removeChannel(msgSubscription); msgSubscription = null; }
   if (_stopSub)        { db.removeChannel(_stopSub);        _stopSub = null; }
   if (alertSubscription) { db.removeChannel(alertSubscription); alertSubscription = null; }
-  await db.auth.signOut();
+  await db.auth.signOut({ scope: 'local' });
   appReady = false;
   currentUser = currentProfile = currentDriver = null;
   todayRoutes = []; allStops = []; pendingOrders = []; upcomingRoutes = []; activeRouteFilter = null;
@@ -2587,7 +2587,7 @@ async function _loadDriverDataInner() {
       });
       if (linkErr?.message?.includes('MULTIPLE_MATCHES')) {
         toast('Multiple driver accounts share this number — contact admin.');
-        setTimeout(() => db.auth.signOut(), 2500);
+        setTimeout(() => db.auth.signOut({ scope: 'local' }), 2500);
         return;
       }
       // Session 231: this login and a second account are both set up as drivers for
@@ -2634,7 +2634,7 @@ async function _loadDriverDataInner() {
     } else if (!currentProfile || !DRIVER_CAPABLE_ROLES.includes(currentProfile.role)) {
       showLoading(false);
       toast('No driver account is set up for this login. Please contact your admin.');
-      setTimeout(() => db.auth.signOut(), 3000);
+      setTimeout(() => db.auth.signOut({ scope: 'local' }), 3000);
       return;
     }
   }
@@ -2651,7 +2651,7 @@ async function _loadDriverDataInner() {
       showLoading(false);
       toast('You already have a driver account under a different login. Contact admin.', 8000);
       console.error('Duplicate driver identity on auto-provision:', ndErr);
-      setTimeout(() => db.auth.signOut(), 4000);
+      setTimeout(() => db.auth.signOut({ scope: 'local' }), 4000);
       return;
     }
     if (ndErr) console.error('Driver auto-provision failed:', ndErr);
