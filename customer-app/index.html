@@ -2370,12 +2370,33 @@ function _recordAccountMatchFailure(where, err) {
   _accountMatchFailed = true;
   console.error('[account-match] ' + where + ' FAILED -- refusing to create a duplicate account:', err?.message || err);
 }
+const _DUP_ACCOUNT_MSG = "It looks like you already have an account with us. So your order history stays in one place, please call us at (510) 588-4102 and we'll connect this login to it.";
 // Call immediately before any customers.insert. Returns true if we must NOT insert.
 function _blockDuplicateInsert(where) {
   if (!_accountMatchFailed) return false;
   console.error('[account-match] blocked new-customer insert at ' + where);
-  toast("We couldn't finish signing you in. Please call us at (510) 588-4102 so we don't set up a second account for you.");
+  toast("We couldn't finish signing you in. Please call us at (510) 588-4102 so we don't set up a second account for you.", 12000);
   return true;
+}
+// ── audit 2026-09-15: the ONLY way the customer app creates a customer row ──
+// The session-290 guard above only fires when the matching RPC ERRORS. When it
+// simply finds no match — e.g. a returning customer signs in with a new phone,
+// so the email they type is unproven and ignored — the app used to create a
+// second, empty account (Katie Steele, 15 Sep). The database now refuses a
+// self-service insert whose email or phone already belongs to another customer
+// (trigger trg_block_duplicate_customer_signup, error hint 'duplicate_contact').
+// This wrapper turns that refusal — or any other insert failure — into a stop,
+// instead of the old silent `await insert()` that ignored errors.
+// Returns true if the row was created.
+async function _insertNewCustomer(where, row) {
+  const { error } = await db.from('customers').insert(row);
+  if (!error) return true;
+  const isDup = error.hint === 'duplicate_contact' || /DUPLICATE_CONTACT/.test(error.message || '');
+  _accountMatchFailed = true;   // never retry an insert later in this session
+  console.error('[account-match] customer insert refused at ' + where + (isDup ? ' (contact already on another account)' : '') + ':', error.message);
+  toast(isDup ? _DUP_ACCOUNT_MSG
+              : "We couldn't finish setting up your account. Please try again, or call us at (510) 588-4102.", 12000);
+  return false;
 }
 
 function showAuthPanel(name) {
@@ -2577,11 +2598,7 @@ async function handleNameSubmit() {
       }
       await db.from('customers').update(updatePatch).eq('id', existing.id);
     } else {
-      if (_blockDuplicateInsert('handleNameSubmit')) {
-        btn.disabled = false; btn.textContent = 'Let\'s go →';
-        return;
-      }
-      await db.from('customers').insert({
+      const _created = !_blockDuplicateInsert('handleNameSubmit') && await _insertNewCustomer('handleNameSubmit', {
         profile_id:       user.id,
         first_name_cache: firstName,
         last_name_cache:  lastName,
@@ -2590,6 +2607,10 @@ async function handleNameSubmit() {
         sms_consent_at:   new Date().toISOString(),
         email_marketing_consent_at: emailConsent ? new Date().toISOString() : null
       });
+      if (!_created) {
+        btn.disabled = false; btn.textContent = 'Let\'s go →';
+        return;
+      }
     }
     // ── Klaviyo welcome subscribe (phone-OTP signup path) ──
     // Mirrors handleSignup's behavior so OTP-registered users also land in the
@@ -2895,7 +2916,7 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
   // 3. Still nothing — create a fresh customer record
   if (!ec) {
     if (_blockDuplicateInsert('ensureProfile')) return null;
-    await db.from('customers').insert({
+    if (!(await _insertNewCustomer('ensureProfile', {
       profile_id:       user.id,
       first_name_cache: first || user.user_metadata?.first_name || '',
       last_name_cache:  last  || user.user_metadata?.last_name  || '',
@@ -2904,7 +2925,7 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
       sms_consent_at:   smsConsent ? new Date().toISOString() : null,
       email_marketing_consent_at: emailConsent ? new Date().toISOString() : null,
       referral_source:  referralSource || null
-    });
+    }))) return null;
     const { data: newCust } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
     currentCustomer = newCust;
     // ── Klaviyo welcome subscribe (booking-flow signup path, session 174) ──
@@ -3272,15 +3293,17 @@ async function loadUserData() {
     } else if (_blockDuplicateInsert('loadUserData')) {
       currentCustomer = null;
       return;
-    } else {
-      await db.from('customers').insert({
+    } else if (!(await _insertNewCustomer('loadUserData', {
         profile_id: currentUser.id,
         first_name_cache: custFirst, last_name_cache: custLast,
         email_cache: custEmail, phone_cache: custPhone,
         sms_consent_at: m.sms_consent ? new Date().toISOString() : null,
         email_marketing_consent_at: m.email_consent ? new Date().toISOString() : null,
         referral_source: m.referral_source || null
-      }).then(() => {});
+      }))) {
+      currentCustomer = null;
+      return;
+    } else {
       const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
       currentCustomer = data;
       // ── Klaviyo welcome subscribe (fresh customer post-email-confirm path) ──
@@ -5426,14 +5449,14 @@ async function renderConfirmAuth() {
     // RPC returned nothing — create a fresh customer record
     if (!currentCustomer) {
       if (_blockDuplicateInsert('renderConfirmAuth')) return;
-      await db.from('customers').insert({
+      if (!(await _insertNewCustomer('renderConfirmAuth', {
         profile_id: currentUser.id,
         first_name_cache: first, last_name_cache: last,
         email_cache: email, phone_cache: phone,
         sms_consent_at: m.sms_consent ? new Date().toISOString() : null,
         email_marketing_consent_at: m.email_consent ? new Date().toISOString() : null,
         referral_source: m.referral_source || null
-      });
+      }))) return;
       const { data: newCust } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
       currentCustomer = newCust;
       // ── Klaviyo welcome subscribe (fresh customer at order-confirm path) ──
