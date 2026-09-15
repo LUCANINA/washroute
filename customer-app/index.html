@@ -45,7 +45,7 @@
     }
     .screen { display: none; flex-direction: column; min-height: 100vh; }
     .screen.active { display: flex; }
-    .main-content { flex: 1; overflow-y: auto; padding-bottom: 84px; -webkit-overflow-scrolling: touch; }
+    .main-content { flex: 1; overflow-y: auto; padding-bottom: 92px; -webkit-overflow-scrolling: touch; }
 
     /* ── AUTH ── */
     /* ── AUTH — desktop split layout ── */
@@ -191,10 +191,16 @@
 
     /* ── BOTTOM NAV ── */
     .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 430px; background: white; border-top: 1px solid var(--gray-200); display: flex; z-index: 100; padding-bottom: env(safe-area-inset-bottom, 0px); }
-    .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 10px 0 8px; border: none; background: transparent; cursor: pointer; gap: 3px; color: var(--gray-400); transition: color .15s; font-size: 11px; font-weight: 500; }
-    .nav-btn svg { width: 22px; height: 22px; stroke-width: 1.8; fill: none; stroke: currentColor; transition: transform .15s; }
-    .nav-btn.active { color: var(--navy); }
-    .nav-btn.active svg { transform: scale(1.12); }
+    /* 2026-09-15: taller hit area, darker labels, press feedback, no double-tap delay,
+       and extra bottom room so the outer tabs aren't lost in the iPhone corner/home bar. */
+    .bottom-nav { padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px); padding-left: 6px; padding-right: 6px; border-top: 1px solid var(--gray-200); box-shadow: 0 -4px 16px rgba(15,23,42,.08); }
+    .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60px; padding: 8px 0 6px; border: none; background: transparent; cursor: pointer; gap: 4px; color: var(--gray-500); transition: color .15s; font-size: 12px; font-weight: 600; font-family: inherit; touch-action: manipulation; -webkit-tap-highlight-color: transparent; position: relative; isolation: isolate; }
+    .nav-btn::before { content: ''; position: absolute; top: 5px; width: 52px; height: 32px; border-radius: 16px; background: transparent; transition: background .15s; z-index: -1; }
+    .nav-btn svg { width: 24px; height: 24px; stroke-width: 2; fill: none; stroke: currentColor; transition: transform .15s; }
+    .nav-btn.active { color: var(--navy); font-weight: 700; }
+    .nav-btn.active::before { background: #e6ecf5; }
+    .nav-btn:active::before { background: var(--gray-100); }
+    .nav-btn:active svg { transform: scale(.92); }
 
     /* ── HOME ── */
     .home-hero { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); padding: 30px 22px 34px; color: white; flex-shrink: 0; }
@@ -204,7 +210,7 @@
     #screen-home .home-cta-section { padding-top: 22px !important; }
     /* Home invite strip — pinned above the tab bar, deliberately quieter than "Schedule a Pickup" */
     .ref-strip { position: fixed; left: 50%; transform: translateX(-50%); width: calc(100% - 36px); max-width: 394px;
-      bottom: calc(env(safe-area-inset-bottom, 0px) + 70px); z-index: 90; display: flex; align-items: center; gap: 12px;
+      bottom: calc(max(env(safe-area-inset-bottom, 0px), 6px) + 74px); z-index: 90; display: flex; align-items: center; gap: 12px;
       padding: 12px 10px 12px 14px; background: white; border: 1px solid var(--gray-100); border-radius: 12px;
       box-shadow: 0 2px 10px rgba(15,23,42,.06); }
     .ref-strip .ri { width: 34px; height: 34px; border-radius: 9px; background: #ecfdf5; display: grid; place-items: center; flex-shrink: 0; }
@@ -214,7 +220,7 @@
     .ref-strip .r2 { font-size: 12px; color: var(--gray-500); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ref-strip .rb { font-size: 13px; font-weight: 700; color: var(--navy); background: white; border: 1.5px solid var(--gray-200); border-radius: 8px; padding: 7px 12px; font-family: inherit; cursor: pointer; flex-shrink: 0; }
     .ref-strip .rx { color: var(--gray-400); font-size: 20px; line-height: 1; padding: 4px 6px; background: none; border: none; cursor: pointer; flex-shrink: 0; }
-    #screen-home.has-ref-strip .main-content { padding-bottom: 164px; }
+    #screen-home.has-ref-strip .main-content { padding-bottom: 172px; }
     .home-sub { font-size: 13.5px; color: rgba(255,255,255,.6); margin-top: 3px; }
     .stats-row { display: flex; gap: 10px; margin-top: 18px; }
     .stat-chip { flex: 1; background: rgba(255,255,255,.12); border-radius: 10px; padding: 12px 8px; text-align: center; }
@@ -502,7 +508,9 @@
     .pf-item.open .pf-edit { visibility: hidden; }
     .pf-item.open .pf-val { display: none; }
     .pf-editor .field { margin-bottom: 0; }
-    .pf-editor .field + .field { margin-top: 12px; }
+    .pf-editor > .field + .field { margin-top: 12px; }
+    .pf-editor .field-row { align-items: end; }
+    .pf-editor .field-row .field { margin: 0; }
     .pf-note { font-size: 12px; color: var(--gray-500); line-height: 1.45; margin-top: 8px; }
     .pf-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
     .pf-actions button { padding: 9px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
