@@ -1,0 +1,6 @@
+-- Session 294e (applied 2026-09-15): SQL lookup for prepare-phone-otp v5.
+-- See pg_get_functiondef('public.prepare_phone_otp_lookup(text)'::regprocedure) for the body.
+-- prepare-phone-otp v4 scanned customers / auth users in JS; PostgREST caps selects at
+-- 1000 rows (4,000+ customers) and listUsers() only read page 1 of 2,000+ logins.
+-- Returns {real_auth_id, match_kind, orphan_ids}. EXECUTE granted to service_role only.
+-- Orphans exclude: the real login, any login linked to a customer, any staff profile.

@@ -5,10 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// v4 (session 111f): drop the brittle ILIKE+filter pre-query that was silently
-// returning zero rows for some customers (Heather Covyknight, Lindsea Brown).
-// Instead: fetch the minimal projection for all customers with non-null phone
-// and filter in JS. ~500 rows is fast; no URL-escape gotchas with % wildcards.
+// v5 (session 294e): lookup moved to SQL (public.prepare_phone_otp_lookup) — see below.
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -33,64 +30,24 @@ Deno.serve(async (req: Request) => {
 
     const normalize = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
 
-    let realAuthId: string | null = null;
-    let matchKind: 'customer' | 'staff' | null = null;
-    let totalCustomersScanned = 0;
-    let totalStaffScanned = 0;
-
-    // 1) Customer match — fetch minimal projection, filter in JS
-    const { data: customers, error: custErr } = await supabase
-      .from('customers')
-      .select('id, profile_id, phone_cache, total_orders')
-      .not('phone_cache', 'is', null);
-
-    if (custErr) console.warn('[prepare-phone-otp] customers query error:', custErr.message);
-    totalCustomersScanned = customers?.length || 0;
-
-    const matchedCustomers = (customers || [])
-      .filter(c => normalize(c.phone_cache) === last10 && c.profile_id);
-
-    if (matchedCustomers.length > 0) {
-      // Prefer the customer with the most orders (if multiple share the phone)
-      matchedCustomers.sort((a, b) => (b.total_orders || 0) - (a.total_orders || 0));
-      realAuthId = matchedCustomers[0].profile_id;
-      matchKind = 'customer';
-    } else {
-      // 2) Staff match
-      const { data: staffProfiles, error: staffErr } = await supabase
-        .from('profiles')
-        .select('id, phone, role')
-        .in('role', ['driver','admin','manager','laundry_tech'])
-        .not('phone', 'is', null);
-      if (staffErr) console.warn('[prepare-phone-otp] staff query error:', staffErr.message);
-      totalStaffScanned = staffProfiles?.length || 0;
-
-      const matchedStaff = (staffProfiles || []).filter(p => normalize(p.phone) === last10);
-      if (matchedStaff.length > 0) {
-        realAuthId = matchedStaff[0].id;
-        matchKind = 'staff';
-      }
-    }
+    // v5 (session 294e): the lookup runs in SQL. v4 scanned customers and auth users
+    // in JS, but PostgREST caps a select at 1000 rows (there are 4,000+ customers)
+    // and listUsers() returned page 1 of 2,000+ logins — so many returning customers
+    // were never matched, or a stale phone login was never cleared, and the SMS
+    // code went to an empty login instead of their account.
+    const { data: look, error: lookErr } = await supabase.rpc('prepare_phone_otp_lookup', { p_last10: last10 });
+    if (lookErr) throw new Error(`lookup failed: ${lookErr.message}`);
+    const realAuthId: string | null = look?.real_auth_id ?? null;
+    const matchKind: 'customer' | 'staff' | null = look?.match_kind ?? null;
 
     if (!realAuthId) {
-      return new Response(JSON.stringify({
-        ok: true,
-        isNewSignup: true,
-        debug: { last10, scanned_customers: totalCustomersScanned, scanned_staff: totalStaffScanned },
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ ok: true, isNewSignup: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // STEP 1: delete orphan phone-auth users with this number (not the real one; not staff)
-    const { data: existingPhoneUsers } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    const orphanIds: string[] = [];
-    for (const u of existingPhoneUsers?.users || []) {
-      if (u.id === realAuthId) continue;
-      if (!u.phone) continue;
-      if (normalize(u.phone) !== last10) continue;
-      const { data: prof } = await supabase.from('profiles').select('role').eq('id', u.id).maybeSingle();
-      if (prof && ['driver','admin','manager','laundry_tech'].includes(prof.role)) continue;
-      orphanIds.push(u.id);
-    }
+    // STEP 1: delete stale phone logins with this number (the SQL lookup already
+    // excludes the real login, any login attached to a customer, and staff).
+    const orphanIds: string[] = Array.isArray(look?.orphan_ids) ? look.orphan_ids : [];
     for (const id of orphanIds) {
       const { error: delErr } = await supabase.auth.admin.deleteUser(id);
       if (delErr) console.warn(`[prepare-phone-otp] delete orphan ${id}: ${delErr.message}`);
