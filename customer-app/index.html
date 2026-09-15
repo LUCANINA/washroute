@@ -1731,8 +1731,8 @@
         <div class="order-pref-label" style="margin-bottom:8px">Special Care Notes</div>
         <textarea id="pref-notes" rows="3" placeholder="e.g. Hang dry delicates, separate darks…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none"></textarea>
       </div>
-      <button class="pref-save-btn" onclick="savePreferences()" style="margin-top: 14px">Save Preferences</button>
-      <div id="prefs-tip-section" style="margin-top:24px;padding-top:20px;border-top:1px solid var(--gray-100)"></div>
+      <div id="prefs-tip-section" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--gray-100)"></div>
+      <button class="pref-save-btn" onclick="savePreferences()" style="margin-top: 20px">Save Preferences</button>
     </div>
   </div>
 
@@ -9080,22 +9080,17 @@ function renderPaymentSection() {
   const tipVal  = parseFloat(c?.default_tip || 0);
   const tipType = c?.default_tip_type || '$';
   _custTipType  = tipType;
+  // Session 293: saved together with add-ons + notes by "Save Preferences".
   const tipHtml = `
-    <div class="pm-section">
-      <div class="pref-title">Default Tip</div>
-      <div class="pm-row" style="flex-wrap:wrap;gap:10px">
-        <div style="font-size:13px;color:var(--gray-500);flex:1;min-width:120px">Added automatically to each order</div>
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          <div id="tip-type-toggle" style="display:inline-flex;border:1.5px solid var(--gray-200);border-radius:8px;overflow:hidden">
-            <button type="button" class="tip-toggle-btn${tipType==='$'?' active':''}" data-type="$" onclick="setCustomerTipType('$')">$</button>
-            <button type="button" class="tip-toggle-btn${tipType==='%'?' active':''}" data-type="%" onclick="setCustomerTipType('%')">%</button>
-          </div>
-          <input type="number" id="cust-tip-input" value="${tipVal}" min="0" step="any" placeholder="0"
-            style="width:64px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;font-weight:600;text-align:center;outline:none;font-family:inherit">
-          <button id="cust-tip-save" onclick="saveCustomerTip()"
-            style="padding:7px 16px;background:var(--navy);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s">Save</button>
-        </div>
+    <div class="order-pref-label" style="margin-bottom:8px">Default Tip</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div id="tip-type-toggle" style="display:inline-flex;border:1.5px solid var(--gray-200);border-radius:8px;overflow:hidden">
+        <button type="button" class="tip-toggle-btn${tipType==='$'?' active':''}" data-type="$" onclick="setCustomerTipType('$')">$</button>
+        <button type="button" class="tip-toggle-btn${tipType==='%'?' active':''}" data-type="%" onclick="setCustomerTipType('%')">%</button>
       </div>
+      <input type="number" id="cust-tip-input" value="${tipVal}" min="0" step="any" placeholder="0" inputmode="decimal"
+        style="width:80px;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:15px;font-weight:600;text-align:center;outline:none;font-family:inherit">
+      <div style="font-size:13px;color:var(--gray-500);flex:1;min-width:140px">Added to each order for our team</div>
     </div>`;
 
   // ── Payment methods (session 293: in-app sheet, real card details) ──
@@ -10040,10 +10035,21 @@ async function savePreferences() {
   const notesVal = (document.getElementById('pref-notes')?.value || '').trim();
   const prefsToSave = { ...acctPrefs };
   if (notesVal) prefsToSave._notes = notesVal; else delete prefsToSave._notes;
-  const { error } = await db.from('customers').update({ preferences: prefsToSave }).eq('id', currentCustomer.id);
+  const update = { preferences: prefsToSave };
+  const tipInput = document.getElementById('cust-tip-input');
+  if (tipInput) {
+    update.default_tip = Math.max(0, parseFloat(tipInput.value) || 0);
+    update.default_tip_type = _custTipType === '%' ? '%' : '$';
+    update.updated_at = new Date().toISOString();
+  }
+  const { error } = await db.from('customers').update(update).eq('id', currentCustomer.id);
   if (btn) { btn.disabled = false; btn.textContent = 'Save Preferences'; }
   if (error) { showToast('Error saving preferences', 'error'); return; }
   currentCustomer.preferences = { ...prefsToSave };
+  if ('default_tip' in update) {
+    currentCustomer.default_tip = update.default_tip;
+    currentCustomer.default_tip_type = update.default_tip_type;
+  }
   showToast('Preferences saved ✓', 'success');
 }
 
