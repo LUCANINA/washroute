@@ -41,8 +41,8 @@
 - save-payment-method: rejects non-card / Link PMs, dedupes by card fingerprint+expiry, honours `makeDefault`.
 - remove-card: a CUSTOMER can't remove their last card while an order is in progress or a charge failed (409).
 - **44 existing customers have `card_brand='link'` rows (last4 0000, exp 12/2040)** from Stripe Checkout
-  Link saves — may be charging a bank account. Left untouched; app labels them "Link wallet — consider
-  replacing". David's two test Link rows were deleted. Admin "send card link" (create-checkout) still
+  Link saves — may be charging a bank account. Left untouched by David's decision (they work: 127 paid / 0 failed orders in 90 days);
+  app shows them neutrally as "Link wallet · Saved with Stripe Link". David's two test Link rows were deleted. Admin "send card link" (create-checkout) still
   uses Checkout — turn Link off in Stripe Dashboard → Settings → Payment methods to stop new ones.
 
 **Referral amounts — one source of truth.** A leftover `service_fees` row "Refer-a-Friend Credit" ($10,

@@ -8449,7 +8449,7 @@ function cardBrandChip(b) {
   return `<div class="pm-chip" style="background:${x.bg}">${escHtml(x.chip)}</div>`;
 }
 function cardExpiryState(card) {
-  if (card.card_brand === 'link') return { text: 'Saved with Stripe Link — consider replacing with a card', cls: 'soon' };
+  if (card.card_brand === 'link') return { text: 'Saved with Stripe Link', cls: '' };
   const m = Number(card.card_exp_month), y = Number(card.card_exp_year);
   if (!m || !y) return { text: '', cls: '' };
   const label = `${String(m).padStart(2, '0')}/${String(y).slice(-2)}`;
