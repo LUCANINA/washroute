@@ -225,21 +225,21 @@ async function resolveSkipAction(customerId: string, customerFirstName: string):
 // ── Pull customer's zone + active templates for prompt grounding ──
 // The AI needs to know what windows actually exist for the customer's zone so
 // it doesn't propose dates+windows that have no matching route template.
-async function fetchZoneAvailability(customerId: string): Promise<{ summary: string; zoneFound: boolean }> {
+async function fetchZoneAvailability(customerId: string): Promise<{ summary: string; zoneFound: boolean; serviceDays: Set<number> }> {
   try {
     // 1. Most recent zone_id from this customer's orders
     const rows = await dbGet(
       `orders?customer_id=eq.${encodeURIComponent(customerId)}&zone_id=not.is.null&order=created_at.desc&limit=1&select=zone_id`
     );
     const zoneId = Array.isArray(rows) && rows[0]?.zone_id;
-    if (!zoneId) return { summary: '(zone not yet established — do not call place_pickup_order until zone is confirmed)', zoneFound: false };
+    if (!zoneId) return { summary: '(zone not yet established — do not call place_pickup_order until zone is confirmed)', zoneFound: false, serviceDays: new Set() };
 
     // 2. Active templates for the zone
     const tmpls = await dbGet(
       `route_templates?zone_id=eq.${encodeURIComponent(zoneId)}&is_active=eq.true&order=window_start&select=name,window_start,window_end,arrival_window_hours,schedule_days,turnaround_days,turnaround_hours`
     );
     if (!Array.isArray(tmpls) || tmpls.length === 0) {
-      return { summary: '(no active templates for this customer\'s zone — do not call place_pickup_order or reschedule_order)', zoneFound: true };
+      return { summary: '(no active templates for this customer\'s zone — do not call place_pickup_order or reschedule_order)', zoneFound: true, serviceDays: new Set() };
     }
 
     // 3. Format as a list the model can reason over.
@@ -258,11 +258,71 @@ async function fetchZoneAvailability(customerId: string): Promise<{ summary: str
       const sub = t.arrival_window_hours || 3;
       return `- ${days}, ${t.window_start.slice(0,5)}–${t.window_end.slice(0,5)} (sub-window ${sub}h, label "${labelOf(t.window_start)}", route "${t.name}", turnaround ${t.turnaround_days || 1}d${t.turnaround_hours ? ` or ${t.turnaround_hours}h same-day` : ''})`;
     });
-    return { summary: lines.join('\n'), zoneFound: true };
+    const serviceDays = new Set<number>();
+    tmpls.forEach((t: any) => (t.schedule_days || []).forEach((d: number) => serviceDays.add(d)));
+    return { summary: lines.join('\n'), zoneFound: true, serviceDays };
   } catch (e) {
     console.warn('[draft-reply] fetchZoneAvailability failed:', e);
-    return { summary: '(zone lookup failed)', zoneFound: false };
+    return { summary: '(zone lookup failed)', zoneFound: false, serviceDays: new Set() };
   }
+}
+
+// ── Real calendar (session 294) ──
+// The models were never told today's date, so "next Sunday" became a guess
+// ("Sunday, Sep 19" — a Saturday, on a day with no service). Every booking
+// prompt now gets the next 14 days with their true weekday and open/closed.
+// serviceDays uses the WashRoute convention 0=Mon..6=Sun.
+const WEEKDAYS_FULL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const MONTHS_SHORT  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+type CalDay = { iso: string; dow: number; month: number; day: number; open: boolean };
+function nextDays(serviceDays: Set<number>, n = 14): CalDay[] {
+  const out: CalDay[] = [];
+  const now = Date.now();
+  for (let i = 0; i < n; i++) {
+    const d = new Date(now + i * 86400000);
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: BIZ_TZ, year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'long' })
+      .formatToParts(d).map((p) => [p.type, p.value]));
+    const dow = WEEKDAYS_FULL.indexOf(parts.weekday);
+    const month = parseInt(parts.month, 10), day = parseInt(parts.day, 10);
+    const iso = `${parts.year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    out.push({ iso, dow, month, day, open: serviceDays.has(dow) });
+  }
+  return out;
+}
+function calendarText(cal: CalDay[]): string {
+  return cal.map((c, i) => `- ${WEEKDAYS_FULL[c.dow]} ${MONTHS_SHORT[c.month - 1]} ${c.day} (${c.iso})${i === 0 ? ' [today]' : ''}: ${c.open ? 'pickups available' : 'NO SERVICE'}`).join('\n');
+}
+function openDayNames(serviceDays: Set<number>): string {
+  const days = [...serviceDays].sort();
+  const names = days.map((d) => WEEKDAYS_FULL[d]);
+  if (names.length <= 1) return names.join('');
+  // A run like Mon..Sat reads better as "Monday through Saturday"
+  if (names.length >= 3 && days[days.length - 1] - days[0] === days.length - 1) return `${names[0]} through ${names[names.length - 1]}`;
+  return names.slice(0, -1).join(', ') + ' or ' + names[names.length - 1];
+}
+// True if the text names a weekday we don't serve, or a calendar date that is
+// closed / whose stated weekday is wrong. Used to reject a free-form booking
+// draft that promises something the schedule can't deliver.
+function draftMentionsBadDay(text: string, cal: CalDay[], serviceDays: Set<number>): boolean {
+  const t = text || '';
+  for (let d = 0; d < 7; d++) {
+    const re = new RegExp(`\\b(${WEEKDAYS_FULL[d]}|${WEEKDAYS_FULL[d].slice(0, 3)})\\b`, 'i');
+    if (re.test(t) && !serviceDays.has(d)) return true;
+  }
+  const dateRe = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = dateRe.exec(t))) {
+    const month = MONTHS_SHORT.findIndex((x) => x.toLowerCase() === m![1].slice(0, 3).toLowerCase()) + 1;
+    const day = parseInt(m[2], 10);
+    const hit = cal.find((c) => c.month === month && c.day === day);
+    if (!hit || !hit.open) return true;
+    // "Sunday, Sep 19" when Sep 19 is a Saturday
+    const before = t.slice(Math.max(0, m.index - 12), m.index);
+    for (let d = 0; d < 7; d++) {
+      if (d !== hit.dow && new RegExp(`\\b(${WEEKDAYS_FULL[d]}|${WEEKDAYS_FULL[d].slice(0, 3)})\\b`, 'i').test(before)) return true;
+    }
+  }
+  return false;
 }
 
 // ── Tool-using resolver: place_pickup_order or reschedule_order ──
@@ -285,6 +345,7 @@ async function resolveAgentAction(
   primaryAddressLine: string,
   zoneSummary: string,
   adminJwt: string,
+  calendarTxt: string,
 ): Promise<any | null> {
   if (!ANTHROPIC_KEY) return null;
 
@@ -471,6 +532,9 @@ default_bags: ${defaultBags !== null ? defaultBags : 'null (no order history)'}
 
 Available pickup windows for this customer's zone:
 ${zoneSummary}
+
+Calendar for the next 14 days (Pacific time). Resolve "next Sunday", "tomorrow", etc. ONLY against this list:
+${calendarTxt}
 
 Active orders (eligible for reschedule):
 ${activeOrders.length > 0 ? JSON.stringify(activeOrders, null, 2) : '(none)'}
@@ -800,15 +864,20 @@ Deno.serve(async (req: Request) => {
 
     // ── 5. Resolve action (generate mode only) ──
     let action: any = null;
+    const isBookingIntent = intent === 'new_order' || intent === 'reschedule_request';
+    let serviceDays = new Set<number>();
+    let cal: CalDay[] = [];
     if (!isRefineMode && customer_id) {
       if (intent === 'skip_request') {
         action = await resolveSkipAction(customer_id, customerFirstName);
       } else if (intent === 'new_order' || intent === 'reschedule_request') {
-        const { summary: zoneSummary } = await fetchZoneAvailability(customer_id);
+        const avail = await fetchZoneAvailability(customer_id);
+        serviceDays = avail.serviceDays;
+        cal = nextDays(serviceDays);
         action = await resolveAgentAction(
           customer_id, customerName, customerFirstName,
           conversationText, orderRows, primaryAddressLine,
-          zoneSummary, adminJwt
+          avail.summary, adminJwt, calendarText(cal)
         );
       }
       if (action) console.log(`[draft-reply] action=${action.type}`);
@@ -844,7 +913,13 @@ IMPORTANT: Return ONLY the message text. No labels, no quotes, no explanation, n
     if (isRefineMode) {
       userPrompt = `Customer name: ${customerName}\n\nRecent orders:\n${orderContext}\n\nConversation history:\n${conversationText}\n\nThe admin has already drafted this reply:\n---\n${current_draft.trim()}\n---\n\nPlease refine this draft for clarity, grammar, and tone while preserving the admin's intent and all specific details (names, times, amounts, addresses). Strip exclamation points unless they're carrying real emotional weight. Do not change the meaning. Return only the improved message text.`;
     } else {
-      userPrompt = `Customer name: ${customerName}\n\nRecent orders:\n${orderContext}\n\nConversation history (oldest to newest):\n${conversationText}\n\nWhat the customer is asking about: ${intent.replace(/_/g, ' ')}\nDrafting guidance: ${intentGuide}\n\nDraft a reply to the customer's most recent message.`;
+      // session 294: a booking request with NO validated action must not
+      // promise a time — nothing has been (or can be) booked from this text.
+      const noBookingGuide = isBookingIntent && !action
+        ? `No booking could be prepared for this request (the day may have no service, or details are missing). Do NOT confirm, schedule or promise any date, day or time. ${serviceDays.size ? `We pick up on ${openDayNames(serviceDays)} only. Briefly say so and ask which of those days works.` : 'Ask which day works for them; a team member will confirm.'}`
+        : null;
+      const calSection = cal.length ? `\n\nCalendar (Pacific time) — use ONLY these dates and weekdays:\n${calendarText(cal)}` : '';
+      userPrompt = `Customer name: ${customerName}\n\nRecent orders:\n${orderContext}\n\nConversation history (oldest to newest):\n${conversationText}${calSection}\n\nWhat the customer is asking about: ${intent.replace(/_/g, ' ')}\nDrafting guidance: ${noBookingGuide || intentGuide}\n\nDraft a reply to the customer's most recent message.`;
     }
 
     // ── 9. Anthropic call (text draft) ──
@@ -869,7 +944,13 @@ IMPORTANT: Return ONLY the message text. No labels, no quotes, no explanation, n
       return new Response(JSON.stringify({ error: 'AI service error', detail: result.error?.message || result }), { status: 502, headers: CORS });
     }
 
-    const draft = (result.content?.[0]?.text || '').trim();
+    let draft = (result.content?.[0]?.text || '').trim();
+    // session 294 guard: a free-form booking reply may not name a closed day
+    // or a wrong/closed date. Fall back to a safe, fixed question.
+    if (!isRefineMode && isBookingIntent && !action && serviceDays.size && draftMentionsBadDay(draft, cal, serviceDays)) {
+      console.warn(`[draft-reply] guard: replaced draft naming an unavailable day: ${draft}`);
+      draft = `${customerFirstName ? `Hi ${customerFirstName}. ` : ''}We pick up on ${openDayNames(serviceDays)}. Which day works best for you?`;
+    }
     console.log(`[draft-reply] Done: mode=${isRefineMode ? 'refine' : 'generate'} intent=${intent} chars=${draft.length} action=${action?.type || 'none'}`);
 
     // ── Usage log (fire-and-forget) ──
