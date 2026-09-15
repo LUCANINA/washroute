@@ -2370,12 +2370,11 @@ function _recordAccountMatchFailure(where, err) {
   _accountMatchFailed = true;
   console.error('[account-match] ' + where + ' FAILED -- refusing to create a duplicate account:', err?.message || err);
 }
-const _DUP_ACCOUNT_MSG = "It looks like you already have an account with us. So your order history stays in one place, please call us at (510) 588-4102 and we'll connect this login to it.";
 // Call immediately before any customers.insert. Returns true if we must NOT insert.
 function _blockDuplicateInsert(where) {
   if (!_accountMatchFailed) return false;
   console.error('[account-match] blocked new-customer insert at ' + where);
-  toast("We couldn't finish signing you in. Please call us at (510) 588-4102 so we don't set up a second account for you.", 12000);
+  toast("We couldn't finish signing you in just now. Please try again in a minute.", 10000);
   return true;
 }
 // ── audit 2026-09-15: the ONLY way the customer app creates a customer row ──
@@ -2394,9 +2393,116 @@ async function _insertNewCustomer(where, row) {
   const isDup = error.hint === 'duplicate_contact' || /DUPLICATE_CONTACT/.test(error.message || '');
   _accountMatchFailed = true;   // never retry an insert later in this session
   console.error('[account-match] customer insert refused at ' + where + (isDup ? ' (contact already on another account)' : '') + ':', error.message);
-  toast(isDup ? _DUP_ACCOUNT_MSG
-              : "We couldn't finish setting up your account. Please try again, or call us at (510) 588-4102.", 12000);
+  if (isDup) {
+    const kinds = ((error.message || '').split('DUPLICATE_CONTACT:')[1] || 'email,phone').split(',').map(k => k.trim());
+    _showAccountRecovery(kinds, (row.email_cache || '').trim(), (row.phone_cache || '').trim());
+  } else {
+    toast("We couldn't finish setting up your account. Please try again.", 8000);
+  }
   return false;
+}
+
+// ── Self-serve "you already have an account" recovery ──
+// Instead of asking the customer to call, let them prove they own the matching
+// email (sign-in link, via send-magic-link) or phone (SMS code, via
+// prepare-phone-otp, which attaches the number to the EXISTING login first).
+// Either way they land in their original account with its orders and cards.
+function _showAccountRecovery(kinds, email, phone) {
+  const e164 = phone ? _normalizePhone(phone) : null;
+  const canEmail = kinds.includes('email') && !!email;
+  // Re-texting the number they just verified would loop — only offer an SMS code
+  // for a phone they have NOT already proven this session.
+  const canPhone = kinds.includes('phone') && !!e164 && e164 !== _pendingPhone;
+  const digits = (e164 || '').slice(-10);
+  const phoneLabel = digits.length === 10 ? `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}` : '';
+  const btns = [
+    canEmail ? `<button class="btn-primary" id="acctrec-email" style="margin-top:10px" onclick="_acctRecEmail()">Email a sign-in link to ${escHtml(email)}</button>` : '',
+    canPhone ? `<button class="btn-primary" id="acctrec-phone" style="margin-top:10px${canEmail ? ';background:white;color:var(--navy);border:1.5px solid var(--navy)' : ''}" onclick="_acctRecPhone()">Text a code to ${escHtml(phoneLabel)}</button>` : ''
+  ].join('');
+  window._acctRec = { email, e164 };
+  openSheet('acctrec-sheet', `
+    <div class="sheet-head">
+      <div class="sheet-title">Welcome back!</div>
+      <button class="sheet-x" onclick="closeSheet('acctrec-sheet')" aria-label="Close">×</button>
+    </div>
+    <p style="font-size:14px;color:var(--gray-500);line-height:1.5;margin:0 0 6px">
+      You already have a Family Laundry account${canEmail && !canPhone ? ' with this email' : (!canEmail && canPhone ? ' with this phone number' : '')}.
+      Sign in to it so your orders, cards and credits stay in one place.
+    </p>
+    ${btns || `<p style="font-size:14px;color:var(--text);line-height:1.5;margin:8px 0 0">Please sign in with the email or phone number you used before.</p>`}
+    <div id="acctrec-status" style="display:none;margin-top:12px;padding:12px;border-radius:10px;font-size:13px;line-height:1.5"></div>
+    <button class="magic-link-btn" style="margin-top:14px" onclick="_acctRecBack()">← Back to sign in</button>`);
+}
+function _acctRecStatus(msg, ok) {
+  const el = document.getElementById('acctrec-status');
+  if (!el) return;
+  el.style.display = '';
+  el.style.background = ok ? '#f0f9f4' : '#fef3c7';
+  el.style.color = ok ? '#166534' : '#78350f';
+  el.textContent = msg;
+}
+async function _acctRecEmail() {
+  const { email } = window._acctRec || {};
+  const btn = document.getElementById('acctrec-email');
+  if (!email || !btn) return;
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const redirectUrl = window.location.protocol === 'https:'
+      ? window.location.href.split('?')[0].split('#')[0]
+      : 'https://app.familylaundry.com/';
+    const res = await fetch(`${SUPA_URL}/functions/v1/send-magic-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      body: JSON.stringify({ email, redirectTo: redirectUrl })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.ok) {
+      _acctRecStatus(`Check your inbox — we sent a sign-in link to ${email}. Open it on this device to go straight to your account.`, true);
+      btn.textContent = 'Send again';
+    } else {
+      _acctRecStatus(document.getElementById('acctrec-phone')
+        ? "That email isn't set up for sign-in yet. Use the text-message code instead."
+        : "That email isn't set up for sign-in yet. Go back and sign in with the phone number you used before — we'll connect everything automatically.", false);
+      btn.textContent = 'Email a sign-in link';
+    }
+  } catch (err) {
+    _acctRecStatus('Could not send the link — please try again.', false);
+    btn.textContent = 'Try again';
+  }
+  btn.disabled = false;
+}
+async function _acctRecPhone() {
+  const { e164 } = window._acctRec || {};
+  const btn = document.getElementById('acctrec-phone');
+  if (!e164 || !btn) return;
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    await preparePhoneOtp(e164);   // attaches this number to the EXISTING login
+    const { error } = await db.auth.signInWithOtp({ phone: e164 });
+    if (error) throw error;
+    _pendingPhone = e164;
+    _otpAlreadyVerified = false;
+    _accountMatchFailed = false;   // fresh sign-in, fresh match attempt
+    const d = e164.slice(-10);
+    document.getElementById('otp-phone-display').textContent = `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+    document.getElementById('otp-input').value = '';
+    closeSheet('acctrec-sheet', true);
+    if (typeof showScreen === 'function') showScreen('auth');
+    showAuthPanel('otp');
+    setTimeout(() => document.getElementById('otp-input')?.focus(), 200);
+  } catch (err) {
+    _acctRecStatus(err.message || 'Could not send the code — please try again.', false);
+    btn.disabled = false; btn.textContent = 'Try again';
+  }
+}
+async function _acctRecBack() {
+  closeSheet('acctrec-sheet', true);
+  try { await db.auth.signOut(); } catch (_) {}
+  _accountMatchFailed = false;
+  _awaitingName = false;
+  _pendingPhone = '';
+  if (typeof showScreen === 'function') showScreen('auth');
+  showAuthPanel('hero');
 }
 
 function showAuthPanel(name) {
