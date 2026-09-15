@@ -1,73 +1,88 @@
 # WashRoute — Project Notes
 
-## Session 293 — Sep 15, 2026: customer-app Account restructure, home invite strip, discount display
+## Session 293 — Sep 15, 2026: customer-app Account/Payment/Rewards redesign, secured card functions, email sign-in fix
 
-**What changed (customer-app, plus one admin checkbox).**
-- Account menu is now Profile · Rewards · Laundry Preferences · Billing History · Pricing. Order History
-  removed (duplicate of the Orders tab).
-- **Profile** (`#sub-profile`) is a hub: Contact rows edit INLINE (`pfToggle` / `pfSave`), plus
-  Addresses, Payment, Subscription. `pfSave` copies values into the hidden `#sub-contact` form and
-  calls the existing `saveContactInfo` / `saveEmailChange` / `savePasswordChange` (now return `true`
-  on success). `#sub-contact` must stay — PASSWORD_RECOVERY opens it.
-  DOM order matters: `#sub-profile` and `#sub-rewards` sit ABOVE their child panels (same z-index).
-- **Payment** is cards only. Missing card → "Add card" badge on Profile row, "Required" on Payment row.
-- **Rewards** (`#sub-rewards`): tabs Invite Friends / Credits & Discounts. Tabs only show when the
-  referral program is on. `renderPaymentSection()` now fills `#payment-method-section` (cards),
-  `#rewards-section` (credits, discount card, code box) and `#prefs-tip-section` (Default Tip moved
-  to Laundry Preferences).
-- **Home**: "More room" spacing; invite strip `#home-ref-strip` pinned above the tab bar
-  (`renderHomeReferralStrip`). Shows only if `card_surfaces` includes `'home'` (new admin checkbox
-  "Show a small invite strip on the Home screen"), customer has ≥1 delivered order, no failed charge,
-  not dismissed in 30 days (`wr_ref_home_snooze`). `getReferralState` now caches "program off" for
-  10 min so Home doesn't hit the RPC every load.
-- **Discounts**: standing % discount shows as a card on Credits & Discounts ("Ongoing" — `discounts` has
-  no expiry column), "X% off" badge on the Rewards row, a green note on Pricing, and discount + credit
-  lines on the Confirm estimate. Estimate mirrors billing: % on service + add-ons only (never
-  delivery/same-day), credit after discount, tip last. **Display only** — `placeOrder()` total untouched.
-  Known gap: the Confirm estimate still shows no sales tax.
+**START HERE next time.** Everything below is pushed, deployed and verified live by David on his phone
+(Profile inline edit, cards sheet, Apple Pay, one-tap "send card link"). Open follow-ups:
+tech-debt items 15–18 in `docs/washroute/status.md`; home invite strip is built but OFF until the
+Home checkbox is ticked in Admin → Referrals.
 
-**To launch the home strip:** Admin → referral settings → tick the Home checkbox → Save.
+### Customer app — Account restructure
+- Account menu: **Profile · Rewards · Preferences · Billing History · Pricing**. Order History removed
+  (duplicate of the Orders tab). "Laundry Preferences" renamed **Preferences** (menu + panel title).
+- **Profile** (`#sub-profile`) hub: Contact rows (name, phone, email, password) edit INLINE
+  (`pfToggle` / `pfSave`, Enter saves, Escape cancels, phone auto-formats). `pfSave` fills the hidden
+  `#sub-contact` form and calls `saveContactInfo` / `saveEmailChange` / `savePasswordChange` (now return
+  `true` on success). **Keep `#sub-contact`** — PASSWORD_RECOVERY opens it. Account section: Addresses,
+  Payment, Subscription (flag-gated). DOM order matters: `#sub-profile` / `#sub-rewards` sit ABOVE their
+  child panels (same z-index).
+- Missing card → amber "Add card" badge on the Profile row, "Required" on Payment.
+- **Rewards** (`#sub-rewards`): tabs *Invite Friends* / *Credits & Discounts* (tabs only when the referral
+  program is on). Invite tab styled after the old app ("Earn Laundry Credit!", tap code to copy, Send Invite).
+  `renderPaymentSection()` fills `#payment-method-section` (cards), `#rewards-section` (balance, discount
+  card, code box) and `#prefs-tip-section`.
+- **Preferences**: add-ons in a 2-column grid (`.acct-addon-grid`, account page only — order flow
+  unchanged). Default Tip moved here, above ONE "Save Preferences" button that saves add-ons + notes +
+  `default_tip`/`default_tip_type` together (`saveCustomerTip` is now unused).
+- **Discounts**: standing % discount shown as a card on Credits & Discounts ("Ongoing" — `discounts` has
+  no expiry column), "X% off" badge on the Rewards row, note on Pricing, and discount + credit lines on
+  the Confirm estimate. Estimate mirrors billing: % on service + add-ons only (never delivery/same-day),
+  credit after discount, tip last. **Display only** — `placeOrder()` total untouched. No tax shown (debt #18).
+- **Home**: more top spacing; invite strip `#home-ref-strip` pinned above the tab bar
+  (`renderHomeReferralStrip`) — needs `'home'` in `card_surfaces` (new admin checkbox), ≥1 delivered
+  order, no failed charge, not dismissed in 30 days (`wr_ref_home_snooze`). `getReferralState` caches
+  "program off" for 10 min.
+- **Tab bar**: 60px tap targets, bigger/darker labels, active pill, press feedback,
+  `touch-action: manipulation`, extra bottom inset, soft shadow (Account button was hard to hit).
 
-**Cards on file — in-app sheet + secured card functions.**
-- Customer Payment page: real brand/last4/expiry list, tap a card → Make default / Replace / Remove;
-  "+ Add payment method" opens a bottom sheet with the Stripe Payment Element (cards incl. Apple/Google
-  Pay; SetupIntent `payment_method_types: ['card']`, no Link). `startCardSetup()` now just opens the sheet
-  (no more Stripe Checkout redirect from the customer app).
-- `create-setup-intent`, `save-payment-method`, `remove-card`, `set-default-card` now live in
-  `supabase/functions/` (source was only on Supabase before). All four check the caller:
-  Bearer JWT required, anon key rejected, staff roles (admin/manager/attendant/laundry_tech) or the
-  customer who owns `customers.profile_id`. All still `verify_jwt: false` (auth is in code).
-  Admin callers now send the staff session via `_cardFnHeaders()`.
-- save-payment-method: rejects non-card / Link PMs, dedupes by card fingerprint+expiry, honours `makeDefault`.
-- remove-card: a CUSTOMER can't remove their last card while an order is in progress or a charge failed (409).
-- **44 existing customers have `card_brand='link'` rows (last4 0000, exp 12/2040)** from Stripe Checkout
-  Link saves — may be charging a bank account. Left untouched by David's decision (they work: 127 paid / 0 failed orders in 90 days);
-  app shows them neutrally as "Link wallet · Saved with Stripe Link". David's two test Link rows were deleted. Admin "send card link" (create-checkout) still
-  uses Checkout — turn Link off in Stripe Dashboard → Settings → Payment methods to stop new ones.
+### Referral amounts — one source of truth
+A stale `service_fees` "Refer-a-Friend Credit" ($10, category 'Reward') showed on customer Pricing while
+real terms were $15/$15 (display-only, billing never read it). Row retired (`is_active=false`,
+id 052189dc…); 'Reward' removed from the fee dropdown and Fees tab; customer Pricing has no Rewards
+section; admin App Display shows a read-only line from `referral_config()` + link to Referrals.
+Rule added to CLAUDE.md.
 
-**BUG FIXED — email sign-in links never signed anyone in (since the Apr 28 `_stripAuthUrlParams` fix).**
-supabase-js 2.39 reads the URL inside `_initialize()`, which runs after an await + lock, NOT during
-`createClient()`. The strip ran synchronously right after `createClient`, erasing `#access_token`
-first, so `/verify` succeeded server-side but the app loaded signed-out. Now the strip runs in
-`db.auth.initialize().finally(...)`. Verified in a browser harness: with the fix the app calls
-`/auth/v1/user` with the hash token; before it made no auth call at all.
+### Cards on file — in-app sheet + secured card functions
+- Payment page: brand chip, "Visa •••• 4242", expiry (amber ≤2 months, red expired); tap a card →
+  Make default / Replace / Remove. "+ Add payment method" opens a bottom sheet with the Stripe Payment
+  Element (cards + Apple/Google Pay, SetupIntent `payment_method_types:['card']`, no Link).
+  `startCardSetup()` just opens the sheet (customer app no longer redirects to Stripe Checkout).
+- `create-setup-intent`, `save-payment-method`, `remove-card`, `set-default-card` now in
+  `supabase/functions/` (were Supabase-only) and **require an authorized caller**: Bearer JWT, anon key
+  rejected, staff (admin/manager/attendant/laundry_tech) or the customer whose `profile_id` matches.
+  Still `verify_jwt:false` (auth in code). Admin callers send the staff token via `_cardFnHeaders()`.
+  Caller audit: no DB functions or cron jobs call them. Probed live: unauthenticated → 401.
+- save-payment-method rejects non-card/Link PMs, dedupes by fingerprint+expiry, honours `makeDefault`.
+  remove-card: a CUSTOMER can't remove their last card while an order is in progress or a charge failed (409).
+- **Stripe Link:** 44 legacy `card_brand='link'` rows (last4 0000, exp 12/2040) from old Checkout saves.
+  **Left alone by David's decision** — they charge fine (127 paid / 0 failed in 90 days); app labels them
+  "Link wallet · Saved with Stripe Link". **Do NOT turn Link off in the Stripe dashboard**: charge-order
+  sends no `payment_method_types`, so dashboard settings govern charges and those customers could start
+  failing. New Link saves are already blocked (card-only sheet; admin link no longer uses Checkout).
+  David's own two test Link rows were deleted (he re-added a real card).
+- Apple Pay: `app.familylaundry.com` added under Stripe → Payment method domains (Apple Pay enabled);
+  verified on iPhone Safari.
 
-**Admin "send card link" → in-app sheet.** `adminSendCardLink` no longer creates a Stripe Checkout
-session. It calls `send-magic-link` with `purpose:'add_card'` (staff JWT required for that purpose;
-redirect fixed to `https://app.familylaundry.com/?addcard=1`, card-specific email copy). If the customer
-has no email sign-in (legacy/phone-only → `noAccount`), it emails the plain `?addcard=1` link; no email
-→ link copied to clipboard. The customer app stores the `addcard` intent (24h, localStorage
-`wr_open_addcard`), and after sign-in `loadHome` → `maybeOpenPendingAddCard()` opens Payment + the sheet.
-`supabase/functions/send-magic-link/index.ts` in the repo was STALE (pre-v18); it now holds deployed
-v18 + the add_card change (v19). Needs `https://app.familylaundry.com/?addcard=1` allowed in
-Supabase Auth → URL Configuration → Redirect URLs, or the sign-in lands without opening the sheet.
+### Admin "Send Card Link" → one-tap sign-in into the add-card sheet
+`adminSendCardLink` calls `send-magic-link` with `purpose:'add_card'` (v19: staff JWT required for that
+purpose, redirect fixed to `https://app.familylaundry.com/?addcard=1`, card-specific email). Legacy /
+phone-only customers (`noAccount`) get the plain `?addcard=1` link by email; no email → link copied.
+The app stores the intent (`wr_open_addcard`, 24h) and `loadHome` → `maybeOpenPendingAddCard()` opens
+Payment + the sheet after sign-in. Repo `send-magic-link` was STALE (pre-v18) — now matches deployed.
+Verified live by David.
 
-**Referral amounts — one source of truth.** A leftover `service_fees` row "Refer-a-Friend Credit" ($10,
-category 'Reward') was shown on the customer Pricing page while the real terms were $15/$15. It was
-display-only (nothing in billing reads it). Retired: row set `is_active=false, show_in_app=false`
-(id 052189dc…, kept for history); 'Reward' removed from the fee category dropdown and Fees tab groups;
-customer Pricing no longer has a Rewards section; admin App Display shows a read-only line from
-`referral_config()` with a link to Referrals. Rule added to CLAUDE.md.
+### BUG FIXED — email sign-in links never signed anyone in (since the Apr 28 `_stripAuthUrlParams` fix)
+supabase-js 2.39 reads the URL inside `_initialize()` (after an await + lock), not during `createClient()`.
+The strip ran synchronously right after `createClient`, erasing `#access_token` first: `/verify`
+succeeded server-side (auth log 303) but the app loaded signed-out. Now
+`db.auth.initialize().finally(_stripAuthUrlParams)` in **customer, admin and driver** apps (POS has no
+strip). Browser harness: before = no `/auth/v1/user` call, after = called with the hash token.
+Verified live by David. Email "sign in" links should work again for customers.
+
+### QA (session 293)
+washroute-qa run over all 9 commits: no High/Medium. Low items logged as tech debt 15–18
+(`create-checkout` has no caller check; card-sheet onclick IDs not quote-escaped; repo vs deployed card
+functions differ in comments only; Confirm estimate omits tax).
 
 ## Session 292 — Sep 11, 2026: session 196 fixed half of this; here is the other half
 
