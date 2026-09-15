@@ -30507,13 +30507,34 @@ ${noActivityNote}
     const newVal = val || null;
     const oldLabel = o.recurring_interval ? (_recurLabel[o.recurring_interval] || o.recurring_interval) : 'one-time';
     const newLabel = newVal ? (_recurLabel[newVal] || newVal) : 'one-time';
-    await logOrderEvent(opCurrentOrderId, 'rescheduled', `Recurrence changed from ${oldLabel} to ${newLabel}`, o.recurring_interval || 'none', newVal || 'none');
+    // Audit 2026-09-15: switching a repeating order to one-time ENDS the customer's
+    // series — the next order is generated from this one, so nothing gets created
+    // after it. 35 orders were switched in 60 days, and two customers silently fell
+    // off (Claire Tolan, Kidango – Hillside). Make it a deliberate choice.
+    const endingSeries = !!o.recurring_interval && !newVal;
+    if (endingSeries) {
+      const ok = confirm(
+        `Stop repeating?\n\n` +
+        `This order repeats ${oldLabel.toLowerCase()}. Setting it to one-time ENDS the series — ` +
+        `no more pickups will be scheduled after this order.\n\n` +
+        `To change or skip just this pickup, press Cancel and use Reschedule or Skip instead.`
+      );
+      if (!ok) {
+        const sel = document.getElementById('op-recur-select');
+        if (sel) sel.value = o.recurring_interval;
+        return;
+      }
+    }
+    const _evtDesc = endingSeries
+      ? `Repeat series ENDED (was ${oldLabel}) — no further orders will be generated`
+      : `Recurrence changed from ${oldLabel} to ${newLabel}`;
+    await logOrderEvent(opCurrentOrderId, 'rescheduled', _evtDesc, o.recurring_interval || 'none', newVal || 'none');
     const { error } = await db.from('orders').update({ recurring_interval: newVal }).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to update recurrence: ' + error.message, 'error'); return; }
     o.recurring_interval = newVal;
     document.getElementById('op-recur-select').style.color = newVal ? '#10b981' : 'var(--gray-700)';
     renderOrders(getFilteredOrders());
-    showToast(newVal ? `Set to ${_recurLabel[newVal] || newVal}` : 'Set to one-time', 'success');
+    showToast(newVal ? `Set to ${_recurLabel[newVal] || newVal}` : (endingSeries ? 'Repeat series ended' : 'Set to one-time'), 'success');
   }
 
   // Show the recurring-scope checkbox only while a pickup/delivery edit picker is
@@ -38264,6 +38285,7 @@ ${oneCopy}
   let _noPickupLabel  = null;   // time-window label for pickup slot (e.g. "7am – 9am")
   let _noPickupDate   = null;   // LOCAL date (YYYY-MM-DD) — avoids UTC shift for evening slots
   let _noTipType      = 'dollar';
+  let _noDiscounts    = [];   // active discounts loaded by populateOrderModal (audit 2026-09-15)
   let _noDayLimit     = 28;   // how many days the pickup day picker shows
   let _noDelivStart   = null;
   let _noDelivEnd     = null;
@@ -38424,6 +38446,7 @@ ${oneCopy}
 
     // Discounts/coupons
     const { data: discs } = await db.from('discounts').select('id, name, type, value').eq('active', true).order('name');
+    _noDiscounts = discs || [];
     const couponSel = document.getElementById('o-coupon');
     couponSel.innerHTML = '<option value="">No discount</option>' +
       (discs||[]).map(d => `<option value="${d.id}">${d.name} (${d.type==='percent'? d.value+'%' : '$'+d.value})</option>`).join('');
@@ -38474,6 +38497,15 @@ ${oneCopy}
     if (cust?.default_tip) {
       document.getElementById('o-tip').value = cust.default_tip;
       setNoTipType(cust.default_tip_type === '%' ? 'pct' : 'dollar');
+    }
+
+    // Audit 2026-09-15: pre-select the customer's standing discount (e.g. NON PROFIT).
+    // Before this, the coupon box always started at "No discount", so 16 of 17
+    // admin-created orders for discount customers went out without their discount.
+    const _couponSel = document.getElementById('o-coupon');
+    if (_couponSel) {
+      const _hasOpt = cust?.discount_id && _couponSel.querySelector(`option[value="${cust.discount_id}"]`);
+      _couponSel.value = _hasOpt ? cust.discount_id : '';
     }
 
     // Re-filter routes by the new customer's address city
@@ -39125,27 +39157,37 @@ ${oneCopy}
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const sameDaySurcharge = _noIsSameDay ? (_noSameDaySurcharge || 0) : 0;
     const sameDayFeeObj    = allFees.find(f => /same.*day/i.test(f.name || '') && f.is_active);
-    // Apply discount if selected
+    // Apply discount if selected (audit 2026-09-15 — this block used to be a no-op,
+    // so no discount line was ever written). Same policy as POS _posDiscountLine and
+    // admin processing: % applies to the service charge only, never to the delivery
+    // fee / same-day surcharge; a fixed discount deducts its value, capped at the service charge.
     let discountAmt = 0;
-    if (discountId) {
-      const couponSel = document.getElementById('o-coupon');
-      const discOpt = couponSel?.querySelector(`option[value="${discountId}"]`);
-      // We'll keep total_amount as the base estimate — billing adjustments happen later
+    let discountLine = null;
+    const _disc = discountId ? _noDiscounts.find(d => d.id === discountId) : null;
+    if (_disc && subtotal > 0) {
+      discountAmt = _disc.type === 'percent'
+        ? Math.round(subtotal * (parseFloat(_disc.value) / 100) * 100) / 100
+        : Math.min(parseFloat(_disc.value) || 0, subtotal);
+      if (discountAmt > 0) {
+        const _dLabel = _disc.type === 'percent' ? `${_disc.name} (${_disc.value}% off)` : _disc.name;
+        discountLine = { type: 'discount', label: _dLabel, amount: -discountAmt };
+      } else {
+        discountAmt = 0;
+      }
     }
     // session 140 pt 3: per-row taxable flags stamped on each line_item.
     // Source of truth is services.taxable / service_fees.taxable.
     const _baseTaxable = svc?.taxable === true;
     const _delivFeeTaxable = deliveryFeeObj?.taxable === true;
     const _sameDayTaxable  = sameDayFeeObj?.taxable === true;
-    const _taxableSubtotal = (_baseTaxable ? subtotal : 0)
+    const _taxableSubtotal = (_baseTaxable ? Math.max(0, subtotal - discountAmt) : 0)
                            + (_delivFeeTaxable && deliveryFee > 0 ? deliveryFee : 0)
                            + (_sameDayTaxable && sameDaySurcharge > 0 ? sameDaySurcharge : 0);
     const taxAmount = Math.round(Math.round(_taxableSubtotal * 100) * BIZ_TAX_RATE) / 100;
-    // Pre-existing semantic on this admin path: total_amount lumps tip in
-    // (different from customer-app + POS, where tip is separate). Worth
-    // reconciling in a future session — out of scope here. We do add tax
-    // so the customer is correctly charged when taxable items are present.
-    const totalAmount = subtotal + deliveryFee + sameDaySurcharge + taxAmount + tipRaw;
+    // Audit 2026-09-15: total_amount is PRE-TIP, same as customer-app and POS.
+    // charge-order charges total_amount + tip, so lumping the tip in here charged
+    // it twice (#11455 Heather Quinlan) and treated a % tip as dollars.
+    const totalAmount = Math.round((subtotal - discountAmt + deliveryFee + sameDaySurcharge + taxAmount) * 100) / 100;
 
     const btn = document.querySelector('#modal-add-order .btn-primary');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -39174,7 +39216,8 @@ ${oneCopy}
     const _lineItems = [
       { type: 'base', label: baseLabel, amount: subtotal, taxable: _baseTaxable },
       ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee, taxable: _delivFeeTaxable }] : []),
-      ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge, taxable: _sameDayTaxable }] : [])
+      ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge, taxable: _sameDayTaxable }] : []),
+      ...(discountLine ? [discountLine] : [])
     ];
     const { data: rpcRes, error } = await db.rpc('create_order_for_customer', {
       p_customer_id:           customerId,
