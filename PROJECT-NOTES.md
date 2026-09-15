@@ -28,6 +28,13 @@
 
 **To launch the home strip:** Admin → referral settings → tick the Home checkbox → Save.
 
+**Referral amounts — one source of truth.** A leftover `service_fees` row "Refer-a-Friend Credit" ($10,
+category 'Reward') was shown on the customer Pricing page while the real terms were $15/$15. It was
+display-only (nothing in billing reads it). Retired: row set `is_active=false, show_in_app=false`
+(id 052189dc…, kept for history); 'Reward' removed from the fee category dropdown and Fees tab groups;
+customer Pricing no longer has a Rewards section; admin App Display shows a read-only line from
+`referral_config()` with a link to Referrals. Rule added to CLAUDE.md.
+
 ## Session 292 — Sep 11, 2026: session 196 fixed half of this; here is the other half
 
 **Kate Roberts #14666.** She emailed asking what a $9.95 charge was. She was right, and

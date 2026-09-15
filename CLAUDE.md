@@ -86,6 +86,10 @@ fixes the problem, and prefer one shared helper over N parallel edits.
 - **Test with production-shaped data.** PostgREST returns `numeric` as strings;
   `.in('id', ids)` must be batched (100 at a time) or long lists fail opaquely.
 - **The database is the one thing that cannot be undone.** Migration review, always.
+- **Referral amounts live ONLY in referral settings** (Admin → Referrals, `referral_config()`).
+  Never store or display them anywhere else as a typed number. A stale $10 "Refer-a-Friend Credit"
+  fee row contradicted the real $15/$15 terms on the customer Pricing page (session 293). The
+  'Reward' fee category is retired; App Display shows a read-only mirror of `referral_config`.
 - **A `git push` does NOT deploy an edge function.** Vercel auto-deploys the four SPAs on
   push; Supabase functions do not, and never have. Session 261 lost three round trips to
   this — the code was on GitHub, the function was still the old version, and the START HERE

@@ -10217,14 +10217,14 @@ async function openPricingPanel() {
 
   const main    = services.filter(s => !s.is_addon);
   const addons  = services.filter(s =>  s.is_addon);
+  // 2026-09-15: 'Reward' fee rows are retired — referral amounts live only in
+  // referral settings (Admin → Referrals). Never show them as prices.
   const charges = fees.filter(f => f.category !== 'Reward');
-  const rewards = fees.filter(f => f.category === 'Reward');
 
   const html =
     section('Services',          main,    fmtSvcPrice) +
     section('Add-ons',           addons,  fmtSvcPrice) +
-    section('Fees & Surcharges', charges, fmtFeePrice) +
-    section('Rewards',           rewards, fmtFeePrice);
+    section('Fees & Surcharges', charges, fmtFeePrice);
   // 2026-09-15: remind discount holders the listed prices are before their %.
   const _disc = currentCustomerDiscount;
   const discNote = (_disc && html)

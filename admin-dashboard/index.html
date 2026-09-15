@@ -2501,7 +2501,6 @@
                   <option value="Delivery">Delivery</option>
                   <option value="Surcharge">Surcharge</option>
                   <option value="Penalty">Penalty</option>
-                  <option value="Reward">Reward</option>
                   <option value="Other">Other</option>
                 </select>
                 <button class="btn btn-primary" onclick="saveNewFee()" style="font-size:12.5px;padding:6px 14px">+ Add Fee</button>
@@ -37026,14 +37025,40 @@ ${oneCopy}
     const main    = allServices.filter(s => !s.is_addon && inCat(s));
     const addons  = allServices.filter(s =>  s.is_addon && inCat(s));
     const fees    = allFees.filter(f => f.category !== 'Reward' && feeInList(f));
-    const rewards = allFees.filter(f => f.category === 'Reward' && feeInList(f));
     const badge   = cat ? cat : '';
 
     body.innerHTML =
       section('Main Services',    main,    s => priceRow(s.name, svcPriceStr(s),  'toggleServiceShowInApp', s.id, s.show_in_app, s.is_active), badge) +
       section('Add-ons',          addons,  s => priceRow(s.name, svcPriceStr(s),  'toggleServiceShowInApp', s.id, s.show_in_app, s.is_active), badge) +
       section('Fees & Surcharges',fees,    f => priceRow(f.name, feePriceStr(f),  'toggleFeeShowInApp',     f.id, f.show_in_app, f.is_active)) +
-      section('Rewards',          rewards, f => priceRow(f.name, feePriceStr(f),  'toggleFeeShowInApp',     f.id, f.show_in_app, f.is_active));
+      `<div class="prices-section">
+         <div class="prices-section-header">Rewards</div>
+         <div class="prices-row" id="app-display-referral-line" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+           <span style="color:var(--gray-400)">Loading referral offer…</span>
+         </div>
+       </div>`;
+    renderAppDisplayReferralLine();
+  }
+
+  // Read-only mirror of the referral terms. The ONLY place referral amounts are
+  // set is Settings → Referrals (referral_config); this line just reflects it.
+  async function renderAppDisplayReferralLine() {
+    const el = document.getElementById('app-display-referral-line');
+    if (!el) return;
+    const link = `<a href="#" onclick="showPage('referrals', document.querySelector('.nav-item[data-page=referrals]'));return false"
+                    style="color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap">Edit in Referrals →</a>`;
+    try {
+      const { data, error } = await db.rpc('referral_config');
+      if (error) throw error;
+      const c = data || {};
+      const d = n => { const v = Number(n || 0); return '$' + (Number.isInteger(v) ? v : v.toFixed(2)); };
+      const text = c.enabled === true
+        ? `Referral offer: <strong>Give ${d(c.friend_credit)}, get ${d(c.referrer_credit)}</strong>`
+        : `<span style="color:var(--gray-500)">Referral program is off</span>`;
+      el.innerHTML = `<span>${text}</span>${link}`;
+    } catch (e) {
+      el.innerHTML = `<span style="color:var(--gray-500)">Could not load the referral offer</span>${link}`;
+    }
   }
 
   async function saveUnitLabel(id, value) {
@@ -37085,7 +37110,10 @@ ${oneCopy}
     return Object.values(byName);
   }
 
-  const FEE_CATEGORY_ORDER = ['Delivery','Surcharge','Penalty','Reward','Other'];
+  // 2026-09-15: 'Reward' removed — referral amounts live only in Referrals.
+  // The one retired 'Refer-a-Friend Credit' row stays in the table for history
+  // (is_active=false) but no longer has a group here.
+  const FEE_CATEGORY_ORDER = ['Delivery','Surcharge','Penalty','Other'];
 
   function renderFees() {
     const body = document.getElementById('fees-body');
