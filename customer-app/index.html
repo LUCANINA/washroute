@@ -840,6 +840,11 @@
     .order-addon-check.checked { background: var(--accent); border-color: var(--accent); }
     .order-addon-info { flex: 1; }
     .order-addon-name { font-size: 14px; font-weight: 600; color: var(--text); display: block; }
+    /* Account → Laundry Preferences: add-ons two per row so Default Tip isn't buried */
+    .acct-addon-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .acct-addon-grid .order-addon-row { margin-bottom: 0; padding: 12px 10px; gap: 10px; min-width: 0; }
+    .acct-addon-grid .order-addon-info { min-width: 0; }
+    .acct-addon-grid .order-addon-name { line-height: 1.25; }
     .order-addon-price { font-size: 12px; color: var(--accent); font-weight: 600; display: block; margin-top: 2px; }
 
     /* ── ESTIMATE CARD ── */
@@ -9989,6 +9994,7 @@ function renderAccountPrefs() {
   if (addonPrefs.length) {
     html += `<div class="order-addon-section">
       <div class="order-addon-section-title">Optional Add-ons</div>
+      <div class="acct-addon-grid">
       ${addonPrefs.map(group => {
         const activeOpt  = (group.options || []).find(o => !o.is_default);
         const defaultOpt = (group.options || []).find(o =>  o.is_default);
@@ -10009,6 +10015,7 @@ function renderAccountPrefs() {
           </div>
         </div>`;
       }).join('')}
+      </div>
     </div>`;
   }
 
