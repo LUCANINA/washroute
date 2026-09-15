@@ -45,6 +45,16 @@
   app shows them neutrally as "Link wallet · Saved with Stripe Link". David's two test Link rows were deleted. Admin "send card link" (create-checkout) still
   uses Checkout — turn Link off in Stripe Dashboard → Settings → Payment methods to stop new ones.
 
+**Admin "send card link" → in-app sheet.** `adminSendCardLink` no longer creates a Stripe Checkout
+session. It calls `send-magic-link` with `purpose:'add_card'` (staff JWT required for that purpose;
+redirect fixed to `https://app.familylaundry.com/?addcard=1`, card-specific email copy). If the customer
+has no email sign-in (legacy/phone-only → `noAccount`), it emails the plain `?addcard=1` link; no email
+→ link copied to clipboard. The customer app stores the `addcard` intent (24h, localStorage
+`wr_open_addcard`), and after sign-in `loadHome` → `maybeOpenPendingAddCard()` opens Payment + the sheet.
+`supabase/functions/send-magic-link/index.ts` in the repo was STALE (pre-v18); it now holds deployed
+v18 + the add_card change (v19). Needs `https://app.familylaundry.com/?addcard=1` allowed in
+Supabase Auth → URL Configuration → Redirect URLs, or the sign-in lands without opening the sheet.
+
 **Referral amounts — one source of truth.** A leftover `service_fees` row "Refer-a-Friend Credit" ($10,
 category 'Reward') was shown on the customer Pricing page while the real terms were $15/$15. It was
 display-only (nothing in billing reads it). Retired: row set `is_active=false, show_in_app=false`

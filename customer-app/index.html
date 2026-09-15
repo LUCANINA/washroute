@@ -3583,6 +3583,7 @@ async function loadHome() {
   await renderHomeSubscriptionCard();
 
   renderHomeReferralStrip();   // fire-and-forget; never blocks the order list
+  if (currentCustomer?.id) maybeOpenPendingAddCard();
 
   if (!currentCustomer) { renderNoActive(); return; }
   try {
@@ -8988,6 +8989,36 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', captureReferralFromUrl);
 } else {
   captureReferralFromUrl();
+}
+
+/* ── "Add your card" deep link (session 293) ─────────────────────────────
+   Staff send https://app.familylaundry.com/?addcard=1 (inside a sign-in link,
+   or plain). Remember the intent across sign-in, then open the add-card sheet
+   once the customer is loaded. The #hash (magic-link tokens) is left intact. */
+const ADDCARD_KEY = 'wr_open_addcard';
+(function captureAddCardIntent() {
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.get('addcard') !== '1') return;
+    localStorage.setItem(ADDCARD_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
+    qs.delete('addcard');
+    const rest = qs.toString();
+    history.replaceState({}, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+  } catch (_) {}
+})();
+
+function maybeOpenPendingAddCard() {
+  let until = 0;
+  try { until = parseInt(localStorage.getItem(ADDCARD_KEY) || '0', 10); } catch (_) {}
+  if (!until) return;
+  try { localStorage.removeItem(ADDCARD_KEY); } catch (_) {}
+  if (until < Date.now() || !currentCustomer?.id) return;
+  goTo('account');
+  setTimeout(() => {
+    openProfilePanel();
+    openSubPanel('sub-payment');
+    openAddCardSheet();
+  }, 350);
 }
 
 function renderPaymentSection() {

@@ -32734,51 +32734,55 @@ ${oneCopy}
     }
   }
 
+  // Session 293: "send card link" no longer sends customers to Stripe Checkout
+  // (which offered Link wallets). It emails a one-tap sign-in link that opens the
+  // app's own add-card sheet. Customers who can't get a sign-in link (legacy /
+  // phone-only accounts) get the plain app link — they sign in by phone and the
+  // sheet opens right after.
+  const APP_ADDCARD_URL = 'https://app.familylaundry.com/?addcard=1';
+
   async function adminSendCardLink(customerId, email) {
     const btn = event?.target;
     const originalBtnText = btn?.textContent || '📧 Send Card Setup Link';
     if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
     try {
-      // Generate Stripe setup link for this customer
-      const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+      if (!email) {
+        await navigator.clipboard.writeText(APP_ADDCARD_URL);
+        showToast('No email on file — card link copied. Text it to the customer.', 'success');
+        return;
+      }
+      const res = await fetch(`${SUPA_URL}/functions/v1/send-magic-link`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: await _cardFnHeaders(),
+        body: JSON.stringify({ email, purpose: 'add_card' }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(`Card link sent to ${email}`, 'success');
+        return;
+      }
+      if (!json.noAccount) throw new Error(json.error || 'Could not send the card link');
+
+      // No email sign-in for this customer yet → plain link; they sign in by phone.
+      const r2 = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({
-          type: 'setup',
-          customerId,
-          successUrl: 'https://app.familylaundry.com/',
-          cancelUrl: 'https://app.familylaundry.com/',
+          customer_id: customerId,
+          to_email: email,
+          subject: 'Add your card to Family Laundry',
+          body: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+            <h2 style="color:#1e293b;margin-bottom:8px">Add your payment card</h2>
+            <p style="color:#64748b;line-height:1.6">Tap the button below, sign in with your phone number, and we'll take you straight to the secure card form. We only charge your card after each order is delivered.</p>
+            <div style="text-align:center;margin:28px 0">
+              <a href="${APP_ADDCARD_URL}" style="background:#13284a;color:white;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Add My Card →</a>
+            </div>
+            <p style="color:#94a3b8;font-size:12px;text-align:center">Questions? Reply to this email.</p>
+          </div>`,
         }),
       });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Failed to create link');
-
-      // Email the link to the customer
-      const toEmail = email || result.email;
-      if (toEmail) {
-        await fetch(`${SUPA_URL}/functions/v1/send-email`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
-          body: JSON.stringify({
-            customer_id: customerId,
-            to_email: toEmail,
-            subject: 'Add your card to Family Laundry',
-            body: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-              <h2 style="color:#1e293b;margin-bottom:8px">Add your payment card</h2>
-              <p style="color:#64748b;line-height:1.6">Hi! Your Family Laundry account is ready. Click the button below to securely add your card on file — we'll charge it automatically after each order is complete.</p>
-              <div style="text-align:center;margin:28px 0">
-                <a href="${result.url}" style="background:#3b82f6;color:white;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Add My Card →</a>
-              </div>
-              <p style="color:#94a3b8;font-size:12px;text-align:center">This link expires in 24 hours. Questions? Reply to this email.</p>
-            </div>`,
-          }),
-        });
-        showToast(`Card setup link sent to ${toEmail}`, 'success');
-      } else {
-        // No email — copy link to clipboard
-        await navigator.clipboard.writeText(result.url);
-        showToast('Link copied to clipboard (no email on file)', 'success');
-      }
+      if (!r2.ok) throw new Error('Could not send the card link email');
+      showToast(`Card link sent to ${email} (they'll sign in by phone first)`, 'success');
     } catch (e) {
       showToast('Error: ' + e.message, 'error');
     } finally {
