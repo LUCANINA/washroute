@@ -225,21 +225,21 @@ async function resolveSkipAction(customerId: string, customerFirstName: string):
 // ── Pull customer's zone + active templates for prompt grounding ──
 // The AI needs to know what windows actually exist for the customer's zone so
 // it doesn't propose dates+windows that have no matching route template.
-async function fetchZoneAvailability(customerId: string): Promise<{ summary: string; zoneFound: boolean; serviceDays: Set<number> }> {
+async function fetchZoneAvailability(customerId: string): Promise<{ summary: string; zoneFound: boolean; serviceDays: Set<number>; windows: SvcWindow[] }> {
   try {
     // 1. Most recent zone_id from this customer's orders
     const rows = await dbGet(
       `orders?customer_id=eq.${encodeURIComponent(customerId)}&zone_id=not.is.null&order=created_at.desc&limit=1&select=zone_id`
     );
     const zoneId = Array.isArray(rows) && rows[0]?.zone_id;
-    if (!zoneId) return { summary: '(zone not yet established — do not call place_pickup_order until zone is confirmed)', zoneFound: false, serviceDays: new Set() };
+    if (!zoneId) return { summary: '(zone not yet established — do not call place_pickup_order until zone is confirmed)', zoneFound: false, serviceDays: new Set(), windows: [] };
 
     // 2. Active templates for the zone
     const tmpls = await dbGet(
       `route_templates?zone_id=eq.${encodeURIComponent(zoneId)}&is_active=eq.true&order=window_start&select=name,window_start,window_end,arrival_window_hours,schedule_days,turnaround_days,turnaround_hours`
     );
     if (!Array.isArray(tmpls) || tmpls.length === 0) {
-      return { summary: '(no active templates for this customer\'s zone — do not call place_pickup_order or reschedule_order)', zoneFound: true, serviceDays: new Set() };
+      return { summary: '(no active templates for this customer\'s zone — do not call place_pickup_order or reschedule_order)', zoneFound: true, serviceDays: new Set(), windows: [] };
     }
 
     // 3. Format as a list the model can reason over.
@@ -260,10 +260,12 @@ async function fetchZoneAvailability(customerId: string): Promise<{ summary: str
     });
     const serviceDays = new Set<number>();
     tmpls.forEach((t: any) => (t.schedule_days || []).forEach((d: number) => serviceDays.add(d)));
-    return { summary: lines.join('\n'), zoneFound: true, serviceDays };
+    const toMin = (hhmm: string) => { const [h, m] = (hhmm || '0:0').split(':').map((x) => parseInt(x, 10)); return h * 60 + (m || 0); };
+    const windows: SvcWindow[] = tmpls.map((t: any) => ({ days: [...(t.schedule_days || [])].sort(), start: toMin(t.window_start), end: toMin(t.window_end), sub: (t.arrival_window_hours || 3) * 60 }));
+    return { summary: lines.join('\n'), zoneFound: true, serviceDays, windows };
   } catch (e) {
     console.warn('[draft-reply] fetchZoneAvailability failed:', e);
-    return { summary: '(zone lookup failed)', zoneFound: false, serviceDays: new Set() };
+    return { summary: '(zone lookup failed)', zoneFound: false, serviceDays: new Set(), windows: [] };
   }
 }
 
@@ -300,6 +302,65 @@ function openDayNames(serviceDays: Set<number>): string {
   if (names.length >= 3 && days[days.length - 1] - days[0] === days.length - 1) return `${names[0]} through ${names[names.length - 1]}`;
   return names.slice(0, -1).join(', ') + ' or ' + names[names.length - 1];
 }
+type SvcWindow = { days: number[]; start: number; end: number; sub: number }; // minutes after midnight; sub = arrival sub-window length in minutes
+function fmtClock(min: number, withSuffix = true): string {
+  const h24 = Math.floor(min / 60), m = min % 60;
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h}${m ? ':' + String(m).padStart(2, '0') : ''}${withSuffix ? (h24 < 12 ? ' am' : ' pm') : ''}`;
+}
+function fmtRange(w: SvcWindow): string {
+  const sameHalf = (w.start < 720) === (w.end <= 720);
+  return sameHalf ? `${fmtClock(w.start, false)}–${fmtClock(w.end)}` : `${fmtClock(w.start)}–${fmtClock(w.end)}`;
+}
+// The arrival windows a customer actually books, e.g. 7–11 with a 2h sub → 7–9, 9–11
+function subWindows(w: SvcWindow): SvcWindow[] {
+  const out: SvcWindow[] = [];
+  const step = w.sub > 0 ? w.sub : (w.end - w.start);
+  for (let a = w.start; a < w.end; a += step) out.push({ ...w, start: a, end: Math.min(a + step, w.end) });
+  return out;
+}
+// Customer-facing hours, e.g. "Monday through Saturday: 7–9 am, 9–11 am, 6–8 pm or 8–10 pm"
+function hoursText(windows: SvcWindow[]): string {
+  const groups = new Map<string, SvcWindow[]>();
+  for (const w of [...windows].sort((a, b) => a.start - b.start)) {
+    const k = w.days.join(',');
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(w);
+  }
+  return [...groups.entries()].map(([k, ws]) =>
+    { const r = ws.flatMap(subWindows).map(fmtRange);
+      const list = r.length > 1 ? r.slice(0, -1).join(', ') + ' or ' + r[r.length - 1] : r.join('');
+      return `${openDayNames(new Set(k.split(',').map(Number)))}: ${list}`; }).join('; ');
+}
+function parseClock(h: string, m: string | undefined, ap: string): number {
+  let hh = parseInt(h, 10) % 12;
+  if (/p/i.test(ap)) hh += 12;
+  return hh * 60 + (m ? parseInt(m, 10) : 0);
+}
+// True if the text quotes a time or time range that isn't inside one real
+// window. A range must sit inside a SINGLE window: "8 am–10 pm" spans two
+// windows and the closed gap between them, so it fails.
+function draftMentionsBadTime(text: string, windows: SvcWindow[]): boolean {
+  if (!windows.length) return false;
+  const inOne = (a: number, b: number) => windows.some((w) => a >= w.start && b <= w.end && a <= b);
+  let t = text || '';
+  const rangeRe = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*(?:–|—|-|to|until)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rangeRe.exec(t))) {
+    const endMin = parseClock(m[4], m[5], m[6]);
+    let startMin = parseClock(m[1], m[2], m[3] || m[6]);
+    if (!m[3] && startMin > endMin) startMin -= 720; // "11–1 pm"
+    if (!inOne(startMin, endMin)) return true;
+  }
+  t = t.replace(rangeRe, ' ');
+  const oneRe = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)/gi;
+  while ((m = oneRe.exec(t))) {
+    const x = parseClock(m[1], m[2], m[3]);
+    if (!inOne(x, x)) return true;
+  }
+  return false;
+}
+
 // True if the text names a weekday we don't serve, or a calendar date that is
 // closed / whose stated weekday is wrong. Used to reject a free-form booking
 // draft that promises something the schedule can't deliver.
@@ -830,7 +891,16 @@ Deno.serve(async (req: Request) => {
 
     // ── 3. Intent ──
     const lastInbound = [...msgs].reverse().find((m: any) => m.direction === 'inbound');
-    const intent      = lastInbound ? detectIntent(lastInbound.body || '') : 'general';
+    let intent        = lastInbound ? detectIntent(lastInbound.body || '') : 'general';
+    // session 294: a follow-up like "Ok. How about 3 pm?" classifies as general
+    // on its own. If a recent (48h) earlier customer message was a booking
+    // request, this is still that booking conversation.
+    if (intent === 'general' && lastInbound) {
+      const cutoff = new Date(lastInbound.created_at).getTime() - 48 * 3600000;
+      const earlier = msgs.filter((m: any) => m.direction === 'inbound' && m !== lastInbound && new Date(m.created_at).getTime() >= cutoff).reverse();
+      const carried = earlier.map((m: any) => detectIntent(m.body || '')).find((i: string) => i === 'new_order' || i === 'reschedule_request');
+      if (carried) { intent = carried; console.log(`[draft-reply] intent carried over from earlier message: ${carried}`); }
+    }
     const intentGuide = INTENT_INSTRUCTION[intent] || INTENT_INSTRUCTION.general;
     console.log(`[draft-reply] intent=${intent}`);
 
@@ -867,12 +937,14 @@ Deno.serve(async (req: Request) => {
     const isBookingIntent = intent === 'new_order' || intent === 'reschedule_request';
     let serviceDays = new Set<number>();
     let cal: CalDay[] = [];
+    let svcWindows: SvcWindow[] = [];
     if (!isRefineMode && customer_id) {
       if (intent === 'skip_request') {
         action = await resolveSkipAction(customer_id, customerFirstName);
       } else if (intent === 'new_order' || intent === 'reschedule_request') {
         const avail = await fetchZoneAvailability(customer_id);
         serviceDays = avail.serviceDays;
+        svcWindows = avail.windows;
         cal = nextDays(serviceDays);
         action = await resolveAgentAction(
           customer_id, customerName, customerFirstName,
@@ -916,7 +988,7 @@ IMPORTANT: Return ONLY the message text. No labels, no quotes, no explanation, n
       // session 294: a booking request with NO validated action must not
       // promise a time — nothing has been (or can be) booked from this text.
       const noBookingGuide = isBookingIntent && !action
-        ? `No booking could be prepared for this request (the day may have no service, or details are missing). Do NOT confirm, schedule or promise any date, day or time. ${serviceDays.size ? `We pick up on ${openDayNames(serviceDays)} only. Briefly say so and ask which of those days works.` : 'Ask which day works for them; a team member will confirm.'}`
+        ? `No booking could be prepared for this request (the day may have no service, or details are missing). Do NOT confirm, schedule or promise any date, day or time. ${serviceDays.size ? `Our pickup windows are ONLY: ${hoursText(svcWindows)}. Quote those windows exactly as written if you mention times — never combine, widen or invent windows. Briefly say what we offer and ask which day and window works.` : 'Ask which day works for them; a team member will confirm.'}`
         : null;
       const calSection = cal.length ? `\n\nCalendar (Pacific time) — use ONLY these dates and weekdays:\n${calendarText(cal)}` : '';
       userPrompt = `Customer name: ${customerName}\n\nRecent orders:\n${orderContext}\n\nConversation history (oldest to newest):\n${conversationText}${calSection}\n\nWhat the customer is asking about: ${intent.replace(/_/g, ' ')}\nDrafting guidance: ${noBookingGuide || intentGuide}\n\nDraft a reply to the customer's most recent message.`;
@@ -947,9 +1019,10 @@ IMPORTANT: Return ONLY the message text. No labels, no quotes, no explanation, n
     let draft = (result.content?.[0]?.text || '').trim();
     // session 294 guard: a free-form booking reply may not name a closed day
     // or a wrong/closed date. Fall back to a safe, fixed question.
-    if (!isRefineMode && isBookingIntent && !action && serviceDays.size && draftMentionsBadDay(draft, cal, serviceDays)) {
-      console.warn(`[draft-reply] guard: replaced draft naming an unavailable day: ${draft}`);
-      draft = `${customerFirstName ? `Hi ${customerFirstName}. ` : ''}We pick up on ${openDayNames(serviceDays)}. Which day works best for you?`;
+    if (!isRefineMode && isBookingIntent && !action && serviceDays.size &&
+        (draftMentionsBadDay(draft, cal, serviceDays) || draftMentionsBadTime(draft, svcWindows))) {
+      console.warn(`[draft-reply] guard: replaced draft quoting an unavailable day/time: ${draft}`);
+      draft = `${customerFirstName ? `Hi ${customerFirstName}. ` : ''}Our pickup windows are ${hoursText(svcWindows)}. Which day and window work for you?`;
     }
     console.log(`[draft-reply] Done: mode=${isRefineMode ? 'refine' : 'generate'} intent=${intent} chars=${draft.length} action=${action?.type || 'none'}`);
 
