@@ -2015,7 +2015,11 @@ try {
    no-op. We deliberately strip on every boot — there is no legitimate
    reason for a customer to ever land on the customer-app with these
    params still in the URL after the first instant of page load. */
-(function _stripAuthUrlParams() {
+/* Session 293 fix: supabase-js does NOT read the URL synchronously — its
+   _initialize() runs after an await + lock, so stripping immediately erased
+   magic-link #access_token before it was used and email sign-in links landed
+   signed-out. Strip only once initialize() has finished consuming the URL. */
+function _stripAuthUrlParams() {
   try {
     const u = new URL(window.location.href);
     const authParams = ['token_hash', 'type', 'code', 'error', 'error_code', 'error_description', 'access_token', 'refresh_token', 'expires_in', 'expires_at', 'token_type'];
@@ -2035,7 +2039,8 @@ try {
     // Best-effort; never block app boot on this
     console.warn('_stripAuthUrlParams non-fatal:', e?.message);
   }
-})();
+}
+db.auth.initialize().catch(() => {}).finally(_stripAuthUrlParams);
 
 /* ── STATE ── */
 let currentUser     = null;

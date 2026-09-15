@@ -45,6 +45,13 @@
   app shows them neutrally as "Link wallet · Saved with Stripe Link". David's two test Link rows were deleted. Admin "send card link" (create-checkout) still
   uses Checkout — turn Link off in Stripe Dashboard → Settings → Payment methods to stop new ones.
 
+**BUG FIXED — email sign-in links never signed anyone in (since the Apr 28 `_stripAuthUrlParams` fix).**
+supabase-js 2.39 reads the URL inside `_initialize()`, which runs after an await + lock, NOT during
+`createClient()`. The strip ran synchronously right after `createClient`, erasing `#access_token`
+first, so `/verify` succeeded server-side but the app loaded signed-out. Now the strip runs in
+`db.auth.initialize().finally(...)`. Verified in a browser harness: with the fix the app calls
+`/auth/v1/user` with the hash token; before it made no auth call at all.
+
 **Admin "send card link" → in-app sheet.** `adminSendCardLink` no longer creates a Stripe Checkout
 session. It calls `send-magic-link` with `purpose:'add_card'` (staff JWT required for that purpose;
 redirect fixed to `https://app.familylaundry.com/?addcard=1`, card-specific email copy). If the customer
