@@ -6742,7 +6742,7 @@
       </div>
       <div class="so-section">
         <div class="so-label">Booking Cutoff <span style="font-weight:400;text-transform:none;">(minutes)</span></div>
-        <input type="number" class="form-input" id="so-booking-cutoff" value="30" min="0" max="240" placeholder="30">
+        <input type="number" class="form-input" id="so-booking-cutoff" value="60" min="0" max="240" placeholder="60">
         <div style="font-size:11.5px;color:var(--gray-500);margin-top:4px;">Slot hidden this many min before window ends</div>
       </div>
     </div>
@@ -43051,7 +43051,7 @@ ${oneCopy}
     document.getElementById('so-turnaround-days').value = tmpl?.turnaround_days ?? 1;
     document.getElementById('so-turnaround-hours').value = tmpl?.turnaround_hours ?? 0;
     document.getElementById('so-stop-limit').value = tmpl?.stop_limit || '';
-    document.getElementById('so-booking-cutoff').value = tmpl?.booking_cutoff_minutes ?? 30;
+    document.getElementById('so-booking-cutoff').value = tmpl?.booking_cutoff_minutes ?? 60;
     document.getElementById('so-service-type').value = tmpl?.service_type || 'pickup_delivery';
     document.getElementById('so-active').checked = tmpl ? tmpl.is_active : true;
 
@@ -43152,7 +43152,7 @@ ${oneCopy}
       turnaround_days: parseInt(document.getElementById('so-turnaround-days').value) || 1,
       turnaround_hours: parseInt(document.getElementById('so-turnaround-hours').value) || 0,
       stop_limit: document.getElementById('so-stop-limit').value ? parseInt(document.getElementById('so-stop-limit').value) : null,
-      booking_cutoff_minutes: (() => { const v = parseInt(document.getElementById('so-booking-cutoff').value); return isNaN(v) ? 30 : v; })(),
+      booking_cutoff_minutes: (() => { const v = parseInt(document.getElementById('so-booking-cutoff').value); return isNaN(v) ? 60 : v; })(),
       service_type: document.getElementById('so-service-type').value,
       is_active: document.getElementById('so-active').checked,
     };

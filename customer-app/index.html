@@ -4347,7 +4347,7 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
   const sMins = sh * 60 + (sm || 0);
   const eMins = eh * 60 + (em || 0);
   const step  = (tmpl.arrival_window_hours || 2) * 60;
-  const cutoff = tmpl.booking_cutoff_minutes ?? 30;
+  const cutoff = tmpl.booking_cutoff_minutes ?? 60;
   const pad2  = n => String(n).padStart(2, '0');
   // Compute Pacific UTC offset for this date once (handles DST boundary days correctly)
   const offsetStr = pacificOffsetStr(runDate);
@@ -4446,11 +4446,11 @@ async function fetchWindowsForDate(iso) {
   windows.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
 
   // If today is selected, hide windows that are within their booking cutoff
-  // e.g. a 9-11 AM slot with 30min cutoff disappears at 10:30 AM
+  // e.g. a 9-11 AM slot with a 60min cutoff disappears at 10:00 AM
   if (iso === localIso()) {
     const now = new Date();
     draft.availableWindows = windows.filter(w => {
-      const cutoffMs = (w.cutoffMins ?? 30) * 60 * 1000;
+      const cutoffMs = (w.cutoffMins ?? 60) * 60 * 1000;
       return (new Date(w.slotEnd).getTime() - cutoffMs) > now.getTime();
     });
   } else {
@@ -4872,12 +4872,13 @@ async function _renderAltSlotsInto(which, hostEl) {
     if (!row || row.getAttribute('data-token') !== token) return;
     let filtered = data || [];
 
-    // Drop slots whose actual start-time has already passed (or within a 30min cutoff).
-    // Conservative: the RPC doesn't know each template's booking_cutoff_minutes.
+    // Drop slots that can no longer be booked: same rule as the slot picker —
+    // bookable until 60 min before the slot ENDS (2026-09-16; the RPC doesn't
+    // return each template's booking_cutoff_minutes, and all are 60).
     const nowMs = Date.now();
     filtered = filtered.filter(r => {
-      const slotStartMs = new Date(`${r.run_date}T${r.sub_window_start}`).getTime();
-      return slotStartMs - nowMs > 30 * 60 * 1000;
+      const slotEndMs = new Date(`${r.run_date}T${r.sub_window_end}`).getTime();
+      return slotEndMs - nowMs > 60 * 60 * 1000;
     });
 
     // For delivery alternatives:
@@ -7386,7 +7387,7 @@ async function fetchEditWindows(iso) {
   if (iso === localIso()) {
     const now = new Date();
     es.availableWindows = windows.filter(w => {
-      const cutoffMs = (w.cutoffMins ?? 30) * 60 * 1000;
+      const cutoffMs = (w.cutoffMins ?? 60) * 60 * 1000;
       return (new Date(w.slotEnd).getTime() - cutoffMs) > now.getTime();
     });
   } else {
@@ -8000,7 +8001,7 @@ function _subFirstPickupIso(isoDay, winStartMins, cutoffMins) {
     const hm = new Date().toLocaleTimeString('en-GB', { timeZone: BIZ_TZ, hour12: false }); // "HH:MM:SS"
     const [nh, nm] = hm.split(':').map(Number);
     const nowMins = nh * 60 + nm;
-    const cutoff = cutoffMins ?? 30;
+    const cutoff = cutoffMins ?? 60;
     daysUntil = (nowMins + cutoff <= winStartMins) ? 0 : 7;
   }
   const base = new Date(todayStr + 'T12:00:00');
@@ -8147,7 +8148,7 @@ async function showSubscriptionPickupPicker() {
           dayWindowMap[isoDay].push({
             templateId: t.id, windowStart: ws, windowEnd: we, label, name: t.name,
             startMins: from, endMins: to,
-            cutoffMins: (t.booking_cutoff_minutes ?? 30),
+            cutoffMins: (t.booking_cutoff_minutes ?? 60),
             turnaroundHours: (t.turnaround_hours || 0)
           });
         }

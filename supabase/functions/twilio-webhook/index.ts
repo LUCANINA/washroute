@@ -339,7 +339,7 @@ async function handlePickup(
   const activeStatuses = 'scheduled,picked_up,processing,ready_for_delivery,on_hold';
   // 2026-09-16: these lookups don't depend on each other — run them together
   // instead of one after another (~4s → ~1.5s end to end).
-  const [existing, lastOrders, custRows, svcRows, holRows] = await Promise.all([
+  const [existing, lastOrders, custRows, svcRows, holRows, recentOrders] = await Promise.all([
     dbGet(
       `orders?customer_id=eq.${customerId}&status=in.(${activeStatuses})&limit=1` +
       `&select=order_number,status,pickup_window_start`
@@ -348,9 +348,14 @@ async function handlePickup(
       `orders?customer_id=eq.${customerId}&status=eq.delivered&order=created_at.desc&limit=1` +
       `&select=zone_id,pickup_address_id,delivery_address_id,service_id,total_bags`
     ),
-    dbGet(`customers?id=eq.${customerId}&select=pricelist&limit=1`),
+    dbGet(`customers?id=eq.${customerId}&select=pricelist,route_template_override_id&limit=1`),
     dbGet(`services?is_active=eq.true&is_addon=eq.false&order=sort_order.asc&select=id,pricelist`),
     dbGet('holidays?select=holiday_date'),
+    // Last 6 real bookings — used to find the customer's usual pickup time.
+    dbGet(
+      `orders?customer_id=eq.${customerId}&status=not.in.(cancelled,skipped)` +
+      `&pickup_window_start=not.is.null&order=pickup_window_start.desc&limit=6&select=pickup_window_start`
+    ),
   ]);
   const activeOrder = Array.isArray(existing) ? existing[0] : null;
   if (activeOrder) {
@@ -416,43 +421,98 @@ async function handlePickup(
     return twimlMessage(reply);
   }
 
-  const templates = await dbGet(
-    `route_templates?zone_id=eq.${zoneId}&is_active=eq.true&order=window_start.desc&limit=1` +
-    `&select=schedule_days,window_start,window_end,turnaround_days,arrival_window_hours`
-  );
-  const rt = Array.isArray(templates) ? templates[0] : null;
-  if (!rt) {
-    const reply = `Hi ${firstName}! No pickup windows found for your area. Please book at app.familylaundry.com.`;
-    await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
-    return twimlMessage(reply);
-  }
-
-  // Holidays — no pickup/delivery may land on one (the orders trigger hard-blocks
-  // them, so the SMS reorder must shift forward like Sundays).
+  // ── Pick the slot (2026-09-16) ─────────────────────────────────────────────
+  // Same availability the customer app uses (get_slot_availability: honours the
+  // customer's route override and slot capacity), today + the next 7 days, and
+  // the same booking cutoff (a slot can be booked until booking_cutoff_minutes
+  // before it ENDS). If the customer has a usual pickup time we book the earliest
+  // open slot at that time; otherwise the earliest open slot, tonight included.
   const holidaySet = new Set((Array.isArray(holRows) ? holRows : []).map((h: { holiday_date: string }) => h.holiday_date));
+  const overrideId: string | null = (Array.isArray(custRows) ? custRows[0]?.route_template_override_id : null) || null;
 
-  const nextDay = getNextPickupDayPT(rt.schedule_days ?? [0,1,2,3,4,5], holidaySet);
-  if (!nextDay) {
-    const reply = `Hi ${firstName}! No available pickup slots this week. Please book at app.familylaundry.com.`;
+  const tmplRows = await dbGet(
+    `route_templates?is_active=eq.true&` +
+    (overrideId ? `id=eq.${overrideId}` : `zone_id=eq.${zoneId}`) +
+    `&select=id,schedule_days,turnaround_days,booking_cutoff_minutes`
+  );
+  const tmplById = new Map<string, { schedule_days: number[] | null; turnaround_days: number | null; booking_cutoff_minutes: number | null }>();
+  (Array.isArray(tmplRows) ? tmplRows : []).forEach((t: any) => tmplById.set(t.id, t));
+
+  type Slot = { date: string; y: number; m: number; d: number; templateId: string; startHHMM: string; startH: number; startM: number; endH: number; endM: number; startMs: number };
+  const nowMs = Date.now();
+  const dates: { date: string; y: number; m: number; d: number }[] = [];
+  for (let ahead = 0; ahead <= 7; ahead++) {
+    const date = ptDateFmt.format(new Date(nowMs + ahead * 86_400_000));
+    if (holidaySet.has(date) || dates.some(x => x.date === date)) continue;
+    const [y, m, d] = date.split('-').map(Number);
+    dates.push({ date, y, m, d });
+  }
+  const perDate = await Promise.all(dates.map(dt =>
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/get_slot_availability`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${SUPABASE_SVC_KEY}`, apikey: SUPABASE_SVC_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_zone_id: zoneId, p_date: dt.date, p_customer_id: customerId }),
+    }).then(r => r.ok ? r.json() : []).catch(() => [])
+  ));
+
+  const slots: Slot[] = [];
+  perDate.forEach((rows, i) => {
+    const dt = dates[i];
+    (Array.isArray(rows) ? rows : []).forEach((r: any) => {
+      const t = tmplById.get(r.template_id);
+      if (!t) return;
+      if (r.sub_window_limit != null && Number(r.active_stops) >= Number(r.sub_window_limit)) return; // full
+      const [sh, sm] = String(r.sub_window_start).split(':').map(Number);
+      const [eh, em] = String(r.sub_window_end).split(':').map(Number);
+      const endMs    = new Date(ptDateTimeToUtc(dt.y, dt.m, dt.d, eh, em)).getTime();
+      const cutoffMs = (t.booking_cutoff_minutes ?? 60) * 60_000;
+      if (endMs - cutoffMs <= nowMs) return;                                                          // too late to book
+      slots.push({ ...dt, templateId: r.template_id, startHHMM: `${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}`,
+        startH: sh, startM: sm, endH: eh, endM: em,
+        startMs: new Date(ptDateTimeToUtc(dt.y, dt.m, dt.d, sh, sm)).getTime() });
+    });
+  });
+  slots.sort((a, b) => a.startMs - b.startMs);
+
+  // Usual time = the pickup start time used in at least 2 (and at least half)
+  // of the customer's last 6 bookings.
+  let usualHHMM: string | null = null;
+  {
+    const times = (Array.isArray(recentOrders) ? recentOrders : []).map((o: any) =>
+      new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit', hour12: false })
+        .format(new Date(o.pickup_window_start)));
+    const counts = new Map<string, number>();
+    times.forEach(t => counts.set(t, (counts.get(t) || 0) + 1));
+    let best = 0, tie = false;
+    counts.forEach((n, t) => {
+      if (n > best) { best = n; usualHHMM = t; tie = false; }
+      else if (n === best) tie = true;
+    });
+    // No clear habit (e.g. 3 mornings + 3 evenings) → earliest open slot.
+    if (tie || best < 2 || best * 2 < times.length) usualHHMM = null;
+  }
+
+  const chosen = (usualHHMM ? slots.find(x => x.startHHMM === usualHHMM) : undefined) || slots[0];
+  if (!chosen) {
+    const reply = `Hi ${firstName}! No pickup slots are open in the next week. Please book at app.familylaundry.com.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
+  console.log(`PICKUP slot: usual=${usualHHMM ?? '-'} chosen=${chosen.date} ${chosen.startHHMM} tmpl=${chosen.templateId} open_slots=${slots.length}`);
 
-  const [wStartH, wStartM] = (rt.window_start as string).split(':').map(Number);
-  const [wEndH,   wEndM  ] = (rt.window_end   as string).split(':').map(Number);
-  const fullWindowH        = wEndH - wStartH;
-  const subH               = Math.min(rt.arrival_window_hours ?? fullWindowH, fullWindowH) || fullWindowH;
-  const subEndH            = wStartH + subH;
+  const rt = tmplById.get(chosen.templateId)!;
+  const wStartH = chosen.startH, wStartM = chosen.startM;
+  const subEndH = chosen.endH, subEndM = chosen.endM;
   const turnaround: number = rt.turnaround_days ?? 1;
-
-  const { year: py, month: pm, day: pd } = nextDay;
+  const { y: py, m: pm, d: pd } = chosen;
   const pickupStart = ptDateTimeToUtc(py, pm, pd, wStartH, wStartM);
-  const pickupEnd   = ptDateTimeToUtc(py, pm, pd, subEndH, wStartM);
+  const pickupEnd   = ptDateTimeToUtc(py, pm, pd, subEndH, subEndM);
 
   const { year: dy, month: dmo, day: dd } =
     getNextDeliveryDayPT(py, pm, pd, turnaround, rt.schedule_days ?? [0,1,2,3,4,5], holidaySet);
   const delivStart = ptDateTimeToUtc(dy, dmo, dd, wStartH, wStartM);
-  const delivEnd   = ptDateTimeToUtc(dy, dmo, dd, subEndH, wStartM);
+  const delivEnd   = ptDateTimeToUtc(dy, dmo, dd, subEndH, subEndM);
+  const isToday    = chosen.date === ptDateFmt.format(new Date(nowMs));
 
   const orderPayload = {
     customer_id:           customerId,
@@ -498,7 +558,7 @@ async function handlePickup(
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
-  const pickupDateLabel = fmtDatePT(pickupStart);
+  const pickupDateLabel = isToday ? `today (${fmtDatePT(pickupStart)})` : fmtDatePT(pickupStart);
   const windowLabel     = `${fmt12h(wStartH)}–${fmt12h(subEndH)}`;
 
   const reply =
