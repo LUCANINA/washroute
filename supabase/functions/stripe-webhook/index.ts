@@ -70,33 +70,6 @@ Deno.serve(async (req) => {
     return count === 0
   }
 
-  // Helper: grant $20 welcome/migration credit if eligible
-  async function grantMigrationCredit(customerId: string) {
-    const { data: cust } = await db.from('customers')
-      .select('credits, credit_expires_at')
-      .eq('id', customerId)
-      .single()
-
-    if (!cust) return
-    const currentCredits = parseFloat(cust.credits || 0)
-    if (cust.credit_expires_at || currentCredits > 0) {
-      console.log('Migration credit skipped -- already has credits or expiry set:', customerId)
-      return
-    }
-
-    const { error } = await db.from('customers').update({
-      credits: 20,
-      credit_expires_at: '2026-03-27T23:59:59-07:00',
-      updated_at: new Date().toISOString(),
-    }).eq('id', customerId)
-
-    if (error) {
-      console.error('Failed to grant migration credit:', error)
-    } else {
-      console.log('Granted $20 migration credit to customer:', customerId)
-    }
-  }
-
   // v29: Helper to map Stripe subscription status to our DB status
   function mapStripeStatus(sub: Stripe.Subscription): string {
     if (sub.pause_collection) {
@@ -361,9 +334,11 @@ Deno.serve(async (req) => {
             const isFirstCard = await saveCardToTable(customer_id, pmId, card, true)
             console.log('Card saved via Checkout for customer:', customer_id, card.brand, card.last4)
 
-            if (isFirstCard) {
-              await grantMigrationCredit(customer_id)
-            }
+            // 2026-09-16: the $20 migration credit (offer ended 2026-03-27) was
+            // still being granted on every first card save, straight onto
+            // customers.credits with no customer_transactions row. Removed.
+            // Credits already granted are kept (David, 2026-09-16).
+            void isFirstCard
           }
         }
       }
