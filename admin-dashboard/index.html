@@ -40877,7 +40877,7 @@ ${oneCopy}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px">
         <div>
           <label class="form-label">Friend gets ($)</label>
-          <input type="number" class="form-input" id="rf-friend" step="1" min="0" max="100" value="${Number(c.friend_credit ?? 25)}">
+          <input type="number" class="form-input" id="rf-friend" step="1" min="0" max="100" value="${Number(c.friend_credit ?? 25)}" oninput="updateReferralPreview()">
         </div>
         <div>
           <label class="form-label">Referrer gets ($)</label>
@@ -40929,10 +40929,15 @@ ${oneCopy}
 
       <div style="margin-top:18px">
         <label class="form-label">The text your customer sends</label>
-        <textarea class="form-input" id="rf-message" rows="4"
+        <textarea class="form-input" id="rf-message" rows="4" oninput="updateReferralPreview()"
           style="resize:vertical;font-family:inherit;font-size:13px;line-height:1.6">${esc(c.share_message || '')}</textarea>
         <div style="font-size:12px;color:var(--gray-500);margin-top:6px">
-          <code>{{code}}</code> and <code>{{link}}</code> are filled in per customer. It opens in their own Messages app — we never text their friend.
+          <code>{{amount}}</code> is filled in from “Friend gets”, and <code>{{code}}</code> and <code>{{link}}</code> per customer — never type a dollar amount. It opens in their own Messages app — we never text their friend.
+        </div>
+        <div style="margin-top:10px;padding:10px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px">
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">What a customer sends</div>
+          <div id="rf-preview" style="font-size:13px;line-height:1.5;color:var(--gray-700)"></div>
+          <div id="rf-preview-warn" style="display:none;font-size:12px;color:#b91c1c;margin-top:6px">This message has a typed dollar amount. Replace it with {{amount}} — it won't save as is.</div>
         </div>
       </div>
 
@@ -40942,6 +40947,24 @@ ${oneCopy}
           ${c.updated_by ? 'Last changed by ' + esc(String(c.updated_by)) + (c.updated_at ? ' · ' + esc(String(c.updated_at).slice(0,10)) : '') : ''}
         </div>
       </div>`;
+    updateReferralPreview();
+  }
+
+  /** Live preview of the share text. Mirrors get_or_create_referral_code's
+      {{amount}}/{{code}}/{{link}} fill-in, with a sample code. */
+  const REFERRAL_TYPED_AMOUNT = /\$\s*[0-9]/;
+  function updateReferralPreview() {
+    const out  = document.getElementById('rf-preview');
+    const warn = document.getElementById('rf-preview-warn');
+    const msg  = document.getElementById('rf-message')?.value || '';
+    if (!out) return;
+    const v = Number(document.getElementById('rf-friend')?.value || 0);
+    const amt = '$' + (Number.isInteger(v) ? v : v.toFixed(2));
+    const text = msg.split('{{amount}}').join(amt)
+                    .split('{{code}}').join('JENNY214')
+                    .split('{{link}}').join('https://app.familylaundry.com/r/JENNY214');
+    out.textContent = text || '—';
+    if (warn) warn.style.display = REFERRAL_TYPED_AMOUNT.test(msg) ? '' : 'none';
   }
 
   /** The toggle says what it will be, not what it was — with an unsaved flag so
@@ -40985,6 +41008,12 @@ ${oneCopy}
       commercial_can_refer: document.getElementById('rf-commercial').checked,
       share_message:        document.getElementById('rf-message').value,
     };
+
+    if (REFERRAL_TYPED_AMOUNT.test(payload.share_message)) {
+      showToast('Replace the dollar amount in the message with {{amount}}.', 'error');
+      updateReferralPreview();
+      return;
+    }
 
     if (payload.enabled && surfaces.length === 0
         && !confirm('The program would be on but the card is hidden everywhere. Customers could still use a code they already have. Save anyway?')) return;
