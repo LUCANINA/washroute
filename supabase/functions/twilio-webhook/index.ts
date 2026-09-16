@@ -63,9 +63,12 @@ function interpolate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '').trim();
 }
 
-function getPtOffsetHours(): number {
+// 2026-09-16: offset is taken for the DATE BEING BOOKED, not today — otherwise a
+// booking made before a DST change for a day after it lands an hour off.
+function getPtOffsetHours(y?: number, mo?: number, d?: number): number {
+  const base = new Date();
   const noon = new Date(Date.UTC(
-    new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), 12
+    y ?? base.getUTCFullYear(), mo !== undefined ? mo - 1 : base.getUTCMonth(), d ?? base.getUTCDate(), 12
   ));
   const ptNoonHour = parseInt(
     new Intl.DateTimeFormat('en-US', {
@@ -123,7 +126,7 @@ function getNextDeliveryDayPT(
 }
 
 function ptDateTimeToUtc(y: number, mo: number, d: number, h: number, min: number): string {
-  const offsetH = getPtOffsetHours();
+  const offsetH = getPtOffsetHours(y, mo, d);
   return new Date(Date.UTC(y, mo - 1, d, h + offsetH, min, 0)).toISOString();
 }
 
@@ -342,7 +345,7 @@ async function handlePickup(
   if (activeOrder) {
     const pickupDate = activeOrder.pickup_window_start ? fmtDatePT(activeOrder.pickup_window_start) : 'upcoming';
     const reply = `Hi ${firstName}! You already have order #${activeOrder.order_number} scheduled for ${pickupDate}. ` +
-                  `Reply STATUS to check on it, or visit familylaundry.com to make changes.`;
+                  `Visit familylaundry.com to make changes.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
@@ -537,6 +540,12 @@ Deno.serve(async (req: Request) => {
     });
 
     const keyword = (body || '').trim().toUpperCase();
+    // 2026-09-16: customers write "Pick up", "Pickup.", "pick up please", "SKIP!".
+    // Only letters count, and only these exact phrasings — so a sentence that
+    // merely mentions a pickup still goes to the staff inbox.
+    const letters = keyword.replace(/[^A-Z]/g, '');
+    const PICKUP_WORDS = new Set(['PICKUP', 'PICKUPPLEASE', 'PLEASEPICKUP', 'PICKUPPLS', 'PICKUPTHANKS', 'PICKUPTHANKYOU']);
+    const SKIP_WORDS   = new Set(['SKIP', 'SKIPPLEASE', 'PLEASESKIP', 'SKIPPLS', 'SKIPTHANKS', 'SKIPTHANKYOU']);
     const noAccount = (msg: string) => new Response(twimlMessage(msg), { headers: TWIML_HDRS });
 
     if (keyword === 'STOP') {
@@ -545,11 +554,11 @@ Deno.serve(async (req: Request) => {
     if (keyword === 'START' || keyword === 'UNSTOP') {
       return new Response(await handleStart(customerId, from, to), { headers: TWIML_HDRS });
     }
-    if (keyword === 'SKIP') {
+    if (SKIP_WORDS.has(letters)) {
       if (!customerId) return noAccount("We couldn't find your account. Visit familylaundry.com for help.");
       return new Response(await handleSkip(customerId, from, to), { headers: TWIML_HDRS });
     }
-    if (keyword === 'PICKUP') {
+    if (PICKUP_WORDS.has(letters)) {
       if (!customerId) return noAccount(`We couldn't find an account for your number. Please sign up at familylaundry.com.`);
       return new Response(await handlePickup(customerId, firstName, from, to), { headers: TWIML_HDRS });
     }
