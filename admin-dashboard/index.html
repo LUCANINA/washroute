@@ -3279,6 +3279,53 @@
           </div>
 
           <!-- ── TAB: DELIVERY KPIs ── -->
+          <!-- ── TAB: ON-TIME (session 295) ──
+               Score = stops done inside the customer's window (+5 min grace) ÷ all stops.
+               Early counts as a miss. Data: on_time_report() RPC. -->
+          <div id="rpttab-ontime" style="display:none">
+            <div id="ot-period-note" class="card-sub" style="margin-bottom:14px;color:var(--gray-500)"></div>
+            <div id="ot-cards"><div class="rpt-no-data">Loading…</div></div>
+            <div class="card" style="margin-top:16px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">On-Time Rate by Month</div>
+                  <div class="card-sub">Last 12 months · dashed line = <span id="ot-target-label"></span> target</div>
+                </div>
+              </div>
+              <div class="chart-canvas-wrap"><canvas id="ot-trend-chart" height="220"></canvas></div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <div class="card-header" style="flex-wrap:wrap;gap:8px">
+                <div>
+                  <div class="card-title">Where the misses come from</div>
+                  <div class="card-sub">Lowest on-time rate first</div>
+                </div>
+                <div id="ot-dim-tabs" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+              </div>
+              <div class="rpt-table-wrap">
+                <table class="rpt-drv-tbl">
+                  <thead><tr><th id="ot-dim-head">Driver</th><th>Stops</th><th>On time</th><th>Early</th><th>Late</th><th>On-time rate</th></tr></thead>
+                  <tbody id="ot-dim-body"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <div class="card-header" style="flex-wrap:wrap;gap:8px">
+                <div>
+                  <div class="card-title">Missed stops</div>
+                  <div class="card-sub" id="ot-miss-sub">Biggest misses first · click a row to open the order</div>
+                </div>
+                <div id="ot-miss-tabs" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+              </div>
+              <div class="rpt-table-wrap">
+                <table class="rpt-drv-tbl">
+                  <thead><tr><th>Order</th><th>Customer</th><th>Stop</th><th>Window</th><th>Done at</th><th>Miss</th><th>Driver</th><th>Route</th></tr></thead>
+                  <tbody id="ot-miss-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
           <div id="rpttab-deliverykpis" style="display:none">
             <div id="dk-period-note" class="card-sub" style="margin-bottom:14px;color:var(--gray-500)"></div>
             <div id="dk-cards"><div class="rpt-no-data">Loading…</div></div>
@@ -49696,6 +49743,7 @@ ${oneCopy}
     else if (rptTab === 'invoices')      loadInvoicesReport();
     else if (rptTab === 'registrations') loadRegistrationsReport();
     else if (rptTab === 'deliverykpis')  loadDeliveryKpis();
+    else if (rptTab === 'ontime')        loadOnTimeReport();
     else if (rptTab === 'subscriptions') loadSubscriptionReport();
     else if (rptTab === 'baddebt')       loadBadDebtReport();
   }
@@ -49811,7 +49859,7 @@ ${oneCopy}
     { key: 'receivables', label: 'Receivables', tabs: [
         ['onaccount', 'On Account'], ['invoices', 'Invoices'], ['baddebt', 'Bad Debt'] ] },
     { key: 'operations',  label: 'Operations',  tabs: [
-        ['drivers', 'Drivers'], ['launderer', 'Launderers'], ['deliverykpis', 'Delivery KPIs'] ] },
+        ['drivers', 'Drivers'], ['launderer', 'Launderers'], ['deliverykpis', 'Delivery KPIs'], ['ontime', 'On-Time'] ] },
     { key: 'customers',   label: 'Customers',   tabs: [
         ['registrations', 'Registrations'], ['subscriptions', 'Subscriptions'] ] },
   ];
@@ -49886,6 +49934,17 @@ ${oneCopy}
       if (fromEl && toEl && fromEl.value === toEl.value) {
         const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
         fromEl.value = addDaysPacific(todayPT, -90);
+        toEl.value   = todayPT;
+        _rptQuickClear();
+      }
+    }
+    if (tab === 'ontime') {
+      // On-time is scored by month — open on month-to-date instead of today-only.
+      const fromEl = document.getElementById('rpt-from');
+      const toEl   = document.getElementById('rpt-to');
+      if (fromEl && toEl && fromEl.value === toEl.value) {
+        const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+        fromEl.value = todayPT.slice(0, 8) + '01';
         toEl.value   = todayPT;
         _rptQuickClear();
       }
@@ -50064,6 +50123,173 @@ ${oneCopy}
 
     const el = document.getElementById('dk-cards');
     if (el) el.innerHTML = html;
+  }
+
+  // ── ON-TIME REPORT (session 295) ──
+  // One combined score: pickups + deliveries completed between window start and
+  // window end + 5 min. Early = miss. Compared with the same dates last month.
+  const OT_TARGET = 0.92;
+  const OT_DIMS = [['driver','Driver'],['route','Route'],['window','Window'],['weekday','Weekday']];
+  let _otData = null, _otDim = 'driver', _otMissFilter = 'all', _otChart = null;
+
+  async function loadOnTimeReport() {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl?.value || !toEl?.value) return;
+    const cards = document.getElementById('ot-cards');
+    if (cards) cards.innerHTML = '<div class="rpt-no-data"><div class="loading"><div class="spinner"></div> Loading…</div></div>';
+    const { data, error } = await db.rpc('on_time_report', { p_from: fromEl.value, p_to: toEl.value });
+    if (error || !data) {
+      console.error('on_time_report:', error);
+      if (cards) cards.innerHTML = '<div class="rpt-no-data">Could not load the on-time report.</div>';
+      return;
+    }
+    _otData = data;
+    renderOnTimeReport(fromEl.value, toEl.value);
+  }
+
+  const _otRate = (ok, n) => Number(n) > 0 ? Number(ok) / Number(n) : null;
+  const _otPct  = r => r === null ? '—' : (r * 100).toFixed(1) + '%';
+  // Change in percentage POINTS (91.0% → 92.5% = +1.5 pts), not relative %.
+  function _otPts(cur, prev) {
+    if (cur === null || prev === null) return _dkChip('flat', 'no data last month');
+    const d = (cur - prev) * 100;
+    if (Math.abs(d) < 0.05) return _dkChip('flat', '— flat');
+    return _dkChip(d > 0 ? 'good' : 'bad', `${d > 0 ? '▲' : '▼'} ${Math.abs(d).toFixed(1)} pts`);
+  }
+  function _otCountChip(cur, prev) {   // for miss counts: fewer is better
+    const c = Number(cur || 0), p = Number(prev || 0);
+    if (c === p) return _dkChip('flat', '— flat');
+    return _dkChip(c < p ? 'good' : 'bad', `${c > p ? '▲' : '▼'} ${Math.abs(c - p)} vs last month`);
+  }
+  const _otRateColor = r => r === null ? 'var(--gray-400)' : r >= OT_TARGET ? '#166534' : r >= OT_TARGET - 0.05 ? '#92400e' : '#991b1b';
+
+  function renderOnTimeReport(fromStr, toStr) {
+    const d = _otData, cur = d.current || {}, prev = d.previous || {};
+    const fmtD = x => new Date(`${x}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
+    const note = document.getElementById('ot-period-note');
+    if (note) note.innerHTML = `Showing <strong>${fmtD(fromStr)} – ${fmtD(toStr)}</strong> &nbsp;·&nbsp; compared to same dates last month (${fmtD(_dkMinus1Month(fromStr))} – ${fmtD(_dkMinus1Month(toStr))})`
+      + `<br>On time = done inside the customer's window, up to 5 min after it closes. Early counts as a miss.`;
+    const tl = document.getElementById('ot-target-label');
+    if (tl) tl.textContent = Math.round(OT_TARGET * 100) + '%';
+
+    const rc = _otRate(cur.on_time, cur.stops), rp = _otRate(prev.on_time, prev.stops);
+    const pc = _otRate(cur.pickups_on_time, cur.pickups), pp = _otRate(prev.pickups_on_time, prev.pickups);
+    const dc = _otRate(cur.deliveries_on_time, cur.deliveries), dp = _otRate(prev.deliveries_on_time, prev.deliveries);
+    const card = (label, value, chip, hint, color) => `
+      <div class="stat-card">
+        <div class="stat-label">${label}</div>
+        <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:2px">
+          <div class="stat-value"${color ? ` style="color:${color}"` : ''}>${value}</div>${chip}
+        </div>
+        ${hint ? `<div style="font-size:11px;color:var(--gray-400);margin-top:5px;line-height:1.3">${hint}</div>` : ''}
+      </div>`;
+    const n = v => Number(v || 0).toLocaleString();
+    const grid = inner => `<div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr))">${inner}</div>`;
+    const title = t => `<div style="font-size:13px;font-weight:700;color:var(--gray-500);margin:10px 2px 10px">${t}</div>`;
+    const el = document.getElementById('ot-cards');
+    if (el) el.innerHTML = Number(cur.stops) === 0
+      ? '<div class="rpt-no-data">No completed pickups or deliveries in this period.</div>'
+      : title('Score') + grid(
+          card('On-Time Rate', _otPct(rc), _otPts(rc, rp), `${n(cur.on_time)} of ${n(cur.stops)} stops · target ${Math.round(OT_TARGET*100)}%`, _otRateColor(rc))
+        + card('Pickups on time', _otPct(pc), _otPts(pc, pp), `${n(cur.pickups_on_time)} of ${n(cur.pickups)}`)
+        + card('Deliveries on time', _otPct(dc), _otPts(dc, dp), `${n(cur.deliveries_on_time)} of ${n(cur.deliveries)}`))
+      + title('Misses') + grid(
+          card('Early', n(cur.early), _otCountChip(cur.early, prev.early), 'done before the window opened')
+        + card('Late 5–15 min', n(cur.late_5_15), _otCountChip(cur.late_5_15, prev.late_5_15), 'past the grace period')
+        + card('Late 15–60 min', n(cur.late_15_60), _otCountChip(cur.late_15_60, prev.late_15_60), '')
+        + card('Late 60+ min', n(cur.late_60_plus), _otCountChip(cur.late_60_plus, prev.late_60_plus), ''));
+
+    _otDrawTrend();
+    _otRenderDims();
+    _otRenderMisses();
+  }
+
+  function _otDrawTrend() {
+    const canvas = document.getElementById('ot-trend-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    if (_otChart) { _otChart.destroy(); _otChart = null; }
+    const rows = _otData.trend || [];
+    const labels = rows.map(r => new Date(r.month + '-15T12:00:00').toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
+    const vals = rows.map(r => { const x = _otRate(r.on_time, r.stops); return x === null ? null : +(x * 100).toFixed(1); });
+    _otChart = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'On-time rate', data: vals, borderColor: '#3B82F6', backgroundColor: '#3B82F622', fill: true, tension: 0.25, pointRadius: 4 },
+        { label: 'Target', data: rows.map(() => OT_TARGET * 100), borderColor: '#9CA3AF', borderDash: [6, 4], pointRadius: 0, fill: false },
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: c => c.datasetIndex === 1 ? `Target ${c.parsed.y}%`
+            : `${c.parsed.y}% (${Number(rows[c.dataIndex].on_time).toLocaleString()} of ${Number(rows[c.dataIndex].stops).toLocaleString()} stops)` } } },
+        scales: { y: { suggestedMin: 50, max: 100, grid: { color: '#f3f4f6' }, ticks: { callback: v => v + '%' } },
+                  x: { grid: { display: false } } }
+      }
+    });
+  }
+
+  function _otPill(active, onclick, label) {
+    return `<button onclick="${onclick}" style="padding:5px 12px;border-radius:14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid ${active ? 'var(--accent)' : 'var(--gray-200)'};background:${active ? 'var(--accent)' : 'white'};color:${active ? 'white' : 'var(--gray-600)'}">${label}</button>`;
+  }
+  function setOnTimeDim(dim) { _otDim = dim; _otRenderDims(); }
+  function setOnTimeMissFilter(f) { _otMissFilter = f; _otRenderMisses(); }
+  window.setOnTimeDim = setOnTimeDim;
+  window.setOnTimeMissFilter = setOnTimeMissFilter;
+
+  function _otRenderDims() {
+    const tabs = document.getElementById('ot-dim-tabs');
+    if (tabs) tabs.innerHTML = OT_DIMS.map(([k, l]) => _otPill(k === _otDim, `setOnTimeDim('${k}')`, l)).join('');
+    const head = document.getElementById('ot-dim-head');
+    if (head) head.textContent = (OT_DIMS.find(x => x[0] === _otDim) || OT_DIMS[0])[1];
+    const body = document.getElementById('ot-dim-body');
+    if (!body) return;
+    let rows = (_otData.breakdowns || []).filter(r => r.dim === _otDim).map(r => ({ ...r, rate: _otRate(r.on_time, r.stops) }));
+    if (_otDim === 'weekday') rows.sort((a, b) => a.label.localeCompare(b.label));      // Mon → Sun
+    else rows.sort((a, b) => (a.rate ?? 1) - (b.rate ?? 1) || Number(b.stops) - Number(a.stops));
+    const lbl = r => _otDim === 'weekday' ? r.label.slice(2) : r.label;
+    body.innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td>${esc(lbl(r))}</td>
+        <td>${Number(r.stops).toLocaleString()}</td>
+        <td>${Number(r.on_time).toLocaleString()}</td>
+        <td>${Number(r.early).toLocaleString()}</td>
+        <td>${Number(r.late).toLocaleString()}</td>
+        <td style="font-weight:700;color:${_otRateColor(r.rate)}">${_otPct(r.rate)}</td>
+      </tr>`).join('')
+      : '<tr><td colspan="6" class="rpt-no-data">No stops in this period.</td></tr>';
+  }
+
+  function _otRenderMisses() {
+    const all = _otData.misses || [];
+    const cnt = f => f === 'all' ? all.length : all.filter(m => m.result === f).length;
+    const tabs = document.getElementById('ot-miss-tabs');
+    if (tabs) tabs.innerHTML = [['all','All'],['late','Late'],['early','Early']]
+      .map(([k, l]) => _otPill(k === _otMissFilter, `setOnTimeMissFilter('${k}')`, `${l} (${cnt(k)})`)).join('');
+    const sub = document.getElementById('ot-miss-sub');
+    const cur = _otData.current || {};
+    const totalMiss = Number(cur.early || 0) + Number(cur.late || 0);
+    if (sub) sub.textContent = 'Biggest misses first · click a row to open the order'
+      + (totalMiss > all.length ? ` · showing the top ${all.length} of ${totalMiss.toLocaleString()}` : '');
+    const body = document.getElementById('ot-miss-body');
+    if (!body) return;
+    const rows = _otMissFilter === 'all' ? all : all.filter(m => m.result === _otMissFilter);
+    const t = iso => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ });
+    const dt = iso => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+    const sameDay = (a, b) => a && b && dt(a) === dt(b);
+    const dur = m => { m = Number(m); if (m >= 1440) return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`; return m >= 90 ? `${Math.floor(m / 60)}h ${String(Math.round(m % 60)).padStart(2,'0')}m` : `${Math.round(m)} min`; };
+    body.innerHTML = rows.length ? rows.map(m => `
+      <tr style="cursor:pointer" onclick="openOrderPanel('${escJS(m.order_id)}')">
+        <td>#${esc(m.order_number || '')}</td>
+        <td>${esc(m.customer || '—')}</td>
+        <td>${m.leg === 'pickup' ? 'Pickup' : 'Delivery'}</td>
+        <td style="white-space:nowrap">${m.win_start ? `${dt(m.win_start)} ${t(m.win_start)}–${t(m.win_end)}` : `by ${dt(m.win_end)} ${t(m.win_end)}`}</td>
+        <td style="white-space:nowrap">${sameDay(m.actual_at, m.win_end) ? t(m.actual_at) : `${dt(m.actual_at)} ${t(m.actual_at)}`}</td>
+        <td>${_dkChip(m.result === 'late' ? 'bad' : 'flat', `${dur(m.minutes_off)} ${m.result}`)}</td>
+        <td>${esc(m.driver || '—')}</td>
+        <td>${esc(m.route || '—')}</td>
+      </tr>`).join('')
+      : '<tr><td colspan="8" class="rpt-no-data">No missed stops.</td></tr>';
   }
 
   // ── REGISTRATIONS REPORT ──
