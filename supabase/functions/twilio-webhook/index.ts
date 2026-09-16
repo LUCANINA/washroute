@@ -337,10 +337,21 @@ async function handlePickup(
   customerId: string, firstName: string, from: string, to: string
 ): Promise<string> {
   const activeStatuses = 'scheduled,picked_up,processing,ready_for_delivery,on_hold';
-  const existing = await dbGet(
-    `orders?customer_id=eq.${customerId}&status=in.(${activeStatuses})&limit=1` +
-    `&select=order_number,status,pickup_window_start`
-  );
+  // 2026-09-16: these lookups don't depend on each other — run them together
+  // instead of one after another (~4s → ~1.5s end to end).
+  const [existing, lastOrders, custRows, svcRows, holRows] = await Promise.all([
+    dbGet(
+      `orders?customer_id=eq.${customerId}&status=in.(${activeStatuses})&limit=1` +
+      `&select=order_number,status,pickup_window_start`
+    ),
+    dbGet(
+      `orders?customer_id=eq.${customerId}&status=eq.delivered&order=created_at.desc&limit=1` +
+      `&select=zone_id,pickup_address_id,delivery_address_id,service_id,total_bags`
+    ),
+    dbGet(`customers?id=eq.${customerId}&select=pricelist&limit=1`),
+    dbGet(`services?is_active=eq.true&is_addon=eq.false&order=sort_order.asc&select=id,pricelist`),
+    dbGet('holidays?select=holiday_date'),
+  ]);
   const activeOrder = Array.isArray(existing) ? existing[0] : null;
   if (activeOrder) {
     const pickupDate = activeOrder.pickup_window_start ? fmtDatePT(activeOrder.pickup_window_start) : 'upcoming';
@@ -350,10 +361,6 @@ async function handlePickup(
     return twimlMessage(reply);
   }
 
-  const lastOrders = await dbGet(
-    `orders?customer_id=eq.${customerId}&status=eq.delivered&order=created_at.desc&limit=1` +
-    `&select=zone_id,pickup_address_id,delivery_address_id,service_id,total_bags`
-  );
   const lastOrder = Array.isArray(lastOrders) ? lastOrders[0] : null;
 
   let zoneId: string | null         = lastOrder?.zone_id             || null;
@@ -368,13 +375,10 @@ async function handlePickup(
   // The last order's service is only a fallback (a price list with no base service).
   let serviceId: string | null = null;
   {
-    const custRows = await dbGet(`customers?id=eq.${customerId}&select=pricelist&limit=1`);
     const pricelist = (Array.isArray(custRows) ? custRows[0]?.pricelist : null) || 'Delivery';
+    const svcs = Array.isArray(svcRows) ? svcRows as { id: string; pricelist: string | null }[] : [];
     for (const pl of [pricelist, 'Delivery']) {
-      const svcs = await dbGet(
-        `services?pricelist=eq.${encodeURIComponent(pl)}&is_active=eq.true&is_addon=eq.false&order=sort_order.asc&limit=1&select=id`
-      );
-      serviceId = Array.isArray(svcs) ? svcs[0]?.id || null : null;
+      serviceId = svcs.find(v => v.pricelist === pl)?.id || null;
       if (serviceId) break;
     }
   }
@@ -425,7 +429,6 @@ async function handlePickup(
 
   // Holidays — no pickup/delivery may land on one (the orders trigger hard-blocks
   // them, so the SMS reorder must shift forward like Sundays).
-  const holRows = await dbGet('holidays?select=holiday_date');
   const holidaySet = new Set((Array.isArray(holRows) ? holRows : []).map((h: { holiday_date: string }) => h.holiday_date));
 
   const nextDay = getNextPickupDayPT(rt.schedule_days ?? [0,1,2,3,4,5], holidaySet);
@@ -501,7 +504,7 @@ async function handlePickup(
   const reply =
     `Got it, ${firstName}! Your pickup is booked for ${pickupDateLabel} between ${windowLabel}. ` +
     `Order #${newOrder.order_number}. Please have your bags ready outside before ${fmt12h(wStartH)}. ` +
-    `We'll text you when your driver is on the way!`;
+    `We'll text you when your driver is on the way! Need to cancel? Reply SKIP.`;
 
   await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
   return twimlMessage(reply);
@@ -528,34 +531,33 @@ Deno.serve(async (req: Request) => {
     // Proxy any MMS media to our own bucket BEFORE inserting the sms_messages
     // row so admin's first realtime payload already includes thumbnails.
     // Failure here never blocks the message log — see proxyTwilioMedia.
-    const mediaUrls = await proxyTwilioMedia(formData, sid);
-
     const digits10 = from.replace(/[^0-9]/g, '').slice(-10);
-    const custRpc  = await fetch(`${SUPABASE_URL}/rest/v1/rpc/find_customer_by_phone`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${SUPABASE_SVC_KEY}`,
-        apikey: SUPABASE_SVC_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ digits: digits10 }),
-    });
-    const custData   = await custRpc.json();
+    const [mediaUrls, custData] = await Promise.all([
+      proxyTwilioMedia(formData, sid),
+      fetch(`${SUPABASE_URL}/rest/v1/rpc/find_customer_by_phone`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${SUPABASE_SVC_KEY}`,
+          apikey: SUPABASE_SVC_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ digits: digits10 }),
+      }).then(r => r.json()),
+    ]);
     const customerId = custData?.[0]?.id || null;
 
-    let firstName = 'there';
-    if (customerId) {
-      const custRows = await dbGet(`customers?id=eq.${customerId}&select=first_name_cache&limit=1`);
-      firstName = (Array.isArray(custRows) ? custRows[0]?.first_name_cache : null) || 'there';
-    }
+    // The inbound row is still written before any reply row (both awaited here).
+    const [custRows] = await Promise.all([
+      customerId ? dbGet(`customers?id=eq.${customerId}&select=first_name_cache&limit=1`) : Promise.resolve(null),
+      logSms({
+        customer_id: customerId, direction: 'inbound', body,
+        from_number: from, to_number: to, twilio_sid: sid, status: 'received',
+        media_urls: mediaUrls,
+      }),
+    ]);
+    const firstName = (Array.isArray(custRows) ? custRows[0]?.first_name_cache : null) || 'there';
 
     console.log(`Inbound SMS from=${from} customer_id=${customerId} firstName=${firstName} body="${body?.slice(0,80)}"`);
-
-    await logSms({
-      customer_id: customerId, direction: 'inbound', body,
-      from_number: from, to_number: to, twilio_sid: sid, status: 'received',
-      media_urls: mediaUrls,
-    });
 
     const keyword = (body || '').trim().toUpperCase();
     // 2026-09-16: customers write "Pick up", "Pickup.", "pick up please", "SKIP!".
@@ -583,7 +585,7 @@ Deno.serve(async (req: Request) => {
     if (keyword === 'HELP') {
       const helpMsg = `Family Laundry\n` +
         `PICKUP - Book a pickup\n` +
-        `SKIP - Skip your next pickup\n` +
+        `SKIP - Skip or cancel your next pickup\n` +
         `STOP - Unsubscribe from texts\n` +
         `START - Re-subscribe to texts\n` +
         `Or call us for anything else.`;
