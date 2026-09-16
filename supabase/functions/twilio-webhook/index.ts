@@ -302,7 +302,7 @@ async function handleSkip(customerId: string, from: string, to: string): Promise
 
   if (!order) {
     return twimlMessage(
-      "We don't see an upcoming pickup scheduled for your number. Reply or visit familylaundry.com for help."
+      "We don't see an upcoming pickup scheduled for your number. Reply or visit app.familylaundry.com for help."
     );
   }
 
@@ -345,7 +345,7 @@ async function handlePickup(
   if (activeOrder) {
     const pickupDate = activeOrder.pickup_window_start ? fmtDatePT(activeOrder.pickup_window_start) : 'upcoming';
     const reply = `Hi ${firstName}! You already have order #${activeOrder.order_number} scheduled for ${pickupDate}. ` +
-                  `Visit familylaundry.com to make changes.`;
+                  `Visit app.familylaundry.com to make changes.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
@@ -360,13 +360,31 @@ async function handlePickup(
   let pickupAddrId: string | null   = lastOrder?.pickup_address_id   || null;
   let deliveryAddrId: string | null = lastOrder?.delivery_address_id || lastOrder?.pickup_address_id || null;
   const bags: number                = lastOrder?.total_bags || 2;
-  const serviceId: string | null    = lastOrder?.service_id || null;
+
+  // 2026-09-16: every order needs a service (orders_require_service_unless_walkin).
+  // Use the base service for the customer's CURRENT price list — same rule as the
+  // customer app's getCustomerService(). A customer with no delivered order used to
+  // send service_id=null and always got "We had trouble booking your pickup".
+  // The last order's service is only a fallback (a price list with no base service).
+  let serviceId: string | null = null;
+  {
+    const custRows = await dbGet(`customers?id=eq.${customerId}&select=pricelist&limit=1`);
+    const pricelist = (Array.isArray(custRows) ? custRows[0]?.pricelist : null) || 'Delivery';
+    for (const pl of [pricelist, 'Delivery']) {
+      const svcs = await dbGet(
+        `services?pricelist=eq.${encodeURIComponent(pl)}&is_active=eq.true&is_addon=eq.false&order=sort_order.asc&limit=1&select=id`
+      );
+      serviceId = Array.isArray(svcs) ? svcs[0]?.id || null : null;
+      if (serviceId) break;
+    }
+  }
+  if (!serviceId) serviceId = lastOrder?.service_id || null;
 
   if (!pickupAddrId) {
     const addrs = await dbGet(`addresses?customer_id=eq.${customerId}&is_default=eq.true&limit=1&select=id,lat,lng`);
     const addr  = Array.isArray(addrs) ? addrs[0] : null;
     if (!addr) {
-      const reply = `Hi ${firstName}! We couldn't find a saved address. Please book at familylaundry.com.`;
+      const reply = `Hi ${firstName}! We couldn't find a saved address. Please book at app.familylaundry.com.`;
       await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
       return twimlMessage(reply);
     }
@@ -389,7 +407,7 @@ async function handlePickup(
   }
 
   if (!zoneId) {
-    const reply = `Hi ${firstName}! We couldn't confirm your service area. Please book at familylaundry.com.`;
+    const reply = `Hi ${firstName}! We couldn't confirm your service area. Please book at app.familylaundry.com.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
@@ -400,7 +418,7 @@ async function handlePickup(
   );
   const rt = Array.isArray(templates) ? templates[0] : null;
   if (!rt) {
-    const reply = `Hi ${firstName}! No pickup windows found for your area. Please book at familylaundry.com.`;
+    const reply = `Hi ${firstName}! No pickup windows found for your area. Please book at app.familylaundry.com.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
@@ -412,7 +430,7 @@ async function handlePickup(
 
   const nextDay = getNextPickupDayPT(rt.schedule_days ?? [0,1,2,3,4,5], holidaySet);
   if (!nextDay) {
-    const reply = `Hi ${firstName}! No available pickup slots this week. Please book at familylaundry.com.`;
+    const reply = `Hi ${firstName}! No available pickup slots this week. Please book at app.familylaundry.com.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
@@ -465,7 +483,7 @@ async function handlePickup(
   if (!orderRes.ok) {
     const err = await orderRes.json().catch(() => ({}));
     console.error('PICKUP order creation failed:', JSON.stringify(err));
-    const reply = `Hi ${firstName}! We had trouble booking your pickup. Please try at familylaundry.com.`;
+    const reply = `Hi ${firstName}! We had trouble booking your pickup. Please try at app.familylaundry.com.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
@@ -473,7 +491,7 @@ async function handlePickup(
   const orderJson = await orderRes.json();
   const newOrder  = Array.isArray(orderJson) ? orderJson[0] : orderJson;
   if (!newOrder?.order_number) {
-    const reply = `Hi ${firstName}! Your pickup was booked but we had trouble confirming the details. Check familylaundry.com.`;
+    const reply = `Hi ${firstName}! Your pickup was booked but we had trouble confirming the details. Check app.familylaundry.com.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
@@ -555,11 +573,11 @@ Deno.serve(async (req: Request) => {
       return new Response(await handleStart(customerId, from, to), { headers: TWIML_HDRS });
     }
     if (SKIP_WORDS.has(letters)) {
-      if (!customerId) return noAccount("We couldn't find your account. Visit familylaundry.com for help.");
+      if (!customerId) return noAccount("We couldn't find your account. Visit app.familylaundry.com for help.");
       return new Response(await handleSkip(customerId, from, to), { headers: TWIML_HDRS });
     }
     if (PICKUP_WORDS.has(letters)) {
-      if (!customerId) return noAccount(`We couldn't find an account for your number. Please sign up at familylaundry.com.`);
+      if (!customerId) return noAccount(`We couldn't find an account for your number. Please sign up at app.familylaundry.com.`);
       return new Response(await handlePickup(customerId, firstName, from, to), { headers: TWIML_HDRS });
     }
     if (keyword === 'HELP') {
