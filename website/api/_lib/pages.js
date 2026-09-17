@@ -63,7 +63,7 @@ function home(v) {
         <li>Next-day delivery: ${mdi('{fee:Delivery Fee}', v)}</li>
         <li>Same-day delivery: ${esc(sameDayPerBag)}</li>
       </ul>
-      <p class="fine">*Bags weighing more than 25 lbs are an extra $3 per lb.</p>
+      <p class="fine">*Bags weighing more than 25 lbs are an extra ${mdi('{site:overweight_rate}', v)}.</p>
       ${cta('Book a bag')}
     </article>
     <article class="card card-best">
@@ -205,6 +205,7 @@ function services(v) {
       <h2>Wash &amp; Fold</h2>
       <p>Household laundry: it's what put us on the map, our bread and butter, our raison d'être. "Wash &amp; Fold" doesn't quite do the service justice, but you get the point. We just want to do your laundry.</p>
       <p class="price">${mdi('{price:Wash & Fold}', v)} <small>per bag (up to 25 lbs) + ${mdi('{fee:Delivery Fee}', v)} delivery</small></p>
+      <p class="fine">Bags over 25 lbs are an extra ${mdi('{site:overweight_rate}', v)}.</p>
       <p>Or subscribe: ${mdi('{plan:lbs}', v)} lbs a month for ${mdi('{plan:price}', v)}, delivery included. <a href="/#pricing">Compare plans</a></p>
     </div>
   </div>

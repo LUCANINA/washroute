@@ -15,8 +15,10 @@ Plan doc: https://claude.ai/code/artifact/969ded65-373d-41b8-b939-92c57792947a (
 - **Website (`website/`):** Vercel function renders all 16 Wix URLs server-side (SEO), cached 5 min; preview hosts are
   noindex. Every price is a live token via `assets/fl-content.js` (shared renderer, HTML-escaped). Images copied off
   Wix into `website/assets/img`. City pages drop Wix's stale day/window lists.
-- **Numbers to confirm:** phone (seeded 842-3560; Wix also shows 588-4102); same-day per bag = delivery + surcharge =
-  $24.90 (Wix says $24.95); "bags over 25 lbs +$3/lb" is still typed text (no app fee for it).
+- **Confirmed by David (session 299):** one public number everywhere = **(510) 588-4102** (also the Twilio SMS number;
+  `site_info.phone`). Same-day per bag = delivery + surcharge = **$24.90** (Wix's $24.95 was wrong). Overweight bags
+  over 25 lbs = **$3/lb** — kept as editable `site_info.overweight_rate` (there is no such fee row in `service_fees`),
+  used on Home/Services and in a new FAQ item (#30).
 - **Next:** Admin → App Content editor; customer app Help & Info using `fl-content.js`; forms; blog; Gift Up widget.
 
 ## Session 298 — Sep 17, 2026: in-app "Send us feedback" + one Feedback report
