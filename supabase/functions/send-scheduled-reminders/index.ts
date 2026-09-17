@@ -286,23 +286,65 @@ async function runReorder(): Promise<number> {
  *     automated SMS not turned off, no open issue on the account
  *   - at most one rating text per customer every 30 days
  *   - at most MAX_PER_RUN texts per run (safety cap)
- * Template: review_request ({{first_name}}, {{order_number}}, {{rate_link}};
- * {{review_link}} is kept as an alias of the rate link for old templates).
+ * Template: review_request — SMS and/or email, each with its own toggle
+ * ({{first_name}}, {{order_number}}, {{rate_link}}; {{review_link}} is an alias
+ * of the rate link here). Email skips anyone who unsubscribed from email; the
+ * 30-day limit counts a customer once whether they got one channel or both.
  */
 const RATING_MAX_PER_RUN = 60;
+
+function escHtml(v: string): string {
+  return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Plain-text template → simple branded HTML. The rate link becomes a button.
+// Old templates saved "\n" as two literal characters — treat those as line breaks too.
+function ratingEmailHtml(text: string, rateLink: string): string {
+  const TOKEN = '@@RATE_LINK@@';
+  const clean = text.replace(/\\n/g, '\n').split(rateLink).join(TOKEN);
+  const btn = `<a href="${escHtml(rateLink)}" style="background:#0f2744;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Rate your order</a>`;
+  const paras = escHtml(clean).split(/\n{2,}/).map(p => p.trim()).filter(Boolean).map(p => {
+    if (p === TOKEN) return `<p style="margin:22px 0">${btn}</p>`;
+    const html = p.replace(/\n/g, '<br>')
+      .split(TOKEN).join(`<a href="${escHtml(rateLink)}" style="color:#2a6fc9">rate your order</a>`);
+    return `<p style="margin:0 0 14px">${html}</p>`;
+  }).join('');
+  return `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1a1a1a;line-height:1.6;font-size:15px">` +
+    `<div style="background:#0f2744;padding:18px 24px;border-radius:12px 12px 0 0"><div style="color:#fff;font-size:19px;font-weight:700">Family Laundry</div></div>` +
+    `<div style="padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">${paras}</div></div>`;
+}
+
+async function sendEmail(customerId: string, toEmail: string, subject: string, html: string): Promise<boolean> {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({ customer_id: customerId, to_email: toEmail, subject, body: html }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.ok) { console.warn('rating email failed', r.status, j?.error); return false; }
+    return true;
+  } catch (e) { console.warn('rating email error', String(e)); return false; }
+}
+
 async function runReviewRequest(): Promise<number> {
   const now  = new Date();
   const from = new Date(now.getTime() - 60 * 3_600_000).toISOString();
   const to   = new Date(now.getTime() - 12 * 3_600_000).toISOString();
 
-  const template = await getTemplate('review_request');
-  if (!template) return 0;   // switched off in Notifications
+  const { data: tmpl } = await db.from('message_templates')
+    .select('sms_enabled, sms_body, email_enabled, email_subject, email_body')
+    .eq('trigger_key', 'review_request').maybeSingle();
+  const smsOn   = !!(tmpl?.sms_enabled && tmpl?.sms_body);
+  const emailOn = !!(tmpl?.email_enabled && tmpl?.email_body && tmpl?.email_subject);
+  if (!smsOn && !emailOn) return 0;   // switched off in Notifications
 
   const { data: orders, error } = await db
     .from('orders')
     .select(`
       id, order_number, customer_id, actual_delivery_at, billing_status,
-      customers ( id, first_name_cache, phone_cache, billing_type, sms_notifications_opt_out_at )
+      customers ( id, first_name_cache, phone_cache, email_cache, billing_type,
+                  sms_notifications_opt_out_at, email_marketing_opt_out_at )
     `)
     .eq('status', 'delivered')
     .gte('actual_delivery_at', from)
@@ -317,16 +359,22 @@ async function runReviewRequest(): Promise<number> {
   const markDone = (orderId: string) =>
     db.from('orders').update({ review_request_sent_at: new Date().toISOString() }).eq('id', orderId);
   const since30 = new Date(now.getTime() - 30 * 86_400_000).toISOString();
-  const texted = new Set<string>();
+  const asked = new Set<string>();
 
   let sent = 0;
   for (const order of orders) {
     if (sent >= RATING_MAX_PER_RUN) break;
-    const cust = order.customers as { id?: string; first_name_cache?: string; phone_cache?: string; billing_type?: string; sms_notifications_opt_out_at?: string | null } | null;
-    if (!cust?.id || !cust.phone_cache) { await markDone(order.id); continue; }
-    if (cust.sms_notifications_opt_out_at || cust.billing_type === 'on_account') { await markDone(order.id); continue; }
+    const cust = order.customers as {
+      id?: string; first_name_cache?: string; phone_cache?: string; email_cache?: string; billing_type?: string;
+      sms_notifications_opt_out_at?: string | null; email_marketing_opt_out_at?: string | null;
+    } | null;
+    if (!cust?.id || cust.billing_type === 'on_account') { await markDone(order.id); continue; }
+    const canSms   = smsOn && !!cust.phone_cache && !cust.sms_notifications_opt_out_at;
+    const canEmail = emailOn && !!cust.email_cache && !cust.email_marketing_opt_out_at
+                     && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cust.email_cache);
+    if (!canSms && !canEmail) { await markDone(order.id); continue; }
     if (order.billing_status === 'failed') continue;          // may become eligible once paid, within the window
-    if (texted.has(cust.id)) { await markDone(order.id); continue; }
+    if (asked.has(cust.id)) { await markDone(order.id); continue; }
 
     const [{ data: rated }, { data: recent }, { data: openIssue }] = await Promise.all([
       db.from('order_feedback').select('id').eq('order_id', order.id).limit(1),
@@ -338,18 +386,28 @@ async function runReviewRequest(): Promise<number> {
     if (openIssue?.length) continue;                            // ask later if the issue is resolved in time
 
     const rateLink = `https://app.familylaundry.com/?rate=${order.id}`;
-    const body = interpolate(template, {
+    const vars = {
       first_name:   cust.first_name_cache || 'there',
       order_number: String(order.order_number ?? ''),
       rate_link:    rateLink,
-      review_link:  rateLink,
-    });
+      review_link:  rateLink,   // this message always goes to the rating page, never straight to Google
+    };
 
-    const result = await sendSms(cust.phone_cache, body, cust.id);
-    console.log(`review_request (rating) order=${order.id}`, result);
-    if (result.ok) {
+    let smsOk = false, emailOk = false;
+    if (canSms) {
+      const result = await sendSms(cust.phone_cache!, interpolate(tmpl!.sms_body!, vars), cust.id);
+      smsOk = result.ok;
+      console.log(`review_request sms order=${order.id}`, result);
+    }
+    if (canEmail) {
+      const subject = interpolate(tmpl!.email_subject!, vars);
+      const text    = interpolate(tmpl!.email_body!, vars);
+      emailOk = await sendEmail(cust.id, cust.email_cache!, subject, ratingEmailHtml(text, rateLink));
+      console.log(`review_request email order=${order.id} ok=${emailOk}`);
+    }
+    if (smsOk || emailOk) {
       await markDone(order.id);
-      texted.add(cust.id);
+      asked.add(cust.id);
       sent++;
     }
   }
