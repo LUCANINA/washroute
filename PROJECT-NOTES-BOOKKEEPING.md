@@ -5042,6 +5042,26 @@ against Xero.** David's rule, stated as one he wishes had existed from the start
 
 ## Tech Debt — deliberately deferred, with the next step written down
 
+**A. Rapid Credit Line, August 2026 — a real $457.14 the screen shows only on hover.** Diagnosed session 307
+against live data; survives the 308 revert. Our walk gives **51,529.02**; Xero's own Aug 31 balance is
+**51,071.88**. The gap is the 2026-08-31 interest reallocation (principal −457.14 / interest +457.14, journal
+`71ed82b2`, posted to Xero 2026-09-04): **our splits put it in August, Xero's August window does not contain it.**
+Component check: ledger drawn 1,498.19 = 513.28 + 499.42 + 471.42 + **14.07**, so the 8/31 journal is absent from
+August *and* $14.07 of ledger increase has no split behind it. **Next step:** confirm the Xero journal's own date;
+if it is dated on or after 2026-09-01, this is a period-boundary difference for Ramona, not a data error. On the
+current screen it is a bare red ✗ in the Ledger position with the figure on hover only.
+
+**B. The Variance total does not equal its own column, and nothing on screen says so.** David, session 307: *"the
+total variance doesn't add up correctly."* He is right. The cells print the **raw signed** variance; the total sums
+**absolute residuals** over material+immaterial only. In August that is +15.38 and −5.00 in a column above a total
+of $20.38, in a row labelled "Total". Three divergences, each individually correct and each with its own reason in
+the code — raw vs residual, signed vs absolute (s236: so +415.88 and −415.88 do not report as $0.00), and a
+narrower population. **The rules are right; the word "Total" is what is wrong.** Session 307's fix (a `varianceShown`
+figure computed with `varCell`'s own print-predicate, and a "to resolve" qualifier shown only when the two disagree)
+was reverted along with everything else — the diagnosis stands, the fix is gone, and it can be reapplied on the
+current layout on its own if David wants it without a redesign.
+
+
 **21. ~~Session 226 — `loan-generate-schedule-split` upsert can clobber staged/posted split state~~ RESOLVED (session 226 end-of-session review, same day).** The server now refuses (hard 409, nothing written) to regenerate any period whose split status isn't pending_review — a staged period names the live staged transaction and says to unstage first; a posted period names the duplicate-posting risk. Deployed v12, byte-verified, and the function source is in git for the first time (v1–v11 were deployed-only). Also picked up the nullsFirst:false latest-schedule fix so a null-dated schedule can never win the "most recent" pick. Covered by qa-staging.mjs g1–g4 (regenerate over staged/posted/already_in_xero → 409 untouched; pending_review refresh and fresh-create still work). The v42 loan-xero-post guard and the client-side refusal remain as defense-in-depth.
 
 Per the Root-Cause Rule: a one-time data fix without its root-cause fix is not done. When the

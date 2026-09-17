@@ -1,5 +1,53 @@
 # WashRoute — Project Notes
 
+## Sessions 305–308 — Sep 17, 2026: the Bookkeeping redesign, built and then reversed
+
+**Status:** Committed and reverted. **Net effect on the app: none.** `admin-dashboard/index.html` is byte-identical
+to session 304's state (`git diff 61403cd HEAD -- admin-dashboard/index.html` is empty). The full account lives in
+**PROJECT-NOTES-BOOKKEEPING.md, sessions 306–308** — this entry exists so a later "where were we" finds the thread.
+
+**What happened, briefly.** The design approach from the Reports work (sessions 300–301) was applied to the
+Bookkeeping Loans table: the Checks column's four glyphs (`✓ ✓ ● —`) became words, then the close band's
+"Not ready to close" line became a block naming the loans holding the month. David reviewed the result against live
+August figures and asked for all of it back: *"Still not doing it. I want you to reverse the work done on this
+section."* Reverted in full (`46a039e`).
+
+**Open question, worth answering before anyone tries this again:** what "not doing it" meant is not recorded —
+whether the block was too much text, the wrong information, or the wrong shape. Asked, not yet answered. **Do not
+re-attempt this redesign without that answer**; three sessions went into a direction that was wrong for a reason
+nobody has written down.
+
+**Two things survived the revert on purpose:**
+
+- **`tests/bk-stub.js` keeps session 306's fix.** That commit's real find had nothing to do with the UI: the
+  bookkeeping harness had not run a single assertion since **~Aug 27**. The stub lacked `db.auth.initialize()`,
+  `index.html` calls it at module scope, the throw left every `let` below it in the temporal dead zone, and every
+  group died reporting a scoping error rather than the cause. Reverting it would re-blind ~1,959 assertions across
+  60 groups. **The suite has been genuinely running only since session 306.**
+- **The notes.** Both write-ups stay, including two accounting findings that are still true with nowhere on screen
+  to show them (Rapid Credit Line's $457.14 period-boundary difference; the Variance total that does not equal its
+  own column). Both are written up in the Bookkeeping file.
+
+**Harness gotcha recorded in 306 and worth repeating here:** `--only` takes a **comma list**. Repeating the flag
+silently runs only one group, which reads as several passing.
+
+**Session 305** saved the Reports design approach as a reusable skill (`visual-first-redesign`). That skill is
+unaffected by the revert — but see the open question above before reaching for it on a dense table.
+
+### Font cache header — RESOLVED, previously unverified
+
+Session 302 added a one-year immutable `Cache-Control` for `/assets/fonts/` to `vercel.json`, sitting **after** the
+blanket no-cache rule, and it was left flagged because it was unknown which rule Vercel would apply. **Checked
+against production: the later rule wins.**
+
+```
+$ curl -sI https://app.familylaundry.com/assets/fonts/dmsans-latin.woff2
+HTTP/2 200
+cache-control: public, max-age=31536000, immutable
+```
+
+The four self-hosted DM Sans files (212KB) are cached for a year. Nothing to do.
+
 ## Session 304 — Sep 17, 2026: customer app type up one point
 
 **Status:** Committed. Customer app only. David, after seeing DM Sans live: "I wonder if the font is slightly too
