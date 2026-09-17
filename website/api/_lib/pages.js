@@ -30,7 +30,7 @@ function home(v) {
   <div class="wrap hero-grid">
     <div class="hero-copy">
       <h1><span class="kicker">Family Laundry</span>Wash &amp; Fold for Busy Households</h1>
-      <p class="lead">We pick up your laundry, wash and fold it in our own Oakland facilities, and bring it back the next day. Serving San Francisco, Oakland and the East Bay.</p>
+      <p class="lead">We pick up your laundry, wash and fold it in our own Oakland facilities, and bring it back the next day. Serving San Francisco, Oakland and the East Bay, ${mdi('{site:service_days}', v)}.</p>
       <div class="row">${cta('Get started')}<a class="btn btn-ghost" href="#pricing">See pricing</a></div>
       <img class="stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="150" height="150">
     </div>
@@ -124,7 +124,7 @@ ${contactBlock(v)}`;
   return {
     path: '/',
     title: 'Family Laundry | laundry pickup and delivery | San Francisco Bay Area, CA, USA',
-    description: "Family Laundry is the Bay Area's #1 best-rated wash and fold delivery service. We process your laundry in our own facilities in Oakland, CA, with Free & Clear detergents only. Serving San Francisco, Oakland and the East Bay, with same-day pickup and delivery in most areas.",
+    description: "Family Laundry is the Bay Area's #1 best-rated wash and fold delivery service. We process your laundry in our own facilities in Oakland, CA, with Free & Clear detergents only. Serving San Francisco, Oakland and the East Bay, Monday through Saturday, with same-day pickup and delivery in most areas.",
     body,
     jsonld: {
       '@context': 'https://schema.org', '@type': 'LaundryOrDryCleaning', name: 'Family Laundry',
@@ -276,6 +276,7 @@ function serviceMap(v) {
   <h1>Service area</h1>
   <p class="lead">Family Laundry is headquartered in Oakland and serves most of the East Bay and San Francisco.</p>
   <p>We currently serve <strong>${esc(C.list(v.cities || []))}</strong>. Not sure about your street? Enter your address in the app and we'll tell you right away.</p>
+  <p class="muted">We pick up and deliver ${mdi('{site:service_days}', v)}.</p>
   <p>${cta('Check my address')}</p>
   <img class="map" src="/assets/img/delivery-map.png" alt="Map of the Family Laundry delivery area" loading="lazy">
 </section>`,
@@ -286,7 +287,12 @@ function serviceMap(v) {
 function city(key, v) {
   const src = wix[key];
   const DROP = /^(Pickup\/Delivery (days|windows)|Turnaround:|Same-day service available|Ready to Experience)/i;
-  const blocks = src.blocks.filter(b => !DROP.test(b.x));
+  // Wix copy says "7 days a week" in places; we run Monday–Saturday.
+  const fix = t => t.replace(/,?\s*7 days a week/gi, '')
+                    .replace(/Available 7 days a week with expedient turnarounds \(except Sundays\)/i,
+                             'Available Monday through Saturday with quick turnarounds')
+                    .replace(/\s{2,}/g, ' ').replace(/ \./g, '.').trim();
+  const blocks = src.blocks.filter(b => !DROP.test(b.x)).map(b => ({ ...b, x: fix(b.x) }));
   const names = { '/laundry-delivery-oakland': 'Oakland', '/laundry-delivery-berkeley': 'Berkeley', '/laundry-delivery-alameda': 'Alameda', '/laundry-delivery-sf': 'San Francisco' };
   const name = names[key];
   return {
@@ -299,7 +305,7 @@ function city(key, v) {
   <div class="card">
     <h2>How it works in ${esc(name)}</h2>
     <ul class="ticks">
-      <li>Pick a pickup window in the app: morning, midday or evening, depending on your neighborhood.</li>
+      <li>We run ${mdi('{site:service_days}', v)}. Pick a window in the app: morning, midday or evening, depending on your neighborhood.</li>
       <li>Leave your bag at your door. No need to be home.</li>
       <li>Get it back washed and folded, usually the next day. Same-day is available in most areas for +${mdi('{fee:Same-Day Surcharge}', v)}.</li>
       <li>${mdi('{price:Wash & Fold}', v)} per bag + ${mdi('{fee:Delivery Fee}', v)} delivery, or ${mdi('{plan:price}', v)}/month with a subscription.</li>
