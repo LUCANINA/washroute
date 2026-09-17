@@ -101,6 +101,14 @@ SELECT alert_type, message, created_at FROM _health_alerts WHERE created_at > NO
 
 ---
 
+## 🤖 Daily bug check (scheduled Claude task, added 2026-09-16)
+
+Runs every day at **7:00 AM PT** (task "WashRoute daily bug check", `trig_01Wequ4a4Y2jgFVatcQ6SYZu`).
+Read-only. Runs `database/audits/daily_audit.sql`, reads `_health_alerts` (and checks the heartbeat), groups
+Postgres/edge-function errors, failed charges, failed SMS/email, credits changed without a ledger row,
+referral health, and failed cron runs. Sends "All clear" or a short list with proposed fixes by push + email.
+Reply "fix #N" in that conversation to act on one. Low ratings (1–3★) also open a `cs_issues` row automatically.
+
 ## 📋 Daily audit (on-demand)
 
 ### `database/audits/daily_audit.sql` — 8 integrity checks

@@ -1,8 +1,84 @@
 # WashRoute — Project Notes
 
+## Sessions 296–297 — Sep 16, 2026: $20 credit leak, referral {{amount}}, SMS PICKUP rebuild, deleted-order log, 60-min cutoff, customer ratings
+
+**START HERE next time.** Everything below is pushed, deployed and verified. Live watch items:
+- **Rating Request is ON (SMS + email).** First run Sep 17 7:00 AM PT, capped at 60 customers/run. Check
+  Reports → Customers → Ratings and `order_feedback` after it runs.
+- **Daily bug check** — scheduled task "WashRoute daily bug check" (trig_01Wequ4a4Y2jgFVatcQ6SYZu), 7:00 AM PT,
+  read-only, reports by push + email. David turned on "Require this computer"; confirm the first report did
+  code lookups (folders were not yet attached when last listed).
+- **Uber Direct** (on hold): plan agreed — we absorb the cost; book normal windows in "Uber" zones, request
+  couriers ~30 min before the window, alert if unassigned. Waiting on David's direct.uber.com sandbox creds + pilot zone.
+- Open ideas: reply-delivery tracking for TwiML replies (needs row id in a statusCallback URL);
+  `_subFirstPickupIso` still uses a start-minus-cutoff rule (stricter than the new end-minus-60 rule).
+
+### 1. $20 "migration credit" leak (stripe-webhook v67)
+`grantMigrationCredit` in stripe-webhook gave $20 on every FIRST card save, written straight to
+`customers.credits` with NO `customer_transactions` row (why Billing History never showed it), and never
+checked its 2026-03-27 end date. 253 customers created after the deadline received it. **Removed.**
+Credits already granted were kept (David's call). `credit_expires_at` is not enforced anywhere.
+Lesson: every credit change must go through `adjust_customer_credits` / another ledger-writing RPC.
+
+### 2. Referral share text — `{{amount}}` (migration session_296)
+Saved message said "$15" while friend_credit was 20. `get_or_create_referral_code` now fills `{{amount}}`
+from `friend_credit`; `set_referral_config` and the admin Save refuse a typed `$<digit>`; saved message
+rewritten to `{{amount}}`; admin shows a live "What a customer sends" preview. Old defs archived in
+`_archive._backup_function_defs` ('session_296:%').
+
+### 3. SMS keywords (twilio-webhook v57 → v63+)
+Keywords: PICKUP, SKIP, STOP, START/UNSTOP, HELP. Fixes, in order:
+- Forgiving match: letters-only allow-list (`PICKUP_WORDS` / `SKIP_WORDS`): "Pick up", "Pickup.",
+  "pick up please", "SKIP!". Sentences still go to the staff inbox. (5 of 27 past PICKUPs had got no reply.)
+- Removed the "Reply STATUS" hint (no such keyword). All fallback replies point to **app.familylaundry.com**.
+- **PICKUP always sets `service_id`** from the customer's price-list base service (same as
+  `getCustomerService()`); last order's service is only a fallback. Customers with no delivered order used
+  to hit `orders_require_service_unless_walkin` → "We had trouble booking" (found in David's live test).
+- **Slot choice** = `get_slot_availability` for today..+7 (capacity + route override), minus holidays and slots
+  past `booking_cutoff_minutes` before slot END. Usual time = pickup start used in ≥2 and ≥half of the last 6
+  bookings (ties = no habit) → earliest open slot at that time; else earliest open slot, **tonight included**.
+  Reply says "today (…)" when same-day.
+- DST: `ptDateTimeToUtc` uses the offset of the booked date (DST ends Nov 1).
+- Lookups run in parallel (~4s → ~1.5s). Most perceived delay is carrier-side.
+- Confirmation + HELP say **"Need to cancel? Reply SKIP."** — CANCEL/STOP/END/QUIT/UNSUBSCRIBE are carrier
+  opt-out words handled by Twilio before we see them (David was unsubscribed by texting CANCEL). Never use them as commands.
+- Verified live: "Pick up" → today 8–10 PM (6–8 full), SKIP cancels (order + stops `skipped`), reply < 2 s.
+
+### 4. Deleted-order log (migration session_296b)
+Admin "Cancel & Delete" (`delete_orders`) hard-deleted with no trace — likely what removed two June SMS
+bookings (#7420, #8142, Parker; staff re-created them). `trg_log_order_delete` (BEFORE DELETE) snapshots the
+row into `deleted_orders_log` (admin-only read). Test order #15237 seeded into it.
+
+### 5. Booking cutoff 60 min before slot END (migration session_296c)
+All 14 `route_templates.booking_cutoff_minutes` 30 → 60, column default 60; app/admin fallbacks 60;
+nearest-slot suggestions use end-minus-60 instead of start-minus-30. Client-only enforcement (no DB check).
+
+### 6. Customer ratings (migrations session_297, 297b; send-scheduled-reminders v46)
+- `order_feedback` (1 row/order, 1–5 + comment, customer reads own / staff read all). Writes only via
+  `submit_order_feedback` (owner-guarded, delivered orders, editable 14 days). **1–3★ opens a `cs_issues` row**
+  (created_by `customer-feedback`, high priority for 1–2★). `mark_review_link_clicked` tracks Google clicks.
+- **No review gating:** the Google link (`settings.review_link` = https://g.page/r/CdrgzodTngjhEBM/review) is
+  returned for EVERY rating. Yelp links are ignored (Yelp says don't ask). No incentives for reviews.
+- Customer app: "How was this order?" on delivered orders, rating sheet, `?rate=<order id>` deep link;
+  referral ask waits until the order is rated (one ask at a time).
+- Admin: **Reports → Customers → Ratings** and **→ Referrals** (both use the report date range; Settings →
+  Referrals keeps terms + held queue). Notifications editor has a "Link targets" box to edit the Google URL.
+- Rating Request (`review_request` template): morning job, orders delivered 12–60h ago, SMS and/or email
+  (own toggles; email respects `email_marketing_opt_out_at`), max 1 ask per customer per 30 days, skips
+  on-account, open issues, failed payments; 60/run cap. `{{review_link}}` in this template = the rate link.
+  Email is sent as branded HTML with a "Rate your order" button via `send-email`.
+- Note: `send-order-notification` reads `email_enabled` but does not send template emails — the Email toggle
+  on other notifications is still a no-op.
+
+### Deploy notes
+- Functions deployed today (all `verify_jwt: false`, so `--no-verify-jwt`): stripe-webhook, twilio-webhook,
+  send-scheduled-reminders. The cloud session can't run the CLI (no Supabase login) — David runs the command.
+- `git fetch`/`commit` from the session VM can leave `.git/*.lock` / `tmp_obj_*` files it can't delete
+  without delete permission — clean them up or David's next commit fails.
+
 ## Session 293 — Sep 15, 2026: customer-app Account/Payment/Rewards redesign, secured card functions, email sign-in fix
 
-**START HERE next time.** Everything below is pushed, deployed and verified live by David on his phone
+Everything below is pushed, deployed and verified live by David on his phone
 (Profile inline edit, cards sheet, Apple Pay, one-tap "send card link"). Open follow-ups:
 tech-debt items 15–18 in `docs/washroute/status.md`; home invite strip is built but OFF until the
 Home checkbox is ticked in Admin → Referrals.

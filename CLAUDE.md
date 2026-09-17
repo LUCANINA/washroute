@@ -86,6 +86,13 @@ fixes the problem, and prefer one shared helper over N parallel edits.
 - **Test with production-shaped data.** PostgREST returns `numeric` as strings;
   `.in('id', ids)` must be batched (100 at a time) or long lists fail opaquely.
 - **The database is the one thing that cannot be undone.** Migration review, always.
+- **Every credit change goes through a ledger-writing RPC** (`adjust_customer_credits` etc.). A direct
+  `customers.credits` write is invisible in Billing History — the stripe-webhook $20 "migration credit" did
+  exactly that for 253 customers (session 296).
+- **Never ask only happy customers for public reviews** (Google/FTC "review gating"). The Google link is shown
+  to every rater; never ask for Yelp reviews; never reward reviews.
+- **CANCEL, STOP, END, QUIT, UNSUBSCRIBE are carrier opt-out words** — Twilio unsubscribes the texter before our
+  webhook runs. Never use them as SMS commands (cancel = SKIP).
 - **Referral amounts live ONLY in referral settings** (Admin → Referrals, `referral_config()`).
   Never store or display them anywhere else as a typed number. A stale $10 "Refer-a-Friend Credit"
   fee row contradicted the real $15/$15 terms on the customer Pricing page (session 293). The
