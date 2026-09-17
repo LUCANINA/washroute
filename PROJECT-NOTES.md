@@ -2,8 +2,9 @@
 
 ## Session 299 — Sep 17, 2026: website off Wix (started) + shared FAQ content
 
-**Status:** DB live. `website/` committed, **not yet deployed** — needs a new Vercel project (Root Directory `website`).
-The Vercel MCP connector is not linked to David's team (team_i96PJNWcwoFLhr6dXpyFo84y), so David creates the project.
+**Status:** DB live. Admin + customer-app changes **pushed and live**. `website/` committed but **not yet deployed** —
+needs a new Vercel project (Root Directory `website`). The Vercel MCP connector is not linked to David's team
+(team_i96PJNWcwoFLhr6dXpyFo84y), so David creates the project in the dashboard and sends back the *.vercel.app URL.
 Plan doc: https://claude.ai/code/artifact/969ded65-373d-41b8-b939-92c57792947a (FAQ fixes + Wix migration estimate).
 
 - **DB (migrations session_299, 299b):** `faq_topics`, `faq_items` (audience, show_on_web, show_in_app, sort_order),
@@ -32,16 +33,34 @@ Plan doc: https://claude.ai/code/artifact/969ded65-373d-41b8-b939-92c57792947a (
   (site_info key/value) + Live values tab (every token with what it shows right now, click to insert).
   Unknown tokens are flagged red in the preview instead of silently rendering nothing.
   `role_permissions` seeded: admin + manager only. Token logic mirrors `website/assets/fl-content.js` — keep in step.
-- **Customer app → Account → Help & Info (session 299f):** hub (Pricing · FAQ · Contact us · Service area & drop-off ·
-  Terms & privacy) replacing the bare Pricing row. FAQ reads `faq_items` (show_in_app, audience matched to the
-  customer's pricelist: Commercial → commercial, else residential), search filters question + answer text, tokens
-  filled from `site_public_values()` (cached 5 min). Contact us = call / text / email / feedback sheet / drop-off.
+- **Customer app → Account → Info (sessions 299f, 299j):** panel named **Info** with four rows and no sub-text —
+  Pricing · FAQ · Contact us · Service area. FAQ reads `faq_items` (show_in_app, audience matched to the customer's
+  pricelist: Commercial → commercial, else residential), search filters question + answer text, tokens filled from
+  `site_public_values()` (cached 5 min). Contact us = call / text / email / feedback sheet / drop-off card.
   Verified with real data: 27 questions for a residential customer, prices correct, no console errors.
-- **Next:** website forms; customer app Help & Info using `fl-content.js`; forms; blog; Gift Up widget.
+  Dropped on David's call: Terms & privacy row, and the drop-off card under Service area (deliveries are the priority;
+  drop-off is covered in the FAQ).
+- **Account screen order (299h, 299m):** Profile · Preferences · Info · Rewards · Send us feedback.
+  **Billing History moved inside Profile**, below Subscription, keeping its `acct-menu-billing-info` sub-label.
+- **Preferences layout (299k, 299l, 299n):** section dividers removed; every gap — including Tip → Save button — is a
+  single 22px rule scoped to `#sub-prefs .sub-panel-body > * + *`, so the rhythm can't drift when a section is added.
+  `$`/`%` toggle is 42px, matching the tip input; tip note shortened to "Added to each order" so it stays on one line.
+
+### Two mistakes worth remembering (session 299)
+- **CSS landed in the wrong `<style>` (299g).** `admin-dashboard/index.html` has several `<style>` blocks inside JS
+  template literals (invoice/receipt print HTML). Inserting before the *last* `</style>` put the App Content styles in
+  the invoice print template: the page rendered unstyled and printed invoices carried stray CSS. New rules for the app
+  belong in the FIRST `<style>` block (the one in `<head>`, ends ~line 1553).
+- **A dropped `</div>` hid the bottom nav (299i).** Rebuilding the `.acct-menu` block to reorder rows left out its
+  closing tag; the nav ended up nested inside the Account screen and vanished from Home. The JS syntax check passed —
+  it says nothing about markup. **After any markup edit to these single-file apps, count `<div` vs `</div>` in the
+  region you touched** (what 299i did) before committing.
+- **Next:** website forms (contact + commercial quote → DB + info@); blog (5 posts); Gift Up widget on /gifts-cards;
+  app store links in `site_info`; then the Vercel project + preview review.
 
 ## Session 298 — Sep 17, 2026: in-app "Send us feedback" + one Feedback report
 
-**Status:** DB + edge function LIVE. App changes (customer-app, admin-dashboard) written and tested, **not yet committed/pushed**.
+**Status:** LIVE — DB, edge function and both apps pushed and verified.
 
 - **DB (migrations session_298, 298b):** `customer_messages` (topic idea/problem/delivery/billing/compliment, message,
   optional order, up to 3 photos, contact_ok, issue_id, email_sent_at/email_error). Writes only via
