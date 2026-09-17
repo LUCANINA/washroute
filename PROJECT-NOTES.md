@@ -27,7 +27,12 @@ Plan doc: https://claude.ai/code/artifact/969ded65-373d-41b8-b939-92c57792947a (
   Wix is missing 6 of our questions (SKIP/cancel, pickup windows, delivery cost, referral, tipping, what we can't wash),
   and still claims "100% owned and operated delivery trucks" + "7 days a week" on several pages.
   Its retail fragrance-sensitivity note was good — copied into our drop-off answer.
-- **Next:** Admin → App Content editor; customer app Help & Info using `fl-content.js`; forms; blog; Gift Up widget.
+- **Admin → Settings → App Content (session 299e):** FAQ editor (question, answer with live-token buttons and a
+  customer preview, topic, audience, show on web / show in app, reorder with ▲▼, add/delete) + Business info tab
+  (site_info key/value) + Live values tab (every token with what it shows right now, click to insert).
+  Unknown tokens are flagged red in the preview instead of silently rendering nothing.
+  `role_permissions` seeded: admin + manager only. Token logic mirrors `website/assets/fl-content.js` — keep in step.
+- **Next:** customer app Help & Info; customer app Help & Info using `fl-content.js`; forms; blog; Gift Up widget.
 
 ## Session 298 — Sep 17, 2026: in-app "Send us feedback" + one Feedback report
 

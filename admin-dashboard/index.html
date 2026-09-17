@@ -1713,6 +1713,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
           Referrals
         </div>
+        <div class="nav-item" data-page="appcontent" data-section="settings" onclick="showPage('appcontent',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          App Content
+        </div>
         <div class="nav-item" data-page="team" data-section="settings" onclick="showPage('team',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
           Team
@@ -5639,6 +5643,60 @@
         <div class="page" id="page-settings"></div>
 
         <!-- ── TEAM ── -->
+        <div class="page" id="page-appcontent">
+          <!-- Session 299: FAQ + business info shown on familylaundry.com AND in the customer app.
+               Prices are never typed here — answers use live tokens filled by site_public_values(). -->
+          <div class="svc-page-tabs" style="margin-bottom:16px">
+            <button class="svc-page-tab active" id="actab-btn-faq"  onclick="acTab('faq',this)">FAQ</button>
+            <button class="svc-page-tab"        id="actab-btn-info" onclick="acTab('info',this)">Business info</button>
+            <button class="svc-page-tab"        id="actab-btn-help" onclick="acTab('help',this)">Live values</button>
+          </div>
+
+          <div id="actab-faq">
+            <div class="card">
+              <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                <div>
+                  <div class="card-title">FAQ</div>
+                  <div class="card-sub" id="ac-faq-sub">Loading…</div>
+                </div>
+                <button class="btn btn-primary" style="font-size:13px;padding:7px 14px" onclick="acNewItem()">+ Add question</button>
+              </div>
+              <div style="padding:0 24px 12px;font-size:12px;color:var(--gray-500);line-height:1.5">
+                Shown on familylaundry.com and in the customer app. Write prices as tokens like <code>{price:Wash &amp; Fold}</code>
+                so they always match the app — see the <b>Live values</b> tab.
+              </div>
+              <div class="ac-grid" style="padding:0 24px 24px">
+                <div id="ac-faq-list"></div>
+                <div id="ac-faq-editor"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="actab-info" style="display:none">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Business info</div>
+                  <div class="card-sub">Phone, email, addresses and hours. Used by the website, the FAQ and the app.</div>
+                </div>
+              </div>
+              <div id="ac-info-body" style="padding:0 24px 24px"></div>
+            </div>
+          </div>
+
+          <div id="actab-help" style="display:none">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Live values</div>
+                  <div class="card-sub">Paste any of these into an answer. They fill in automatically from Services &amp; Pricing.</div>
+                </div>
+              </div>
+              <div id="ac-help-body" style="padding:0 24px 24px"></div>
+            </div>
+          </div>
+        </div>
+
         <div class="page" id="page-team">
           <div class="section-tabs">
             <button class="section-tab active" id="team-tab-members" onclick="setTeamTab('members',this)">Team Members</button>
@@ -9024,7 +9082,7 @@
   function _bkCanWrite() { return BK_WRITE_ROLES.includes(currentUserRole); }
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
                         'reports','smsdelivery','bookkeeping','services','notifications','maps','launderers','racks',
-                        'discounts','referrals','team','settings'];
+                        'discounts','referrals','appcontent','team','settings'];
 
   function canAccessPage(pageId) {
     if (currentUserRole === 'admin') return true;
@@ -9066,7 +9124,7 @@
     overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
     inbox:'Inbox', lostfound:'Lost & Found', drivers:'Drivers', pos:'POS', reports:'Reports', smsdelivery:'SMS Delivery', bookkeeping:'Bookkeeping', services:'Services',
     notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
-    racks:'Racks', discounts:'Discounts', team:'Team', settings:'General'
+    racks:'Racks', discounts:'Discounts', appcontent:'App Content', team:'Team', settings:'General'
   };
   const EDITABLE_ROLES = ['manager', 'laundry_tech', 'attendant']; // admin is always full access
 
@@ -9241,6 +9299,310 @@
       return;
     }
     showToast(`${PAGE_LABELS[pageId] || pageId} ${allowed ? 'enabled' : 'disabled'} for ${ROLE_LABELS_MAP[role] || role}`, 'success');
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     APP CONTENT (session 299) — FAQ + business info for the website
+     and the customer app. Answers carry live tokens ({price:…}) that
+     site_public_values() fills, so a price is never typed twice.
+     Mirrors website/assets/fl-content.js — keep the two in step.
+     ══════════════════════════════════════════════════════════════ */
+  let _ac = { topics: [], items: [], info: [], values: {}, selId: null, dirty: false };
+
+  function acTab(tab, btn) {
+    ['faq','info','help'].forEach(t => {
+      document.getElementById('actab-' + t).style.display = t === tab ? '' : 'none';
+      document.getElementById('actab-btn-' + t).classList.toggle('active', t === tab);
+    });
+    if (btn) btn.classList.add('active');
+  }
+
+  async function loadAppContentPage() {
+    const [topics, items, info, vals] = await Promise.all([
+      db.from('faq_topics').select('id, slug, name, sort_order').order('sort_order'),
+      db.from('faq_items').select('id, topic_id, question, answer, audience, show_on_web, show_in_app, sort_order, updated_at, updated_by').order('sort_order'),
+      db.from('site_info').select('key, label, value, sort_order').order('sort_order'),
+      db.rpc('site_public_values'),
+    ]);
+    const err = topics.error || items.error || info.error || vals.error;
+    if (err) { showToast('Could not load app content: ' + err.message, 'error'); return; }
+    _ac.topics = topics.data || []; _ac.items = items.data || [];
+    _ac.info = info.data || [];     _ac.values = vals.data || {};
+    acRenderList(); acRenderInfo(); acRenderHelp();
+    if (!_ac.selId && _ac.items.length) acSelect(_ac.items[0].id);
+    else acRenderEditor();
+  }
+
+  // ── token filling (same rules as the website renderer) ──
+  function acMoney(n) {
+    const v = Number(n);
+    if (!isFinite(v)) return '';
+    return '$' + (Math.round(v * 100) % 100 === 0 ? String(Math.round(v)) : v.toFixed(2));
+  }
+  function acTokenValue(kind, arg) {
+    const v = _ac.values || {};
+    const price = p => p ? acMoney(p.amount) + (p.type === 'per_lb' ? '/lb' : '') : null;
+    switch (kind) {
+      case 'price':      return price((v.price || {})[arg]);
+      case 'retail':     return price((v.retail || {})[arg]);
+      case 'commercial': return price((v.commercial || {})[arg]);
+      case 'fee':        return (v.fee || {})[arg] != null ? acMoney(v.fee[arg]) : null;
+      case 'plan': {
+        const p = v.plan || {};
+        if (arg === 'price' || arg === 'overage') return p[arg] != null ? acMoney(p[arg]) : null;
+        if (arg === 'lbs')  return p.lbs != null ? String(p.lbs) : null;
+        if (arg === 'name') return p.name || null;
+        return null;
+      }
+      case 'referral': { const r = v.referral || {}; return r[arg] != null ? acMoney(r[arg]) : null; }
+      case 'site':   return (v.site || {})[arg] || null;
+      case 'zones':  if (arg !== 'cities') return null; {
+        const c = v.cities || [];
+        return c.length <= 1 ? c.join('') : c.slice(0, -1).join(', ') + ' and ' + c[c.length - 1];
+      }
+      default: return null;
+    }
+  }
+  const AC_TOKEN_RE = /\{(price|retail|commercial|fee|plan|referral|site|zones):([^{}\n]{1,60})\}/g;
+  function acRenderContent(text) {
+    const missing = [];
+    const filled = esc(String(text || '')).replace(AC_TOKEN_RE, (m, kind, arg) => {
+      const raw = arg.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
+      const val = acTokenValue(kind, raw);
+      if (val == null) { missing.push('{' + kind + ':' + raw + '}'); return '<span style="background:#fee2e2;color:#b91c1c">?</span>'; }
+      return esc(val);
+    });
+    const html = filled.split(/\n{2,}/).map(b => b.trim()).filter(Boolean).map(b => {
+      const lines = b.split('\n');
+      if (lines.every(l => /^\s*-\s+/.test(l))) return '<ul>' + lines.map(l => '<li>' + acInline(l.replace(/^\s*-\s+/, '')) + '</li>').join('') + '</ul>';
+      return '<p>' + acInline(lines.join('<br>')) + '</p>';
+    }).join('');
+    return { html, missing };
+  }
+  function acInline(t) {
+    return t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) =>
+              /^(https?:\/\/|\/(?!\/)|mailto:|tel:|#)/i.test(url.replace(/&amp;/g, '&')) ? '<u>' + label + '</u>' : label);
+  }
+
+  // ── list ──
+  function acRenderList() {
+    const host = document.getElementById('ac-faq-list');
+    const sub = document.getElementById('ac-faq-sub');
+    if (!host) return;
+    const hiddenCount = _ac.items.filter(i => !i.show_on_web && !i.show_in_app).length;
+    if (sub) sub.textContent = `${_ac.items.length} question${_ac.items.length === 1 ? '' : 's'} in ${_ac.topics.length} topics` +
+      (hiddenCount ? ` · ${hiddenCount} hidden everywhere` : '');
+    host.innerHTML = _ac.topics.map(t => {
+      const rows = _ac.items.filter(i => i.topic_id === t.id).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+      return `<div class="ac-topic">${esc(t.name)} · ${rows.length}</div>` + (rows.map((it, idx) => `
+        <div class="ac-row ${it.id === _ac.selId ? 'sel' : ''} ${(!it.show_on_web && !it.show_in_app) ? 'hidden-item' : ''}" onclick="acSelect(${it.id})">
+          <span class="q">${esc(it.question)}</span>
+          ${it.audience !== 'everyone' ? `<span class="ac-badge">${esc(it.audience)}</span>` : ''}
+          ${!it.show_on_web ? '<span class="ac-badge">not on web</span>' : ''}
+          ${!it.show_in_app ? '<span class="ac-badge">not in app</span>' : ''}
+          <button class="ac-move" title="Move up" ${idx === 0 ? 'disabled' : ''} onclick="event.stopPropagation();acMove(${it.id},-1)">▲</button>
+          <button class="ac-move" title="Move down" ${idx === rows.length - 1 ? 'disabled' : ''} onclick="event.stopPropagation();acMove(${it.id},1)">▼</button>
+        </div>`).join('') || '<div style="font-size:12.5px;color:var(--gray-400);padding:4px 2px">No questions yet.</div>');
+    }).join('');
+  }
+
+  function acSelect(id) {
+    if (_ac.dirty && !confirm('Discard your unsaved changes?')) return;
+    _ac.selId = id; _ac.dirty = false;
+    acRenderList(); acRenderEditor();
+  }
+
+  function acNewItem() {
+    if (_ac.dirty && !confirm('Discard your unsaved changes?')) return;
+    const t = _ac.topics[0];
+    if (!t) { showToast('Add a topic first', 'error'); return; }
+    const maxSort = Math.max(0, ..._ac.items.filter(i => i.topic_id === t.id).map(i => i.sort_order));
+    _ac.items.push({ id: 'new', topic_id: t.id, question: '', answer: '', audience: 'everyone',
+                     show_on_web: true, show_in_app: true, sort_order: maxSort + 10 });
+    _ac.selId = 'new'; _ac.dirty = true;
+    acRenderList(); acRenderEditor();
+  }
+
+  // ── editor ──
+  function acRenderEditor() {
+    const host = document.getElementById('ac-faq-editor');
+    if (!host) return;
+    const it = _ac.items.find(i => i.id === _ac.selId);
+    if (!it) { host.innerHTML = '<div class="ac-editor" style="color:var(--gray-500);font-size:13px">Pick a question on the left, or add one.</div>'; return; }
+    const isNew = it.id === 'new';
+    const stamp = it.updated_at
+      ? `Last edited ${new Date(it.updated_at).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' })}${it.updated_by ? ' by ' + esc(it.updated_by) : ''}`
+      : '';
+    host.innerHTML = `
+      <div class="ac-editor">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <b style="font-size:14px">${isNew ? 'New question' : 'Edit question'}</b>
+          <span style="font-size:11.5px;color:var(--gray-400)">${stamp}</span>
+        </div>
+        <div class="ac-label">Topic</div>
+        <select id="ac-f-topic" onchange="acField('topic_id', Number(this.value))">
+          ${_ac.topics.map(t => `<option value="${t.id}" ${t.id === it.topic_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}
+        </select>
+        <div class="ac-label">Question</div>
+        <input type="text" id="ac-f-q" maxlength="200" value="${esc(it.question)}" oninput="acField('question', this.value)">
+        <div class="ac-label">Answer</div>
+        <textarea id="ac-f-a" maxlength="5000" oninput="acField('answer', this.value)">${esc(it.answer)}</textarea>
+        <div class="ac-tokens">
+          ${['{price:Wash & Fold}','{fee:Delivery Fee}','{fee:Same-Day Surcharge}','{plan:price}','{plan:lbs}','{referral:friend}','{site:phone}','{site:email}','{zones:cities}']
+            .map(t => `<button onclick="acInsertToken('${t.replace(/'/g, "\\'")}')">${esc(t)}</button>`).join('')}
+        </div>
+        <div class="ac-label">Shown to</div>
+        <select id="ac-f-aud" onchange="acField('audience', this.value)">
+          <option value="everyone"    ${it.audience === 'everyone' ? 'selected' : ''}>Everyone</option>
+          <option value="residential" ${it.audience === 'residential' ? 'selected' : ''}>Residential customers</option>
+          <option value="commercial"  ${it.audience === 'commercial' ? 'selected' : ''}>Commercial customers</option>
+        </select>
+        <div class="ac-checks">
+          <label><input type="checkbox" ${it.show_on_web ? 'checked' : ''} onchange="acField('show_on_web', this.checked)"> Show on the website</label>
+          <label><input type="checkbox" ${it.show_in_app ? 'checked' : ''} onchange="acField('show_in_app', this.checked)"> Show in the app</label>
+        </div>
+        <div class="ac-label">Customer sees</div>
+        <div class="ac-preview" id="ac-f-prev"></div>
+        <div id="ac-f-warn"></div>
+        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+          <button class="btn btn-primary" style="font-size:13px;padding:8px 16px" onclick="acSave()">Save</button>
+          ${isNew ? '' : `<button class="btn btn-ghost" style="font-size:13px;padding:8px 14px" onclick="acDelete()">Delete</button>`}
+          <button class="btn btn-ghost" style="font-size:13px;padding:8px 14px" onclick="loadAppContentPage()">Cancel</button>
+        </div>
+      </div>`;
+    acRenderPreview();
+  }
+
+  function acField(key, val) {
+    const it = _ac.items.find(i => i.id === _ac.selId);
+    if (!it) return;
+    it[key] = val; _ac.dirty = true;
+    if (key === 'answer') acRenderPreview();
+    if (key === 'question' || key === 'topic_id' || key === 'audience' || key.startsWith('show_')) acRenderList();
+  }
+
+  function acRenderPreview() {
+    const it = _ac.items.find(i => i.id === _ac.selId);
+    const prev = document.getElementById('ac-f-prev'), warn = document.getElementById('ac-f-warn');
+    if (!it || !prev) return;
+    const r = acRenderContent(it.answer);
+    prev.innerHTML = r.html || '<span style="color:var(--gray-400)">Nothing yet.</span>';
+    warn.innerHTML = r.missing.length
+      ? `<div class="ac-warn">Unknown value${r.missing.length > 1 ? 's' : ''}: ${esc([...new Set(r.missing)].join(', '))}. Check the spelling on the <b>Live values</b> tab — the customer would see nothing there.</div>`
+      : '';
+  }
+
+  function acInsertToken(token) {
+    const ta = document.getElementById('ac-f-a');
+    if (!ta) return;
+    const start = ta.selectionStart ?? ta.value.length, end = ta.selectionEnd ?? start;
+    ta.value = ta.value.slice(0, start) + token + ta.value.slice(end);
+    ta.focus(); ta.selectionStart = ta.selectionEnd = start + token.length;
+    acField('answer', ta.value);
+  }
+
+  async function acSave() {
+    const it = _ac.items.find(i => i.id === _ac.selId);
+    if (!it) return;
+    const q = (it.question || '').trim(), a = (it.answer || '').trim();
+    if (!q) { showToast('Add a question', 'error'); return; }
+    if (!a) { showToast('Add an answer', 'error'); return; }
+    const row = { topic_id: it.topic_id, question: q, answer: a, audience: it.audience,
+                  show_on_web: !!it.show_on_web, show_in_app: !!it.show_in_app, sort_order: it.sort_order,
+                  updated_at: new Date().toISOString(), updated_by: currentUserDisplayName || currentUserFirstName || 'Admin' };
+    const res = it.id === 'new'
+      ? await db.from('faq_items').insert(row).select('id').single()
+      : await db.from('faq_items').update(row).eq('id', it.id).select('id').single();
+    if (res.error) { showToast('Could not save: ' + res.error.message, 'error'); return; }
+    _ac.dirty = false; _ac.selId = res.data.id;
+    showToast('Saved — live on the website within 5 minutes', 'success');
+    loadAppContentPage();
+  }
+
+  async function acDelete() {
+    const it = _ac.items.find(i => i.id === _ac.selId);
+    if (!it || it.id === 'new') return;
+    if (!confirm(`Delete "${it.question}"? To hide it instead, untick both "Show" boxes.`)) return;
+    const { error } = await db.from('faq_items').delete().eq('id', it.id);
+    if (error) { showToast('Could not delete: ' + error.message, 'error'); return; }
+    _ac.selId = null; _ac.dirty = false;
+    showToast('Question deleted', 'success');
+    loadAppContentPage();
+  }
+
+  async function acMove(id, dir) {
+    const it = _ac.items.find(i => i.id === id);
+    if (!it) return;
+    const siblings = _ac.items.filter(i => i.topic_id === it.topic_id && i.id !== 'new')
+      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+    const idx = siblings.findIndex(i => i.id === id);
+    const swap = siblings[idx + dir];
+    if (!swap) return;
+    const a = it.sort_order, b = swap.sort_order;
+    // Equal sort_orders would make the swap a no-op — renumber the topic instead.
+    if (a === b) {
+      let n = 10;
+      for (const sib of siblings) { sib.sort_order = n; n += 10; }
+      const ups = siblings.map(sib => db.from('faq_items').update({ sort_order: sib.sort_order }).eq('id', sib.id));
+      const results = await Promise.all(ups);
+      const bad = results.find(r => r.error);
+      if (bad) { showToast('Could not reorder: ' + bad.error.message, 'error'); }
+      return loadAppContentPage();
+    }
+    const [r1, r2] = await Promise.all([
+      db.from('faq_items').update({ sort_order: b }).eq('id', it.id),
+      db.from('faq_items').update({ sort_order: a }).eq('id', swap.id),
+    ]);
+    if (r1.error || r2.error) { showToast('Could not reorder', 'error'); }
+    loadAppContentPage();
+  }
+
+  // ── business info ──
+  function acRenderInfo() {
+    const host = document.getElementById('ac-info-body');
+    if (!host) return;
+    host.innerHTML = _ac.info.map(r => `
+      <div class="ac-info-row">
+        <div class="lbl">${esc(r.label)}<code>{site:${esc(r.key)}}</code></div>
+        <input type="text" id="ac-info-${esc(r.key)}" value="${esc(r.value)}" maxlength="2000">
+        <button class="btn btn-ghost" style="font-size:12.5px;padding:6px 12px" onclick="acSaveInfo('${esc(r.key)}')">Save</button>
+      </div>`).join('');
+  }
+
+  async function acSaveInfo(key) {
+    const el = document.getElementById('ac-info-' + key);
+    if (!el) return;
+    const { error } = await db.from('site_info')
+      .update({ value: el.value.trim(), updated_at: new Date().toISOString(),
+                updated_by: currentUserDisplayName || currentUserFirstName || 'Admin' })
+      .eq('key', key);
+    if (error) { showToast('Could not save: ' + error.message, 'error'); return; }
+    showToast('Saved — live on the website within 5 minutes', 'success');
+    loadAppContentPage();
+  }
+
+  // ── live values reference ──
+  function acRenderHelp() {
+    const host = document.getElementById('ac-help-body');
+    if (!host) return;
+    const v = _ac.values || {};
+    const rows = [];
+    const add = (token, what) => rows.push([token, acRenderContent(token).html.replace(/^<p>|<\/p>$/g, ''), what]);
+    Object.keys(v.price || {}).forEach(n => add(`{price:${n}}`, 'Delivery price list'));
+    Object.keys(v.retail || {}).forEach(n => add(`{retail:${n}}`, 'Drop-off (retail) price list'));
+    Object.keys(v.commercial || {}).forEach(n => add(`{commercial:${n}}`, 'Commercial price list'));
+    Object.keys(v.fee || {}).forEach(n => add(`{fee:${n}}`, 'Fees'));
+    ['price','lbs','overage','name'].forEach(k => add(`{plan:${k}}`, 'Subscription plan'));
+    ['friend','referrer'].forEach(k => add(`{referral:${k}}`, 'Referral settings'));
+    Object.keys(v.site || {}).forEach(k => add(`{site:${k}}`, 'Business info tab'));
+    add('{zones:cities}', 'Delivery zones');
+    host.innerHTML = `<table class="ac-help-tbl">
+      <thead><tr><th>Token</th><th>Shows right now</th><th>Comes from</th></tr></thead>
+      <tbody>${rows.map(([t, val, src]) => `<tr>
+        <td><code onclick="acInsertToken('${t.replace(/'/g, "\\'")}')" title="Click to insert into the answer you are editing">${esc(t)}</code></td>
+        <td>${val || '<span style="color:var(--gray-400)">(empty)</span>'}</td>
+        <td style="color:var(--gray-500)">${esc(src)}</td></tr>`).join('')}</tbody></table>`;
   }
 
   // ── INVITE / CREATE ACCOUNT MODAL ──
@@ -9630,10 +9992,10 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', bookkeeping:'Bookkeeping', discounts:'Discounts', referrals:'Referrals', settings:'General', team:'Team' };
+  const pageTitles = { appcontent:'App Content', overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', bookkeeping:'Bookkeeping', discounts:'Discounts', referrals:'Referrals', settings:'General', team:'Team' };
   // Bookkeeping's CTA depends on which sub-tab (Overview/Loans/Payroll) is active —
   // set dynamically by switchBookkeepingView()/updateBookkeepingTopbar(), not here.
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', bookkeeping:'', discounts:'', referrals:'', settings:'', team:'' };
+  const pageCTAs   = { appcontent:'', overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', bookkeeping:'', discounts:'', referrals:'', settings:'', team:'' };
 
   // POS launcher — opens the POS app in a new tab (not an SPA page, just an external link)
   function openPosLauncher() {
@@ -9707,9 +10069,10 @@
     if (id === 'referrals') loadReferralsPage();
     if (id === 'settings') renderSettingsTab();
     if (id === 'team') loadTeamPage();
+    if (id === 'appcontent') loadAppContentPage();
 
     // Auto-expand settings nav group when navigating to a settings page
-    const settingsPages = ['services','notifications','maps','launderers','racks','discounts','referrals','team','settings'];
+    const settingsPages = ['services','notifications','maps','launderers','racks','discounts','referrals','appcontent','team','settings'];
     if (settingsPages.includes(id)) {
       const grp = document.getElementById('settings-nav-group');
       if (grp && grp.style.display === 'none') toggleSettingsNav();
@@ -26781,7 +27144,7 @@ ${noActivityNote}
     // Also auto-expand if the current hash is a settings page
     try {
       const hash = location.hash.replace('#','');
-      const settingsPages = ['services','notifications','maps','launderers','racks','discounts','referrals','team','settings'];
+      const settingsPages = ['services','notifications','maps','launderers','racks','discounts','referrals','appcontent','team','settings'];
       if (settingsPages.includes(hash)) {
         const grp = document.getElementById('settings-nav-group');
         const chev = document.getElementById('settings-nav-chevron');
@@ -55576,6 +55939,40 @@ async function _dvIframeLoaded() {
   html, body { background: #ffffff; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; max-width: 720px; margin: 0 auto; padding: 0 40px 32px; }
   table { width: 100%; border-collapse: collapse; }
+
+    /* ── App Content (session 299) ── */
+    .ac-grid { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(340px, 1.25fr); gap: 20px; }
+    @media (max-width: 1100px) { .ac-grid { grid-template-columns: 1fr; } }
+    .ac-topic { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--gray-500); margin: 16px 0 6px; }
+    .ac-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--gray-200); border-radius: 8px; padding: 7px 10px; margin-bottom: 6px; background: #fff; cursor: pointer; }
+    .ac-row:hover { border-color: var(--gray-300); }
+    .ac-row.sel { border-color: var(--accent); background: #f5f9ff; }
+    .ac-row .q { flex: 1; min-width: 0; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ac-row.hidden-item .q { color: var(--gray-400); text-decoration: line-through; }
+    .ac-badge { font-size: 10.5px; font-weight: 700; border-radius: 5px; padding: 2px 6px; background: var(--gray-100); color: var(--gray-600); white-space: nowrap; }
+    .ac-move { border: none; background: none; color: var(--gray-400); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 3px; }
+    .ac-move:hover { color: var(--gray-800); }
+    .ac-editor { border: 1px solid var(--gray-200); border-radius: 10px; padding: 16px; position: sticky; top: 12px; }
+    .ac-label { font-size: 12px; font-weight: 600; color: var(--gray-600); margin: 12px 0 4px; }
+    .ac-editor input[type=text], .ac-editor textarea, .ac-editor select { width: 100%; border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px 10px; font-size: 13.5px; font-family: inherit; }
+    .ac-editor textarea { min-height: 150px; line-height: 1.5; resize: vertical; }
+    .ac-tokens { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .ac-tokens button { font-size: 11.5px; border: 1px dashed var(--accent); color: var(--accent); background: #fff; border-radius: 6px; padding: 3px 7px; font-weight: 600; cursor: pointer; }
+    .ac-preview { background: var(--gray-50); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; line-height: 1.5; }
+    .ac-preview p { margin: 0 0 8px; } .ac-preview p:last-child { margin: 0; }
+    .ac-preview ul { margin: 0 0 8px 18px; padding: 0; }
+    .ac-warn { background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12; border-radius: 8px; padding: 8px 10px; font-size: 12.5px; margin-top: 8px; }
+    .ac-checks { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+    .ac-checks label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .ac-info-row { display: grid; grid-template-columns: 220px 1fr auto; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--gray-100); }
+    .ac-info-row input { border: 1px solid var(--gray-200); border-radius: 8px; padding: 7px 10px; font-size: 13.5px; width: 100%; font-family: inherit; }
+    .ac-info-row .lbl { font-size: 13px; color: var(--gray-700); font-weight: 600; }
+    .ac-info-row code { font-size: 11.5px; color: var(--gray-500); display: block; font-weight: 400; }
+    @media (max-width: 800px) { .ac-info-row { grid-template-columns: 1fr; } }
+    .ac-help-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ac-help-tbl th { text-align: left; padding: 8px; border-bottom: 1px solid var(--gray-200); color: var(--gray-700); }
+    .ac-help-tbl td { padding: 7px 8px; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
+    .ac-help-tbl code { background: var(--gray-50); padding: 1px 5px; border-radius: 4px; cursor: pointer; }
 </style>
 </head><body>
 <div class="no-print" style="text-align:center;padding:10px;background:#f0f9ff;border-radius:8px;margin:12px 0;font-size:13px;color:#1e40af">
