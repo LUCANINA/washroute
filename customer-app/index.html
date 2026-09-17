@@ -662,7 +662,7 @@
     .credits-amount.empty { color: var(--gray-300); }
 
     /* Tip */
-    .tip-toggle-btn { padding: 6px 14px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; transition: all .15s; font-family: inherit; }
+    .tip-toggle-btn { padding: 0 16px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; transition: all .15s; font-family: inherit; display: flex; align-items: center; }
     .tip-toggle-btn.active { background: var(--navy); color: white; }
     .tip-toggle-btn:not(.active) { background: white; color: var(--gray-500); }
 
@@ -1790,11 +1790,11 @@
       <div id="account-prefs-container">
         <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading preferences…</div>
       </div>
-      <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--gray-100)">
+      <div style="margin-top:22px">
         <div class="order-pref-label" style="margin-bottom:8px">Special Care Notes</div>
         <textarea id="pref-notes" rows="3" placeholder="e.g. Hang dry delicates, separate darks…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none"></textarea>
       </div>
-      <div id="prefs-tip-section" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--gray-100)"></div>
+      <div id="prefs-tip-section" style="margin-top:22px"></div>
       <button class="pref-save-btn" onclick="savePreferences()" style="margin-top: 20px">Save Preferences</button>
     </div>
   </div>
@@ -9808,12 +9808,12 @@ function renderPaymentSection() {
   const tipHtml = `
     <div class="order-pref-label" style="margin-bottom:8px">Default Tip</div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <div id="tip-type-toggle" style="display:inline-flex;border:1.5px solid var(--gray-200);border-radius:8px;overflow:hidden">
+      <div id="tip-type-toggle" style="display:inline-flex;align-items:stretch;height:42px;border:1.5px solid var(--gray-200);border-radius:8px;overflow:hidden">
         <button type="button" class="tip-toggle-btn${tipType==='$'?' active':''}" data-type="$" onclick="setCustomerTipType('$')">$</button>
         <button type="button" class="tip-toggle-btn${tipType==='%'?' active':''}" data-type="%" onclick="setCustomerTipType('%')">%</button>
       </div>
       <input type="number" id="cust-tip-input" value="${tipVal}" min="0" step="any" placeholder="0" inputmode="decimal"
-        style="width:80px;padding:9px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:15px;font-weight:600;text-align:center;outline:none;font-family:inherit">
+        style="width:80px;height:42px;padding:0 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:15px;font-weight:600;text-align:center;outline:none;font-family:inherit">
       <div style="font-size:13px;color:var(--gray-500);flex:1;min-width:140px">Added to each order for our team</div>
     </div>`;
 
