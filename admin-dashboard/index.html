@@ -2733,6 +2733,23 @@
                Stripe payouts (collected money), so an uncollected card order never
                entered Xero as revenue — there is nothing to reverse. This is a
                record, not a journal. -->
+          <div id="rpttab-referrals" style="display:none">
+            <div class="card" style="margin-top:16px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Referrals</div>
+                  <div class="card-sub" id="referral-summary">&nbsp;</div>
+                </div>
+              </div>
+              <div style="padding:0 24px 12px;font-size:12px;color:var(--gray-500);line-height:1.5">
+                Referrals claimed in the selected dates. Terms and held referrals are in Settings → Referrals.
+              </div>
+              <div id="referral-list-body">
+                <div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>
+              </div>
+            </div>
+          </div>
+
           <div id="rpttab-feedback" style="display:none">
             <div class="card" style="margin-top:16px">
               <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
@@ -3529,17 +3546,8 @@
             </div>
           </div>
 
-          <div class="card">
-            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
-              <div>
-                <div class="card-title">Referrals</div>
-                <div class="card-sub" id="referral-summary">&nbsp;</div>
-              </div>
-              <button class="btn btn-ghost" style="padding:7px 14px;font-size:13px" onclick="loadReferralsPage()">Refresh</button>
-            </div>
-            <div id="referral-list-body">
-              <div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>
-            </div>
+          <div style="font-size:12.5px;color:var(--gray-500);padding:4px 2px">
+            Referral totals and the full list are in <a href="#" onclick="showPage('reports', document.getElementById('nav-reports')); setTimeout(() => setRptTab('referrals', null), 50); return false">Reports → Customers → Referrals</a>.
           </div>
 
         </div>
@@ -41109,19 +41117,32 @@ ${oneCopy}
     loadReferralTerms();
   }
 
-  async function loadReferralPairs() {
-    const queueEl = document.getElementById('referral-queue-body');
-    const listEl  = document.getElementById('referral-list-body');
-    const sumEl   = document.getElementById('referral-summary');
-    if (!listEl) return;
+  // 2026-09-16: two callers. Settings → Referrals shows the held queue (every date);
+  // Reports → Customers → Referrals (forReport) shows totals + list for the date range.
+  async function loadReferralPairs(forReport) {
+    const queueEl = forReport ? null : document.getElementById('referral-queue-body');
+    const listEl  = forReport ? document.getElementById('referral-list-body') : null;
+    const sumEl   = forReport ? document.getElementById('referral-summary') : null;
+    if (!queueEl && !listEl) return;
 
-    const { data: rows, error } = await db.from('referrals')
+    let q = db.from('referrals')
       .select('id, code, status, claimed_at, qualified_at, referrer_credit_amount, referred_credit_amount, hold_reason, released_by, referrer_customer_id, referred_customer_id, qualifying_order_id')
       .order('claimed_at', { ascending: false })
-      .limit(500);
+      .limit(1000);
+    if (forReport) {
+      const fromEl = document.getElementById('rpt-from');
+      const toEl   = document.getElementById('rpt-to');
+      if (!fromEl?.value || !toEl?.value) return;
+      q = q.gte('claimed_at', pacificDayStart(fromEl.value).toISOString())
+           .lte('claimed_at', pacificDayEnd(toEl.value).toISOString());
+    } else {
+      q = q.in('status', ['flagged', 'awaiting_release']);
+    }
+    const { data: rows, error } = await q;
 
     if (error) {
-      listEl.innerHTML = `<div style="padding:16px;color:var(--red)">Could not load referrals: ${esc(error.message)}</div>`;
+      const host = listEl || queueEl;
+      host.innerHTML = `<div style="padding:16px;color:var(--red)">Could not load referrals: ${esc(error.message)}</div>`;
       return;
     }
     const all = rows || [];
@@ -41141,7 +41162,7 @@ ${oneCopy}
     if (sumEl) sumEl.textContent = `${all.length} total · ${qualified.length} qualified · ${fmtMoney(issued)} of credit issued`;
 
     const held = all.filter(r => r.status === 'flagged' || r.status === 'awaiting_release');
-    queueEl.innerHTML = held.length === 0
+    if (queueEl) queueEl.innerHTML = held.length === 0
       ? '<div style="padding:16px;color:var(--gray-500);font-size:13px">Nothing waiting.</div>'
       : `<table><thead><tr>
            <th>Referrer</th><th>Friend</th><th>Why it is held</th><th style="text-align:right">Credit</th><th></th>
@@ -41169,8 +41190,8 @@ ${oneCopy}
       return `<span style="display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;color:${fg};background:${bg}">${esc(label)}</span>`;
     };
 
-    listEl.innerHTML = all.length === 0
-      ? '<div style="padding:16px;color:var(--gray-500);font-size:13px">No referrals yet.</div>'
+    if (listEl) listEl.innerHTML = all.length === 0
+      ? '<div style="padding:16px;color:var(--gray-500);font-size:13px">No referrals in these dates.</div>'
       : `<table><thead><tr>
            <th>Referrer</th><th>Friend</th><th>Code</th><th>Status</th><th>Claimed</th>
            <th style="text-align:right">Friend</th><th style="text-align:right">Referrer</th>
@@ -49853,6 +49874,7 @@ ${oneCopy}
     else if (rptTab === 'subscriptions') loadSubscriptionReport();
     else if (rptTab === 'baddebt')       loadBadDebtReport();
     else if (rptTab === 'feedback')      loadFeedbackPage();
+    else if (rptTab === 'referrals')     loadReferralPairs(true);
   }
 
   // ── BAD DEBT REPORT (session 291e) ──
@@ -49968,7 +49990,7 @@ ${oneCopy}
     { key: 'operations',  label: 'Operations',  tabs: [
         ['drivers', 'Drivers'], ['launderer', 'Launderers'], ['deliverykpis', 'Delivery KPIs'], ['ontime', 'On-Time'] ] },
     { key: 'customers',   label: 'Customers',   tabs: [
-        ['registrations', 'Registrations'], ['subscriptions', 'Subscriptions'], ['feedback', 'Ratings'] ] },
+        ['registrations', 'Registrations'], ['subscriptions', 'Subscriptions'], ['referrals', 'Referrals'], ['feedback', 'Ratings'] ] },
   ];
   const _rptGroupOf = tab => (RPT_GROUPS.find(g => g.tabs.some(t => t[0] === tab)) || RPT_GROUPS[0]).key;
   let rptGroup = 'revenue';
@@ -50056,7 +50078,7 @@ ${oneCopy}
         _rptQuickClear();
       }
     }
-    if (tab === 'subscriptions' || tab === 'deliverykpis' || tab === 'feedback') {
+    if (tab === 'subscriptions' || tab === 'deliverykpis' || tab === 'feedback' || tab === 'referrals') {
       // These reports compare windows / need a multi-day range to be meaningful.
       // If picker is at today-only (the global default), bump it to Last 30 days.
       const fromEl = document.getElementById('rpt-from');
