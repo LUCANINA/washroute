@@ -21131,3 +21131,72 @@ The amortization series closes perfectly once both are netted (5,182.46 → 5,20
 **Still open for David / his accountant:** the ~$3,142 PayPal suspected double-count; Verdant's $572,400 of hand-posted corrections (largest single item $284,350). **Housekeeping:** retire `temp-stripe-304-august-221` and `temp-pcv-254-221`; `_to_delete/` needs a local `rm -rf`; the authority-ranking work (rank statement sources by authority, not just date, so a lender document cannot be silently overridden by a computed snapshot) is the next thing David agreed is worth building.
 
 **Everything deferred out of this session is written up in the `## Tech Debt` section near the top of this file, not just here** — including the `checkDerivedDrift` correcting-journal-window gap, which is item 1 and carries an explicit guard rail against "fixing" it in a way that would re-open the Stripe hole.
+
+---
+
+## Session 307 — three things David found on the live page
+
+Session 306 shipped the Checks column as words. David read the result against real August figures and found three problems. All three were mine; two were defects in the change itself, one was a piece of the approved design that was never built.
+
+### 1. "Rapid Credit says Ledger Differs but the numbers are identical"
+
+He was right, and the asymmetry turned out to be exact.
+
+**Lender differs** has its figure on the same row — the Variance column, one cell to the left, prints it. The word is checkable by looking.
+
+**Ledger differs** had nothing. `unexplained` is `booksClosing − computed`, and `booksClosing` — *Xero's own closing balance for the loan account* — **is on no column of this table.** The Books column beside it is the walk, which is the other operand. So the reader sees Books and Lender agreeing and a red verdict produced by arithmetic that appears nowhere on the screen.
+
+Under the old design a red ✗ was ambiguous enough to invite a hover. A confident word that contradicts the visible numbers does not. This was the canvas rule — *provenance may hover, a verdict may not* — applied only halfway: I promoted the word and left the magnitude behind.
+
+Rapid Credit Line, August 2026, is the live case, and **the check is right**:
+
+| | |
+|---|---|
+| Opening (Jul 31, Xero) | 57,377.83 |
+| Our splits, net principal | −5,848.81 |
+| Ledger increase measured | 1,498.19, clamped to 0 (August interest 2,426.75 exceeds it) |
+| **Books (the walk)** | **51,529.02** |
+| **Xero's own Aug 31 balance** | **51,071.88** |
+| **Unexplained** | **−457.14** |
+
+The $457.14 is the 2026-08-31 interest reallocation (principal −457.14 / interest +457.14, journal `71ed82b2`, posted to Xero 2026-09-04). Our splits put it in August; Xero's August window does not contain it. Component check: ledger drawn 1,498.19 = 513.28 + 499.42 + 471.42 + **14.07**, so the 8/31 journal is absent from August *and* there is $14.07 of ledger increase with no split behind it. 443.07 + 14.07 = 457.14.
+
+**Fix:** `Ledger differs` now carries `signed(r.unexplained)` — "Ledger differs −457.14" — so it subtracts from the Books column beside it.
+
+⚠️ **Do not "for consistency" add the figure to `Lender differs` too.** That one *would* be the same fact twice on one row, and the reason this column could drop its figures at all is that Variance keeps them. The test is not "is it a dollar verdict", it is **"can the reader check it from this row"**.
+
+### 2. "The total variance doesn't add up correctly"
+
+Also right. Three divergences between the column and its total, each individually defensible, which is how they survived together:
+
+1. the cells print the **raw** variance, the total sums the **residual**;
+2. the cells are **signed**, the total is **absolute** (session 236, so +415.88 and −415.88 do not report as $0.00);
+3. the total covers only material+immaterial, while unbooked and stale-anchor rows still print a figure.
+
+Every rule is right. **The row calling itself "Total" is what was wrong**, because a reader adds the column and gets a different number.
+
+`subtotal()` now also computes `varianceShown` — the arithmetic sum of the figures the column literally prints, using the same predicate `varCell` uses to decide whether to print one, written beside it. When it matches the total, nothing is added. When it does not, the total prints **"to resolve"** underneath. Nothing about `variance` itself changed.
+
+### 3. "This section doesn't show either" — the close verdict block
+
+Approved on the canvas, never built; session 306 built only the Checks column. Now built.
+
+"Not ready to close" becomes **"Three things before August 2026 can close"**, and the three things are named, with their figures, in the block rather than in a segment's `title` attribute.
+
+**Nothing about the gates changed.** `gates` still decides `blocked`, still carries every claim in `text`, and is still what `data-gates` exports and what ~150 suite assertions read. Each blocking gate gained `lead`, `who` and optionally `act` **beside** `text`, built from the same variables in the same place — splitting `text` with a regex at render time would have been a second derivation of one claim, which is the class of bug sessions 214–217 were.
+
+The calm line carries the ties even when the variance gate is blocking, because `gates` holds *either* "N loans off" *or* "N tie exactly" for key `variance`, never both — so without it a month with any difference would show three complaints and no denominator, reading as a broken book rather than a book with three things in it.
+
+CSS is scoped to `.lcb-strip-block`, which only the closing band carries. The month-in-flight strip uses the same `.lcb-strip` / `.lcb-lead` classes in the old one-line form and must not move — session 276 already fixed a gap there that existed only because another element happened to sit between two spans.
+
+### The suite was blind again, in a smaller way
+
+Session 306 gave `data-col="status"` a word allowlist and **left `data-col="ledger"` with none**. So when this session changed "Ledger differs" to carry a dollar figure, the suite stayed 98/98 green and said nothing.
+
+Added `s307` assertions, each proved to discriminate by deliberately breaking the code and watching them go red:
+
+- every Ledger word is a known verdict, and "differs" always carries its figure — a **shape** test (`/^Ledger differs [+−]\d[\d,]*\.\d{2}$/`), not a literal list, because the figure moves;
+- every row still states its ledger verdict in full on `data-status` (the ce17 pairing: a tie prints nothing, so the claim has to survive on the attribute);
+- the Variance total says "to resolve" **exactly when** it is not the column's sum — asserts the relation, so it keeps biting whatever the fixture's months do.
+
+**The lesson, again:** a column whose words nothing asserts on is a column whose words a later session can quietly delete.

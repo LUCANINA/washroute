@@ -3947,6 +3947,64 @@
             .lcb-strip.clear { border-color: #bbf7d0; background: #f6fdf9; color: var(--gray-600); }
             .lcb-strip.clear .lcb-lead { color: #166534; }
             .lcb-lead { font-weight: 700; color: var(--gray-900); }
+
+            /* ── SESSION 307: THE VERDICT BLOCK ─────────────────────────────
+               Everything below is scoped to .lcb-strip-block, which ONLY the
+               closing band carries. The month-in-flight strip uses the same
+               .lcb-strip / .lcb-lead classes in its old one-line form and must
+               not move: session 276 already fixed a gap there that existed only
+               because another element happened to sit between two spans, and a
+               blanket change here would reintroduce exactly that class of bug. */
+            /* flex-wrap RESET, and it is not cosmetic: the base .lcb-strip wraps,
+               which is right for the in-flight one-liner and wrong here -- the
+               tile dropped under the list and the block lost its shape. */
+            .lcb-strip-block { display: flex; align-items: flex-start; gap: 28px; flex-wrap: nowrap;
+                               padding: 20px 22px; line-height: 1.55; }
+            .lcb-verdict { flex: 1 1 auto; min-width: 0; }
+            .lcb-strip-block .lcb-lead { font-size: 19px; font-weight: 600; letter-spacing: -.01em;
+                                         margin: 0 0 4px; color: var(--gray-900); line-height: 1.3; }
+            .lcb-ask { display: flex; align-items: baseline; gap: 14px; padding: 11px 0;
+                       border-top: 1px solid var(--gray-100); }
+            .lcb-ask:first-of-type { border-top: 0; padding-top: 10px; }
+            /* The count is the only red on the block. Session 249's rule holds:
+               colour has one job, and here the job is "how many of these". */
+            .lcb-ask-n { flex: 0 0 22px; text-align: right; font-weight: 600; font-size: 13.5px;
+                         color: #c2410c; font-variant-numeric: tabular-nums; }
+            .lcb-ask-body { flex: 1 1 auto; min-width: 0; }
+            .lcb-ask-lead { display: block; font-size: 13.5px; color: var(--gray-900); }
+            /* The names. This line IS the block's reason to exist — session 256
+               round 4: "a count is not an answer." It wraps rather than
+               truncating; a list that ends in an ellipsis is a hover again. */
+            .lcb-ask-who { display: block; font-size: 12.5px; color: var(--gray-500); margin-top: 2px; }
+            .lcb-ask-act { flex: 0 0 auto; align-self: center; background: transparent; border: 0;
+                           padding: 0; font: inherit; font-size: 12.5px; color: var(--blue-600, #2563eb);
+                           cursor: pointer; white-space: nowrap; }
+            .lcb-ask-act:hover { text-decoration: underline; }
+            .lcb-calm { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--gray-100);
+                        font-size: 12.5px; color: var(--gray-500); }
+            .lcb-calm .sep { color: var(--gray-300); }
+            /* The statements counter, unchanged in wording and arithmetic — it
+               moved out of the middle of a sentence into a tile of its own. */
+            .lcb-stmt { flex: 0 0 210px; background: var(--gray-50, #f9fafb); border-radius: 10px;
+                        padding: 14px 16px; align-self: flex-start; }
+            .lcb-stmt-h { font-size: 10.5px; font-weight: 600; letter-spacing: .1em;
+                          text-transform: uppercase; color: var(--gray-500); }
+            .lcb-stmt-n { font-size: 15px; color: var(--gray-500); margin-top: 6px; }
+            .lcb-stmt-n b { font-size: 26px; font-weight: 600; color: var(--gray-900);
+                            letter-spacing: -.02em; }
+            .lcb-stmt-sub { font-size: 12px; color: var(--gray-500); margin-bottom: 10px; }
+            .lcb-stmt .lcb-bar { width: 100%; }
+            .lcb-stmt-key { margin-top: 9px; display: flex; flex-direction: column; gap: 3px;
+                            font-size: 11.5px; color: var(--gray-500); }
+            .lcb-stmt-key i { display: inline-block; width: 7px; height: 7px; border-radius: 2px;
+                              margin-right: 6px; vertical-align: middle; }
+            .lcb-stmt-key .k-done { background: #16a34a; }
+            .lcb-stmt-key .k-unchecked { background: #f59e0b; }
+            .lcb-stmt-key .k-await { background: #dc2626; }
+            @media (max-width: 900px) {
+              .lcb-strip-block { flex-direction: column; gap: 16px; }
+              .lcb-stmt { flex: 1 1 auto; align-self: stretch; }
+            }
             /* ── THE CLOSE PROGRESS BAR (session 273) ───────────────────
                David, choosing option D from the mockups: one line — bar,
                verdict, and the ask. The bar is eight pixels of colour and adds
@@ -4187,6 +4245,8 @@
                verdicts. Spacing does the grouping — no divider, no second
                colour (one contrast step, session 219). */
             .lcb-checks > [data-col="staging"] { margin-left: 11px; }
+            /* ...but an empty one takes no room and earns no gap. */
+            .lcb-checks > .lcb-stage-none { margin-left: 0; display: inline-block; width: 0; height: 0; overflow: hidden; }
             .lcb-do { font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 7px;
                       border: 1px solid var(--gray-200); background: #fff; color: var(--gray-700);
                       cursor: pointer; line-height: 1.4; }
@@ -20114,6 +20174,26 @@
       // figure would put the explained portion into a column headed "still to
       // resolve", which is the opposite of what the explanation established.
       variance:  set.reduce((n, r) => n + ((r.band === 'immaterial' || r.band === 'material') ? Math.abs(r.varianceResidual) : 0), 0),
+      // ── SESSION 307: WHAT THE COLUMN ABOVE ACTUALLY ADDS UP TO ────────────
+      // David: "the total variance doesn't add up correctly." He is right, and
+      // every one of the three reasons is individually defensible, which is how
+      // they survived this long together:
+      //   1. the cells print the RAW variance, the total sums the RESIDUAL;
+      //   2. the cells are SIGNED, the total is ABSOLUTE (session 236, so that
+      //      +415.88 and −415.88 do not report as $0.00);
+      //   3. the total covers only material+immaterial, while unbooked and
+      //      stale-anchor rows still print a figure.
+      // In August that is +15.38 and −5.00 in the column over $20.38 in the
+      // total. Each rule is right; the row calling itself "Total" is what is
+      // wrong, because a reader adds the column and gets a different number.
+      //
+      // So we compute what the column LITERALLY SUMS TO -- the same predicate
+      // `varCell` uses to decide whether it prints a figure at all, kept beside
+      // it -- and the renderer says so whenever the two disagree. It is not a
+      // second opinion about the variance: nothing here changes `variance`
+      // above, and this number is never shown on its own.
+      varianceShown: set.reduce((n, r) => n + ((!r.circular && r.band !== 'tie'
+        && !(r.staleAnchor && r.band !== 'material') && r.variance != null) ? r.variance : 0), 0),
       count:     set.length,
       circular:  set.filter(r => r.circular).length,
       unbooked:  set.filter(r => r.band === 'unbooked').length,
@@ -20228,6 +20308,11 @@
           opening: ro.opening, drawn: ro.drawn, drawnMeasured: ro.drawnMeasured,
           principal: ro.principal, interest: ro.interest, computed: ro.computed,
           perLender: cl.perLender, variance: cl.variance, material: cl.material,
+          // `closable` is exactly the population that can print a variance at
+          // all: `r.variance` is null unless computed AND perLender both exist
+          // (see rawVariance). So this covers every figure the column shows,
+          // and no row outside it can contribute one.
+          varianceShown: cl.varianceShown,
           rollCount: rollable.length, rollCovers: rollable.length === rows.length,
           closingCount: closable.length, closingCovers: closable.length === rows.length,
         };
@@ -20791,7 +20876,13 @@
        export, which never carried staging at all, now reads this. Wrapped here
        rather than at the call site so the two tables cannot drift apart. */
     const wrap = (state, inner) => `<span class="lcb-chk" data-col="staging" data-staging="${esc(state)}">${inner}</span>`;
-    if (!all.length) return wrap('nothing staged', `<span style="color:var(--gray-300)">—</span>`);
+    /* Session 306b: nothing staged now prints NOTHING. The dash was invisible
+       beside a glyph; beside a WORD it reads as part of the verdict ("Immaterial —"),
+       and on a row that ties it was the only thing in the column — something where
+       the answer is nothing. ce17 holds: the claim does not leave the screen, it is
+       on data-staging, which is what the CSV export and the suite both read (the
+       harness asserts on the attribute by name and says so in its own comment). */
+    if (!all.length) return `<span class="lcb-chk lcb-stage-none" data-col="staging" data-staging="nothing staged" title="Nothing staged in Xero for this loan."></span>`;
     const bad = all.filter(sp => sp.stage_sweep_flag);
     // Clicking opens the SPLIT, not the loan — this cell is about one staged
     // transaction, and the row's own click is the wrong destination for it.
@@ -20972,6 +21063,15 @@
     // second must be ADDED beside the first, never substituted for it.
     gates.push(cov.missing.length
       ? { key: 'coverage', bad: true, n: cov.missing.length,
+          // ── SESSION 307: `lead` AND `who`, BESIDE `text`, NEVER INSTEAD OF IT ──
+          // The verdict block below prints the count, the phrase and the names as
+          // three separate things; `text` is one sentence. Splitting `text` with a
+          // regex at render time would be a second derivation of the same claim --
+          // the exact class of bug sessions 214-217 were -- so the two shapes are
+          // built together, here, from the same variables. `text` is UNCHANGED:
+          // data-gates, the CSV export and ~150 suite assertions all read it.
+          lead: `statement${cov.missing.length === 1 ? '' : 's'} still owed by the lender`,
+          who: cov.missing.map(m => m.account),
           text: `${cov.missing.length} statement${cov.missing.length === 1 ? '' : 's'} outstanding: ${names(cov.missing, m => m.account)}` }
       : { key: 'coverage', bad: false, n: 0, text: `all ${cov.expected.length} accounted for` });
     // THE HALF NOTHING MEASURED BEFORE. A statement on file is not evidence
@@ -20980,6 +21080,9 @@
     // every surface counted them as done.
     if (sg.unanalysed.length) {
       gates.push({ key: 'checked', bad: true, n: sg.unanalysed.length,
+        lead: `statement${sg.unanalysed.length === 1 ? '' : 's'} on file, not yet checked against Xero`,
+        who: sg.unanalysed.map(r => r.name),
+        act: { label: 'Check these', fn: 'runReconciliationCheck()' },
         text: `${sg.unanalysed.length} not yet checked against Xero: ${sg.unanalysed.map(r => r.name).join(', ')}` });
     }
     if (cov.received.length + cov.rolledBack.length) {
@@ -20996,6 +21099,11 @@
     // for the same question (review F15).
     gates.push(rf.off.length
       ? { key: 'variance', bad: true, n: rf.off.length,
+          lead: `lender difference${rf.off.length === 1 ? '' : 's'} to resolve`,
+          // The FIGURE goes with each name, not as one lump: "our books are
+          // $15.38 above the lender" is a sentence somebody can act on; a total
+          // over two loans is a number they then have to split again.
+          who: rf.off.map(r => `${loanName(r.a)} — our books are ${money(Math.abs(r.varianceResidual))} ${r.varianceResidual > 0 ? 'above' : 'below'} the lender`),
           text: `${rf.off.length} loan${rf.off.length === 1 ? '' : 's'} off — ${money(rf.varianceToResolve)} to resolve: ${names(rf.off, r => r.a)}` }
       : { key: 'variance', bad: false, n: rf.ties.length,
           text: `${rf.ties.length} loan${rf.ties.length === 1 ? '' : 's'} tie exactly` });
@@ -21018,6 +21126,8 @@
     // behind it. Folding the two into one number would hide exactly that.
     if (rf.ledgerOff.length) {
       gates.push({ key: 'ledger', bad: true, n: rf.ledgerOff.length,
+        lead: `loan${rf.ledgerOff.length === 1 ? '' : 's'} the Xero ledger does not explain`,
+        who: rf.ledgerOff.map(r => `${loanName(r.a)} — ${money(Math.abs(r.unexplained))} moved in Xero that no split accounts for`),
         text: `${rf.ledgerOff.length} loan${rf.ledgerOff.length === 1 ? '' : 's'} the ledger does not explain — ${money(rf.ledgerToResolve)}: ${names(rf.ledgerOff, r => r.a)}` });
     } else if (rf.ledgerUnattributed.length) {
       // Not bad, and deliberately so: a difference whose cause has not been
@@ -21031,6 +21141,8 @@
     }
     gates.push(rf.unpostedRows.length
       ? { key: 'posting', bad: true, n: rf.unpostedRows.length,
+          lead: `payment split${rf.unpostedRows.length === 1 ? '' : 's'} not yet posted to Xero — ${money(unpostedTotal)}`,
+          who: rf.unpostedRows.map(r => loanName(r.a)),
           text: `${rf.unpostedRows.length} split${rf.unpostedRows.length === 1 ? '' : 's'} unposted — ${money(unpostedTotal)}: ${names(rf.unpostedRows, r => r.a)}` }
       : { key: 'posting', bad: false, n: 0, text: 'everything booked' });
     // ── session 272 cont.: THE OPENING HAS TO HAVE SETTLED ────────────────
@@ -21080,6 +21192,8 @@
     if (provisional) {
       const openMonth = _cvMonthName(String(provisional.priorEnd).slice(0, 7));
       gates.push({ key: 'provisional-opening', bad: true, n: 1,
+        lead: `opening still moving — ${openMonth} is not closed yet`,
+        who: [`books are closed through ${_bkPlainDate(provisional.closeDate)}, so every adjustment posted to ${openMonth} moves this month\u2019s opening and its variance with it`],
         text: `opens on ${openMonth}, which is still being closed — books are closed through ${_bkPlainDate(provisional.closeDate)}, so every adjustment posted to ${openMonth} moves this month's opening and its variance with it` });
     }
     const blocked = gates.some(g => g.bad);
@@ -21156,6 +21270,69 @@
     const strip = _bkStatementStrip(sg, otherBad);
     const barHtml = strip.barHtml;
     const askBits = [strip.askHtml];
+
+    // ── SESSION 307: THE VERDICT BLOCK (David's canvas, finally built) ──────
+    // David, looking at the live page beside the mockup: "this section doesn't
+    // show either." He approved this in the Bookkeeping canvas and session 306
+    // built only the Checks column, so the strip stayed a one-liner.
+    //
+    // WHAT CHANGES: "Not ready to close" becomes "Two things before August can
+    // close", and the two things are named. WHAT DOES NOT CHANGE: `gates`, which
+    // still decides `blocked`, still carries every claim in `text`, and is still
+    // what data-gates exports. This block RENDERS gates that were already there
+    // and already computed — there is no second arithmetic here, and a gate that
+    // forgets its `lead` falls back to its `text` rather than printing nothing.
+    //
+    // The names are in the block, not in a hover. That is the whole point of it,
+    // and it is session 256 round 4's rule ("a count is not an answer") applied
+    // to the one line that survived session 264's cut.
+    const badGates = gates.filter(g => g.bad);
+    const nBlock = badGates.length;
+    const COUNT_WORD = ['Nothing', 'One thing', 'Two things', 'Three things', 'Four things', 'Five things'];
+    const blockLead = nBlock
+      ? `${COUNT_WORD[nBlock] || `${nBlock} things`} before ${esc(_cvMonthName(month))} can close`
+      : `${esc(_cvMonthName(month))} is ready for your accountant`;
+    const askRow = (g) => `<div class="lcb-ask" data-gate="${esc(g.key)}">
+        <span class="lcb-ask-n">${g.n == null ? '' : g.n}</span>
+        <span class="lcb-ask-body">
+          <span class="lcb-ask-lead">${esc(g.lead || g.text)}</span>
+          ${g.lead && g.who && g.who.length ? `<span class="lcb-ask-who">${g.who.map(esc).join(' \u00b7 ')}</span>` : ''}
+        </span>
+        ${g.act ? `<button type="button" class="lcb-ask-act" onclick="${esc(g.act.fn)}">${esc(g.act.label)} \u2192</button>` : ''}
+      </div>`;
+    // THE QUIET HALF, and it earns its line: without it the block is a list of
+    // complaints and a reader cannot tell whether the rest of the book was
+    // checked or merely unexamined. Non-blocking gates only — the same `gates`
+    // array, filtered the other way, so the two halves cannot disagree.
+    const calmBits = gates.filter(g => !g.bad && g.n)
+      .filter(g => g.key === 'variance' || g.key === 'immaterial' || g.key === 'ledger' || g.key === 'posting')
+      .map(g => g.text);
+    // THE TIES, WHEN THE VARIANCE GATE IS BUSY BEING A BLOCKER. `gates` holds
+    // either "N loans off" or "N loans tie exactly" for key 'variance', never
+    // both, so on a month with any difference the block would never say how much
+    // of the book was checked and FOUND RIGHT -- and a list of three complaints
+    // with no denominator reads as a broken book rather than a book with three
+    // things in it. `rf.ties` is the same named quantity the good-news gate uses,
+    // so this is one source read twice, not a second count.
+    if (badGates.some(g => g.key === 'variance') && rf.ties.length) {
+      calmBits.unshift(`${rf.ties.length} loan${rf.ties.length === 1 ? '' : 's'} checked and tied exactly`);
+    }
+    const calmHtml = calmBits.length
+      ? `<div class="lcb-calm">${calmBits.map(esc).join('<span class="sep"> \u00b7 </span>')}</div>` : '';
+    // The statements counter keeps its bar and its exact wording; it moves from
+    // the middle of a sentence into a tile of its own, so "N of M uploaded" is
+    // read as a measure of the month rather than as part of the verdict.
+    const stmtTile = strip.total ? `<aside class="lcb-stmt" data-progress-tile="1">
+        <div class="lcb-stmt-h">${esc(_cvMonthName(month))} statements</div>
+        <div class="lcb-stmt-n"><b>${strip.uploaded}</b> of ${strip.total}</div>
+        <div class="lcb-stmt-sub">${strip.uploaded >= strip.total ? 'all on file' : `${strip.total - strip.uploaded} still owed`}</div>
+        ${barHtml}
+        <div class="lcb-stmt-key">
+          <span><i class="k-done"></i>${strip.progress.checked} checked against Xero</span>
+          ${strip.progress.unchecked ? `<span><i class="k-unchecked"></i>${strip.progress.unchecked} on file, not yet checked</span>` : ''}
+          ${strip.progress.awaiting ? `<span><i class="k-await"></i>${strip.progress.awaiting} still owed</span>` : ''}
+        </div>
+      </aside>` : '';
     const progressAttr = esc(JSON.stringify(Object.assign({}, strip.progress, {
       // Still computed, still carried, no longer printed. David: the table says
       // it. The suite reads these, so the counts keep a test even though the
@@ -21685,9 +21862,33 @@
       // `ledgerNote` (below, already computed for the hover hint and the CSV)
       // is empty specifically on a 'tie' row, so that case is spelled out
       // here rather than reusing the empty string as if nothing were true.
+      // ── SESSION 307: THE VERDICT CARRIES ITS FIGURE, AND WHY ONLY THIS ONE ──
+      // David, reading the live page: "Rapid Credit says Ledger Differs but the
+      // numbers are identical." He was right to be confused, and the asymmetry
+      // is exact. LENDER DIFFERS has its figure on the same row -- the Variance
+      // column, one cell to the left, prints it -- so the word is checkable by
+      // looking. LEDGER DIFFERS has nothing: `unexplained` is booksClosing minus
+      // computed, and `booksClosing` (Xero's OWN closing balance for the loan
+      // account) is on no column of this table. The Books column beside it is
+      // the WALK, which is the other operand. So the reader sees Books and
+      // Lender agreeing and a red verdict with no arithmetic anywhere on the
+      // screen that could produce it.
+      //
+      // Rapid Credit Line, August 2026, is the case: walk 51,529.02, Xero
+      // 51,071.88, and the 457.14 between them is the 8/31 interest
+      // reallocation, which our splits put in August and Xero does not. A true
+      // finding, rendered unfalsifiable. Printing the figure makes it
+      // subtractable from the Books column beside it.
+      //
+      // ⚠️ DO NOT "FOR CONSISTENCY" ADD THE FIGURE TO `Lender differs` TOO.
+      // That one WOULD be the same fact twice on one row -- the once-per-screen
+      // rule -- and the reason this column could drop its figures in the first
+      // place is that the Variance column keeps them. The test is not "is it a
+      // dollar verdict", it is "can the reader check it from this row".
       let ledgerCls, ledgerGlyph, ledgerVerdict, ledgerWord;
       if (r.unexplainedBand === 'material') {
-        ledgerCls = 'lcb-mark-bad'; ledgerGlyph = '✗'; ledgerWord = 'Ledger differs';
+        ledgerCls = 'lcb-mark-bad'; ledgerGlyph = '✗';
+        ledgerWord = `Ledger differs ${signed(r.unexplained)}`;
       } else if (r.unexplainedBand === 'immaterial' || r.unexplainedBand === 'unbooked' || r.unexplainedBand === 'tie') {
         // Ties print nothing here too, for the same reason.
         ledgerCls = 'lcb-mark-ok'; ledgerGlyph = '✓'; ledgerWord = '';
@@ -21819,9 +22020,23 @@
     // rf.gradeB / rf.totalsA / rf.totalsB are all still computed and still
     // exported, the chips still count them, and the footer sentence still names
     // them. What went is the second telling of it in the footer.
-    const varianceCell = (st) => st.variance < 0.005
-      ? '<span class="lcb-na">$0.00</span>'
-      : `<span class="${st.material ? 'lcb-off' : 'lcb-quiet'}">${money(st.variance)}</span>`;
+    // ── SESSION 307: A TOTAL THAT DOES NOT FOOT HAS TO SAY SO ────────────
+    // `varianceShown` (subtotal(), with the reasons) is the arithmetic sum of
+    // the figures actually printed in the column. When it matches, nothing is
+    // added -- LESS IS BEST, and on most months they match. When it does not,
+    // the reader is told in two words rather than left to find the gap: the
+    // figure above is what there is TO RESOLVE, ignoring direction, over the
+    // rows this table judged.
+    //
+    // The qualifier goes UNDER the figure, not after it, so every money column
+    // keeps the right-edge alignment David asked for in session 267.
+    const varianceCell = (st) => {
+      if (st.variance < 0.005) return '<span class="lcb-na">$0.00</span>';
+      const foots = st.varianceShown == null
+        || Math.abs(Math.abs(st.varianceShown) - st.variance) < 0.005;
+      const fig = `<span class="${st.material ? 'lcb-off' : 'lcb-quiet'}">${money(st.variance)}</span>`;
+      return foots ? fig : `${fig}<div class="lcb-quiet" style="font-size:10.5px;font-weight:400;letter-spacing:.01em;margin-top:2px" title="Not the sum of the column above, and deliberately so. This is what is left TO RESOLVE: differences are counted without their signs, so one loan over and another under do not cancel to nothing, an explained portion is netted off, and a difference the posting gate already owns is left out. The column above prints each row's raw difference with its sign.">to resolve</div>`;
+    };
 
     // ── THE GRAND TOTAL ───────────────────────────────────────────────────
     // Opening / Principal / Interest / Computed cover EVERY loan and foot to the
@@ -21952,10 +22167,13 @@
           <button type="button" class="lcb-export" onclick="exportRollforwardCSV()" title="Save this rollforward as a spreadsheet — including the sources, dates and notes shown on hover">⤓ Export CSV</button>
         </span>
       </div>
-      <div class="lcb-strip${blocked ? '' : ' clear'}" data-blocked="${blocked ? '1' : '0'}" data-gates="${gatesAttr}" data-progress="${progressAttr}">
-        <span class="lcb-lead">${blocked ? 'Not ready to close' : 'Ready for your accountant'}</span>
-        ${barHtml}
-        <span class="lcb-asks">${askBits.join('<span class="sep">\u00b7</span>')}</span>
+      <div class="lcb-strip lcb-strip-block${blocked ? '' : ' clear'}" data-blocked="${blocked ? '1' : '0'}" data-gates="${gatesAttr}" data-progress="${progressAttr}">
+        <div class="lcb-verdict">
+          <h3 class="lcb-lead">${blockLead}</h3>
+          ${badGates.map(askRow).join('')}
+          ${calmHtml}
+        </div>
+        ${stmtTile}
       </div>
       <div class="card" style="overflow:hidden;box-shadow:0 1px 2px rgba(15,37,71,.04);border-color:var(--gray-200);border-radius:14px">
         <div style="overflow-x:auto;padding:14px 6px 0">
