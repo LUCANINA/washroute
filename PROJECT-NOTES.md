@@ -1,5 +1,28 @@
 # WashRoute — Project Notes
 
+## Session 298 — Sep 17, 2026: in-app "Send us feedback" + one Feedback report
+
+**Status:** DB + edge function LIVE. App changes (customer-app, admin-dashboard) written and tested, **not yet committed/pushed**.
+
+- **DB (migrations session_298, 298b):** `customer_messages` (topic idea/problem/delivery/billing/compliment, message,
+  optional order, up to 3 photos, contact_ok, issue_id, email_sent_at/email_error). Writes only via
+  `submit_customer_message` (own account; order must be theirs; max 5 per 24h; photo paths must be `<auth uid>/<file>`).
+  Problem/Billing → `cs_issues` (created_by `customer-feedback`). Private bucket `feedback-photos` (customer writes/reads
+  own folder, staff read all). 298b fixed an unassigned-RECORD crash on general (no-order) feedback.
+- **Email:** trigger `notify_feedback_email` → pg_net → edge function **`send-feedback` (verify_jwt TRUE, internal
+  secret only; deploy with NO flag)**. Emails info@ only, Reply-To = customer, photos attached. Also fires for
+  `order_feedback` rows that are 1–3★ or have a comment (insert or rating/comment change).
+- **Customer app:** Account → "Send us feedback"; order detail link ("Something else to tell us?" / "Question about
+  this order?"); booking-step help line now opens the form. Photos shrunk to ≤1600px JPEG before upload.
+- **Admin:** Reports → Customers → **Feedback** (was Ratings): ratings + messages in one list, filters, signed photo
+  thumbnails, email status, "Do not contact".
+- SMS rating text already opens the app rating sheet (which has a comment box) — nothing separate to build.
+- David asked for a Google link only on 5★ — declined (review gating); the link already shows for every rater with
+  stronger wording at 4–5★.
+- Test row: customer_messages id 6 ("TEST from Claude", David's account) — real email sent OK.
+- Low / later: drivers (is_staff) can read feedback; photos uploaded before a failed submit are orphaned;
+  customer texting a comment instead of tapping the link still lands in the SMS inbox.
+
 ## Sessions 296–297 — Sep 16, 2026: $20 credit leak, referral {{amount}}, SMS PICKUP rebuild, deleted-order log, 60-min cutoff, customer ratings
 
 **START HERE next time.** Everything below is pushed, deployed and verified. Live watch items:
