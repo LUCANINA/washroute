@@ -38312,12 +38312,48 @@ ${oneCopy}
           <div class="notif-field-label">Merge Tags — click to insert at cursor</div>
           <div class="notif-tags">${tagsHtml}</div>
         </div>
+        <!-- Link targets (2026-09-16): what the link tags actually point to -->
+        <div style="border:1px solid var(--gray-200);border-radius:10px;padding:12px 14px;background:var(--gray-50)">
+          <div class="notif-field-label" style="margin-top:0">Link targets</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px"><code>{{review_link}}</code> — Google review page (also shown in the app to everyone who rates an order)</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="notif-review-url" class="form-input" type="url" placeholder="https://g.page/r/…/review" style="flex:1;font-size:13px" value="">
+            <a id="notif-review-open" href="#" target="_blank" rel="noopener" class="btn btn-ghost" style="padding:7px 12px;font-size:12.5px;text-decoration:none">Open</a>
+            <button class="btn btn-primary" style="padding:7px 14px;font-size:12.5px" onclick="saveNotifReviewUrl()">Save link</button>
+          </div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:10px">
+            <code>{{rate_link}}</code> — set automatically per order: <span style="font-family:ui-monospace,monospace">https://app.familylaundry.com/?rate=&lt;order&gt;</span>
+          </div>
+        </div>
       </div>
       <div class="notif-footer">
         <span class="notif-save-msg" id="notif-save-msg"></span>
         <button class="btn btn-primary" onclick="saveNotifTemplate()">Save</button>
       </div>`;
     updateSmsCount();
+    loadNotifReviewUrl();
+  }
+
+  async function loadNotifReviewUrl() {
+    const input = document.getElementById('notif-review-url');
+    if (!input) return;
+    const { data } = await db.from('settings').select('review_link').eq('id', 1).maybeSingle();
+    const link = data?.review_link || '';
+    BIZ_REVIEW_LINK = link;
+    input.value = link;
+    const open = document.getElementById('notif-review-open');
+    if (open) { open.href = link || '#'; open.style.pointerEvents = link ? '' : 'none'; open.style.opacity = link ? '' : '.5'; }
+  }
+
+  async function saveNotifReviewUrl() {
+    const input = document.getElementById('notif-review-url');
+    const link = (input?.value || '').trim();
+    if (link && !/^https:\/\/\S+$/i.test(link)) { showToast('Enter a full link starting with https://', 'error'); return; }
+    if (/yelp\./i.test(link)) { showToast('Yelp asks businesses not to request reviews — use your Google link.', 'error'); return; }
+    const { error } = await db.from('settings').update({ review_link: link }).eq('id', 1);
+    if (error) { showToast('Could not save the link: ' + error.message, 'error'); return; }
+    showToast(link ? '✓ Review link saved' : 'Review link cleared', 'success');
+    loadNotifReviewUrl();
   }
 
   function notifChannel(ch, btn) {
