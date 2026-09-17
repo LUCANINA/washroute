@@ -694,6 +694,14 @@
     .rate-review { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; padding: 13px; border-radius: 10px; border: 1.5px solid var(--gray-200); background: white; color: var(--navy); font-size: 15px; font-weight: 700; text-align: center; text-decoration: none; font-family: inherit; }
     .d-rated { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .d-rated-stars { color: #f59e0b; font-size: 18px; letter-spacing: 1px; }
+    /* Preferences panel: one spacing rhythm for every section, including the
+       Save button (session 299). Inline margins on those blocks are overridden
+       here so the gaps can never drift apart again. */
+    #sub-prefs .sub-panel-body > * + * { margin-top: 22px !important; }
+    #sub-prefs .sub-panel-body > #account-prefs-container > .order-addon-section:first-child { margin-top: 0; }
+    #sub-prefs .sub-panel-body > #account-prefs-container > .order-pref-group:last-child { margin-bottom: 0; }
+    #sub-prefs .pref-save-btn { margin-top: 22px; }
+
     /* ── Help & Info / FAQ (session 299) ── */
     .faq-search { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 10px; padding: 10px 12px; font-size: 14.5px; font-family: inherit; outline: none; }
     .faq-search:focus { border-color: var(--accent); }
