@@ -32,7 +32,12 @@ Plan doc: https://claude.ai/code/artifact/969ded65-373d-41b8-b939-92c57792947a (
   (site_info key/value) + Live values tab (every token with what it shows right now, click to insert).
   Unknown tokens are flagged red in the preview instead of silently rendering nothing.
   `role_permissions` seeded: admin + manager only. Token logic mirrors `website/assets/fl-content.js` — keep in step.
-- **Next:** customer app Help & Info; customer app Help & Info using `fl-content.js`; forms; blog; Gift Up widget.
+- **Customer app → Account → Help & Info (session 299f):** hub (Pricing · FAQ · Contact us · Service area & drop-off ·
+  Terms & privacy) replacing the bare Pricing row. FAQ reads `faq_items` (show_in_app, audience matched to the
+  customer's pricelist: Commercial → commercial, else residential), search filters question + answer text, tokens
+  filled from `site_public_values()` (cached 5 min). Contact us = call / text / email / feedback sheet / drop-off.
+  Verified with real data: 27 questions for a residential customer, prices correct, no console errors.
+- **Next:** website forms; customer app Help & Info using `fl-content.js`; forms; blog; Gift Up widget.
 
 ## Session 298 — Sep 17, 2026: in-app "Send us feedback" + one Feedback report
 

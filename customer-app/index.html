@@ -694,6 +694,29 @@
     .rate-review { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; padding: 13px; border-radius: 10px; border: 1.5px solid var(--gray-200); background: white; color: var(--navy); font-size: 15px; font-weight: 700; text-align: center; text-decoration: none; font-family: inherit; }
     .d-rated { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .d-rated-stars { color: #f59e0b; font-size: 18px; letter-spacing: 1px; }
+    /* ── Help & Info / FAQ (session 299) ── */
+    .faq-search { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 10px; padding: 10px 12px; font-size: 14.5px; font-family: inherit; outline: none; }
+    .faq-search:focus { border-color: var(--accent); }
+    .faq-topic-h { font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--gray-500); padding: 16px 16px 6px; }
+    .faq-q { border-bottom: 1px solid var(--gray-100); }
+    .faq-q > summary { list-style: none; cursor: pointer; padding: 14px 40px 14px 16px; font-size: 15px; font-weight: 600; color: var(--text); position: relative; }
+    .faq-q > summary::-webkit-details-marker { display: none; }
+    .faq-q > summary::after { content: '+'; position: absolute; right: 16px; top: 11px; font-size: 22px; font-weight: 400; color: var(--gray-400); }
+    .faq-q[open] > summary::after { content: '–'; }
+    .faq-ans { padding: 0 16px 16px; font-size: 14px; line-height: 1.55; color: var(--gray-700); }
+    .faq-ans p { margin: 0 0 10px; } .faq-ans p:last-child { margin: 0; }
+    .faq-ans ul { margin: 0 0 10px 18px; padding: 0; }
+    .faq-ans a { color: var(--accent); font-weight: 600; }
+    .faq-empty { padding: 32px 16px; text-align: center; color: var(--gray-500); font-size: 14px; }
+    .hi-card { margin: 0 16px 14px; border: 1.5px solid var(--gray-200); border-radius: 12px; padding: 14px 16px; }
+    .hi-card h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--gray-500); margin-bottom: 8px; font-weight: 700; }
+    .hi-row { display: flex; align-items: center; gap: 12px; border: 1.5px solid var(--gray-200); border-radius: 12px; padding: 13px 14px; margin: 0 16px 10px; text-decoration: none; color: var(--text); font-size: 15px; font-weight: 600; }
+    .hi-row small { display: block; font-weight: 400; color: var(--gray-500); font-size: 12.5px; margin-top: 2px; }
+    .hi-row .ic { font-size: 19px; }
+    .hi-p { padding: 0 16px 14px; font-size: 14px; line-height: 1.55; color: var(--gray-700); }
+    .hi-cities { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 16px; }
+    .hi-cities span { background: var(--gray-100); border-radius: 14px; padding: 5px 11px; font-size: 13px; }
+
     /* ── Feedback sheet (session 298) ── */
     .fb-link { display: inline-block; margin-top: 10px; background: none; border: none; padding: 0; color: var(--accent); font-weight: 600; font-size: 14px; cursor: pointer; font-family: inherit; }
     .fb-about { font-size: 13px; color: var(--gray-500); margin: -6px 0 12px; }
@@ -1614,11 +1637,14 @@
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
-        <!-- Pricing -->
-        <div class="menu-item" onclick="openPricingPanel()">
+        <!-- Help & Info (session 299): pricing, FAQ, contact, service area -->
+        <div class="menu-item" onclick="openHelpPanel()">
           <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1-3 2.3c0 3 6 1.7 6 4.8 0 1.3-1.3 2.4-3 2.4s-3-1.1-3-2.5M12 5.5v1.5M12 17v1.5"/></svg></div>
-            <div><div class="mi-label">Pricing</div></div>
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 015.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+            <div>
+              <div class="mi-label">Help &amp; Info</div>
+              <div class="mi-value">Pricing, FAQ, contact us</div>
+            </div>
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
@@ -1774,6 +1800,83 @@
   </div>
 
   <!-- ══ PRICING SUB-PANEL ══ -->
+  <div class="sub-panel" id="sub-help">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-help')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Help &amp; Info</div>
+    </div>
+    <div class="main-content" style="padding:0 0 32px">
+      <div class="acct-menu">
+        <div class="menu-item" onclick="openPricingPanel()">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1-3 2.3c0 3 6 1.7 6 4.8 0 1.3-1.3 2.4-3 2.4s-3-1.1-3-2.5M12 5.5v1.5M12 17v1.5"/></svg></div>
+            <div><div class="mi-label">Pricing</div><div class="mi-value">Your price list</div></div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="openFaqPanel()">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 015.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+            <div><div class="mi-label">FAQ</div><div class="mi-value">Common questions, answered</div></div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="openContactUsPanel()">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.79 19.79 0 012.12 4.2 2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.7 2.81a2 2 0 01-.45 2.11L8.1 9.9a16 16 0 006 6l1.26-1.26a2 2 0 012.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0122 16.92z"/></svg></div>
+            <div><div class="mi-label">Contact us</div><div class="mi-value">Call, text, email, feedback</div></div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <div class="menu-item" onclick="openServiceAreaPanel()">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+            <div><div class="mi-label">Service area &amp; drop-off</div><div class="mi-value">Cities we serve, drop-off hours</div></div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <a class="menu-item" href="https://www.familylaundry.com/terms-conditions" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div>
+            <div><div class="mi-label">Terms &amp; privacy</div><div class="mi-value">Opens familylaundry.com</div></div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="sub-panel" id="sub-faq">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-faq')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">FAQ</div>
+    </div>
+    <div class="main-content" style="padding:12px 0 32px">
+      <div style="padding:0 16px 12px"><input class="faq-search" id="faq-search" type="search" placeholder="Search questions" oninput="faqFilter(this.value)" autocomplete="off"></div>
+      <div id="faq-body"><div style="padding:40px;text-align:center;color:var(--gray-400)">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="sub-panel" id="sub-contactus">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-contactus')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Contact us</div>
+    </div>
+    <div class="main-content" style="padding:16px 0 32px">
+      <div id="contactus-body"><div style="padding:40px;text-align:center;color:var(--gray-400)">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="sub-panel" id="sub-servicearea">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-servicearea')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Service area</div>
+    </div>
+    <div class="main-content" style="padding:16px 0 32px">
+      <div id="servicearea-body"><div style="padding:40px;text-align:center;color:var(--gray-400)">Loading…</div></div>
+    </div>
+  </div>
+
   <div class="sub-panel" id="sub-pricing">
     <div class="sub-panel-header">
       <button class="sub-back-btn" onclick="closeSubPanel('sub-pricing')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -9315,6 +9418,163 @@ async function submitRating() {
     ${link ? `<a class="rate-review" href="${escHtml(link)}" target="_blank" rel="noopener" onclick="db.rpc('mark_review_link_clicked',{p_order_id:'${orderId}'}).then(()=>{},()=>{})">${isGoogle ? 'Write a Google review' : 'Write a review'}</a>` : ''}
     <button class="rw-send" style="margin-top:10px" onclick="closeSheet('rate-sheet')">Done</button>`;
   if (window._currentDetailOrder?.id === orderId) renderOrderRating(window._currentDetailOrder);
+}
+
+/* ── Help & Info: FAQ, contact, service area (session 299) ───────────────
+   Content comes from faq_items / site_info, the same rows the website uses.
+   Answers carry live tokens ({price:Wash & Fold}, {site:phone}…) filled from
+   site_public_values(), so a price is never typed twice. This mirrors
+   website/assets/fl-content.js — keep the two in step. */
+let _hi = { values: null, faq: null, at: 0 };
+
+function openHelpPanel() { openSubPanel('sub-help'); }
+
+async function hiLoad() {
+  if (_hi.values && Date.now() - _hi.at < 5 * 60 * 1000) return _hi;
+  const audience = (currentCustomer?.pricelist === 'Commercial') ? 'commercial' : 'residential';
+  const [vals, topics, items] = await Promise.all([
+    db.rpc('site_public_values'),
+    db.from('faq_topics').select('id, name, sort_order').order('sort_order'),
+    db.from('faq_items').select('id, topic_id, question, answer, audience, sort_order')
+      .eq('show_in_app', true).in('audience', ['everyone', audience]).order('sort_order'),
+  ]);
+  if (vals.error || topics.error || items.error) throw (vals.error || topics.error || items.error);
+  _hi = {
+    values: vals.data || {},
+    faq: (topics.data || []).map(t => ({ ...t, items: (items.data || []).filter(i => i.topic_id === t.id) })).filter(t => t.items.length),
+    at: Date.now(),
+  };
+  return _hi;
+}
+
+// ── live tokens + light markdown → safe HTML ──
+function hiMoney(n) {
+  const v = Number(n);
+  if (!isFinite(v)) return '';
+  return '$' + (Math.round(v * 100) % 100 === 0 ? String(Math.round(v)) : v.toFixed(2));
+}
+function hiToken(kind, arg) {
+  const v = _hi.values || {};
+  const price = p => p ? hiMoney(p.amount) + (p.type === 'per_lb' ? '/lb' : '') : null;
+  switch (kind) {
+    case 'price':      return price((v.price || {})[arg]);
+    case 'retail':     return price((v.retail || {})[arg]);
+    case 'commercial': return price((v.commercial || {})[arg]);
+    case 'fee':        return (v.fee || {})[arg] != null ? hiMoney(v.fee[arg]) : null;
+    case 'plan': {
+      const p = v.plan || {};
+      if (arg === 'price' || arg === 'overage') return p[arg] != null ? hiMoney(p[arg]) : null;
+      if (arg === 'lbs')  return p.lbs != null ? String(p.lbs) : null;
+      if (arg === 'name') return p.name || null;
+      return null;
+    }
+    case 'referral': { const r = v.referral || {}; return r[arg] != null ? hiMoney(r[arg]) : null; }
+    case 'site':  return (v.site || {})[arg] || null;
+    case 'zones': if (arg !== 'cities') return null; {
+      const c = v.cities || [];
+      return c.length <= 1 ? c.join('') : c.slice(0, -1).join(', ') + ' and ' + c[c.length - 1];
+    }
+    default: return null;
+  }
+}
+const HI_TOKEN_RE = /\{(price|retail|commercial|fee|plan|referral|site|zones):([^{}\n]{1,60})\}/g;
+function hiRender(text) {
+  const filled = escHtml(String(text || '')).replace(HI_TOKEN_RE, (m, kind, arg) => {
+    const raw = arg.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
+    const val = hiToken(kind, raw);
+    return val == null ? '' : escHtml(val);
+  });
+  return filled.split(/\n{2,}/).map(b => b.trim()).filter(Boolean).map(b => {
+    const lines = b.split('\n');
+    if (lines.every(l => /^\s*-\s+/.test(l))) return '<ul>' + lines.map(l => '<li>' + hiInline(l.replace(/^\s*-\s+/, '')) + '</li>').join('') + '</ul>';
+    return '<p>' + hiInline(lines.join('<br>')) + '</p>';
+  }).join('');
+}
+function hiInline(t) {
+  return t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) => {
+            const u = url.replace(/&amp;/g, '&').trim();
+            if (!/^(https?:\/\/|mailto:|tel:)/i.test(u)) return label;   // in-app: only real links
+            return `<a href="${escHtml(u)}" target="_blank" rel="noopener">${label}</a>`;
+          });
+}
+function hiPlain(text) {
+  return hiRender(text).replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').toLowerCase();
+}
+
+// ── FAQ ──
+async function openFaqPanel() {
+  openSubPanel('sub-faq');
+  const body = document.getElementById('faq-body');
+  try {
+    await hiLoad();
+  } catch (e) {
+    body.innerHTML = `<div class="faq-empty">Couldn’t load the FAQ. Please check your connection.<br><br>${fbLinkHtml(null, 'Send us a message')}</div>`;
+    return;
+  }
+  faqRender('');
+}
+
+function faqRender(query) {
+  const body = document.getElementById('faq-body');
+  if (!body) return;
+  const q = (query || '').trim().toLowerCase();
+  const topics = (_hi.faq || []).map(t => ({
+    ...t,
+    items: t.items.filter(i => !q || i.question.toLowerCase().includes(q) || hiPlain(i.answer).includes(q)),
+  })).filter(t => t.items.length);
+  if (!topics.length) {
+    body.innerHTML = `<div class="faq-empty">No answers matched “${escHtml(query)}”.<br><br>${fbLinkHtml(null, 'Ask us directly')}</div>`;
+    return;
+  }
+  body.innerHTML = topics.map(t => `
+    <div class="faq-topic-h">${escHtml(t.name)}</div>
+    ${t.items.map(i => `<details class="faq-q"${q ? ' open' : ''}>
+      <summary>${escHtml(i.question)}</summary>
+      <div class="faq-ans">${hiRender(i.answer)}</div>
+    </details>`).join('')}`).join('')
+    + `<div class="faq-empty">Still stuck? ${fbLinkHtml(null, 'Send us a message')}</div>`;
+}
+
+let _faqTimer = null;
+function faqFilter(v) {
+  clearTimeout(_faqTimer);
+  _faqTimer = setTimeout(() => faqRender(v), 150);
+}
+
+// ── Contact us ──
+async function openContactUsPanel() {
+  openSubPanel('sub-contactus');
+  const body = document.getElementById('contactus-body');
+  try { await hiLoad(); } catch (_) {}
+  const s = (_hi.values && _hi.values.site) || {};
+  const tel = (s.phone || '').replace(/[^\d+]/g, '');
+  body.innerHTML = `
+    ${s.phone ? `<a class="hi-row" href="tel:${escHtml(tel)}"><span class="ic">📞</span><span>Call ${escHtml(s.phone)}<small>Leave a message — we call back the same day</small></span></a>` : ''}
+    ${s.phone ? `<a class="hi-row" href="sms:${escHtml(tel)}"><span class="ic">💬</span><span>Text us<small>Or just reply to our last text</small></span></a>` : ''}
+    ${s.email ? `<a class="hi-row" href="mailto:${escHtml(s.email)}"><span class="ic">✉️</span><span>${escHtml(s.email)}</span></a>` : ''}
+    <div class="hi-row" style="border-color:var(--accent);cursor:pointer" onclick="openFeedbackSheet()"><span class="ic">📝</span><span>Send us feedback<small>Ideas, problems, compliments</small></span></div>
+    ${s.dropoff_address ? `<div class="hi-card"><h3>Drop-off location</h3>
+      <div style="font-size:14.5px;font-weight:600">${escHtml(s.dropoff_address)}</div>
+      <div style="font-size:13.5px;color:var(--gray-600);margin-top:4px">${escHtml(s.dropoff_hours || '')}</div></div>` : ''}
+    ${s.office_address ? `<div class="hi-card"><h3>Office</h3><div style="font-size:14px">${escHtml(s.office_address)}</div></div>` : ''}`;
+}
+
+// ── Service area ──
+async function openServiceAreaPanel() {
+  openSubPanel('sub-servicearea');
+  const body = document.getElementById('servicearea-body');
+  try { await hiLoad(); } catch (_) {}
+  const v = _hi.values || {}, s = v.site || {};
+  const cities = v.cities || [];
+  body.innerHTML = `
+    <div class="hi-p">We pick up and deliver in these cities${s.service_days ? `, ${escHtml(s.service_days)}` : ''}. Not sure about your street? Add your address when you book and we’ll tell you right away.</div>
+    <div class="hi-cities">${cities.map(c => `<span>${escHtml(c)}</span>`).join('') || '<span>Ask us about your area</span>'}</div>
+    ${s.dropoff_address ? `<div class="hi-card"><h3>Drop off in person</h3>
+      <div style="font-size:14.5px;font-weight:600">${escHtml(s.dropoff_address)}</div>
+      <div style="font-size:13.5px;color:var(--gray-600);margin-top:4px">${escHtml(s.dropoff_hours || '')}</div>
+      ${s.dropoff_cutoff ? `<div style="font-size:13px;color:var(--gray-500);margin-top:6px">${escHtml(s.dropoff_cutoff)}</div>` : ''}
+    </div>` : ''}`;
 }
 
 /* ── Send us feedback (session 298) ─────────────────────────────────────
