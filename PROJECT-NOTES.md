@@ -1,5 +1,61 @@
 # WashRoute — Project Notes
 
+## Session 300 — Sep 17, 2026: Daily Revenue rebuilt, and tips moved into Net revenue
+
+**Status:** Pushed and live. Admin only, Reports → Revenue → **Daily Revenue** tab. The shared date picker, the two
+tab rows and the other thirteen reports are untouched.
+
+**Why:** David: "I find the Reports section cluttered and frankly hard to navigate." The old Daily Revenue view
+printed nineteen columns of identical type for what is usually a single row, put four $0.00 cells in alarm red, and
+carried a five-line accounting paragraph above every load. Nothing on the screen said whether the day was good.
+
+- **The view (all inside `#rpttab-revenue` + `loadRevenueReport`'s render):** hero Net revenue; a 30-day trend
+  beside it; gross as one proportional bar; a ledger that chains Charged → Net; the table behind "Show the full
+  table"; the accounting paragraph behind "How this is counted". Styles are scoped to `.rev2` so they cannot reach
+  the other reports. Fonts: Fraunces (figures) + DM Sans (data), loaded in `<head>`, applied only inside `.rev2`.
+- **Colour has one job now.** The bar is ONE navy hue at eight fixed tints, one per revenue stream — tied to the
+  stream, never to its rank, so a POS-heavy Saturday reads the same as a Tuesday. Red is reserved for refunds;
+  discounts and credits moved to grey (`$negQ`). A clean day has no red on it at all.
+- **Zero is absent.** A stream with nothing in it gets no bar segment, no legend entry and no ledger line; the prose
+  says which ones are missing instead ("No credits, refunds or commercial receipts today").
+
+### ⚠️ Accounting change — tips are now in Charged and Net
+
+`total` (the Charged column) summed `orders.total_amount` and **left the tip out**, while the processing-fee
+calculation two lines below has always used `total_amount + tipDollars`. Net therefore paid a Stripe fee on money it
+never counted, and was short by roughly the day's tips. Gross always included them. Now:
+
+    total += parseFloat(o.total_amount || 0) + tipDollars;
+
+Sep 17 went from Charged $3,220.31 / Net $3,122.11 to **$3,366.50 / $3,268.30** — up by exactly the $146.19 in tips.
+The ledger shows "including $X in tips" under Charged so the jump is legible. **Net revenue is now before any tip
+payout to drivers** — say so if anyone reads this figure as what the business keeps.
+
+**Still inconsistent:** the **Delivery KPIs** report computes `total_revenue` server-side in the `delivery_kpis` RPC
+and still excludes tips. The two reports will disagree until that is aligned.
+
+### The 30-day trend plots Charged, not Net — on purpose
+
+Net needs Stripe's per-charge fees, and `get-stripe-fees` is already ~50s on a 25-day window (the report aborts it at
+12s and falls back to the 2.9% + $0.30 estimate). Widening the report's own window to 30 days would push **every**
+load into that fallback and make the headline figure an estimate. `_fetchChargedByDay()` is a separate, cheaper query
+with no Stripe call, cached in localStorage (`wr-revspark2|from|to`, 15 min live / 7 d closed — the `2` is a
+deliberate bust, v1 values predate tips). It uses the same Charged definition as the table, which is why
+`_tipToDollars` was **hoisted to module scope**: two copies of tip maths would be two things to keep in step, and the
+one that drifted would be the one nobody was looking at.
+
+**Gotcha fixed during the build:** the trend loads *after* the report paints, so a slow "today" trend could land
+inside a freshly-rendered "last month". `_revRunId` is bumped per run and the trend bails if it is stale.
+
+**Tested** against Sep 17's real figures in a headless Chromium with a stubbed Supabase client: hero, gross, bar
+shares summing to 100, ledger chain, tax note. A seven-day range with a refund exercises the alert path and the
+per-row net bars. Both disclosures toggle and reset correctly on a failed or empty load.
+
+**Not done (David chose "Daily Revenue only"):** the searchable report index that would replace the two tab rows, and
+moving New Delivery Customers / Recent Orders — they still float above all fourteen reports, including the ten they
+have nothing to do with. Canvas with all three screens:
+https://claude.ai/artifact/NfnY5eH4kEKT3TjYzDz86s
+
 ## Session 299 — Sep 17, 2026: website off Wix (started) + shared FAQ content
 
 **Status:** DB live. Admin + customer-app changes **pushed and live**. `website/` committed but **not yet deployed** —

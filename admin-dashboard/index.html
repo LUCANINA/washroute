@@ -11,6 +11,12 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Family Laundry Admin" />
   <meta name="theme-color" content="#0f2744" />
+  <!-- Session 300: Reports type scale. Fraunces sets the large figures, DM Sans
+       the data. Loaded here, applied only inside .rev2 — the rest of the admin
+       keeps the system font stack. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Fraunces:opsz,wght@9..144,300;9..144,400&display=swap" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1279,6 +1285,70 @@
     .rev-export-btn:hover { border-color:var(--gray-400); }
     .rev-empty { text-align:center; padding:40px 20px; color:var(--gray-400); font-size:13px; }
     .rev-zero { color:var(--gray-300); }
+
+    /* ── DAILY REVENUE, session 300 — visual-first rebuild ──────────────────
+       Everything here is scoped to .rev2 so it cannot reach the other thirteen
+       reports. Ink #1A1C20, secondary #44474D and muted #63666D all clear 4.5:1
+       on the #FBFAF8 ground. The bar is ONE hue at eight fixed tints, one per
+       revenue stream — a segment's colour is tied to the stream, never to its
+       rank, so the bar reads the same on a POS-heavy Saturday as on a Tuesday.
+       Red is reserved for refunds; a normal day has no red on it at all. */
+    .rev2 { --ink:#1A1C20; --ink-2:#44474D; --mute:#63666D; --hair:#E3E1DC; --ground:#FBFAF8;
+            background:var(--ground); border:1px solid var(--hair); border-radius:12px;
+            font-variant-numeric:tabular-nums; color:var(--ink);
+            font-family:'DM Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .rev2 button { font-family:inherit; }
+    .rev2-body { padding:38px 40px 0; }
+    .rev2-kicker { font-size:11.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--mute); }
+    .rev2-rule { border:0; border-top:1px solid var(--hair); margin:34px 0 0; }
+    .rev2-hero { display:flex; align-items:flex-end; gap:48px; flex-wrap:wrap; }
+    .rev2-big { font-family:'Fraunces',Georgia,serif; font-weight:300; font-size:88px; line-height:1.02;
+                letter-spacing:-.022em; margin-top:8px; }
+    .rev2-delta { font-size:14px; color:var(--ink-2); margin-top:14px; min-height:21px; }
+    .rev2-spark { margin-left:auto; text-align:right; }
+    .rev2-cap { font-size:12px; color:var(--mute); margin-top:8px; }
+    .rev2-sec { margin-top:30px; }
+    .rev2-sec-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+    .rev2-sec-meta { font-size:13px; color:var(--ink-2); }
+    .rev2-bar { display:flex; gap:2px; height:46px; margin-top:16px; border-radius:6px; overflow:hidden; }
+    .rev2-bar > div { flex-basis:0; min-width:3px; }
+    .rev2-seg-in { display:flex; align-items:center; gap:10px; height:100%; padding-left:15px;
+                   color:#fff; font-size:13.5px; white-space:nowrap; overflow:hidden; }
+    .rev2-legend { display:flex; flex-wrap:wrap; gap:12px 28px; margin-top:18px; }
+    .rev2-lg { display:flex; align-items:center; gap:9px; font-size:13px; color:var(--ink-2); }
+    .rev2-lg b { font-weight:500; color:var(--ink); }
+    .rev2-chip { width:9px; height:9px; border-radius:2px; flex-shrink:0; }
+    .rev2-two { display:flex; gap:64px; flex-wrap:wrap; margin-top:30px; }
+    .rev2-prose { flex:1 1 300px; max-width:460px; }
+    .rev2-prose p { margin:14px 0 0; font-size:15px; line-height:1.68; color:var(--ink-2); }
+    .rev2-prose p.sm { font-size:13px; line-height:1.6; color:var(--mute); }
+    .rev2-led { width:340px; flex-shrink:0; }
+    .rev2-led-row { display:flex; justify-content:space-between; align-items:baseline; gap:16px; padding:10px 0; font-size:15px; }
+    .rev2-led-row > span:first-child { color:var(--ink-2); }
+    .rev2-led-row > span:last-child { font-weight:500; }
+    .rev2-led-net { border-top:1px solid var(--ink); margin-top:8px; padding-top:15px;
+                    display:flex; justify-content:space-between; align-items:baseline; gap:16px; }
+    .rev2-led-net > span:first-child { font-size:15px; font-weight:500; }
+    .rev2-led-net > span:last-child { font-family:'Fraunces',Georgia,serif; font-weight:400; font-size:28px; letter-spacing:-.015em; }
+    .rev2-alert { color:#A8362A; }
+    .rev2-foot { display:flex; align-items:center; gap:26px; flex-wrap:wrap; padding:24px 40px 28px; }
+    .rev2-link { background:none; border:0; padding:0; font-size:14px; color:#2F5DA8; cursor:pointer; }
+    .rev2-link:hover { color:#1E3F73; text-decoration:underline; }
+    .rev2-foot-tax { margin-left:auto; font-size:12.5px; color:#63666D; }
+    .rev2-note { margin:0 40px 28px; padding:16px 18px; background:#fff; border:1px solid #E3E1DC;
+                 border-radius:10px; font-size:12.5px; line-height:1.65; color:#44474D; }
+    .rev2-tblwrap { overflow-x:auto; margin:28px -40px 0; padding:0 40px; border-top:1px solid var(--hair); }
+    .rev2 .rev-empty { padding:56px 20px; }
+    .rev2-netbar { height:3px; border-radius:2px; background:#6379B0; margin-top:6px; margin-left:auto; }
+    .rev2-tblwrap .rev-tbl td { white-space:nowrap; }
+    .rev2 .rev-zero { color:#8A8D93; }
+    @media (max-width: 900px) {
+      .rev2-body { padding:28px 20px 0; }
+      .rev2-big { font-size:60px; }
+      .rev2-foot, .rev2-note { padding-left:20px; padding-right:20px; margin-left:20px; margin-right:20px; }
+      .rev2-foot { margin:0; }
+      .rev2-tblwrap { margin-left:-20px; margin-right:-20px; padding-left:20px; padding-right:20px; }
+    }
 
     /* ── POS Sales tab — preset chips + filter row ── */
     .ps-preset { padding:7px 14px; background:var(--gray-50); color:var(--gray-700); border:1px solid var(--gray-200); border-radius:20px; font-family:inherit; font-size:12.5px; font-weight:500; cursor:pointer; transition:all .12s; }
@@ -2895,16 +2965,25 @@
           </div>
 
           <!-- ── TAB: DAILY REVENUE ── -->
+          <!-- ── TAB: DAILY REVENUE (session 300 — visual-first rebuild) ──
+               Same numbers as before, re-ranked. The hero is Net revenue; the
+               mix is a proportional bar; the ledger chains Charged → Net the way
+               the code actually computes it; the nineteen-column table is opt-in.
+               The methodology paragraph that used to sit above every load is now
+               behind "How this is counted". -->
           <div id="rpttab-revenue">
-            <div class="card" style="margin-bottom:0">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
-                <div style="font-size:11.5px;color:var(--gray-500);line-height:1.4">
-                  Delivery orders are grouped by <strong>processed date</strong> (the moment the order reaches the rack) — orders still in processing or folding don't appear yet, and cancelled, skipped, pickup-failed and $0 placeholder orders are excluded. <strong>Subscriptions</strong>, <strong>POS Sales</strong> and <strong>Commercial</strong> never reach the rack, so those three are grouped by the day the money arrived. POS is shown net of sales tax. Commercial is on-account funds actually received (check, ACH, wire) — their orders are excluded from the columns to the left so nothing is counted twice. Refunded orders stay counted but deduct in the Refunds column.
-                </div>
-                <button class="rev-export-btn" id="rev-export-btn" style="display:none;flex-shrink:0" onclick="exportRevenueCSV()">Export CSV</button>
-              </div>
-              <div id="rev-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
+            <div class="rev2">
+              <div id="rev-rpt-body" class="rev2-body">
                 <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+              </div>
+              <div class="rev2-foot">
+                <button type="button" class="rev2-link" id="rev-toggle-table" style="display:none" aria-expanded="false" aria-controls="rev-table-wrap" onclick="toggleRevenueTable()">Show the full table</button>
+                <button type="button" class="rev2-link" id="rev-export-btn" style="display:none" onclick="exportRevenueCSV()">Export CSV</button>
+                <button type="button" class="rev2-link" id="rev-toggle-note" aria-expanded="false" aria-controls="rev-method-note" onclick="toggleRevenueNote()">How this is counted</button>
+                <span class="rev2-foot-tax" id="rev-tax-note"></span>
+              </div>
+              <div class="rev2-note" id="rev-method-note" style="display:none">
+                Delivery orders are grouped by <strong>processed date</strong> (the moment the order reaches the rack) — orders still in processing or folding don't appear yet, and cancelled, skipped, pickup-failed and $0 placeholder orders are excluded. <strong>Subscriptions</strong>, <strong>POS Sales</strong> and <strong>Commercial</strong> never reach the rack, so those three are grouped by the day the money arrived. POS is shown net of sales tax. Commercial is on-account funds actually received (check, ACH, wire) — their orders are excluded from the other streams so nothing is counted twice. Refunded orders stay counted but deduct in the ledger. <strong>Charged</strong> is what the cards were actually billed — the order total <em>plus the tip</em>, settled as one charge; <strong>Net revenue</strong> is Charged less refunds and Stripe processing fees, which is exactly how this report computes it. Tips are counted as revenue here, so Net revenue is before any tip payout to drivers.
               </div>
             </div>
           </div>
@@ -52623,6 +52702,10 @@ async function _dvIframeLoaded() {
 
   // ── DAILY REVENUE REPORT ──
   let _revReportData = []; // last rendered rows, used for CSV export
+  // Session 300: bumped on every revenue run. The 30-day trend loads AFTER the
+  // report paints, so without this a slow trend for "today" could land inside a
+  // freshly-rendered "last month" — the wrong line under the right number.
+  let _revRunId = 0;
 
   // Service-name display for an order row.
   // Delivery orders: read services.name from the joined services row.
@@ -52684,6 +52767,18 @@ async function _dvIframeLoaded() {
     return { service, addons, overages, fees, tax, credits, discounts };
   }
 
+  // Convert a tip (amount + type) to dollars.
+  // tip_type='pct' means tip_amount is a percentage applied to total_amount (pre-tip).
+  // Module scope since session 300b: the Daily Revenue table and the 30-day trend
+  // both compute Charged, and Charged now includes the tip — one definition, so the
+  // headline figure and the line beside it can never disagree.
+  function _tipToDollars(o) {
+    const amt = parseFloat(o.tip_amount || 0);
+    if (!amt || amt <= 0) return 0;
+    if (o.tip_type === 'pct') return Math.round(parseFloat(o.total_amount || 0) * amt) / 100;
+    return amt;
+  }
+
   async function loadRevenueReport() {
     const fromEl = document.getElementById('rpt-from');
     const toEl   = document.getElementById('rpt-to');
@@ -52691,9 +52786,23 @@ async function _dvIframeLoaded() {
     const exportBtn = document.getElementById('rev-export-btn');
     if (!fromEl?.value || !toEl?.value) { showToast('Please select a date range', 'error'); return; }
 
+    const _myRun = ++_revRunId;
     body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
     exportBtn.style.display = 'none';
     _revReportData = [];
+    // Session 300: the footer controls live OUTSIDE #rev-rpt-body so they survive
+    // the innerHTML swap — which means a failed or empty load would otherwise leave
+    // the previous run's "Hide the table" sitting there. Reset them on every run.
+    {
+      const _tb = document.getElementById('rev-toggle-table');
+      if (_tb) { _tb.style.display = 'none'; _tb.textContent = 'Show the full table'; _tb.setAttribute('aria-expanded', 'false'); }
+      const _tn = document.getElementById('rev-tax-note');
+      if (_tn) _tn.textContent = '';
+      const _mn = document.getElementById('rev-method-note');
+      if (_mn) _mn.style.display = 'none';
+      const _nb = document.getElementById('rev-toggle-note');
+      if (_nb) { _nb.textContent = 'How this is counted'; _nb.setAttribute('aria-expanded', 'false'); }
+    }
 
     // Fetch orders processed (racked) within the range. Grouping by racked_at
     // so revenue is recognized the moment the order is ready to go out the door
@@ -52857,15 +52966,6 @@ async function _dvIframeLoaded() {
       }
     }
 
-    // Convert a tip (amount + type) to dollars.
-    // tip_type='pct' means tip_amount is a percentage applied to total_amount (pre-tip).
-    function _tipToDollars(o) {
-      const amt = parseFloat(o.tip_amount || 0);
-      if (!amt || amt <= 0) return 0;
-      if (o.tip_type === 'pct') return Math.round(parseFloat(o.total_amount || 0) * amt) / 100;
-      return amt;
-    }
-
     // Fallback estimate: 2.9% + $0.30 per Stripe charge (standard US online rate)
     function _estFee(chargeDollars) { return chargeDollars * 0.029 + 0.30; }
 
@@ -52912,7 +53012,11 @@ async function _dvIframeLoaded() {
         // session 140: tax collected on this order (POS only — delivery
         // laundry orders are 0). Tracked separately for tax-filing reports.
         tax       += parseFloat(o.tax_amount || 0);
-        total     += parseFloat(o.total_amount || 0);
+        // Session 300b: the card is billed total_amount + tip in ONE charge, and the
+        // processing fee below is already computed on total_amount + tipDollars. Charged
+        // must match what Stripe actually settled, or Net pays a fee on money it never
+        // counted. Gross has always included tips; now Charged and Net do too.
+        total     += parseFloat(o.total_amount || 0) + tipDollars;
         // Partial-refund-aware: sum actual refund amounts from customer_transactions,
         // not the order's whole total_amount. billing_status is a boolean that can't
         // represent partials (e.g., $20 refunded on a $200 order).
@@ -53016,6 +53120,87 @@ async function _dvIframeLoaded() {
       ? `<span style="color:var(--red)${est ? ';font-style:italic' : ''}" title="${est ? 'Estimated at 2.9% + $0.30 per charge' : 'Actual Stripe fees'}">−$${$fmt(n)}</span>`
       : `<span class="rev-zero">—</span>`;
 
+    // ── Session 300: visual-first render ──────────────────────────────────
+    // Nothing ABOVE this line changed. Every figure below comes from `rows` and
+    // `tot` exactly as the old nineteen-column table built them — what changed is
+    // the ranking. One number carries weight, the mix carries a shape, the ledger
+    // chains Charged → Net the way the code actually computes it, and a zero line
+    // is simply not drawn instead of being drawn in red.
+    const _hEsc = t => String(t).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+    const _live = n => (n || 0) > 0.005;
+    // Deductions that are NOT alarms. $neg (defined above) paints red, which this
+    // view reserves for refunds — a discount is a price, not a problem.
+    const $negQ = n => n > 0 ? `<span style="color:var(--gray-600)">−$${$fmt(n)}</span>` : `<span class="rev-zero">—</span>`;
+
+    // One hue, eight fixed tints — a stream's colour belongs to the stream, never
+    // to its rank, so a POS-heavy Saturday reads the same way as a Tuesday.
+    const REV_STREAMS = [
+      { k:'service',  label:'Services',      c:'#1E2A4A', t:'Wash, dry and fold on delivery orders. Counted the day the order reached the rack.' },
+      { k:'subs',     label:'Subscriptions', c:'#2B3D66', t:'Monthly plan fees, counted the day the money arrived — a renewal never reaches the rack.' },
+      { k:'pos',      label:'POS counter',   c:'#3A5183', t:'Walk-in counter sales, net of sales tax, counted on the day of sale.' },
+      { k:'fees',     label:'Delivery fees', c:'#4C67A0', t:'Pickup and delivery fees on delivery orders.' },
+      { k:'tips',     label:'Tips',          c:'#6280B8', t:'Driver tips, converted to dollars where the customer left a percentage.' },
+      { k:'comm',     label:'Commercial',    c:'#7F97C6', t:'On-account funds actually received — check, ACH or wire. Those orders are left out of the other streams so no job is counted twice.' },
+      { k:'overages', label:'Overages',      c:'#A0B2D5', t:'Weight above the plan allowance.' },
+      { k:'addons',   label:'Add-ons',       c:'#C2CDE4', t:'Extras added to a delivery order.' },
+    ];
+
+    const _grossBase = tot.gross > 0 ? tot.gross : 1;
+    const _streams   = REV_STREAMS.filter(x => _live(tot[x.k]));
+    const _share     = x => (tot[x.k] / _grossBase) * 100;
+
+    const barHtml = _streams.map(x => {
+      const pct = _share(x);
+      const tip = x.label + ' — $' + $fmt(tot[x.k]) + ' · ' + pct.toFixed(1) + '% of gross. ' + x.t;
+      const inside = pct >= 20
+        ? `<div class="rev2-seg-in"><span style="font-weight:500">${x.label}</span><span style="color:rgba(255,255,255,.72)">$${$fmt(tot[x.k])}</span></div>`
+        : '';
+      return `<div style="flex-grow:${pct.toFixed(4)};background:${x.c}" title="${_hEsc(tip)}">${inside}</div>`;
+    }).join('');
+
+    const legendHtml = _streams.filter(x => _share(x) < 20).map(x =>
+      `<span class="rev2-lg" title="${_hEsc(x.t)}"><span class="rev2-chip" style="background:${x.c}"></span>${x.label}<b>$${$fmt(tot[x.k])}</b></span>`
+    ).join('');
+
+    // ── The ledger. Only lines that happened get drawn, and it chains exactly
+    //    as the aggregation above does: net = charged − refunds − processing. ──
+    let ledgerHtml = `<div class="rev2-led-row"><span>Charged to cards${_live(tot.tips)
+      ? `<span style="display:block;font-size:12.5px;color:#63666D">including $${$fmt(tot.tips)} in tips</span>` : ''}</span><span>$${$fmt(tot.total)}</span></div>`;
+    if (_live(tot.refunds))  ledgerHtml += `<div class="rev2-led-row"><span class="rev2-alert">Refunds</span><span class="rev2-alert">−$${$fmt(tot.refunds)}</span></div>`;
+    if (_live(tot.procFees)) ledgerHtml += `<div class="rev2-led-row"><span>Processing fees${tot.feeEstimated ? ' <span style="color:#63666D;font-size:13px">(part estimated)</span>' : ''}</span><span>−$${$fmt(tot.procFees)}</span></div>`;
+    ledgerHtml += `<div class="rev2-led-net"><span>Net revenue</span><span>$${$fmt(tot.net)}</span></div>`;
+
+    const _when   = selFrom === selTo ? 'today' : 'in this period';
+    const _listed = (a, join) => a.length < 2 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' ' + join + ' ' + a[a.length - 1];
+
+    const _applied = [];
+    if (_live(tot.discounts)) _applied.push('discounts of $' + $fmt(tot.discounts));
+    if (_live(tot.credits))   _applied.push('credits of $' + $fmt(tot.credits));
+    const _zeros = [];
+    if (!_live(tot.credits))   _zeros.push('credits');
+    if (!_live(tot.discounts)) _zeros.push('discounts');
+    if (!_live(tot.refunds))   _zeros.push('refunds');
+    if (!_live(tot.comm))      _zeros.push('commercial receipts');
+
+    let leadTxt;
+    if (_live(tot.refunds)) {
+      leadTxt = `$${$fmt(tot.refunds)} came back as refunds${_live(tot.procFees) ? `, on top of $${$fmt(tot.procFees)} in card processing` : ''}.`;
+    } else if (_live(tot.procFees)) {
+      leadTxt = `The only deduction ${_when} is the card processor's.`;
+    } else {
+      leadTxt = `Nothing was deducted ${_when}.`;
+    }
+    if (_applied.length) {
+      const a = _listed(_applied, 'and');
+      leadTxt += ' ' + a.charAt(0).toUpperCase() + a.slice(1) + ' were applied before the charge went out.';
+    }
+    const zeroTxt = _zeros.length ? `No ${_listed(_zeros, 'or')} ${_when}, so those lines are not shown.` : '';
+
+    // ── The table: unchanged columns, opt-in, with a bar under each Net figure
+    //    so a week's days compare by eye. Zero cells read as — , not as red $0.00.
+    const _maxNet  = Math.max(1, ...rows.map(r => r.net));
+    const _showBar = rows.length > 1;
+
     const bodyRows = rows.map(r => `
       <tr class="rev-day-row">
         <td>${fmtDate(r.date)}</td>
@@ -53027,75 +53212,281 @@ async function _dvIframeLoaded() {
         <td>${$f(r.subs)}</td>
         <td>${$f(r.pos)}</td>
         <td>${$f(r.comm)}</td>
-        <td style="font-weight:600;color:var(--gray-700)">${r.gross > 0 ? '$' + $fmt(r.gross) : '<span class=\"rev-zero\">—</span>'}</td>
-        <td>${$neg(r.credits)}</td>
-        <td>${$neg(r.discounts)}</td>
+        <td style="font-weight:600;color:var(--gray-700)">${$f(r.gross)}</td>
+        <td>${$negQ(r.credits)}</td>
+        <td>${$negQ(r.discounts)}</td>
         <td style="color:var(--gray-500)">${r.count}</td>
         <td style="font-weight:600;color:var(--navy)">$${$fmt(r.total)}</td>
         <td>${$neg(r.refunds)}</td>
         <td>${$fee(r.procFees, r.feeEstimated)}</td>
-        <td style="font-weight:700;color:var(--green)">$${$fmt(r.net)}</td>
+        <td style="font-weight:700;color:#1A1C20">$${$fmt(r.net)}${_showBar ? `<div class="rev2-netbar" style="width:${Math.max(0, (r.net / _maxNet) * 100).toFixed(1)}%"></div>` : ''}</td>
       </tr>`).join('');
 
-    // session 140: tax-collected pill above the table — quick reference
-    // for sales-tax filing. Hidden when nothing was collected (e.g.
-    // delivery-only date range).
-    const taxBanner = tot.tax > 0 ? `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:13px;">
-        <span style="font-weight:700;color:#166534;letter-spacing:0;font-size:11px;">Sales Tax Collected</span>
-        <span style="font-weight:700;color:#166534;font-size:15px;">$${$fmt(tot.tax)}</span>
-        <span style="color:#166534;font-size:11.5px;">POS counter sales · ${(BIZ_TAX_RATE * 100).toFixed(2)}% rate</span>
-      </div>` : '';
+    body.innerHTML = `
+      <div class="rev2-hero">
+        <div>
+          <div class="rev2-kicker">Net revenue</div>
+          <div class="rev2-big">$${$fmt(tot.net)}</div>
+          <div class="rev2-delta" id="rev-delta">$${$fmt(tot.total)} charged</div>
+        </div>
+        <div class="rev2-spark" id="rev-spark-slot"></div>
+      </div>
 
-    body.innerHTML = `${taxBanner}
-      <table class="rev-tbl">
-        <thead>
-          <tr>
-            <th style="text-align:left">Date</th>
-            <th>Services</th>
-            <th>Add-ons</th>
-            <th>Overages</th>
-            <th>Delivery Fees</th>
-            <th>Tips</th>
-            <th title="Monthly subscription plan fees charged on this day. Grouped by charge date, not by racked date — a plan renewal never reaches the rack.">Subscriptions</th>
-            <th title="Walk-in counter sales, net of sales tax. Grouped by sale date. The tax is reported in the Sales Tax pill above.">POS Sales</th>
-            <th title="On-account (commercial) funds actually received that day — check, ACH or wire, voided payments excluded. Cash basis: their orders are deliberately left out of the columns to the left so no job is counted twice.">Commercial</th>
-            <th>Gross Revenue</th>
-            <th>Credits</th>
-            <th>Discounts</th>
-            <th>Orders</th>
-            <th>Charged</th>
-            <th>Refunds</th>
-            <th title="Actual Stripe fees from balance_transactions. Italicized values are estimated at 2.9% + $0.30 when the balance_transaction wasn't available.">Processing Fees</th>
-            <th>Net Revenue</th>
-          </tr>
-        </thead>
-        <tbody>${bodyRows}</tbody>
-        <tfoot>
-          <tr>
-            <td>Total</td>
-            <td>${$ft(tot.service)}</td>
-            <td>${$ft(tot.addons)}</td>
-            <td>${$ft(tot.overages)}</td>
-            <td>${$ft(tot.fees)}</td>
-            <td>${$ft(tot.tips)}</td>
-            <td>${$ft(tot.subs)}</td>
-            <td>${$ft(tot.pos)}</td>
-            <td>${$ft(tot.comm)}</td>
-            <td style="color:var(--gray-700)">${$ft(tot.gross)}</td>
-            <td style="color:var(--red)">−$${$fmt(tot.credits)}</td>
-            <td style="color:var(--red)">−$${$fmt(tot.discounts)}</td>
-            <td style="color:var(--gray-500)">${tot.count}</td>
-            <td style="color:var(--navy)">$${$fmt(tot.total)}</td>
-            <td style="color:var(--red)">−$${$fmt(tot.refunds)}</td>
-            <td style="color:var(--red)${tot.feeEstimated ? ';font-style:italic' : ''}">−$${$fmt(tot.procFees)}</td>
-            <td style="color:var(--green)">$${$fmt(tot.net)}</td>
-          </tr>
-        </tfoot>
-      </table>`;
+      <hr class="rev2-rule">
+
+      <div class="rev2-sec">
+        <div class="rev2-sec-head">
+          <span class="rev2-kicker">Where it came from</span>
+          <span class="rev2-sec-meta">$${$fmt(tot.gross)} gross · ${tot.count.toLocaleString()} order${tot.count === 1 ? '' : 's'}</span>
+        </div>
+        <div class="rev2-bar">${barHtml}</div>
+        <div class="rev2-legend">${legendHtml}</div>
+      </div>
+
+      <hr class="rev2-rule">
+
+      <div class="rev2-two">
+        <div class="rev2-prose">
+          <div class="rev2-kicker">What came off it</div>
+          <p>${leadTxt}</p>
+          ${zeroTxt ? `<p class="sm">${zeroTxt}</p>` : ''}
+        </div>
+        <div class="rev2-led">${ledgerHtml}</div>
+      </div>
+
+      <div class="rev2-tblwrap" id="rev-table-wrap" style="display:none">
+        <table class="rev-tbl">
+          <thead>
+            <tr>
+              <th style="text-align:left">Date</th>
+              <th>Services</th>
+              <th>Add-ons</th>
+              <th>Overages</th>
+              <th>Delivery Fees</th>
+              <th>Tips</th>
+              <th title="Monthly subscription plan fees charged on this day. Grouped by charge date, not by racked date — a plan renewal never reaches the rack.">Subscriptions</th>
+              <th title="Walk-in counter sales, net of sales tax. Grouped by sale date. The tax is reported in the footer below.">POS Sales</th>
+              <th title="On-account (commercial) funds actually received that day — check, ACH or wire, voided payments excluded. Cash basis: their orders are deliberately left out of the columns to the left so no job is counted twice.">Commercial</th>
+              <th>Gross Revenue</th>
+              <th>Credits</th>
+              <th>Discounts</th>
+              <th>Orders</th>
+              <th>Charged</th>
+              <th>Refunds</th>
+              <th title="Actual Stripe fees from balance_transactions. Italicized values are estimated at 2.9% + $0.30 when the balance_transaction wasn't available.">Processing Fees</th>
+              <th>Net Revenue</th>
+            </tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td>${$f(tot.service)}</td>
+              <td>${$f(tot.addons)}</td>
+              <td>${$f(tot.overages)}</td>
+              <td>${$f(tot.fees)}</td>
+              <td>${$f(tot.tips)}</td>
+              <td>${$f(tot.subs)}</td>
+              <td>${$f(tot.pos)}</td>
+              <td>${$f(tot.comm)}</td>
+              <td style="color:var(--gray-700)">${$f(tot.gross)}</td>
+              <td>${$negQ(tot.credits)}</td>
+              <td>${$negQ(tot.discounts)}</td>
+              <td style="color:var(--gray-500)">${tot.count}</td>
+              <td style="color:var(--navy)">$${$fmt(tot.total)}</td>
+              <td>${$neg(tot.refunds)}</td>
+              <td>${$fee(tot.procFees, tot.feeEstimated)}</td>
+              <td style="color:#1A1C20">$${$fmt(tot.net)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+
+    const _tblBtn = document.getElementById('rev-toggle-table');
+    if (_tblBtn) { _tblBtn.style.display = ''; _tblBtn.textContent = 'Show the full table'; }
+    const _noteEl = document.getElementById('rev-method-note');
+    if (_noteEl) _noteEl.style.display = 'none';
+    const _taxEl = document.getElementById('rev-tax-note');
+    if (_taxEl) _taxEl.textContent = tot.tax > 0
+      ? `Sales tax collected $${$fmt(tot.tax)} · POS counter, ${(BIZ_TAX_RATE * 100).toFixed(2)}%`
+      : '';
 
     exportBtn.style.display = '';
+
+    // The trend is a second, cheaper query. It loads AFTER the report paints so it
+    // can never hold up the number the user opened the page for.
+    _loadRevenueSpark(selFrom, selTo, tot.total, _myRun);
   }
+
+  // ── Session 300: the 30-day trend beside the hero figure ──────────────────
+  // WHY CHARGED AND NOT NET: net needs Stripe's per-charge fees, and the
+  // get-stripe-fees edge function is already at ~50s for a 25-day window (the
+  // report aborts it at 12s and falls back to an estimate). Widening the report's
+  // own window to 30 days would push EVERY load into that fallback and turn the
+  // headline figure into an estimate. Charged needs no Stripe call at all and is
+  // exact, so the trend plots Charged and says so. Same definition the report uses:
+  // racked delivery orders (on-account excluded) + subscriptions + POS net of tax
+  // + commercial funds received.
+  let _revSparkKey = null, _revSparkData = null;
+
+  async function _fetchChargedByDay(from, to) {
+    const cacheKey = 'wr-revspark2|' + from + '|' + to; // v2: Charged includes tips (session 300b)
+    const cached = _reportCacheGet(cacheKey, _reportTtl(to, 15 * 60e3, 7 * 864e5)); // 15m live / 7d closed
+    if (cached) return cached;
+
+    // racked_at / created_at are UTC; Pacific is up to 8h behind, so pad a day
+    // either side and filter on Pacific-localised dates, exactly as the report does.
+    const fromPad = new Date(from + 'T00:00:00'); fromPad.setDate(fromPad.getDate() - 1);
+    const toPad   = new Date(to   + 'T00:00:00'); toPad.setDate(toPad.getDate() + 1);
+    const fromISO = fromPad.toISOString().slice(0, 10) + 'T00:00:00Z';
+    const toISO   = toPad.toISOString().slice(0, 10)   + 'T23:59:59Z';
+
+    try {
+      let orders = [];
+      { const BATCH = 1000; let offset = 0;
+        while (true) {
+          const { data, error } = await db.from('orders')
+            .select('total_amount, tip_amount, tip_type, racked_at, actual_delivery_at, customers(billing_type)')
+            .not('status', 'in', '(cancelled,skipped,pickup_failed)')
+            .neq('source', 'walk_in')
+            .gt('total_amount', 0)
+            .not('racked_at', 'is', null)
+            .gte('racked_at', fromISO).lte('racked_at', toISO)
+            .order('racked_at')
+            .range(offset, offset + BATCH - 1);
+          if (error) { console.warn('[revenue] trend orders failed:', error.message); return null; }
+          orders.push(...(data || []));
+          if (!data || data.length < BATCH) break;
+          offset += BATCH;
+        } }
+
+      const [posRes, subRes, commRes] = await Promise.all([
+        db.from('orders').select('total_amount, tax_amount, created_at')
+          .eq('source', 'walk_in').in('billing_status', ['paid', 'refunded'])
+          .gte('created_at', fromISO).lte('created_at', toISO),
+        db.from('customer_transactions').select('amount, created_at')
+          .eq('type', 'subscription_invoice')
+          .gte('created_at', fromISO).lte('created_at', toISO),
+        db.from('payments').select('amount, received_date')
+          .is('voided_at', null)
+          .gte('received_date', from).lte('received_date', to),
+      ]);
+
+      const pac = ts => new Date(ts).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const byDay = {};
+      const add = (d, v) => { if (d >= from && d <= to) byDay[d] = (byDay[d] || 0) + v; };
+
+      orders.forEach(o => {
+        // On-account is cash basis in this report — its money shows up as Commercial
+        // when the cheque clears, never at the rack. Same exclusion as the table.
+        if ((o.customers?.billing_type || '') === 'on_account') return;
+        const ts = o.racked_at || o.actual_delivery_at;
+        // Same definition as the table: order total + tip, settled as one charge.
+        if (ts) add(pac(ts), parseFloat(o.total_amount || 0) + _tipToDollars(o));
+      });
+      (posRes.data  || []).forEach(o => add(pac(o.created_at), parseFloat(o.total_amount || 0) - parseFloat(o.tax_amount || 0)));
+      (subRes.data  || []).forEach(t => add(pac(t.created_at), parseFloat(t.amount || 0)));
+      (commRes.data || []).forEach(p => add(p.received_date, parseFloat(p.amount || 0)));
+
+      const out = [];
+      for (let d = from, guard = 0; d <= to && guard < 400; d = addDaysPacific(d, 1), guard++) {
+        out.push({ date: d, v: byDay[d] || 0 });
+      }
+      _reportCacheSet(cacheKey, out);
+      return out;
+    } catch (e) {
+      console.warn('[revenue] trend fetch failed:', e?.message);
+      return null;
+    }
+  }
+
+  function _revSparkSvg(series) {
+    const W = 326, H = 76, PAD = 4, TOP = 8, BOT = 68;
+    const n = series.length;
+    if (!n) return '';
+    const vals = series.map(p => p.v);
+    const lo = Math.min(...vals), hi = Math.max(...vals);
+    const span = (hi - lo) || 1;
+    const x = i => n === 1 ? W - PAD : PAD + (i * (W - PAD * 2)) / (n - 1);
+    const y = v => BOT - ((v - lo) / span) * (BOT - TOP);
+    const d = series.map((p, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.v).toFixed(1)).join(' ');
+    const label = p => new Date(p.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+      + ' — $' + p.v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' charged';
+    // Invisible fat targets carry the native tooltip; the drawn line stays 1.7px.
+    const hits = series.map((p, i) =>
+      `<circle cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="8" fill="transparent"><title>${label(p)}</title></circle>`).join('');
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Amount charged per day over the last ${n} days">
+        <line x1="0" y1="72" x2="${W - PAD}" y2="72" stroke="#E3E1DC" stroke-width="1"/>
+        <path d="${d}" fill="none" stroke="#1A1C20" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="${x(n - 1).toFixed(1)}" cy="${y(series[n - 1].v).toFixed(1)}" r="3.6" fill="#1A1C20"/>
+        ${hits}
+      </svg>`;
+  }
+
+  async function _loadRevenueSpark(selFrom, selTo, chargedInRange, runId) {
+    const slot = document.getElementById('rev-spark-slot');
+    if (!slot) return;
+    const from = addDaysPacific(selTo, -29);
+    const key  = from + '|' + selTo;
+
+    let series = (_revSparkKey === key) ? _revSparkData : null;
+    if (!series) {
+      series = await _fetchChargedByDay(from, selTo);
+      if (!series || !series.length) { slot.innerHTML = ''; return; }
+      _revSparkKey = key; _revSparkData = series;
+    }
+    // The report may have been re-run for another range while this was in flight.
+    if (runId !== _revRunId || !document.getElementById('rev-spark-slot')) return;
+
+    slot.innerHTML = _revSparkSvg(series) + '<div class="rev2-cap">Charged, last 30 days</div>';
+
+    const deltaEl = document.getElementById('rev-delta');
+    if (!deltaEl) return;
+    const $m = n => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+
+    if (selFrom !== selTo) {
+      const days = series.filter(p => p.date >= selFrom && p.date <= selTo).length;
+      deltaEl.textContent = days > 1 ? `${$m(chargedInRange)} charged across ${days} days` : `${$m(chargedInRange)} charged`;
+      return;
+    }
+
+    // Single day: compare like with like — the same weekday, within the window.
+    const dow   = new Date(selTo + 'T12:00:00').getDay();
+    const peers = series.filter(p => p.date !== selTo && p.v > 0 && new Date(p.date + 'T12:00:00').getDay() === dow);
+    const today = series.find(p => p.date === selTo);
+    if (peers.length < 2 || !today || !today.v) { deltaEl.textContent = `${$m(chargedInRange)} charged`; return; }
+    const avg = peers.reduce((a, p) => a + p.v, 0) / peers.length;
+    const pct = ((today.v - avg) / avg) * 100;
+    const wd  = new Date(selTo + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+    const openNote = selTo === todayPT ? ' so far' : '';
+    deltaEl.innerHTML = `<span style="font-size:12px">${pct >= 0 ? '▲' : '▼'}</span> ${Math.abs(pct).toFixed(1)}% `
+      + `${pct >= 0 ? 'above' : 'below'} the average ${wd}${openNote} `
+      + `<span style="color:#63666D">· ${$m(chargedInRange)} charged, ${peers.length} ${wd}s compared</span>`;
+  }
+
+  // Footer controls. The table and the accounting note are both opt-in now — the
+  // default view is the shape of the day, not the spreadsheet behind it.
+  function toggleRevenueTable() {
+    const wrap = document.getElementById('rev-table-wrap');
+    const btn  = document.getElementById('rev-toggle-table');
+    if (!wrap || !btn) return;
+    const show = wrap.style.display === 'none';
+    wrap.style.display = show ? '' : 'none';
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+    btn.textContent = show ? 'Hide the table' : 'Show the full table';
+  }
+  window.toggleRevenueTable = toggleRevenueTable;
+
+  function toggleRevenueNote() {
+    const note = document.getElementById('rev-method-note');
+    const btn  = document.getElementById('rev-toggle-note');
+    if (!note) return;
+    const show = note.style.display === 'none';
+    note.style.display = show ? '' : 'none';
+    if (btn) { btn.setAttribute('aria-expanded', show ? 'true' : 'false'); btn.textContent = show ? 'Hide the note' : 'How this is counted'; }
+  }
+  window.toggleRevenueNote = toggleRevenueNote;
 
   function exportRevenueCSV() {
     if (!_revReportData.length) return;
