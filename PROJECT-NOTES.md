@@ -14,6 +14,8 @@
   `order_feedback` rows that are 1–3★ or have a comment (insert or rating/comment change).
 - **Customer app:** Account → "Send us feedback"; order detail link ("Something else to tell us?" / "Question about
   this order?"); booking-step help line now opens the form. Photos shrunk to ≤1600px JPEG before upload.
+- **Issue panel (298c):** issues created by `customer-feedback` show the customer's photos (signed thumbnails from
+  `customer_messages.photo_paths` via `issue_id`); issue note now says "(N photos attached — shown below)".
 - **Admin:** Reports → Customers → **Feedback** (was Ratings): ratings + messages in one list, filters, signed photo
   thumbnails, email status, "Do not contact".
 - SMS rating text already opens the app rating sheet (which has a comment box) — nothing separate to build.
