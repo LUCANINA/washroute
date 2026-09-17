@@ -1238,6 +1238,9 @@
     .fb-tbl { width:100%; border-collapse:collapse; font-size:13px; }
     .fb-tbl th { padding:10px 14px; text-align:left; font-size:10.5px; font-weight:700; color:var(--gray-400); border-bottom:1px solid var(--gray-200); white-space:nowrap; }
     .fb-tbl td { padding:10px 14px; border-bottom:1px solid var(--gray-100); vertical-align:top; }
+    .fb-tbl .fb-del { background:none; border:none; color:var(--gray-300); font-size:20px; line-height:1;
+                      padding:0 2px; cursor:pointer; font-family:inherit; border-radius:4px; }
+    .fb-tbl .fb-del:hover { color:var(--red); background:#fef2f2; }
     .rev-tbl { width:100%; border-collapse:collapse; font-size:13px; }
     .rev-tbl th { padding:10px 14px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:0;  color:var(--gray-400); border-bottom:1px solid var(--gray-200); white-space:nowrap; }
     .rev-tbl th:first-child { text-align:left; }
@@ -41366,9 +41369,11 @@ ${oneCopy}
 
     const stars = r => `<span style="color:#f59e0b;letter-spacing:1px">${'★'.repeat(r)}</span><span style="color:var(--gray-200);letter-spacing:1px">${'★'.repeat(5 - r)}</span>`;
     const pill = (label, color) => `<span style="display:inline-block;font-size:11px;font-weight:700;color:#fff;background:${color};border-radius:5px;padding:2px 7px;white-space:nowrap">${esc(label)}</span>`;
+    // Deleting feedback is admin-only, both here and in delete_feedback_entry (session 300).
+    const canDelete = currentUserRole === 'admin';
     body.innerHTML = msgErr + `
       <div class="rev-tbl-wrap"><table class="fb-tbl">
-        <thead><tr><th>When</th><th>Customer</th><th>Order</th><th>Type</th><th>Feedback</th><th>Follow-up</th></tr></thead>
+        <thead><tr><th>When</th><th>Customer</th><th>Order</th><th>Type</th><th>Feedback</th><th>Follow-up</th>${canDelete ? '<th></th>' : ''}</tr></thead>
         <tbody>${rows.map(r => {
           const name = [r.customers?.first_name_cache, r.customers?.last_name_cache].filter(Boolean).join(' ') || '—';
           const when = new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -41395,10 +41400,35 @@ ${oneCopy}
             <td style="white-space:nowrap">${type}</td>
             <td style="max-width:420px">${text}</td>
             <td style="white-space:nowrap;font-size:12px">${follow.join(' · ')}</td>
+            ${canDelete ? `<td style="white-space:nowrap;text-align:right"><button class="fb-del" title="Delete this entry"
+                 onclick="deleteFeedbackEntry('${r.kind}', ${Number(r.id)}, this)">&times;</button></td>` : ''}
           </tr>`;
         }).join('')}</tbody>
       </table></div>`;
     loadFeedbackPhotos(body);
+  }
+
+  /* Remove one entry from the list — test posts, junk, duplicates (session 300).
+     Admin only. The RPC deletes the row, drops the cs_issue it opened itself
+     (never a staff-authored one), and hands back any photo paths so we can clear
+     them out of the private bucket too. */
+  async function deleteFeedbackEntry(kind, id, btn) {
+    const what = kind === 'rating' ? 'this rating' : 'this message';
+    if (!confirm(`Delete ${what}? It is removed for good, along with any photos and the issue it opened. This cannot be undone.`)) return;
+    if (btn) { btn.disabled = true; btn.style.opacity = '.4'; }
+    const { data, error } = await db.rpc('delete_feedback_entry', { p_kind: kind, p_id: id });
+    if (error) {
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+      showToast(`Could not delete: ${error.message}`, 'error');
+      return;
+    }
+    const paths = Array.isArray(data?.photo_paths) ? data.photo_paths : [];
+    if (paths.length) {
+      const { error: sErr } = await db.storage.from('feedback-photos').remove(paths);
+      if (sErr) console.warn('Feedback photos left in storage:', sErr.message);
+    }
+    showToast(data?.issue_deleted ? `Deleted — issue #${data.issue_id} removed too` : 'Feedback deleted', 'success');
+    loadFeedbackPage();
   }
 
   // Private bucket: show short-lived signed thumbnails, click opens full size.
