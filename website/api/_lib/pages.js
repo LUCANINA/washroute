@@ -150,7 +150,8 @@ function contactBlock(v) {
     </div>
     <div class="card">
       <h3>Drop-off location</h3>
-      <p><strong>${esc(s.dropoff_address || '')}</strong><br>${esc(s.dropoff_hours || '')}</p>
+      <p><strong>${esc(s.dropoff_address || '')}</strong><br>Open ${esc(s.dropoff_hours || '')}</p>
+      <p class="muted">Pickup and delivery runs ${esc(s.service_days || '')}; the drop-off counter is open every day.</p>
       <p class="muted">${esc(s.dropoff_cutoff || '')}</p>
       <p>Drop-off wash &amp; fold: ${mdi('{retail:Wash & Fold}', v)}</p>
     </div>

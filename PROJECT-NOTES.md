@@ -19,8 +19,9 @@ Plan doc: https://claude.ai/code/artifact/969ded65-373d-41b8-b939-92c57792947a (
   `site_info.phone`). Same-day per bag = delivery + surcharge = **$24.90** (Wix's $24.95 was wrong). Overweight bags
   over 25 lbs = **$3/lb** — kept as editable `site_info.overweight_rate` (there is no such fee row in `service_fees`),
   used on Home/Services and in a new FAQ item (#30).
-- **Service days = Monday–Saturday** (David, session 299). Wix said "7 days a week" everywhere; the website now strips
-  that claim from imported Wix copy and shows `site_info.service_days`. Drop-off hours `7 am – 8 pm, Monday to Saturday`.
+- **Two different schedules** (David, session 299): **pickup & delivery = Monday–Saturday** (`site_info.service_days`),
+  **drop-off counter = 7 days, 7 am – 8 pm** (`site_info.dropoff_hours`). Wix claimed "7 days a week" for delivery too;
+  the website strips that claim from imported Wix copy and states both schedules where each applies.
 - **Wix FAQ audit (after David's edits):** prices, subscription, same-day, $3/lb overweight and the softer Free & Clear
   answer are all correct there now. Still wrong on Wix: "How do I schedule a pickup?" shows the old (510) 842-3560.
   Wix is missing 6 of our questions (SKIP/cancel, pickup windows, delivery cost, referral, tipping, what we can't wash),
