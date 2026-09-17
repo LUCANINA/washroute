@@ -1,5 +1,30 @@
 # WashRoute — Project Notes
 
+## Session 304 — Sep 17, 2026: customer app type up one point
+
+**Status:** Committed. Customer app only. David, after seeing DM Sans live: "I wonder if the font is slightly too
+small."
+
+- **Every `font-size` in the app +1px** — 485 declarations across 481 lines, nothing else touched (verified: every
+  changed line in the diff contains a `font-size`). The seven sizes in the order-confirmation **email body**
+  (around line 6263) are excluded: that HTML is rendered by a mail client, not by us, and must not drift with the
+  app's UI.
+- **Flat +1 was chosen over a ×1.08 proportional scale, after comparing both side by side.** The two are the SAME
+  change for most of the app — body type is 11–15px, where both formulas round to identical values (11→12, 13→14,
+  14→15, 15→16); the Account screen renders pixel-identical either way. They only diverge at 16px and up:
+  22→23 vs 24, 32→33 vs 34.5, 48→49 vs **52**. At ×1.08 the landing hero grew enough to rewrap
+  ("Premium Wash & Fold / for busy households." instead of breaking after "for"), and the scale scattered
+  half-pixel sizes (17.5, 18.5, 20.5, 32.5, 34.5) through the file. What was actually cramped was the small text,
+  which both fix identically — so +1 buys the same legibility and leaves the headings where they were designed.
+- **Note for next time:** a flat +1px is not a uniform bump. It is +11% at 9px and +2% at 48px, so it compresses
+  the type scale. That was the right trade here; it would not be if the headings ever need to grow too.
+
+**Tested** at 390px and 430px on landing, new order and account: no horizontal scroll, and no element clipped that
+was not already clipping before the change (one headline, a line-height rounding, identical in all three versions).
+
+**Not tested — check before relying on it:** home, order detail and the success screen. They need real order data
+that the test harness cannot stub cheaply, and they are the densest screens in the app.
+
 ## Session 303 — Sep 17, 2026: DM Sans across all four apps
 
 **Status:** Committed. Customer app, driver app and POS now match the admin (session 302). All four SPAs share one
