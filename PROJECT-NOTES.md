@@ -1,5 +1,29 @@
 # WashRoute — Project Notes
 
+## Session 302 — Sep 17, 2026: DM Sans is the admin's typeface, self-hosted
+
+**Status:** Committed. Admin only — the customer app, driver app and POS are untouched.
+
+- **One declaration decides the font.** `body { font-family: var(--font-ui) }` where `--font-ui` is
+  `'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`. The 82 rules that already said
+  `font-family: inherit` do the rest, plus one new `input, select, textarea, button { font-family: inherit }`
+  because native controls don't inherit on their own. Every scoped DM Sans declaration from sessions 300–301
+  (`.rev2`, `.rpt-title`, `.rpt-head-period`, `.rpt-dates`, `.rpt-pulse`, `.rpt-kbd`, `.rpt-index-panel`) is
+  deleted — that deletion is the whole point of standardising.
+- **Self-hosted, not Google.** `assets/fonts/dmsans-{latin,latin-ext}.woff2` and the two italics, variable
+  100–1000, ~210 KB total, with `@font-face` in the page and a `<link rel=preload>` on the latin roman file.
+  The stylesheet link to fonts.googleapis.com is gone, which removes a DNS lookup, a TLS handshake and a second
+  request before text could settle — that was the visible reflow on a dense table. **Verified with every external
+  host blocked in headless Chromium: DM Sans still loads and `document.fonts.check` passes**, so the admin no
+  longer depends on Google being reachable.
+- **Receipts and emails deliberately keep their own stacks.** A first pass called these "stray inconsistencies"
+  to normalise. They are not: the `Helvetica, Arial` body, the `-apple-system,sans-serif` runs around line 32766
+  and the `sans-serif` email bodies are inside *generated documents* — 576px thermal receipts and 520px email
+  HTML. A thermal printer and a mail client cannot load our font, so those must stay self-contained. Leave them.
+- **Why DM Sans over the system stack** (David compared both on real screens): bold reads softer, so card labels
+  stop shouting over their own numbers; the `1` has a flag and the `7` a clear angle, which helps scanning a money
+  column; slightly wider, but the ten-column revenue table still fits at 1440.
+
 ## Session 301 — Sep 17, 2026: the report tabs are gone, and the table folds
 
 **Status:** Committed. Admin → Reports. Touches how ALL fourteen reports are reached; their own contents are

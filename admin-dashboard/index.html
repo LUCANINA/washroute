@@ -11,15 +11,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Family Laundry Admin" />
   <meta name="theme-color" content="#0f2744" />
-  <!-- Reports type scale. ONE family — DM Sans, 300 to 700 — and the large
-       figures get their presence from size and tight tracking rather than from a
-       second, display face (session 301b: Fraunces read as too ornate for money).
-       Applied only inside .rev2 and the Reports header; the rest of the admin is
-       still on the system stack. If we ever standardise, this is the one to move
-       everywhere, or to drop entirely — there is nothing else to unpick. -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" />
+  <!-- Session 302: DM Sans is the admin's typeface, everywhere. Self-hosted from
+       assets/fonts (variable, 100–1000, roman + italic, latin + latin-ext) and
+       preloaded, so there is no third-party request and no flash of the system font
+       reflowing a table under you. Receipts and emails are deliberately NOT on it —
+       a thermal printer and a mail client can't load our font, so those generated
+       documents keep their own self-contained stacks. -->
+  <link rel="preload" href="../assets/fonts/dmsans-latin.woff2" as="font" type="font/woff2" crossorigin />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -49,7 +47,24 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(0,0,0,.2); border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.35); }
+    /* DM Sans, variable. One file per script per style; the browser takes only the
+       ranges it needs. font-display:swap is belt-and-braces — the preload above
+       normally has the latin file in hand before first paint. */
+    @font-face { font-family:'DM Sans'; font-style:normal; font-weight:100 1000; font-display:swap;
+      src:url(../assets/fonts/dmsans-latin.woff2) format('woff2');
+      unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+    @font-face { font-family:'DM Sans'; font-style:normal; font-weight:100 1000; font-display:swap;
+      src:url(../assets/fonts/dmsans-latin-ext.woff2) format('woff2');
+      unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+    @font-face { font-family:'DM Sans'; font-style:italic; font-weight:100 1000; font-display:swap;
+      src:url(../assets/fonts/dmsans-italic-latin.woff2) format('woff2');
+      unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+    @font-face { font-family:'DM Sans'; font-style:italic; font-weight:100 1000; font-display:swap;
+      src:url(../assets/fonts/dmsans-italic-latin-ext.woff2) format('woff2');
+      unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+
     :root {
+      --font-ui: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       --sidebar-bg: #0f2744;
       --sidebar-w: 175px;
       --rcc-col-w: 290;
@@ -67,7 +82,9 @@
       --shadow-sm: 0 1px 2px rgba(0,0,0,.05);
       --shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
     }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--gray-50); color: var(--gray-800); font-size: 14px; line-height: 1.5; overflow-x: hidden; }
+    body { font-family: var(--font-ui); background: var(--gray-50); color: var(--gray-800); font-size: 14px; line-height: 1.5; overflow-x: hidden; }
+    /* Form controls don't inherit the page font on their own. */
+    input, select, textarea, button { font-family: inherit; }
 
     /* ── LOGIN ── */
     #login-screen {
@@ -1240,22 +1257,19 @@
     .rpt-head { padding: 2px 2px 20px; }
     .rpt-head-top { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap; }
     .rpt-title { display:inline-flex; align-items:center; gap:11px; background:none; border:0; padding:2px 0; cursor:pointer;
-                 font-family:'DM Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
                  font-weight:500; font-size:27px; letter-spacing:-.022em; color:#1A1C20; }
     .rpt-title:hover { color:#2F5DA8; }
     .rpt-title:focus-visible { outline:2px solid #2F5DA8; outline-offset:4px; border-radius:6px; }
-    .rpt-kbd { font-family:'DM Sans',-apple-system,sans-serif; font-size:11px; color:#8A8D93; border:1px solid #DCD9D3;
+    .rpt-kbd { font-size:11px; color:#8A8D93; border:1px solid #DCD9D3;
                border-radius:5px; padding:2px 6px; background:#fff; white-space:nowrap; }
 
-    .rpt-head-period { display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-top:12px;
-                       font-family:'DM Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .rpt-head-period { display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-top:12px; }
     .rpt-quick-btn { background:none; border:0; padding:3px 0; font-family:inherit; font-size:14px; color:#63666D;
                      cursor:pointer; border-bottom:1.5px solid transparent; transition:color .12s; }
     .rpt-quick-btn:hover { color:#1A1C20; }
     .rpt-quick-btn.active { color:#1A1C20; font-weight:500; border-bottom-color:#1A1C20; }
     .rpt-period-label { margin-left:auto; font-size:13px; color:#8A8D93; }
-    .rpt-dates { display:flex; align-items:center; gap:10px; margin-top:14px; font-size:12.5px; color:#63666D;
-                 font-family:'DM Sans',-apple-system,sans-serif; }
+    .rpt-dates { display:flex; align-items:center; gap:10px; margin-top:14px; font-size:12.5px; color:#63666D; }
     .rpt-dates input { padding:7px 11px; border:1px solid #E3E1DC; border-radius:8px; font-family:inherit;
                        font-size:13px; color:#1A1C20; background:#fff; outline:none; }
     .rpt-dates input:focus { border-color:#2F5DA8; box-shadow:0 0 0 3px rgba(47,93,168,.12); }
@@ -1264,8 +1278,7 @@
        full-width cards above ALL fourteen reports, including the ten they have
        nothing to do with. They were moved here off Overview (session 88) to
        declutter Overview, so they stay — as one line. */
-    .rpt-pulse { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-top:10px;
-                 font-family:'DM Sans',-apple-system,sans-serif; font-size:13px; color:#63666D; }
+    .rpt-pulse { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-top:10px; font-size:13px; color:#63666D; }
     .rpt-pulse-label { text-transform:uppercase; letter-spacing:.14em; font-size:10.5px; color:#8A8D93; }
     .rpt-pulse-btn { background:none; border:0; padding:0; font-family:inherit; font-size:13px; color:#2F5DA8; cursor:pointer; }
     .rpt-pulse-btn:hover { text-decoration:underline; }
@@ -1279,7 +1292,7 @@
                  display:flex; align-items:flex-start; justify-content:center; padding:68px 24px 24px; }
     .rpt-index-panel { width:min(1080px,100%); max-height:calc(100vh - 110px); overflow:auto; background:#FBFAF8;
                        border:1px solid #E3E1DC; border-radius:16px; box-shadow:0 24px 70px rgba(20,22,26,.22);
-                       padding:28px 30px 24px; font-family:'DM Sans',-apple-system,sans-serif; }
+                       padding:28px 30px 24px; }
     .rpt-index-search { width:100%; height:48px; box-sizing:border-box; padding:0 16px; font-family:inherit;
                         font-size:16px; color:#1A1C20; background:#fff; border:1px solid #E3E1DC; border-radius:10px; outline:none; }
     .rpt-index-search:focus { border-color:#2F5DA8; box-shadow:0 0 0 3px rgba(47,93,168,.12); }
@@ -1360,9 +1373,7 @@
        Red is reserved for refunds; a normal day has no red on it at all. */
     .rev2 { --ink:#1A1C20; --ink-2:#44474D; --mute:#63666D; --hair:#E3E1DC; --ground:#FBFAF8;
             background:var(--ground); border:1px solid var(--hair); border-radius:12px;
-            font-variant-numeric:tabular-nums; color:var(--ink);
-            font-family:'DM Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    .rev2 button { font-family:inherit; }
+            font-variant-numeric:tabular-nums; color:var(--ink); }
     .rev2-body { padding:38px 40px 0; }
     .rev2-kicker { font-size:11.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--mute); }
     .rev2-rule { border:0; border-top:1px solid var(--hair); margin:34px 0 0; }
