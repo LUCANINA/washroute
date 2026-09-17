@@ -1,0 +1,1334 @@
+{
+ "/privacy-policy": {
+  "title": "Family Laundry | Same-day Pickup & Delivery",
+  "description": "Wash & Fold for busy households. Proudly serving Oakland, Berkeley, Emeryville, Alameda, Hayward, San Leandro, Castro Valley. Thank you for trusting us with your laundry.",
+  "blocks": [
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Family Laundry Privacy Policy"
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Effective Date: January 1, 2026"
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "1. Introduction"
+   },
+   {
+    "t": "p",
+    "x": "This Privacy Policy explains how Family Laundry, Inc. (“Family Laundry,” “we,” “us,” or “our”) collects, uses, shares, and protects information in connection with the Family Laundry website, mobile applications, pickup and delivery services, payment platform, and related services (collectively, the “Service”)."
+   },
+   {
+    "t": "p",
+    "x": "Family Laundry operates exclusively in the State of California and complies with applicable federal and California laws, including:"
+   },
+   {
+    "t": "li",
+    "x": "The California Consumer Privacy Act (CCPA), as amended by the California Privacy Rights Act (CPRA)"
+   },
+   {
+    "t": "li",
+    "x": "The Children’s Online Privacy Protection Act (COPPA)"
+   },
+   {
+    "t": "li",
+    "x": "The Gramm-Leach-Bliley Act (GLBA) (where applicable to financial processing)"
+   },
+   {
+    "t": "li",
+    "x": "The CAN-SPAM Act"
+   },
+   {
+    "t": "li",
+    "x": "The Telephone Consumer Protection Act (TCPA)"
+   },
+   {
+    "t": "p",
+    "x": "In this Privacy Policy, “User” or “you” means any person who accesses or uses the Service."
+   },
+   {
+    "t": "p",
+    "x": "BY ACCESSING OR USING THE SERVICE, YOU ACKNOWLEDGE THAT YOU HAVE READ, UNDERSTAND, AND AGREE TO THIS PRIVACY POLICY AND OUR TERMS OF SERVICE. IF YOU DO NOT AGREE, PLEASE DO NOT USE THE SERVICE."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "2. Your California Privacy Rights"
+   },
+   {
+    "t": "p",
+    "x": "Under California law, you have the right to:"
+   },
+   {
+    "t": "li",
+    "x": "Know what personal information we collect"
+   },
+   {
+    "t": "li",
+    "x": "Access the specific pieces of personal information we maintain about you"
+   },
+   {
+    "t": "li",
+    "x": "Request deletion of personal information"
+   },
+   {
+    "t": "li",
+    "x": "Request correction of inaccurate personal information"
+   },
+   {
+    "t": "li",
+    "x": "Know what personal information is sold or shared and to whom"
+   },
+   {
+    "t": "li",
+    "x": "Opt out of the sale or sharing of personal information"
+   },
+   {
+    "t": "li",
+    "x": "Limit the use of sensitive personal information"
+   },
+   {
+    "t": "li",
+    "x": "Not be discriminated against for exercising your rights"
+   },
+   {
+    "t": "p",
+    "x": " "
+   },
+   {
+    "t": "p",
+    "x": "Family Laundry does not sell personal information for monetary compensation."
+   },
+   {
+    "t": "p",
+    "x": "If we engage in advertising activities that qualify as “sharing” under California law (such as cross-context behavioral advertising), you have the right to opt out."
+   },
+   {
+    "t": "p",
+    "x": "Instructions for exercising your rights are provided in Section 6."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "3. Why We Provide This Privacy Policy"
+   },
+   {
+    "t": "p",
+    "x": "California law requires businesses to disclose how they collect, use, share, and protect personal information. This Privacy Policy explains:"
+   },
+   {
+    "t": "li",
+    "x": "What information we collect"
+   },
+   {
+    "t": "li",
+    "x": "Why we collect it"
+   },
+   {
+    "t": "li",
+    "x": "How we use and disclose it"
+   },
+   {
+    "t": "li",
+    "x": "Your California privacy rights"
+   },
+   {
+    "t": "li",
+    "x": "How to contact us"
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "4. Information We Collect"
+   },
+   {
+    "t": "p",
+    "x": "We collect the following categories of personal information under the CCPA/CPRA:"
+   },
+   {
+    "t": "h",
+    "l": 1,
+    "x": "A. Identifiers"
+   },
+   {
+    "t": "li",
+    "x": "Name"
+   },
+   {
+    "t": "li",
+    "x": "Mailing address"
+   },
+   {
+    "t": "li",
+    "x": "Pickup and delivery address"
+   },
+   {
+    "t": "li",
+    "x": "Email address"
+   },
+   {
+    "t": "li",
+    "x": "Telephone number"
+   },
+   {
+    "t": "li",
+    "x": "Account login credentials"
+   },
+   {
+    "t": "li",
+    "x": "IP address"
+   },
+   {
+    "t": "h",
+    "l": 1,
+    "x": "B. Commercial Information"
+   },
+   {
+    "t": "li",
+    "x": "Order history"
+   },
+   {
+    "t": "li",
+    "x": "Service preferences"
+   },
+   {
+    "t": "li",
+    "x": "Transaction details"
+   },
+   {
+    "t": "h",
+    "l": 1,
+    "x": "C. Financial Information"
+   },
+   {
+    "t": "p",
+    "x": "Payment card details are processed securely through PCI-DSS compliant third-party payment processors. We do not store full card numbers."
+   },
+   {
+    "t": "h",
+    "l": 1,
+    "x": "D. Internet or Other Electronic Network Activity"
+   },
+   {
+    "t": "li",
+    "x": "Browser type"
+   },
+   {
+    "t": "li",
+    "x": "Device information"
+   },
+   {
+    "t": "li",
+    "x": "Pages visited"
+   },
+   {
+    "t": "li",
+    "x": "Referring/exit pages"
+   },
+   {
+    "t": "li",
+    "x": "Interaction data"
+   },
+   {
+    "t": "h",
+    "l": 1,
+    "x": "E. Geolocation Data"
+   },
+   {
+    "t": "p",
+    "x": "Approximate location for routing and service delivery."
+   },
+   {
+    "t": "h",
+    "l": 1,
+    "x": "F. Customer Communications"
+   },
+   {
+    "t": "li",
+    "x": "Emails"
+   },
+   {
+    "t": "li",
+    "x": "Customer service inquiries"
+   },
+   {
+    "t": "li",
+    "x": "Feedback"
+   },
+   {
+    "t": "h",
+    "l": 1,
+    "x": "Sensitive Personal Information (as defined under CPRA)"
+   },
+   {
+    "t": "p",
+    "x": "We collect limited sensitive personal information (such as precise geolocation only if enabled, and account login credentials). We use sensitive personal information only as necessary to provide the Service and do not use it to infer characteristics about you."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "5. How We Use and Disclose Personal Information"
+   },
+   {
+    "t": "p",
+    "x": "We use personal information to:"
+   },
+   {
+    "t": "li",
+    "x": "Provide laundry pickup, cleaning, and delivery services"
+   },
+   {
+    "t": "li",
+    "x": "Process payments"
+   },
+   {
+    "t": "li",
+    "x": "Send receipts and order updates"
+   },
+   {
+    "t": "li",
+    "x": "Provide customer support"
+   },
+   {
+    "t": "li",
+    "x": "Improve services"
+   },
+   {
+    "t": "li",
+    "x": "Detect and prevent fraud"
+   },
+   {
+    "t": "li",
+    "x": "Comply with legal obligations"
+   },
+   {
+    "t": "li",
+    "x": "Send marketing communications (subject to opt-out rights)"
+   },
+   {
+    "t": "p",
+    "x": " "
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Disclosure of Personal Information"
+   },
+   {
+    "t": "p",
+    "x": "We may disclose personal information to:"
+   },
+   {
+    "t": "li",
+    "x": "Service Providers and Contractors Including payment processors, logistics providers, cloud hosting providers, IT support, and marketing vendors. These parties are contractually obligated to protect your information."
+   },
+   {
+    "t": "li",
+    "x": "Business Transfers In connection with a merger, acquisition, or sale of assets."
+   },
+   {
+    "t": "li",
+    "x": "Legal Authorities When required by law or legal process."
+   },
+   {
+    "t": "p",
+    "x": "We do not sell personal information. If we share personal information for cross-context behavioral advertising, California residents may opt out as described below."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "6. Exercising Your California Rights"
+   },
+   {
+    "t": "p",
+    "x": "To submit a request to know, access, correct, delete, or opt out, you may:"
+   },
+   {
+    "t": "li",
+    "x": "Email: info@familylaundry.com"
+   },
+   {
+    "t": "p",
+    "x": "We will verify your identity before fulfilling requests. Authorized agents may submit requests on your behalf with proper documentation."
+   },
+   {
+    "t": "p",
+    "x": "We will respond within the timeframes required by California law."
+   },
+   {
+    "t": "p",
+    "x": "We will not discriminate against you for exercising your privacy rights."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "7. Data Retention"
+   },
+   {
+    "t": "p",
+    "x": "We retain personal information only for as long as reasonably necessary to:"
+   },
+   {
+    "t": "li",
+    "x": "Provide the Service"
+   },
+   {
+    "t": "li",
+    "x": "Comply with legal obligations"
+   },
+   {
+    "t": "li",
+    "x": "Resolve disputes"
+   },
+   {
+    "t": "li",
+    "x": "Enforce agreements"
+   },
+   {
+    "t": "p",
+    "x": "Backup and archival copies are securely maintained and deleted according to our retention policies."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "8. Cookies and Advertising"
+   },
+   {
+    "t": "p",
+    "x": "We use cookies and similar technologies to operate the Service and analyze performance."
+   },
+   {
+    "t": "p",
+    "x": "If we use cookies for cross-context behavioral advertising, you may opt out through:"
+   },
+   {
+    "t": "li",
+    "x": "Our website “Do Not Sell or Share My Personal Information” link"
+   },
+   {
+    "t": "li",
+    "x": "Browser-based privacy controls (such as Global Privacy Control signals, where supported)"
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "9. Data Security"
+   },
+   {
+    "t": "p",
+    "x": "We implement reasonable administrative, technical, and physical safeguards designed to protect personal information."
+   },
+   {
+    "t": "p",
+    "x": "However, no system is completely secure. We cannot guarantee absolute security."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "10. Children’s Privacy"
+   },
+   {
+    "t": "p",
+    "x": "Our Service is not directed to children under 13, and we do not knowingly collect personal information from children under 13. If we learn that we have collected such information without parental consent, we will delete it. Parents may contact us at info@familylaundry.com ."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "11. Changes to This Privacy Policy"
+   },
+   {
+    "t": "p",
+    "x": "We may update this Privacy Policy from time to time. Updates will be posted on our website with a revised effective date."
+   },
+   {
+    "t": "p",
+    "x": "If required by law, we will provide additional notice."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "12. Contact Information"
+   },
+   {
+    "t": "p",
+    "x": "If you have questions about this Privacy Policy or your California privacy rights, contact:"
+   },
+   {
+    "t": "p",
+    "x": "Family Laundry info@familylaundry.com"
+   }
+  ],
+  "images": []
+ },
+ "/terms-conditions": {
+  "title": "Family Laundry | Same-day Pickup & Delivery",
+  "description": "Wash & Fold for busy households. Proudly serving Oakland, Berkeley, Emeryville, Alameda, Hayward, San Leandro, Castro Valley. Thank you for trusting us with your laundry.",
+  "blocks": [
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Family Laundry Terms of Service"
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "1. Terms"
+   },
+   {
+    "t": "p",
+    "x": "By accessing the website at https://www.familylaundry.com/ , you are agreeing to be bound by these terms of service, all applicable laws and regulations, and agree that you are responsible for compliance with any applicable local laws. If you do not agree with any of these terms, you are prohibited from using or accessing this site. The materials contained in this website are protected by applicable copyright and trademark law."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "2. Use License"
+   },
+   {
+    "t": "li",
+    "x": "Permission is granted to temporarily download one copy of the materials (information or software) on Family Laundry 's website for personal, non-commercial transitory viewing only. This is the grant of a license, not a transfer of title, and under this license you may not: modify or copy the materials; use the materials for any commercial purpose, or for any public display (commercial or non-commercial); attempt to decompile or reverse engineer any software contained on Family Laundry 's website; remove any copyright or other proprietary notations from the materials; or transfer the materials to another person or \"mirror\" the materials on any other server."
+   },
+   {
+    "t": "li",
+    "x": "modify or copy the materials;"
+   },
+   {
+    "t": "li",
+    "x": "use the materials for any commercial purpose, or for any public display (commercial or non-commercial);"
+   },
+   {
+    "t": "li",
+    "x": "attempt to decompile or reverse engineer any software contained on Family Laundry 's website;"
+   },
+   {
+    "t": "li",
+    "x": "remove any copyright or other proprietary notations from the materials; or"
+   },
+   {
+    "t": "li",
+    "x": "transfer the materials to another person or \"mirror\" the materials on any other server."
+   },
+   {
+    "t": "li",
+    "x": "This license shall automatically terminate if you violate any of these restrictions and may be terminated by Family Laundry at any time. Upon terminating your viewing of these materials or upon the termination of this license, you must destroy any downloaded materials in your possession whether in electronic or printed format."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "3. Disclaimer"
+   },
+   {
+    "t": "li",
+    "x": "The materials on Family Laundry 's website are provided on an 'as is' basis. Family Laundry makes no warranties, expressed or implied, and hereby disclaims and negates all other warranties including, without limitation, implied warranties or conditions of merchantability, fitness for a particular purpose, or non-infringement of intellectual property or other violation of rights."
+   },
+   {
+    "t": "li",
+    "x": "Further, Family Laundry does not warrant or make any representations concerning the accuracy, likely results, or reliability of the use of the materials on its website or otherwise relating to such materials or on any sites linked to this site."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "4. Limitations"
+   },
+   {
+    "t": "p",
+    "x": "In no event shall Family Laundry or its suppliers be liable for any damages (including, without limitation, damages for loss of data or profit, or due to business interruption) arising out of the use or inability to use the materials on Family Laundry 's website, even if Family Laundry or a Family Laundry authorized representative has been notified orally or in writing of the possibility of such damage. Because some jurisdictions do not allow limitations on implied warranties, or limitations of liability for consequential or incidental damages, these limitations may not apply to you."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "5. Accuracy of materials"
+   },
+   {
+    "t": "p",
+    "x": "The materials appearing on Family Laundry 's website could include technical, typographical, or photographic errors. Family Laundry does not warrant that any of the materials on its website are accurate, complete or current. Family Laundry may make changes to the materials contained on its website at any time without notice. However Family Laundry does not make any commitment to update the materials."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "6. Links"
+   },
+   {
+    "t": "p",
+    "x": "Family Laundry has not reviewed all of the sites linked to its website and is not responsible for the contents of any such linked site. The inclusion of any link does not imply endorsement by Family Laundry of the site. Use of any such linked website is at the user's own risk."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "7. Modifications"
+   },
+   {
+    "t": "p",
+    "x": "Family Laundry may revise these terms of service for its website at any time without notice. By using this website you are agreeing to be bound by the then current version of these terms of service."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "8. Governing Law"
+   },
+   {
+    "t": "p",
+    "x": "These terms and conditions are governed by and construed in accordance with the laws of California and you irrevocably submit to the exclusive jurisdiction of the courts in that State or location."
+   }
+  ],
+  "images": []
+ },
+ "/opt-out": {
+  "title": "Family Laundry | Same-day Pickup & Delivery",
+  "description": "Wash & Fold for busy households. Proudly serving Oakland, Berkeley, Emeryville, Alameda, Hayward, San Leandro, Castro Valley. Thank you for trusting us with your laundry.",
+  "blocks": [],
+  "images": [
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_f54f60f38ca84a2583c8e385a8532d76~mv2.png",
+    "alt": "Screenshot 2026-03-11 at 8.28.04 AM.png"
+   }
+  ]
+ },
+ "/community": {
+  "title": "Family Laundry - Community Program",
+  "description": "We run Family Laundry the way we think all companies should be run: by putting employees first, by actively engaging with the communities we operate in, and by reducing our impact on the environment.",
+  "blocks": [
+   {
+    "t": "h",
+    "l": 6,
+    "x": "Community Engagement "
+   },
+   {
+    "t": "p",
+    "x": "Notice : Due to the pandemic, we closed our community room and canceled all of our educational programs on 3/16/2020. Since then, we have repurposed our grant money and have processed 265 orders for seniors 60+ for free, acquired hotspots for 44 students from ICS and Garfield Elementary schools and have helped 40 families in need of food assistance by giving away supermarket gift cards."
+   },
+   {
+    "t": "p",
+    "x": "On April 16, 2021, we partnered with Alameda County Public Health Department to turn our parking lot into a vaccination clinic."
+   },
+   {
+    "t": "p",
+    "x": "We have a responsibility to step up and help. Thank you to Alameda County and Libraries Without Borders for supporting this work."
+   },
+   {
+    "t": "p",
+    "x": "In community, Laura, David and the rest of the Family Laundry Team"
+   },
+   {
+    "t": "h",
+    "l": 6,
+    "x": "How We Do It"
+   },
+   {
+    "t": "p",
+    "x": "1. In 2018 we partnered with the international non-profit Libraries Without Borders to provide literacy resources to children and their families. This program has been highly successful. We installed a beautiful, clean, bright reading space. This space was previously a small store, but we converted it into a non-revenue generating space -- we are committed engaging with our immediate community."
+   },
+   {
+    "t": "p",
+    "x": "Every day children wander in and explore the magic of books, while parents can view their children, do their laundry and engage in reading activities."
+   },
+   {
+    "t": "p",
+    "x": "2. Our partnership with Oakland Public Library (OPL) provides our community with two story times each week. Librarians come to the Laundromat to read to children every Thursday from 10am to 11.30am. OPL provides us with books for our library on an ongoing basis. We are so grateful for the work they do with our community and communities all over Oakland!"
+   },
+   {
+    "t": "p",
+    "x": "3. We enhance the lives of community members by listening closely to what their needs are. Then we bring in community services that directly connect with what our customers say. For example, customers told us they wanted easier access to learn English as their second language. We ran two classes over the summer and have one class this Fall, right in our laundromat’s community room, for no cost. Professional instructors lead the classes. With these classes, customers don’t have to travel out of their neighborhood for a resource that is important to them ."
+   },
+   {
+    "t": "p",
+    "x": "4. While we have always talked informally with customers, this Fall we have begun a customer feedback survey. Our own Laundromat workers, who live in the community, are asking customers what they would like to see in our space. This is integral to how we plan community services for 2020. We are excited to hear from them! Stay tuned for statistics from our surveys."
+   },
+   {
+    "t": "p",
+    "x": "“They offer very good services (to the community), because in other laundries, there are none.” - ESL class graduate"
+   },
+   {
+    "t": "p",
+    "x": "“They offer very good services, especially because they are focused on children and families in general.” - graduate of an ESL class held at Family Laundry"
+   },
+   {
+    "t": "p",
+    "x": "\"The people here are loving. It’s family oriented.” - customer who lives nearby"
+   },
+   {
+    "t": "p",
+    "x": "“The people who come here are happy. They like the space for kids.” - Benita, Family Laundry worker"
+   },
+   {
+    "t": "p",
+    "x": "“When I worked at another job, no one ever asked questions of the clients. There wasn’t an exit survey.” - Luis, Family Laundry worker, commenting on why asking customers what they want is important"
+   },
+   {
+    "t": "p",
+    "x": "Want Kids to Learn the Joy of Reading? Barbershops and Laundromats Can Help . The New York Times, July 2, 2019"
+   },
+   {
+    "t": "p",
+    "x": "Want in at the Bay Area’s hottest dance party? You’ll need to bring a baby. The LA Times, October 16, 2019"
+   },
+   {
+    "t": "p",
+    "x": "Oakland laundromat promotes love of reading, offering story-time for children. KTVU, October 22, 2019"
+   },
+   {
+    "t": "p",
+    "x": "Oaklanders Learn Reading at the Laundromat . Oakland Magazine, November 3, 2019"
+   },
+   {
+    "t": "h",
+    "l": 6,
+    "x": "Media Coverage"
+   },
+   {
+    "t": "h",
+    "l": 6,
+    "x": "Our objectives"
+   },
+   {
+    "t": "p",
+    "x": "To promote and engage in listening and responding to the needs of the community. In this way, we strive to be an engaged community partner, rather than assume what the community needs."
+   },
+   {
+    "t": "p",
+    "x": "To enable the community members to reach their goals through easier access to needed tools, such as literacy, education, health and other resources, and creative outlets for youth."
+   },
+   {
+    "t": "p",
+    "x": "To serve as a business where all are welcomed."
+   },
+   {
+    "t": "p",
+    "x": "To be a business where enhancing our customers’ trust in us is a part of every interaction. A key method for this is our responsiveness, both to business and community needs."
+   },
+   {
+    "t": "p",
+    "x": "To break down barriers so that the community can prosper."
+   },
+   {
+    "t": "p",
+    "x": "To be at the heart of the local community."
+   },
+   {
+    "t": "p",
+    "x": "To be a place where community members know they are seen, accepted and encouraged to be themselves."
+   },
+   {
+    "t": "p",
+    "x": "To reduce the impact on the environment from traditional laundromats, and to continue reducing our impact as technology improves."
+   },
+   {
+    "t": "p",
+    "x": "A recent survey of our ESL class graduates found that:"
+   },
+   {
+    "t": "p",
+    "x": "100% said they were learning English for their work."
+   },
+   {
+    "t": "p",
+    "x": "83% said they would take the class here again."
+   },
+   {
+    "t": "p",
+    "x": "100% rated the level of instruction as perfect."
+   },
+   {
+    "t": "h",
+    "l": 6,
+    "x": "Our Community Room Dedication Event to Alma Soraya and Angel Garcia Vasquez on 11/7/2019"
+   }
+  ],
+  "images": [
+   {
+    "src": "https://static.wixstatic.com/media/7e0159_6b512b25a66f49a19ccfba0843df5af9~mv2.jpg",
+    "alt": "Mobile clinic setting up at Family Laundry"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/f41720_f3d1729ba1734d3ba34253eea4b3414f~mv2_d_3024_4032_s_4_2.jpg",
+    "alt": "Reading room at Family Laundry"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/f41720_752a5b19bfc04e79bceb7113fdf3b681~mv2_d_3024_4032_s_4_2.jpg",
+    "alt": "Storytime at Family Laundry with Oakland Library"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/f41720_ff1ea62b878943a3b161c469246039e8~mv2_d_3024_4032_s_4_2.jpg",
+    "alt": "Community room at Family Laundry"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/7e0159_45a791b216234225843d550074f58001~mv2.jpg",
+    "alt": "Wash and Read"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/7e0159_b5e11e82649047cf8d5a4e9c984cb006~mv2.jpg",
+    "alt": "Family Laundry parking lot"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/7e0159_a20de44c6e164e9f983431dc43cbbf6e~mv2_d_1536_2048_s_2.jpg",
+    "alt": "Family Laundry community room"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/7e0159_6132db472aa244d6858f4e9c83b8d1dd~mv2_d_1536_2048_s_2.jpg",
+    "alt": "Family Laundry event"
+   }
+  ]
+ },
+ "/laundry-delivery-services": {
+  "title": "Family Laundry | Laundry Services for Pickup & Delivery",
+  "description": "Wash and Fold for busy households. Proudly serving San Francisco, Oakland, Berkeley, Emeryville, Alameda, Hayward, San Leandro, Castro Valley, Union City, and Fremont. Thank you for trusting us with your laundry.",
+  "blocks": [
+   {
+    "t": "h",
+    "l": 1,
+    "x": "Services"
+   },
+   {
+    "t": "p",
+    "x": "Thank you for trusting us with your laundry"
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "WASH & FOLD"
+   },
+   {
+    "t": "p",
+    "x": "Household Laundry: it's what put us on the map, our bread and butter, our raison d'être ..."
+   },
+   {
+    "t": "p",
+    "x": "We believe the term \"Wash & Fold\" doesn't quite do the service justice, but you get the point. We just want to do your laundry."
+   },
+   {
+    "t": "p",
+    "x": "Find out today why we're the best, #1-rated laundry delivery service in the Bay Area."
+   },
+   {
+    "t": "p",
+    "x": "Starting at $59 per bag (25 lbs)."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "HANG DRY (for delicates)"
+   },
+   {
+    "t": "p",
+    "x": "Undergarments, lingerie, workout gear...some laundry items require a little extra TLC. For all things delicate, choose our Hang Dry service."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "+$15 Per delicates bag"
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "SHIRT SERVICE (Blouses too!)"
+   },
+   {
+    "t": "p",
+    "x": "For that sharp, professional touch:"
+   },
+   {
+    "t": "p",
+    "x": "your shirts are laundered, hand-steamed, and delivered on hangers."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "+$5/item"
+   }
+  ],
+  "images": [
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_3aaacff3d9214d18bb20dcb5cc478d0c~mv2.png",
+    "alt": "A bag full of clean laundry by Family Laundry"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_b548b7c353944bafb5ea9ddef4116031~mv2.png",
+    "alt": "mesh bag.png"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_f3decdeb8a424e138ea7c9ae1b1d4bcc~mv2.png",
+    "alt": "A blue hand-steamed shirt"
+   }
+  ]
+ },
+ "/services-4": {
+  "title": "Family Laundry | Same-day Pickup & Delivery",
+  "description": "Wash & Fold for busy households. Proudly serving Oakland, Berkeley, Emeryville, Alameda, Hayward, San Leandro, Castro Valley. Thank you for trusting us with your laundry.",
+  "blocks": [
+   {
+    "t": "h",
+    "l": 1,
+    "x": "Commercial Laundry"
+   },
+   {
+    "t": "p",
+    "x": "Known as the Bay's favorite residential laundry service, Family Laundry is also a trusted partner for dozens of Bay Area businesses. From gyms and hotels to corporate offices and schools, nearly every business generates laundry, and we're here to handle it. We'll work with you to build a custom plan that fits your volume, schedule, and needs, so you can focus on running your business while we take care of the rest. Commercial pricing starts at $1.75/pound."
+   },
+   {
+    "t": "p",
+    "x": "Ready to get started? Contact us today."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Get a Quote"
+   },
+   {
+    "t": "p",
+    "x": "Tell us about your laundry needs (the more details the better). We'll be in touch within 24 hours."
+   },
+   {
+    "t": "p",
+    "x": "Thanks for submitting!"
+   }
+  ],
+  "images": [
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_8d0eb48091fa4c0cb89263e50442f4e0~mv2.png",
+    "alt": "Primary_Logo_-_.5x.png"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_0075f2043ace49ab846677dfe9ed1728~mv2.png",
+    "alt": "download-1.png"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_b96d0253345e439ca75fafc18e41d2d3~mv2.jpg",
+    "alt": "New_Logo_Reveal_F_022723-thumb-2_edited."
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_5fc7f0ab79f34ac3a922d046f0045fff~mv2.jpg",
+    "alt": "download.jpg"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_b311ed12e2364f97895068db9107210d~mv2.png",
+    "alt": "download-2.png"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_daa63fafb90b46fc8dfb8601e7acbc9f~mv2.png",
+    "alt": "Copy_of_OaklandRootsSC_Primary_RGB_10231"
+   }
+  ]
+ },
+ "/service-map": {
+  "title": "Family Laundry | Same-day Pickup & Delivery",
+  "description": "The Wash & Fold delivery service for busy households. Proudly serving San Francisco, Oakland and the East Bay, 7 days a week.",
+  "blocks": [
+   {
+    "t": "p",
+    "x": "Family Laundry is headquartered in Oakland and serves (most of) the East Bay + San Francisco. Check out our service map below to see if we deliver in your area."
+   }
+  ],
+  "images": [
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_7ed82a09322a404bb4170d3c848f2124~mv2.png",
+    "alt": "Delivery Map.png"
+   }
+  ]
+ },
+ "/download": {
+  "title": "Family Laundry | Same-day Pickup & Delivery",
+  "description": "Wash & Fold for busy households. Proudly serving Oakland, Berkeley, Emeryville, Alameda, Hayward, San Leandro, Castro Valley. Thank you for trusting us with your laundry.",
+  "blocks": [
+   {
+    "t": "p",
+    "x": "Download the Family Laundry App"
+   }
+  ],
+  "images": []
+ },
+ "/gifts-cards": {
+  "title": "Family Laundry | Same-day Pickup & Delivery",
+  "description": "Wash & Fold for busy households. Proudly serving Oakland, Berkeley, Emeryville, Alameda, Hayward, San Leandro, Castro Valley. Thank you for trusting us with your laundry.",
+  "blocks": [],
+  "images": []
+ },
+ "/laundry-delivery-oakland": {
+  "title": "Laundry Delivery Service in Oakland | Family Laundry",
+  "description": "The Bay Area's #1 rated Wash & Fold delivery service. Proudly serving Oakland and the East Bay, 7 days a week. Free and Clear always.",
+  "blocks": [
+   {
+    "t": "p",
+    "x": "The best laundry delivery service in Oakland, CA ."
+   },
+   {
+    "t": "p",
+    "x": "Oakland is a city that rhymes with activism, culture, and incredible food... It's the place we call home and where most of the Family Laundry magic happens. Family Laundry is headquartered in Oakland and employs 30 people (as of 10/01/23), mostly in the Fruitvale area where we operate two wash & fold facilities. Our goal? Provide good, stable jobs that value craftsmanship, experience, and initiative. We believe you'll notice the difference in our laundry service."
+   },
+   {
+    "t": "p",
+    "x": "Same-day service available every day except Sundays."
+   },
+   {
+    "t": "p",
+    "x": "Pickup/Delivery days: Monday | Tuesday | Wednesday | Thursday | Friday | Saturday | Sunday"
+   },
+   {
+    "t": "p",
+    "x": "Pickup/Delivery windows: 7-9 am | 9-11 am | 6-8 pm | 8-10 pm"
+   },
+   {
+    "t": "p",
+    "x": "Turnaround: same-day (if pickup is in the morning) or next-day (if pickup in the evening)."
+   }
+  ],
+  "images": []
+ },
+ "/laundry-delivery-berkeley": {
+  "title": "Berkeley Laundry Delivery Service | Family Laundry",
+  "description": "The Bay Area's #1 rated Wash & Fold delivery service. Proudly serving Berkeley and the East Bay, 7 days a week. We always use Free and Clear detergents.",
+  "blocks": [
+   {
+    "t": "p",
+    "x": "Laundry delivery service in Berkeley, CA"
+   },
+   {
+    "t": "p",
+    "x": "Our Berkeley service covers households and businesses north of Emeryville and Rockridge, into the hills and up to Albany and Kensington. Along with Albany, El Cerrito and Richmond, our Berkeley service is offered 7 days a week, with evening pickups (6-10 pm) and next day delivery. Select your preference in the app when you schedule!"
+   },
+   {
+    "t": "p",
+    "x": "Pickup/Delivery days: Monday | Tuesday | Wednesday | Thursday | Friday | Saturday | Sunday"
+   },
+   {
+    "t": "p",
+    "x": "Pickup/Delivery windows: 6-8 pm | 8-10 pm"
+   },
+   {
+    "t": "p",
+    "x": "Turnaround: next-day (if we pick up on a Monday evening, we'll return your laundry Tuesday evening)."
+   }
+  ],
+  "images": []
+ },
+ "/laundry-delivery-alameda": {
+  "title": "Laundry Delivery Service in Alameda | Family Laundry",
+  "description": "The Bay Area's #1 rated Wash & Fold delivery service. Proudly serving Alameda and the East Bay, 7 days a week. Free and Clear always.",
+  "blocks": [
+   {
+    "t": "p",
+    "x": "The best laundry delivery service in Alameda, CA ."
+   },
+   {
+    "t": "p",
+    "x": "We are proud to serve Alameda, the East Bay’s Island City and Oakland’s neighbor across the Estuary. We processed laundry for Alameda-based LaunderBot for over a year before \"tying the knot” with MamaBot and acquiring her customers. We’re happy to report an outstanding retention rate of over 80% a full two years later. What does this mean? It means Alamedans love Family Laundry!"
+   },
+   {
+    "t": "p",
+    "x": "We serve households and businesses on both Alameda’s main island and Bay Farm Island (94501 and 94502), with both morning and evening pickups, 7 days a week."
+   },
+   {
+    "t": "p",
+    "x": "Pickup/Delivery days: Monday | Tuesday | Wednesday | Thursday | Friday | Saturday | Sunday"
+   },
+   {
+    "t": "p",
+    "x": "Pickup/Delivery windows: 7-9 am | 9-11 am | 6-8 pm | 8-10 pm"
+   },
+   {
+    "t": "p",
+    "x": "Turnaround: same-day (if pickup is in the morning) or next-day (if pickup in the evening)."
+   }
+  ],
+  "images": []
+ },
+ "/laundry-delivery-sf": {
+  "title": "SF Laundry Delivery Service | Family Laundry",
+  "description": "The premium wash & fold delivery for busy households. Proudly serving San Francisco 7 days a week. All cleaning is done in our facilities.",
+  "blocks": [
+   {
+    "t": "p",
+    "x": "We are Family Laundry, San Francisco's favorite pickup and delivery service for residential laundry and wash and fold (otherwise known as Fluff and Fold). San Franciscans, we pick up your laundry anywhere in SF, 7 days a week. Same-day turnaround is available every day except Sundays."
+   },
+   {
+    "t": "p",
+    "x": "Founded in 2019 in the heart of Oakland, Family Laundry premium wash and fold for busy households has swiftly risen to become the Bay Area's top-rated laundry delivery service. Our commitment to impeccable service, eco-friendliness, and sensitivity to our customers' needs has set us apart, winning us the trust of San Francisco and beyond."
+   },
+   {
+    "t": "p",
+    "x": "Why We're the Bay Area's First Choice:"
+   },
+   {
+    "t": "li",
+    "x": "Proven Excellence: Our status as the #1 best-rated laundry delivery service speaks volumes. Our customers' reviews and continuous support have fueled our mission to be the Bay Area's best solution for residential laundry delivery."
+   },
+   {
+    "t": "li",
+    "x": "Gentle on Every Level: Our exclusive use of \"Free and Clear\" detergents ensures a wash that's gentle on the skin, free from artificial fragrances, and kind to our planet."
+   },
+   {
+    "t": "li",
+    "x": "Dependable Service: Available 7 days a week with expedient turnarounds (except Sundays), we're always here for your laundry needs."
+   },
+   {
+    "t": "p",
+    "x": "Serving the Freshest Laundry Since 2019 Our tagline isn't just words – it's our promise. From the day we started, we've been committed to delivering the freshest, cleanest laundry right to your doorstep, maintaining the highest standards in every wash."
+   },
+   {
+    "t": "p",
+    "x": "Hear It from Our Customers:"
+   },
+   {
+    "t": "p",
+    "x": "Special Offer for San Francisco customers: Get a taste of the Bay Area's best with a 15% discount on your first 3 orders. Use code LOVELAUNDRY when placing your order."
+   },
+   {
+    "t": "p",
+    "x": "Ready to Experience the Best? Book Now"
+   }
+  ],
+  "images": []
+ },
+ "/thankyou": {
+  "title": "Family Laundry | Same-day Pickup & Delivery",
+  "description": "Wash & Fold for busy households. Proudly serving Oakland, Berkeley, Emeryville, Alameda, Hayward, San Leandro, Castro Valley. Thank you for trusting us with your laundry.",
+  "blocks": [
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Thank you for contacting us"
+   },
+   {
+    "t": "p",
+    "x": "Your message has been sent."
+   },
+   {
+    "t": "p",
+    "x": "Our team will be in touch with you."
+   }
+  ],
+  "images": []
+ },
+ "/": {
+  "title": "Family Laundry | laundry pickup and delivery | San Francisco Bay Area, CA, USA",
+  "description": "Family Laundry is the Bay Area's #1 best-rated Wash and Fold delivery service. We process your laundry in our own facilities in Oakland, CA. We only use free and clear detergents and wash and fold your clothes with care. Proudly serving San Francisco, Oakland and most of the East Bay 7 days a week. Same-day pick up and delivery is available in most areas.",
+  "blocks": [
+   {
+    "t": "h",
+    "l": 3,
+    "x": "FAMILY LAUNDRY"
+   },
+   {
+    "t": "h",
+    "l": 6,
+    "x": "Wash & Fold for Busy Households"
+   },
+   {
+    "t": "p",
+    "x": "I'm electric"
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "Delivering the freshest laundry in the Bay since 2019."
+   },
+   {
+    "t": "p",
+    "x": "Imagine a service that picks up your dirty laundry, then returns it to you perfectly washed and folded. Within a day. Like magic. That's Family Laundry (learn more about what makes us stand out )."
+   },
+   {
+    "t": "p",
+    "x": "We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities (we never, ever outsource) and delivery vehicles. It's 100% Family Laundry, satisfaction guaranteed."
+   },
+   {
+    "t": "p",
+    "x": "Let us take care of your laundry. Download the Family Laundry app or create an account ."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Per Bag $65 + Delivery"
+   },
+   {
+    "t": "p",
+    "x": "(Great for occasional users)."
+   },
+   {
+    "t": "li",
+    "x": "25 lbs Wash & Fold (about 2-3 loads)*"
+   },
+   {
+    "t": "li",
+    "x": "Next-day Delivery: $9.95."
+   },
+   {
+    "t": "li",
+    "x": "Same-day Delivery: $24.95."
+   },
+   {
+    "t": "p",
+    "x": " "
+   },
+   {
+    "t": "p",
+    "x": "*Bags weighing more than 25 lbs are an extra $3 per lb."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Subscribe $275/month"
+   },
+   {
+    "t": "p",
+    "x": "(Best value)."
+   },
+   {
+    "t": "li",
+    "x": "100 lbs Wash & Fold*"
+   },
+   {
+    "t": "li",
+    "x": "Unlimited pickups"
+   },
+   {
+    "t": "li",
+    "x": "Next-day Delivery: FREE"
+   },
+   {
+    "t": "li",
+    "x": "Same-day Delivery: +$14.95"
+   },
+   {
+    "t": "li",
+    "x": "No minimum lbs. per order"
+   },
+   {
+    "t": "p",
+    "x": " "
+   },
+   {
+    "t": "p",
+    "x": "*Usage above 100 lbs per month is $2.75 per lb."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "How we clean"
+   },
+   {
+    "t": "p",
+    "x": "We use only hypoallergenic detergents (free and clear) and Ozone when washing your laundry. No fragrances, no bleach, no softeners, no dry cleaning solvents,﻿ ever."
+   },
+   {
+    "t": "p",
+    "x": "The result is a neutral, clean laundry smell with no noticeable detergent or conditioner residue."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "Prep"
+   },
+   {
+    "t": "p",
+    "x": "We empty all pockets and separate lights and darks."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "Wash, Sanitize, Dry"
+   },
+   {
+    "t": "p",
+    "x": "By default, we wash your laundry in warm water using Free & Clear detergent only. We dry on Medium."
+   },
+   {
+    "t": "h",
+    "l": 3,
+    "x": "Fold"
+   },
+   {
+    "t": "h",
+    "l": 4,
+    "x": "We neatly fold your laundry, ball socks, and bundle your laundry by family member."
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Bubble Power"
+   },
+   {
+    "t": "p",
+    "x": "Our facilities are equipped with state-of-the-art Ozone water-injection systems that sanitize your laundry (and our washing machines as they run), while boosting the cleaning power of our detergents."
+   },
+   {
+    "t": "p",
+    "x": "Kether A, Alameda"
+   },
+   {
+    "t": "p",
+    "x": "Chimed D , Oakland"
+   },
+   {
+    "t": "p",
+    "x": "Frisbee G, San Francisco"
+   },
+   {
+    "t": "h",
+    "l": 5,
+    "x": "Our story"
+   },
+   {
+    "t": "h",
+    "l": 4,
+    "x": "Our Family Laundry adventure began in early 2018, the day we closed on our first laundromat in Oakland. Our respective backgrounds didn't make us laundry delivery experts from the get-go but we got our hands dirty and learned along the way. We run Family Laundry the way we think all companies should be run: we put employees first, we actively engage with the communities we operate in, and we do our part to reduce our impact on the environment. Thank you for trusting us with your laundry. Laura Guevara & David Macquart-Moulin"
+   },
+   {
+    "t": "h",
+    "l": 2,
+    "x": "Contact us"
+   },
+   {
+    "t": "p",
+    "x": "Thanks for submitting!"
+   },
+   {
+    "t": "p",
+    "x": "COMPANY"
+   },
+   {
+    "t": "p",
+    "x": "SERVICES"
+   }
+  ],
+  "images": [
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_a840daeb76ef458fba95d3a4e0c67c72~mv2.jpg",
+    "alt": "The amazing smell of clean laundry. Cropped shot of an attractive young woman smelling cle"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_062a1a47b89e4ac294db879f7a15cce6~mv2.png",
+    "alt": "Hypoallergenic Laundry | Free & Clear | No nasty stuff"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_14f6e589e5004b84b66f949500cfcf86~mv2.png",
+    "alt": "Family Laundry electric delivery truck"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_9b001b21b8724a098d196447be436ef6~mv2.png",
+    "alt": "A Family Laundry bag"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_aa27068e6dc045319a13529cdf9a1c98~mv2.png",
+    "alt": "2 tall bags of dirty laundry "
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_93cc2e1a30414d8da83cbd081fb06b20~mv2.jpg",
+    "alt": "Laundry basket full of dirty clothes"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_c4f7415d25264cb58b6fcb2676555d1b~mv2.jpg",
+    "alt": "Laundry in a washing machine"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_271563141024494fa93c3635c0999ecd~mv2.png",
+    "alt": "A neatly folded shirt"
+   },
+   {
+    "src": "https://static.wixstatic.com/media/31e1f9_86cc4baa8153454bb70d2828ef1f0bcf~mv2.jpg",
+    "alt": ""
+   }
+  ]
+ }
+}

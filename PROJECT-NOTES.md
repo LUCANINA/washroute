@@ -1,5 +1,24 @@
 # WashRoute — Project Notes
 
+## Session 299 — Sep 17, 2026: website off Wix (started) + shared FAQ content
+
+**Status:** DB live. `website/` committed, **not yet deployed** — needs a new Vercel project (Root Directory `website`).
+The Vercel MCP connector is not linked to David's team (team_i96PJNWcwoFLhr6dXpyFo84y), so David creates the project.
+Plan doc: https://claude.ai/code/artifact/969ded65-373d-41b8-b939-92c57792947a (FAQ fixes + Wix migration estimate).
+
+- **DB (migrations session_299, 299b):** `faq_topics`, `faq_items` (audience, show_on_web, show_in_app, sort_order),
+  `site_info` (key/value: phone, email, addresses, drop-off hours, app links, gift card URL). Anon can read; only
+  admin/manager write (`is_content_editor()`). `site_public_values()` (SECURITY DEFINER, anon-callable, public data
+  only): Delivery/Retail/Commercial prices, fees, cheapest active plan, referral amounts, site_info, service-area
+  cities from `service_zones`. Seeded 28 FAQ items (corrected from familylaundry.com/faq; "When am I charged?" is a
+  hidden draft; "download the app" hidden in app).
+- **Website (`website/`):** Vercel function renders all 16 Wix URLs server-side (SEO), cached 5 min; preview hosts are
+  noindex. Every price is a live token via `assets/fl-content.js` (shared renderer, HTML-escaped). Images copied off
+  Wix into `website/assets/img`. City pages drop Wix's stale day/window lists.
+- **Numbers to confirm:** phone (seeded 842-3560; Wix also shows 588-4102); same-day per bag = delivery + surcharge =
+  $24.90 (Wix says $24.95); "bags over 25 lbs +$3/lb" is still typed text (no app fee for it).
+- **Next:** Admin → App Content editor; customer app Help & Info using `fl-content.js`; forms; blog; Gift Up widget.
+
 ## Session 298 — Sep 17, 2026: in-app "Send us feedback" + one Feedback report
 
 **Status:** DB + edge function LIVE. App changes (customer-app, admin-dashboard) written and tested, **not yet committed/pushed**.

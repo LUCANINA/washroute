@@ -1,0 +1,6 @@
+{
+  "name": "familylaundry-website",
+  "private": true,
+  "description": "familylaundry.com — server-rendered from WashRoute content (Supabase). No build step, no dependencies.",
+  "engines": { "node": "22.x" }
+}
