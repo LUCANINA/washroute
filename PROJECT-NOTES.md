@@ -1,5 +1,45 @@
 # WashRoute — Project Notes
 
+## Session 301 — Sep 17, 2026: the report tabs are gone, and the table folds
+
+**Status:** Committed. Admin → Reports. Touches how ALL fourteen reports are reached; their own contents are
+unchanged except Daily Revenue's table.
+
+- **Both tab rows removed.** The report's NAME is the control: clicking it (or ⌘K / Ctrl+K anywhere on the page)
+  opens an index of all fourteen — four columns by the question each answers, a glyph per report so they are learned
+  by shape, a one-line blurb, type-to-filter (matches name, blurb and group), ↑↓ to move, ↵ to open, esc or a
+  backdrop click to close. Rendered from `RPT_GROUPS`, which now carries the blurb too, so a report still cannot
+  appear twice or go missing. This also lifts session 291u's ceiling: a fifteenth report costs nothing.
+  The overlay lives at top level beside `#bill-modal`, not inside `#page-reports` — inside the page it was trapped
+  in an ancestor stacking context and z-index 900 put it *under* the app chrome.
+- **The period line.** From/To and the quick ranges are one quiet row, and From/To only appear when the range is not
+  a preset (or you click Custom). The active chip is **derived** from the dates by `_rptMatchPreset()`, not tracked —
+  `setRptTab` silently widens the range for six reports (Invoices 90 days, Bad Debt a year, On-Time month-to-date…)
+  and a tracked flag would have gone stale exactly there.
+- **The two floating cards are one line.** New Delivery Customers and Recent Orders stood above all fourteen reports,
+  including the ten they have nothing to do with. Session 88 moved them here to declutter Overview, so they stay —
+  as `Last 24h · N new customers (x% ordered) · N orders`, each opening the same Show-last-10 panel, one at a time.
+  `load24hStats` now writes bare numbers into those spans, and writes a zero instead of hiding it.
+- **Daily Revenue's table folds.** Seventeen columns → ten, in two groups (Earned / Settled). Services carries
+  add-ons and overages, Delivery & tips carries both, Taken off carries credits, discounts, refunds and processing
+  fees; each opens in place. A stream that is zero across the whole range gets no column at all (Commercial, most
+  days). Header, rows and totals are generated from ONE spec, `REV_TBL` — the same instinct as `RPT_GROUPS`.
+  **Export CSV is deliberately untouched and still carries all nineteen fields.**
+- **Fraunces is gone (301b).** David: too ornate for money. The report is now one family — DM Sans 300–700 — and the
+  big figures get their presence from size and tracking. Admin is therefore exactly ONE font family away from
+  uniform: DM Sans inside `.rev2` and the Reports header, the system stack everywhere else. Standardising later is
+  a one-line decision in either direction.
+
+**Tested** in headless Chromium against a stubbed Supabase client: all fourteen reports open through the new
+switcher with the right container shown and no leaks, titles track, the date range survives a report change,
+⌘K / type-to-filter / ↵ / esc / backdrop all work, the period chips derive correctly for today / 7 days / an
+arbitrary range, the pulse opens one panel at a time, and the table folds and unfolds. Two page errors seen in the
+harness are both fixture artefacts, not this change: `_dvIframeLoaded` predates session 300, and the Delivery KPIs
+one is the stub returning `[]` where the real `delivery_kpis` RPC returns a row.
+
+**Still open:** Delivery KPIs computes `total_revenue` server-side and still excludes tips, so it disagrees with
+Daily Revenue since session 300b. The other thirteen report bodies keep their old look.
+
 ## Session 300 — Sep 17, 2026: Daily Revenue rebuilt, and tips moved into Net revenue
 
 **Status:** Pushed and live. Admin only, Reports → Revenue → **Daily Revenue** tab. The shared date picker, the two

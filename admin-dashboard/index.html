@@ -11,12 +11,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Family Laundry Admin" />
   <meta name="theme-color" content="#0f2744" />
-  <!-- Session 300: Reports type scale. Fraunces sets the large figures, DM Sans
-       the data. Loaded here, applied only inside .rev2 — the rest of the admin
-       keeps the system font stack. -->
+  <!-- Reports type scale. ONE family — DM Sans, 300 to 700 — and the large
+       figures get their presence from size and tight tracking rather than from a
+       second, display face (session 301b: Fraunces read as too ornate for money).
+       Applied only inside .rev2 and the Reports header; the rest of the admin is
+       still on the system stack. If we ever standardise, this is the one to move
+       everywhere, or to drop entirely — there is nothing else to unpick. -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Fraunces:opsz,wght@9..144,300;9..144,400&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1224,16 +1227,78 @@
     .rpt-drv-tbl tbody tr:hover td { background:var(--gray-50); }
     .rpt-stars { color:#f59e0b;letter-spacing:0;font-size:12px; }
     .rpt-no-data { text-align:center;padding:40px 20px;color:var(--gray-400);font-size:13px; }
-    /* Session 291u: two-row report nav. Row 1 picks the GROUP, row 2 the report.
-       Eleven flat tabs were one report away from wrapping on a laptop. */
-    .rpt-group-tabs { display:flex;gap:3px;padding:12px 16px 0;background:white;flex-wrap:wrap; }
-    .rpt-group-tab { padding:7px 15px;border-radius:8px;border:none;background:transparent;cursor:pointer;
-                     font-family:inherit;font-size:13px;font-weight:600;color:var(--gray-500);transition:all .12s; }
-    .rpt-group-tab:hover { background:var(--gray-50);color:var(--gray-700); }
-    .rpt-group-tab.active { background:var(--gray-100);color:var(--gray-900); }
-    .rpt-page-tabs { display:flex;gap:0;border-bottom:1px solid var(--gray-100);padding:0 16px;background:white;border-radius:0 0 var(--radius) var(--radius);flex-wrap:wrap; }
-    .rpt-page-tab { padding:10px 18px;font-size:13.5px;font-weight:500;color:var(--gray-500);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;font-family:inherit; }
-    .rpt-page-tab.active { color:var(--accent);border-bottom-color:var(--accent);font-weight:600; }
+    /* ── Session 301: the Reports header ────────────────────────────────────
+       Session 291u split eleven flat tabs into two rows — groups on top, that
+       group's reports beneath — because a flat row was one report away from
+       wrapping on a laptop. Two rows solved the wrapping and cost two decisions
+       before any data. Now there are none: the report's own NAME is the control,
+       and it opens an index of all fourteen (⌘K from anywhere). That also lifts
+       291u's ceiling — a fifteenth report costs nothing, where a flat row would
+       have wrapped and a third tab row would have been unreadable.
+       The header is no longer a card: on a page that shows one report at a time,
+       a box drawn around the controls was one more edge to read past. */
+    .rpt-head { padding: 2px 2px 20px; }
+    .rpt-head-top { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+    .rpt-title { display:inline-flex; align-items:center; gap:11px; background:none; border:0; padding:2px 0; cursor:pointer;
+                 font-family:'DM Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+                 font-weight:500; font-size:27px; letter-spacing:-.022em; color:#1A1C20; }
+    .rpt-title:hover { color:#2F5DA8; }
+    .rpt-title:focus-visible { outline:2px solid #2F5DA8; outline-offset:4px; border-radius:6px; }
+    .rpt-kbd { font-family:'DM Sans',-apple-system,sans-serif; font-size:11px; color:#8A8D93; border:1px solid #DCD9D3;
+               border-radius:5px; padding:2px 6px; background:#fff; white-space:nowrap; }
+
+    .rpt-head-period { display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-top:12px;
+                       font-family:'DM Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .rpt-quick-btn { background:none; border:0; padding:3px 0; font-family:inherit; font-size:14px; color:#63666D;
+                     cursor:pointer; border-bottom:1.5px solid transparent; transition:color .12s; }
+    .rpt-quick-btn:hover { color:#1A1C20; }
+    .rpt-quick-btn.active { color:#1A1C20; font-weight:500; border-bottom-color:#1A1C20; }
+    .rpt-period-label { margin-left:auto; font-size:13px; color:#8A8D93; }
+    .rpt-dates { display:flex; align-items:center; gap:10px; margin-top:14px; font-size:12.5px; color:#63666D;
+                 font-family:'DM Sans',-apple-system,sans-serif; }
+    .rpt-dates input { padding:7px 11px; border:1px solid #E3E1DC; border-radius:8px; font-family:inherit;
+                       font-size:13px; color:#1A1C20; background:#fff; outline:none; }
+    .rpt-dates input:focus { border-color:#2F5DA8; box-shadow:0 0 0 3px rgba(47,93,168,.12); }
+
+    /* The 24h pulse. Until now New Delivery Customers and Recent Orders were two
+       full-width cards above ALL fourteen reports, including the ten they have
+       nothing to do with. They were moved here off Overview (session 88) to
+       declutter Overview, so they stay — as one line. */
+    .rpt-pulse { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-top:10px;
+                 font-family:'DM Sans',-apple-system,sans-serif; font-size:13px; color:#63666D; }
+    .rpt-pulse-label { text-transform:uppercase; letter-spacing:.14em; font-size:10.5px; color:#8A8D93; }
+    .rpt-pulse-btn { background:none; border:0; padding:0; font-family:inherit; font-size:13px; color:#2F5DA8; cursor:pointer; }
+    .rpt-pulse-btn:hover { text-decoration:underline; }
+    .rpt-pulse-btn.open { color:#1A1C20; font-weight:500; }
+    .rpt-pulse-sep { color:#C9C6C0; }
+    .rpt-pulse-panel { margin-top:16px; background:#fff; border:1px solid #E3E1DC; border-radius:10px; overflow:hidden; }
+
+    /* The index. Four columns, one per question the reports answer, each report
+       with a mark of its own so they are learned by shape rather than re-read. */
+    .rpt-index { position:fixed; inset:0; z-index:1100;   /* the band the app's other modals use */ background:rgba(20,22,26,.34);
+                 display:flex; align-items:flex-start; justify-content:center; padding:68px 24px 24px; }
+    .rpt-index-panel { width:min(1080px,100%); max-height:calc(100vh - 110px); overflow:auto; background:#FBFAF8;
+                       border:1px solid #E3E1DC; border-radius:16px; box-shadow:0 24px 70px rgba(20,22,26,.22);
+                       padding:28px 30px 24px; font-family:'DM Sans',-apple-system,sans-serif; }
+    .rpt-index-search { width:100%; height:48px; box-sizing:border-box; padding:0 16px; font-family:inherit;
+                        font-size:16px; color:#1A1C20; background:#fff; border:1px solid #E3E1DC; border-radius:10px; outline:none; }
+    .rpt-index-search:focus { border-color:#2F5DA8; box-shadow:0 0 0 3px rgba(47,93,168,.12); }
+    .rpt-index-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:28px; margin-top:24px; align-items:start; }
+    .rpt-index-col-head { font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:#63666D; padding-bottom:10px; }
+    .rpt-index-item { display:flex; gap:12px; align-items:flex-start; width:100%; text-align:left; padding:12px 8px;
+                      background:none; border:0; border-top:1px solid #EBE8E2; border-radius:8px; cursor:pointer;
+                      font-family:inherit; color:#1A1C20; }
+    .rpt-index-item:hover, .rpt-index-item.cursor { background:#F1EFEA; }
+    .rpt-index-item.current { color:#2F5DA8; }
+    .rpt-index-item.current .rpt-index-name { color:#2F5DA8; }
+    .rpt-index-name { display:block; font-size:14.5px; font-weight:500; line-height:1.3; }
+    .rpt-index-blurb { display:block; font-size:12.5px; line-height:1.45; color:#63666D; margin-top:3px; }
+    .rpt-index-foot { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-top:22px;
+                      padding-top:16px; border-top:1px solid #E3E1DC; font-size:12.5px; color:#63666D; }
+    .rpt-index-empty { grid-column:1/-1; padding:36px 4px; font-size:14px; color:#63666D; }
+    @media (max-width:1100px) { .rpt-index-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width:640px)  { .rpt-index-grid { grid-template-columns:1fr; } .rpt-title { font-size:24px; }
+                                .rpt-period-label { margin-left:0; width:100%; } }
     .rpt-sub-subtab.active { background:var(--accent) !important;color:#fff !important; }
     .rpt-status-pills { display:flex;flex-wrap:wrap;gap:8px; }
     .rpt-status-pill { display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:20px;font-size:13px;font-weight:500;border:1px solid rgba(0,0,0,.06); }
@@ -1302,8 +1367,7 @@
     .rev2-kicker { font-size:11.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--mute); }
     .rev2-rule { border:0; border-top:1px solid var(--hair); margin:34px 0 0; }
     .rev2-hero { display:flex; align-items:flex-end; gap:48px; flex-wrap:wrap; }
-    .rev2-big { font-family:'Fraunces',Georgia,serif; font-weight:300; font-size:88px; line-height:1.02;
-                letter-spacing:-.022em; margin-top:8px; }
+    .rev2-big { font-weight:300; font-size:82px; line-height:1.04; letter-spacing:-.035em; margin-top:10px; }
     .rev2-delta { font-size:14px; color:var(--ink-2); margin-top:14px; min-height:21px; }
     .rev2-spark { margin-left:auto; text-align:right; }
     .rev2-cap { font-size:12px; color:var(--mute); margin-top:8px; }
@@ -1329,7 +1393,7 @@
     .rev2-led-net { border-top:1px solid var(--ink); margin-top:8px; padding-top:15px;
                     display:flex; justify-content:space-between; align-items:baseline; gap:16px; }
     .rev2-led-net > span:first-child { font-size:15px; font-weight:500; }
-    .rev2-led-net > span:last-child { font-family:'Fraunces',Georgia,serif; font-weight:400; font-size:28px; letter-spacing:-.015em; }
+    .rev2-led-net > span:last-child { font-weight:500; font-size:27px; letter-spacing:-.022em; }
     .rev2-alert { color:#A8362A; }
     .rev2-foot { display:flex; align-items:center; gap:26px; flex-wrap:wrap; padding:24px 40px 28px; }
     .rev2-link { background:none; border:0; padding:0; font-size:14px; color:#2F5DA8; cursor:pointer; }
@@ -1339,6 +1403,9 @@
                  border-radius:10px; font-size:12.5px; line-height:1.65; color:#44474D; }
     .rev2-tblwrap { overflow-x:auto; margin:28px -40px 0; padding:0 40px; border-top:1px solid var(--hair); }
     .rev2 .rev-empty { padding:56px 20px; }
+    .rev2-colbtn { background:none; border:0; padding:0; font-family:inherit; font-size:12px; font-weight:500;
+                   color:#2F5DA8; cursor:pointer; white-space:nowrap; }
+    .rev2-colbtn:hover { text-decoration:underline; }
     .rev2-netbar { height:3px; border-radius:2px; background:#6379B0; margin-top:6px; margin-left:auto; }
     .rev2-tblwrap .rev-tbl td { white-space:nowrap; }
     .rev2 .rev-zero { color:#8A8D93; }
@@ -1359,8 +1426,9 @@
     .ps-kind-tag { display:inline-block; font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:12px; margin-left:8px;  letter-spacing:0; }
     .ps-kind-tag.service { background:#e0f2fe; color:#075985; }
     .ps-kind-tag.merchandise { background:#fef3c7; color:#92400e; }
-    /* Sub-tab pill switcher (By Item / By Order). Per PROJECT-NOTES style rule:
-       primary tabs use underline (.rpt-page-tab); secondary nav uses pills. */
+    /* Sub-tab pill switcher (By Item / By Order). Per PROJECT-NOTES style rule,
+       secondary nav uses pills. (The primary report tabs it used to sit under are
+       gone as of session 301 — the report title opens the index instead.) */
     .ps-subtabs-row { display:flex; gap:10px; align-items:center; padding:14px 0; }
     .ps-subtabs { display:flex; gap:2px; background:var(--gray-100); border-radius:var(--radius); padding:3px; }
     .ps-subtab { padding:6px 14px; border-radius:8px; font-size:12.5px; font-weight:500; color:var(--gray-600); cursor:pointer; border:none; background:transparent; transition:all .12s; font-family:inherit; }
@@ -2777,66 +2845,54 @@
         <!-- ── REPORTS ── -->
         <div class="page" id="page-reports">
 
-          <!-- New Customers + Recent Orders (moved from Overview) -->
-          <div class="two-col" style="margin-bottom:20px">
-            <div class="card">
-              <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('new-customers-body',this)">
-                <div style="flex:1">
-                  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                    <div class="card-title" style="font-size:16px">New Delivery Customers</div>
-                    <span id="cust-24h-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
-                    <span id="cust-conversion-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
-                  </div>
-                </div>
-                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+          <!-- ── Session 301: one header, no tab rows ─────────────────────────
+               The report's name IS the control: it opens an index of all fourteen
+               (⌘K works from anywhere on this page). The period sits under it on
+               one line, with From/To revealed only when the range is not a preset.
+               The 24h pulse is the two cards that used to stand above every report
+               — kept, because session 88 moved them here to declutter Overview,
+               but folded down to a line with the same Show-last-10 panels. -->
+          <div class="rpt-head">
+            <div class="rpt-head-top">
+              <button type="button" class="rpt-title" id="rpt-title" aria-haspopup="dialog" aria-controls="rpt-index"
+                      title="Choose a report (⌘K)" onclick="openRptIndex()">
+                <span id="rpt-title-text">Daily Revenue</span>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M4 6.25 8 10.25l4-4" stroke="#63666D" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <div class="rpt-pulse" id="rpt-pulse">
+                <span class="rpt-pulse-label">Last 24h</span>
+                <button type="button" class="rpt-pulse-btn" id="rpt-pulse-cust" aria-controls="new-customers-body"
+                        onclick="toggleRptPulse('new-customers-body', this)"><span id="cust-24h-badge">—</span> new customers</button>
+                <span id="cust-conversion-badge" style="display:none"></span>
+                <span class="rpt-pulse-sep">·</span>
+                <button type="button" class="rpt-pulse-btn" id="rpt-pulse-ord" aria-controls="recent-orders-body"
+                        onclick="toggleRptPulse('recent-orders-body', this)"><span id="orders-24h-badge">—</span> orders</button>
               </div>
-              <div id="new-customers-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
-            <div class="card">
-              <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('recent-orders-body',this)">
-                <div style="flex:1">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <div class="card-title" style="font-size:16px">Recent Orders</div>
-                    <span id="orders-24h-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
-                  </div>
-                </div>
-                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
-              </div>
-              <div id="recent-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+
+            <div class="rpt-head-period">
+              <button class="rpt-quick-btn" data-range="today"     onclick="setRptQuickRange('today',this)">Today</button>
+              <button class="rpt-quick-btn" data-range="yesterday" onclick="setRptQuickRange('yesterday',this)">Yesterday</button>
+              <button class="rpt-quick-btn" data-range="7d"        onclick="setRptQuickRange('7d',this)">7 days</button>
+              <button class="rpt-quick-btn" data-range="month"     onclick="setRptQuickRange('month',this)">This month</button>
+              <button class="rpt-quick-btn" data-range="lastmonth" onclick="setRptQuickRange('lastmonth',this)">Last month</button>
+              <button class="rpt-quick-btn" id="rpt-custom-btn" type="button" onclick="toggleRptCustom()">Custom</button>
+              <span class="rpt-period-label" id="rpt-period-label"></span>
             </div>
+
+            <div class="rpt-dates" id="rpt-dates" style="display:none">
+              <label for="rpt-from">From</label>
+              <input type="date" id="rpt-from" onchange="_rptDateChanged()">
+              <label for="rpt-to">To</label>
+              <input type="date" id="rpt-to" onchange="_rptDateChanged()">
+            </div>
+
+            <div id="new-customers-body" class="rpt-pulse-panel" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            <div id="recent-orders-body" class="rpt-pulse-panel" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
-          <!-- Date range + tab bar combined card -->
-          <div class="card" style="padding:0;margin-bottom:20px">
-            <div style="display:flex;align-items:flex-end;gap:20px;padding:14px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap">
-              <div>
-                <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-400);margin-bottom:5px">From</label>
-                <input type="date" id="rpt-from" onchange="_rptQuickClear();runCurrentReport()" style="padding:7px 11px;border:1px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
-              </div>
-              <div>
-                <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-400);margin-bottom:5px">To</label>
-                <input type="date" id="rpt-to" onchange="_rptQuickClear();runCurrentReport()" style="padding:7px 11px;border:1px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
-              </div>
-            </div>
-            <!-- Global Quick Range — applies to every report tab (sets the shared From/To). -->
-            <style>
-              .rpt-quick-btn{font-size:12.5px;font-weight:600;color:var(--gray-600);background:var(--gray-50);border:1px solid var(--gray-200);border-radius:999px;padding:6px 16px;cursor:pointer;transition:all .15s}
-              .rpt-quick-btn:hover{background:var(--gray-100);color:var(--gray-800)}
-              .rpt-quick-btn.active{color:#fff;background:var(--accent);border-color:var(--accent)}
-            </style>
-            <div style="display:flex;align-items:center;gap:8px;padding:0 20px 14px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
-              <span style="font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-400);margin-right:4px">Quick range</span>
-              <button class="rpt-quick-btn" onclick="setRptQuickRange('today',this)">Today</button>
-              <button class="rpt-quick-btn" onclick="setRptQuickRange('yesterday',this)">Yesterday</button>
-              <button class="rpt-quick-btn" onclick="setRptQuickRange('7d',this)">Last 7 days</button>
-              <button class="rpt-quick-btn" onclick="setRptQuickRange('month',this)">This month</button>
-              <button class="rpt-quick-btn" onclick="setRptQuickRange('lastmonth',this)">Last month</button>
-            </div>
-            <!-- Session 291u: groups on top, that group's reports beneath. Both rows are
-                 rendered from RPT_GROUPS in JS so the two can never drift apart. -->
-            <div class="rpt-group-tabs" id="rpt-group-tabs"></div>
-            <div class="rpt-page-tabs" id="rpt-page-tabs"></div>
-          </div>
 
           <!-- ── TAB: BAD DEBT (session 291e) ── -->
           <!-- What Ramona needs at year-end: every write-off in a period with the
@@ -7685,6 +7741,24 @@
 </div>
 
 <!-- ── BILL ORDERS MODAL ── -->
+<!-- The index. Rendered from RPT_GROUPS, so a report can never appear
+     here under two headings or go missing because someone added it to
+     the switcher and forgot the list. -->
+<div class="rpt-index" id="rpt-index" style="display:none" role="dialog" aria-modal="true"
+     aria-label="Choose a report" onclick="_rptIndexBackdrop(event)">
+  <div class="rpt-index-panel">
+    <label for="rpt-index-search" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Jump to a report</label>
+    <input type="search" class="rpt-index-search" id="rpt-index-search" placeholder="Jump to a report…"
+           autocomplete="off" oninput="renderRptIndex(this.value)">
+    <div class="rpt-index-grid" id="rpt-index-grid"></div>
+    <div class="rpt-index-foot">
+      <span>The date range you have open stays open — changing report never resets it.</span>
+      <span>↑↓ to move · ↵ to open · esc to close</span>
+    </div>
+  </div>
+</div>
+
+
 <div id="bill-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1100;align-items:center;justify-content:center" onclick="if(event.target===this)closeBillModal()">
   <div style="background:white;border-radius:12px;padding:28px;width:420px;max-width:92vw;box-shadow:0 24px 64px rgba(0,0,0,.2)">
     <h3 style="margin:0 0 4px;font-size:17px;font-weight:700">Confirm Billing</h3>
@@ -28007,19 +28081,16 @@ ${noActivityNote}
     const convBadge = document.getElementById('cust-conversion-badge');
     const custCount = custRes?.count ?? 0;
     const ordCount = ordRes?.count ?? 0;
-    if (custBadge && custCount > 0) {
-      custBadge.textContent = `${custCount} in last 24h`;
-      custBadge.style.display = '';
-    }
-    if (ordBadge && ordCount > 0) {
-      ordBadge.textContent = `${ordCount} in last 24h`;
-      ordBadge.style.display = '';
-    }
+    // Session 301: these are spans inside the Reports header's 24h pulse line now,
+    // not badges on two cards, so they carry the number and the line carries the
+    // words. A zero is written rather than hidden — "0 new customers" is the answer.
+    if (custBadge) custBadge.textContent = String(custCount);
+    if (ordBadge)  ordBadge.textContent  = String(ordCount);
     if (convBadge && convRes?.data?.length > 0) {
       const total = convRes.data.length;
       const ordered = convRes.data.filter(c => (c.total_orders || 0) > 0).length;
       const pct = Math.round((ordered / total) * 100);
-      convBadge.textContent = `${pct}% placed order`;
+      convBadge.textContent = `(${pct}% ordered)`;
       convBadge.style.display = '';
     }
   }
@@ -50491,6 +50562,7 @@ ${oneCopy}
     const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
     fromEl.value = todayPT;
     toEl.value   = todayPT;
+    _rptSyncPeriodUI();  // session 301: light the Today chip the default just chose
   }
 
   function runCurrentReport() {
@@ -50602,6 +50674,9 @@ ${oneCopy}
     toEl.value   = to;
     _rptQuickClear();
     if (btn) btn.classList.add('active');
+    const _d = document.getElementById('rpt-dates');
+    if (_d) _d.dataset.forced = '0';   // a preset puts the pickers away again
+    _rptSyncPeriodUI();
     runCurrentReport();
   }
 
@@ -50617,33 +50692,57 @@ ${oneCopy}
   // widest table in the app, on top of the 175px the app nav already owns.
   const RPT_GROUPS = [
     { key: 'revenue',     label: 'Revenue',     tabs: [
-        ['revenue', 'Daily Revenue'], ['possales', 'POS Sales'], ['items', 'Items'] ] },
+        ['revenue',       'Daily Revenue', 'What the business earned, day by day.'],
+        ['possales',      'POS Sales',     'Counter takings, net of tax.'],
+        ['items',         'Items',         'Which services and add-ons sell.'] ] },
     { key: 'receivables', label: 'Receivables', tabs: [
-        ['onaccount', 'On Account'], ['invoices', 'Invoices'], ['baddebt', 'Bad Debt'] ] },
+        ['onaccount',     'On Account',    'Who owes us right now.'],
+        ['invoices',      'Invoices',      'Monthly bills, sent and settled.'],
+        ['baddebt',       'Bad Debt',      'What we have written off.'] ] },
     { key: 'operations',  label: 'Operations',  tabs: [
-        ['drivers', 'Drivers'], ['launderer', 'Launderers'], ['deliverykpis', 'Delivery KPIs'], ['ontime', 'On-Time'] ] },
+        ['drivers',       'Drivers',       'Stops, hours and pay, per driver.'],
+        ['launderer',     'Launderers',    'Pounds processed per labour hour.'],
+        ['deliverykpis',  'Delivery KPIs', 'Growth, revenue and retention at a glance.'],
+        ['ontime',        'On-Time',       'Windows hit and missed, by month.'] ] },
     { key: 'customers',   label: 'Customers',   tabs: [
-        ['registrations', 'Registrations'], ['subscriptions', 'Subscriptions'], ['referrals', 'Referrals'], ['feedback', 'Feedback'] ] },
+        ['registrations', 'Registrations', 'New sign-ups, and where they came from.'],
+        ['subscriptions', 'Subscriptions', 'Active plans, new and churned.'],
+        ['referrals',     'Referrals',     'Who refers, and what it is worth.'],
+        ['feedback',      'Feedback',      'What customers actually said.'] ] },
   ];
+
+  // A mark per report, so they are learned by shape instead of re-read every time.
+  // currentColor so the current report's glyph takes the accent with its name.
+  const RPT_GLYPH = {
+    revenue:       '<path d="M5 21v-5M13 21v-11M21 21v-16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    possales:      '<rect x="5.5" y="4.5" width="15" height="17" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M9 10h8M9 14h8M9 18h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+    items:         '<circle cx="7" cy="7" r="1.6" fill="currentColor"/><circle cx="13" cy="7" r="1.6" fill="currentColor"/><circle cx="19" cy="7" r="1.6" fill="currentColor"/><circle cx="7" cy="13" r="1.6" fill="currentColor"/><circle cx="13" cy="13" r="1.6" fill="currentColor"/><circle cx="19" cy="13" r="1.6" fill="currentColor"/><circle cx="7" cy="19" r="1.6" fill="currentColor"/><circle cx="13" cy="19" r="1.6" fill="currentColor"/><circle cx="19" cy="19" r="1.6" fill="currentColor"/>',
+    onaccount:     '<circle cx="13" cy="13" r="8.2" stroke="currentColor" stroke-width="1.5"/><path d="M13 4.8a8.2 8.2 0 0 1 0 16.4z" fill="currentColor"/>',
+    invoices:      '<path d="M7 4h8l4 4v14H7z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M15 4v4h4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>',
+    baddebt:       '<circle cx="13" cy="13" r="8.2" stroke="currentColor" stroke-width="1.5"/><path d="M7.4 18.6 18.6 7.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+    drivers:       '<path d="M6 20h5a4 4 0 0 0 0-8h-1a4 4 0 0 1 0-8h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="6" cy="20" r="2" fill="currentColor"/><circle cx="16" cy="4" r="2" fill="currentColor"/>',
+    launderer:     '<circle cx="13" cy="13" r="8.2" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="13" r="3.2" stroke="currentColor" stroke-width="1.5"/>',
+    deliverykpis:  '<rect x="5" y="5" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="14" y="5" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="5" y="14" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.5"/>',
+    ontime:        '<circle cx="13" cy="13" r="8.2" stroke="currentColor" stroke-width="1.5"/><path d="M13 8.2V13l3.2 2.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+    registrations: '<path d="M4 19.5 10 13l4 3 8-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 7h5v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+    subscriptions: '<path d="M20.6 10.2A8 8 0 1 0 21 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M21.4 5.4v5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+    referrals:     '<circle cx="8" cy="8.5" r="3.2" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="17.5" r="3.2" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.7 15.5 15.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+    feedback:      '<path d="M5 6.5h16v10h-8.5L8 21v-4.5H5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>',
+  };
+
   const _rptGroupOf = tab => (RPT_GROUPS.find(g => g.tabs.some(t => t[0] === tab)) || RPT_GROUPS[0]).key;
+  const _rptEntryOf = tab => { for (const g of RPT_GROUPS) { const t = g.tabs.find(x => x[0] === tab); if (t) return t; } return RPT_GROUPS[0].tabs[0]; };
   let rptGroup = 'revenue';
 
-  function renderRptTabs() {
-    const gRow = document.getElementById('rpt-group-tabs');
-    const rRow = document.getElementById('rpt-page-tabs');
-    if (!gRow || !rRow) return;
-    gRow.innerHTML = RPT_GROUPS.map(g =>
-      `<button class="rpt-group-tab${g.key === rptGroup ? ' active' : ''}" onclick="setRptGroup('${g.key}')">${g.label}</button>`
-    ).join('');
-    const grp = RPT_GROUPS.find(g => g.key === rptGroup) || RPT_GROUPS[0];
-    rRow.innerHTML = grp.tabs.map(([key, label]) =>
-      `<button class="rpt-page-tab${key === rptTab ? ' active' : ''}" onclick="setRptTab('${key}',this)">${label}</button>`
-    ).join('');
+  // ── The title is the switcher ─────────────────────────────────────────────
+  function renderRptTitle() {
+    const el = document.getElementById('rpt-title-text');
+    if (el) el.textContent = _rptEntryOf(rptTab)[1];
   }
-  window.renderRptTabs = renderRptTabs;
+  window.renderRptTitle = renderRptTitle;
 
-  // Switching group opens that group's FIRST report — a group header with no report
-  // under it would leave the page showing whatever was open before, which reads broken.
+  // Kept so a group can still be opened by name from elsewhere; opens that
+  // group's FIRST report, because a heading with no report under it reads broken.
   function setRptGroup(key) {
     const grp = RPT_GROUPS.find(g => g.key === key);
     if (!grp) return;
@@ -50652,19 +50751,186 @@ ${oneCopy}
   }
   window.setRptGroup = setRptGroup;
 
-  // Paint both rows once at load. The markup for them is empty in the HTML — it is
-  // rendered from RPT_GROUPS above — so without this the Reports page opens with no
-  // tabs at all until something else calls setRptTab.
+  // ── The index ─────────────────────────────────────────────────────────────
+  let _rptIdxKeys = [], _rptIdxCursor = -1;
+
+  function renderRptIndex(query) {
+    const grid = document.getElementById('rpt-index-grid');
+    if (!grid) return;
+    const q = String(query || '').trim().toLowerCase();
+    _rptIdxKeys = [];
+    let html = '';
+    RPT_GROUPS.forEach(g => {
+      const hits = g.tabs.filter(([key, label, blurb]) => !q
+        || label.toLowerCase().includes(q)
+        || String(blurb || '').toLowerCase().includes(q)
+        || g.label.toLowerCase().includes(q));
+      if (!hits.length) return;
+      html += `<div><div class="rpt-index-col-head">${g.label}</div>`;
+      hits.forEach(([key, label, blurb]) => {
+        const i = _rptIdxKeys.length;
+        _rptIdxKeys.push(key);
+        html += `<button type="button" class="rpt-index-item${key === rptTab ? ' current' : ''}" data-i="${i}" onclick="pickRptIndex('${key}')">`
+          + `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true" style="flex-shrink:0">${RPT_GLYPH[key] || ''}</svg>`
+          + `<span><span class="rpt-index-name">${label}</span><span class="rpt-index-blurb">${blurb || ''}</span></span></button>`;
+      });
+      html += '</div>';
+    });
+    grid.innerHTML = html || '<div class="rpt-index-empty">No report matches that.</div>';
+    _rptIdxCursor = _rptIdxKeys.length ? 0 : -1;
+    _rptIdxPaint();
+  }
+  window.renderRptIndex = renderRptIndex;
+
+  function _rptIdxPaint() {
+    document.querySelectorAll('#rpt-index-grid .rpt-index-item').forEach(b => {
+      const on = Number(b.dataset.i) === _rptIdxCursor;
+      b.classList.toggle('cursor', on);
+      if (on && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function openRptIndex() {
+    const ov = document.getElementById('rpt-index');
+    if (!ov) return;
+    ov.style.display = '';
+    const box = document.getElementById('rpt-index-search');
+    if (box) box.value = '';
+    renderRptIndex('');
+    if (box) setTimeout(() => box.focus(), 0);
+  }
+  window.openRptIndex = openRptIndex;
+
+  function closeRptIndex() {
+    const ov = document.getElementById('rpt-index');
+    if (!ov || ov.style.display === 'none') return;
+    ov.style.display = 'none';
+    document.getElementById('rpt-title')?.focus();
+  }
+  window.closeRptIndex = closeRptIndex;
+
+  function pickRptIndex(key) { closeRptIndex(); setRptTab(key, null); }
+  window.pickRptIndex = pickRptIndex;
+
+  // Click the dimmed area, not the panel, to dismiss.
+  function _rptIndexBackdrop(e) { if (e.target && e.target.id === 'rpt-index') closeRptIndex(); }
+  window._rptIndexBackdrop = _rptIndexBackdrop;
+
+  const _rptIndexOpen = () => {
+    const ov = document.getElementById('rpt-index');
+    return !!ov && ov.style.display !== 'none';
+  };
+
+  // ⌘K / Ctrl+K, but only while the Reports page is the one on screen — the rest
+  // of the admin keeps the browser's own shortcut.
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      const pg = document.getElementById('page-reports');
+      if (!pg || getComputedStyle(pg).display === 'none') return;
+      e.preventDefault();
+      _rptIndexOpen() ? closeRptIndex() : openRptIndex();
+      return;
+    }
+    if (!_rptIndexOpen()) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeRptIndex(); return; }
+    if (e.key === 'Enter') {
+      const key = _rptIdxKeys[_rptIdxCursor];
+      if (key) { e.preventDefault(); pickRptIndex(key); }
+      return;
+    }
+    const n = _rptIdxKeys.length;
+    if (!n) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); _rptIdxCursor = (_rptIdxCursor + 1) % n; _rptIdxPaint(); }
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); _rptIdxCursor = (_rptIdxCursor - 1 + n) % n; _rptIdxPaint(); }
+  });
+
+  // ── The period line ───────────────────────────────────────────────────────
+  // The active chip is DERIVED from the dates rather than tracked, because
+  // setRptTab silently widens the range for six of the reports (Invoices opens on
+  // 90 days, Bad Debt on a year, and so on). Tracking would have gone stale there;
+  // deriving cannot.
+  function _rptMatchPreset() {
+    const f = document.getElementById('rpt-from')?.value;
+    const t = document.getElementById('rpt-to')?.value;
+    if (!f || !t) return null;
+    const todayIso = today();
+    const [Y, M] = todayIso.split('-').map(Number);
+    const mStart  = `${Y}-${String(M).padStart(2, '0')}-01`;
+    const lastM   = M === 1 ? 12 : M - 1;
+    const lastY   = M === 1 ? Y - 1 : Y;
+    if (f === todayIso && t === todayIso) return 'today';
+    if (f === addDaysPacific(todayIso, -1) && t === f) return 'yesterday';
+    if (f === addDaysPacific(todayIso, -6) && t === todayIso) return '7d';
+    if (f === mStart && t === todayIso) return 'month';
+    if (f === `${lastY}-${String(lastM).padStart(2, '0')}-01` && t === addDaysPacific(mStart, -1)) return 'lastmonth';
+    return null;
+  }
+
+  function _rptSyncPeriodUI() {
+    const match = _rptMatchPreset();
+    document.querySelectorAll('.rpt-quick-btn[data-range]').forEach(b => b.classList.toggle('active', b.dataset.range === match));
+    const dates = document.getElementById('rpt-dates');
+    const cbtn  = document.getElementById('rpt-custom-btn');
+    const forced = dates?.dataset.forced === '1';
+    if (dates) dates.style.display = (!match || forced) ? '' : 'none';
+    if (cbtn)  cbtn.classList.toggle('active', !match);
+    const label = document.getElementById('rpt-period-label');
+    const f = document.getElementById('rpt-from')?.value;
+    const t = document.getElementById('rpt-to')?.value;
+    if (label && f && t) {
+      const long  = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      const short = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      label.textContent = f === t ? long(f) : `${short(f)} – ${long(t)}`;
+    }
+  }
+  window._rptSyncPeriodUI = _rptSyncPeriodUI;
+
+  function toggleRptCustom() {
+    const dates = document.getElementById('rpt-dates');
+    if (!dates) return;
+    const showing = dates.style.display !== 'none';
+    dates.dataset.forced = showing ? '0' : '1';
+    _rptSyncPeriodUI();
+    if (!showing) document.getElementById('rpt-from')?.focus();
+  }
+  window.toggleRptCustom = toggleRptCustom;
+
+  function _rptDateChanged() {
+    const dates = document.getElementById('rpt-dates');
+    if (dates) dates.dataset.forced = '1'; // typing a date keeps the pickers open
+    _rptQuickClear();
+    _rptSyncPeriodUI();
+    runCurrentReport();
+  }
+  window._rptDateChanged = _rptDateChanged;
+
+  // ── The 24h pulse ─────────────────────────────────────────────────────────
+  function toggleRptPulse(bodyId, btn) {
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    const show = body.style.display === 'none';
+    // One at a time — two open panels push the report itself below the fold.
+    ['new-customers-body', 'recent-orders-body'].forEach(id => {
+      if (id !== bodyId) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+    });
+    body.style.display = show ? '' : 'none';
+    document.querySelectorAll('.rpt-pulse-btn').forEach(b => b.classList.toggle('open', b === btn && show));
+  }
+  window.toggleRptPulse = toggleRptPulse;
+
+  // Paint the title and the period line once at load. Both are empty in the
+  // markup — they are rendered from RPT_GROUPS and from the dates themselves.
+  function _rptHeadInit() { renderRptTitle(); _rptSyncPeriodUI(); }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', renderRptTabs);
+    document.addEventListener('DOMContentLoaded', _rptHeadInit);
   } else {
-    renderRptTabs();
+    _rptHeadInit();
   }
 
   function setRptTab(tab, btn) {
     rptTab = tab;
-    rptGroup = _rptGroupOf(tab);   // keep the group row honest when a report is opened directly
-    renderRptTabs();
+    rptGroup = _rptGroupOf(tab);   // still tracked: the index highlights the current report
+    renderRptTitle();
     // Derived from RPT_GROUPS, not a second hand-written list — a report added to the
     // groups above is shown and hidden correctly without touching anything here.
     RPT_GROUPS.forEach(g => g.tabs.forEach(([t]) => {
@@ -50711,6 +50977,8 @@ ${oneCopy}
         _rptQuickClear();
       }
     }
+    // Session 301: a report that opened a wider range must say so on the period
+    // line, so _rptSyncPeriodUI() runs after every branch below (see end of fn).
     if (tab === 'subscriptions' || tab === 'deliverykpis' || tab === 'feedback' || tab === 'referrals') {
       // These reports compare windows / need a multi-day range to be meaningful.
       // If picker is at today-only (the global default), bump it to Last 30 days.
@@ -50725,6 +50993,7 @@ ${oneCopy}
         _rptQuickClear(); // 30-day window isn't one of the quick presets
       }
     }
+    _rptSyncPeriodUI();
     runCurrentReport();
   }
 
@@ -52767,6 +53036,114 @@ async function _dvIframeLoaded() {
     return { service, addons, overages, fees, tax, credits, discounts };
   }
 
+  // ── Session 301: the Daily Revenue table, folded ──────────────────────────
+  // Seventeen columns of identical type is not a table anyone reads; it is a grid
+  // you scan for one number. They fold to ten, grouped by the question each answers,
+  // and a group opens in place when you want the parts. Header, rows and totals are
+  // all generated from ONE spec below, so they cannot drift — the same instinct that
+  // made RPT_GROUPS drive both tab rows in session 291u.
+  // The CSV export is deliberately untouched: it still carries all nineteen fields.
+  const _rvNum   = n => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const _rvZero  = '<span class="rev-zero">—</span>';
+  const _rvPos   = n => (n || 0) > 0.005 ? '$' + _rvNum(n) : _rvZero;
+  const _rvDay   = d => { const [y, m, dd] = d.split('-'); return new Date(+y, +m - 1, +dd).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); };
+  const _rvSum   = (r, keys) => keys.reduce((a, k) => a + (Number(r[k]) || 0), 0);
+
+  const REV_TBL = [
+    { grp: 'earned',  id: 'svc',  label: 'Services',        keys: ['service', 'addons', 'overages'],
+      parts: [{ key: 'service', label: 'Services' }, { key: 'addons', label: 'Add-ons' }, { key: 'overages', label: 'Overages' }] },
+    { grp: 'earned',  id: 'subs', label: 'Subscriptions',   keys: ['subs'], zeroHide: true,
+      tip: 'Monthly subscription plan fees charged on this day. Grouped by charge date, not by racked date — a plan renewal never reaches the rack.' },
+    { grp: 'earned',  id: 'pos',  label: 'POS',             keys: ['pos'], zeroHide: true,
+      tip: 'Walk-in counter sales, net of sales tax. Grouped by sale date. The tax is reported in the footer.' },
+    { grp: 'earned',  id: 'dlv',  label: 'Delivery & tips', keys: ['fees', 'tips'],
+      parts: [{ key: 'fees', label: 'Delivery fees' }, { key: 'tips', label: 'Tips' }] },
+    { grp: 'earned',  id: 'comm', label: 'Commercial',      keys: ['comm'], zeroHide: true,
+      tip: 'On-account funds actually received that day — check, ACH or wire, voided payments excluded. Cash basis: those orders are left out of the other streams so no job is counted twice.' },
+    { grp: 'earned',  id: 'gross', label: 'Gross',          keys: ['gross'], strong: true },
+    { grp: 'settled', id: 'chg',  label: 'Charged',         keys: ['total'], strong: true,
+      tip: 'What the cards were actually billed — order total plus tip, settled as one charge.' },
+    { grp: 'settled', id: 'off',  label: 'Taken off',       keys: ['credits', 'discounts', 'refunds', 'procFees'], neg: true,
+      parts: [{ key: 'credits', label: 'Credits', neg: true }, { key: 'discounts', label: 'Discounts', neg: true },
+              { key: 'refunds', label: 'Refunds', neg: true, alert: true }, { key: 'procFees', label: 'Processing fees', neg: true, fee: true }] },
+    { grp: 'settled', id: 'cnt',  label: 'Orders',          keys: ['count'], plain: true },
+    { grp: 'settled', id: 'net',  label: 'Net revenue',     keys: ['net'], strong: true, bar: true },
+  ];
+  const REV_GRP = { earned: 'Earned', settled: 'Settled' };
+  const _revOpenCols = {};   // id -> true while that group is expanded
+
+  function toggleRevCol(id) {
+    _revOpenCols[id] = !_revOpenCols[id];
+    const wrap = document.getElementById('rev-table-wrap');
+    if (wrap) wrap.innerHTML = _revTableHtml();
+  }
+  window.toggleRevCol = toggleRevCol;
+
+  let _revReportTot = null;  // totals of the last render, so the table can rebuild alone
+
+  // One cell. `neg` prints a deduction, `alert` paints it (refunds only), `fee`
+  // italicises an estimated Stripe fee the way the old column did.
+  function _rvCell(r, c, part) {
+    const spec = part || c;
+    const v = part ? (Number(r[part.key]) || 0) : _rvSum(r, c.keys);
+    if (c.plain) return `<td style="color:var(--gray-500)">${Math.round(v)}</td>`;
+    if (spec.neg) {
+      if (v <= 0.005) return `<td>${_rvZero}</td>`;
+      const est = spec.fee && r.feeEstimated;
+      const style = (spec.alert ? 'color:#A8362A' : 'color:var(--gray-600)') + (est ? ';font-style:italic' : '');
+      const title = est ? ' title="Part estimated at 2.9% + $0.30 per charge"' : '';
+      return `<td><span style="${style}"${title}>−$${_rvNum(v)}</span></td>`;
+    }
+    const bar = c.bar && _revReportTot && _revReportTot._maxNet > 0 && (_revReportTot._rowCount || 0) > 1
+      ? `<div class="rev2-netbar" style="width:${Math.max(0, (v / _revReportTot._maxNet) * 100).toFixed(1)}%"></div>` : '';
+    const weight = c.strong ? 'font-weight:600;color:#1A1C20' : '';
+    return `<td style="${weight}">${c.strong ? '$' + _rvNum(v) : _rvPos(v)}${bar}</td>`;
+  }
+
+  function _revTableHtml() {
+    const rows = _revReportData || [];
+    const tot  = _revReportTot;
+    if (!rows.length || !tot) return '';
+
+    // A stream that is zero for the whole range gets no column at all. Nothing is
+    // quieter than a column that is not there, and Commercial is zero most days.
+    const cols = REV_TBL.filter(c => !c.zeroHide || _rvSum(tot, c.keys) > 0.005);
+
+    const span = c => (_revOpenCols[c.id] && c.parts ? c.parts.length : 1);
+    const tier1 = ['<th></th>'];
+    ['earned', 'settled'].forEach(g => {
+      const n = cols.filter(c => c.grp === g).reduce((a, c) => a + span(c), 0);
+      if (n) tier1.push(`<th colspan="${n}" style="text-align:left;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#63666D;border-bottom:1px solid #DCD9D3;padding-bottom:7px">${REV_GRP[g]}</th>`);
+    });
+
+    const tier2 = ['<th style="text-align:left">Date</th>'];
+    cols.forEach(c => {
+      if (_revOpenCols[c.id] && c.parts) {
+        c.parts.forEach((p, i) => tier2.push(
+          `<th>${i === 0 ? `<button type="button" class="rev2-colbtn" onclick="toggleRevCol('${c.id}')" title="Fold back into ${c.label}">▾ ${p.label}</button>` : p.label}</th>`));
+      } else if (c.parts) {
+        tier2.push(`<th><button type="button" class="rev2-colbtn" onclick="toggleRevCol('${c.id}')" title="Show ${c.parts.map(p => p.label).join(', ')}">${c.label} ▸</button></th>`);
+      } else {
+        tier2.push(`<th${c.tip ? ` title="${c.tip.replace(/"/g, '&quot;')}"` : ''}>${c.label}</th>`);
+      }
+    });
+
+    const cell = (r, c) => (_revOpenCols[c.id] && c.parts)
+      ? c.parts.map(p => _rvCell(r, c, p)).join('')
+      : _rvCell(r, c);
+
+    const body = rows.map(r => `<tr class="rev-day-row"><td>${_rvDay(r.date)}</td>${cols.map(c => cell(r, c)).join('')}</tr>`).join('');
+    const foot = `<tr><td>Total</td>${cols.map(c => cell(tot, c)).join('')}</tr>`;
+
+    const shown = 1 + cols.reduce((a, c) => a + span(c), 0);   // what is actually drawn right now
+    return `<table class="rev-tbl">
+        <thead><tr>${tier1.join('')}</tr><tr>${tier2.join('')}</tr></thead>
+        <tbody>${body}</tbody>
+        <tfoot>${foot}</tfoot>
+      </table>
+      <p style="margin:18px 0 22px;font-size:12.5px;line-height:1.6;color:#63666D;max-width:820px">Seventeen columns, showing ${shown}. Open <span style="color:#44474D">Services</span>, <span style="color:#44474D">Delivery &amp; tips</span> or <span style="color:#44474D">Taken off</span> to see the parts. A stream that is zero across the whole range gets no column. Export CSV still carries all nineteen fields.</p>`;
+  }
+
   // Convert a tip (amount + type) to dollars.
   // tip_type='pct' means tip_amount is a percentage applied to total_amount (pre-tip).
   // Module scope since session 300b: the Daily Revenue table and the 30-day trend
@@ -53103,23 +53480,7 @@ async function _dvIframeLoaded() {
       return acc;
     }, { service:0, addons:0, overages:0, fees:0, tips:0, subs:0, pos:0, comm:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0, tax:0 });
 
-    const $fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const $f  = n => n > 0 ? `$${$fmt(n)}` : `<span class="rev-zero">—</span>`;
-    const $ft = n => `$${$fmt(n)}`;
-
-    const fmtDate = d => {
-      const [y, m, day] = d.split('-');
-      return new Date(+y, +m - 1, +day).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
-    };
-
-    const $neg = n => n > 0 ? `<span style="color:var(--red)">−$${$fmt(n)}</span>` : `<span class="rev-zero">—</span>`;
-
-    // Processing Fees — red-ish tone so it reads as a deduction.
-    // Italicized when estimated (no actual Stripe balance_transaction yet).
-    const $fee = (n, est) => n > 0
-      ? `<span style="color:var(--red)${est ? ';font-style:italic' : ''}" title="${est ? 'Estimated at 2.9% + $0.30 per charge' : 'Actual Stripe fees'}">−$${$fmt(n)}</span>`
-      : `<span class="rev-zero">—</span>`;
-
+    const $fmt = _rvNum;   // one money formatter, shared with the folded table
     // ── Session 300: visual-first render ──────────────────────────────────
     // Nothing ABOVE this line changed. Every figure below comes from `rows` and
     // `tot` exactly as the old nineteen-column table built them — what changed is
@@ -53128,9 +53489,6 @@ async function _dvIframeLoaded() {
     // is simply not drawn instead of being drawn in red.
     const _hEsc = t => String(t).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
     const _live = n => (n || 0) > 0.005;
-    // Deductions that are NOT alarms. $neg (defined above) paints red, which this
-    // view reserves for refunds — a discount is a price, not a problem.
-    const $negQ = n => n > 0 ? `<span style="color:var(--gray-600)">−$${$fmt(n)}</span>` : `<span class="rev-zero">—</span>`;
 
     // One hue, eight fixed tints — a stream's colour belongs to the stream, never
     // to its rank, so a POS-heavy Saturday reads the same way as a Tuesday.
@@ -53196,31 +53554,9 @@ async function _dvIframeLoaded() {
     }
     const zeroTxt = _zeros.length ? `No ${_listed(_zeros, 'or')} ${_when}, so those lines are not shown.` : '';
 
-    // ── The table: unchanged columns, opt-in, with a bar under each Net figure
-    //    so a week's days compare by eye. Zero cells read as — , not as red $0.00.
-    const _maxNet  = Math.max(1, ...rows.map(r => r.net));
-    const _showBar = rows.length > 1;
-
-    const bodyRows = rows.map(r => `
-      <tr class="rev-day-row">
-        <td>${fmtDate(r.date)}</td>
-        <td>${$f(r.service)}</td>
-        <td>${$f(r.addons)}</td>
-        <td>${$f(r.overages)}</td>
-        <td>${$f(r.fees)}</td>
-        <td>${$f(r.tips)}</td>
-        <td>${$f(r.subs)}</td>
-        <td>${$f(r.pos)}</td>
-        <td>${$f(r.comm)}</td>
-        <td style="font-weight:600;color:var(--gray-700)">${$f(r.gross)}</td>
-        <td>${$negQ(r.credits)}</td>
-        <td>${$negQ(r.discounts)}</td>
-        <td style="color:var(--gray-500)">${r.count}</td>
-        <td style="font-weight:600;color:var(--navy)">$${$fmt(r.total)}</td>
-        <td>${$neg(r.refunds)}</td>
-        <td>${$fee(r.procFees, r.feeEstimated)}</td>
-        <td style="font-weight:700;color:#1A1C20">$${$fmt(r.net)}${_showBar ? `<div class="rev2-netbar" style="width:${Math.max(0, (r.net / _maxNet) * 100).toFixed(1)}%"></div>` : ''}</td>
-      </tr>`).join('');
+    // The table builds itself from REV_TBL (see _revTableHtml). It needs the totals
+    // and the tallest net of the range, which only exist here.
+    _revReportTot = Object.assign({}, tot, { _maxNet: Math.max(1, ...rows.map(r => r.net)), _rowCount: rows.length });
 
     body.innerHTML = `
       <div class="rev2-hero">
@@ -53254,53 +53590,7 @@ async function _dvIframeLoaded() {
         <div class="rev2-led">${ledgerHtml}</div>
       </div>
 
-      <div class="rev2-tblwrap" id="rev-table-wrap" style="display:none">
-        <table class="rev-tbl">
-          <thead>
-            <tr>
-              <th style="text-align:left">Date</th>
-              <th>Services</th>
-              <th>Add-ons</th>
-              <th>Overages</th>
-              <th>Delivery Fees</th>
-              <th>Tips</th>
-              <th title="Monthly subscription plan fees charged on this day. Grouped by charge date, not by racked date — a plan renewal never reaches the rack.">Subscriptions</th>
-              <th title="Walk-in counter sales, net of sales tax. Grouped by sale date. The tax is reported in the footer below.">POS Sales</th>
-              <th title="On-account (commercial) funds actually received that day — check, ACH or wire, voided payments excluded. Cash basis: their orders are deliberately left out of the columns to the left so no job is counted twice.">Commercial</th>
-              <th>Gross Revenue</th>
-              <th>Credits</th>
-              <th>Discounts</th>
-              <th>Orders</th>
-              <th>Charged</th>
-              <th>Refunds</th>
-              <th title="Actual Stripe fees from balance_transactions. Italicized values are estimated at 2.9% + $0.30 when the balance_transaction wasn't available.">Processing Fees</th>
-              <th>Net Revenue</th>
-            </tr>
-          </thead>
-          <tbody>${bodyRows}</tbody>
-          <tfoot>
-            <tr>
-              <td>Total</td>
-              <td>${$f(tot.service)}</td>
-              <td>${$f(tot.addons)}</td>
-              <td>${$f(tot.overages)}</td>
-              <td>${$f(tot.fees)}</td>
-              <td>${$f(tot.tips)}</td>
-              <td>${$f(tot.subs)}</td>
-              <td>${$f(tot.pos)}</td>
-              <td>${$f(tot.comm)}</td>
-              <td style="color:var(--gray-700)">${$f(tot.gross)}</td>
-              <td>${$negQ(tot.credits)}</td>
-              <td>${$negQ(tot.discounts)}</td>
-              <td style="color:var(--gray-500)">${tot.count}</td>
-              <td style="color:var(--navy)">$${$fmt(tot.total)}</td>
-              <td>${$neg(tot.refunds)}</td>
-              <td>${$fee(tot.procFees, tot.feeEstimated)}</td>
-              <td style="color:#1A1C20">$${$fmt(tot.net)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>`;
+      <div class="rev2-tblwrap" id="rev-table-wrap" style="display:none">${_revTableHtml()}</div>`;
 
     const _tblBtn = document.getElementById('rev-toggle-table');
     if (_tblBtn) { _tblBtn.style.display = ''; _tblBtn.textContent = 'Show the full table'; }
