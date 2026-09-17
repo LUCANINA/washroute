@@ -1601,20 +1601,6 @@
             <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
           </div>
         </div>
-        <!-- Rewards: credits, invite a friend, promo codes -->
-        <div class="menu-item" onclick="openSubPanel('sub-rewards')">
-          <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M12 8S10.5 3 7.5 4 9 8 12 8zm0 0s1.5-5 4.5-4S15 8 12 8z"/></svg></div>
-            <div>
-              <div class="mi-label">Rewards</div>
-              <div class="mi-value">Credits, discounts, invite friends</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="mi-badge good" id="acct-menu-rewards-badge" style="display:none"></span>
-            <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-          </div>
-        </div>
         <!-- Laundry Preferences (now also holds Default Tip) -->
         <div class="menu-item" onclick="openPrefsSubPanel()">
           <div class="mi-left">
@@ -1648,6 +1634,20 @@
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
+        <!-- Rewards: credits, invite a friend, promo codes -->
+        <div class="menu-item" onclick="openSubPanel('sub-rewards')">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M12 8S10.5 3 7.5 4 9 8 12 8zm0 0s1.5-5 4.5-4S15 8 12 8z"/></svg></div>
+            <div>
+              <div class="mi-label">Rewards</div>
+              <div class="mi-value">Credits, discounts, invite friends</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="mi-badge good" id="acct-menu-rewards-badge" style="display:none"></span>
+            <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+          </div>
+        </div>
         <!-- Send us feedback (session 298) — any topic, with or without an order -->
         <div class="menu-item" onclick="openFeedbackSheet()">
           <div class="mi-left">
@@ -1659,7 +1659,6 @@
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
-      </div>
       <button class="signout-btn" onclick="handleSignOut()">Sign Out</button>
     </div>
   </div>
