@@ -1,5 +1,35 @@
 # WashRoute — Project Notes
 
+## Session 303 — Sep 17, 2026: DM Sans across all four apps
+
+**Status:** Committed. Customer app, driver app and POS now match the admin (session 302). All four SPAs share one
+typeface and one set of font files.
+
+- **Same pattern in each app:** the four `@font-face` rules pointing at `../assets/fonts/`, a `:root` `--font-ui`
+  token, `body { font-family: var(--font-ui) }`, `input, select, textarea, button { font-family: inherit }`, and a
+  `<link rel=preload>` on the latin roman file. No Google stylesheet anywhere. The font files are shared — nothing
+  was duplicated per app.
+- **`../assets/` works under the host rewrites.** Each app is served by a `"source": "/(.*)"` rewrite to its own
+  index.html, but Vercel checks the filesystem before rewrites, which is why the existing `../assets/icon-*.png`
+  favicons already resolve. Fonts take the same path.
+- **vercel.json: fonts are now cached.** The blanket `Cache-Control: no-cache, no-store, must-revalidate` on
+  `/(.*)` exists so the SPAs always fetch fresh HTML (build-version.txt is how open tablets learn to reload).
+  Applied to fonts it meant re-downloading 212 KB on *every* page load, on every phone in a van. Added a
+  `/assets/fonts/(.*)` rule with `public, max-age=31536000, immutable`, placed after the blanket rule so the later
+  match wins for that header key. **Worth confirming once after the next deploy** — it is harmless either way, but
+  if it does not take effect the header will still read no-cache:
+  `curl -sI https://app.familylaundry.com/assets/fonts/dmsans-latin.woff2 | grep -i cache-control`
+  A `"_comment"` key was drafted into that rule and removed before committing: Vercel validates headers entries
+  against `source`/`headers`/`has`/`missing`, and an unknown key can fail the deploy. JSON has no comments —
+  the reasoning lives here instead.
+- **Printing and email untouched, on purpose, in every app.** The POS thermal receipt (`ui-monospace`, 280px),
+  its plain-text fallback window, the customer app's fatal-error message (`sans-serif`, shown when the app failed
+  to boot so it cannot depend on a webfont) and the email HTML bodies all keep their own self-contained stacks.
+
+**Tested** in headless Chromium with every external host blocked, one page per app: DM Sans loads from our own
+origin in all three, `document.fonts.check` passes, `body` and a sampled rendered element both resolve to it, only
+the latin roman file is fetched, and no app throws on boot.
+
 ## Session 302 — Sep 17, 2026: DM Sans is the admin's typeface, self-hosted
 
 **Status:** Committed. Admin only — the customer app, driver app and POS are untouched.
