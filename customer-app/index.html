@@ -1628,7 +1628,7 @@
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 015.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
             <div>
-              <div class="mi-label">Help &amp; Info</div>
+              <div class="mi-label">Info</div>
               <div class="mi-value">Pricing, FAQ, contact us</div>
             </div>
           </div>
@@ -1803,45 +1803,38 @@
   <div class="sub-panel" id="sub-help">
     <div class="sub-panel-header">
       <button class="sub-back-btn" onclick="closeSubPanel('sub-help')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
-      <div class="sub-panel-title">Help &amp; Info</div>
+      <div class="sub-panel-title">Info</div>
     </div>
     <div class="main-content" style="padding:0 0 32px">
       <div class="acct-menu">
         <div class="menu-item" onclick="openPricingPanel()">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1-3 2.3c0 3 6 1.7 6 4.8 0 1.3-1.3 2.4-3 2.4s-3-1.1-3-2.5M12 5.5v1.5M12 17v1.5"/></svg></div>
-            <div><div class="mi-label">Pricing</div><div class="mi-value">Your price list</div></div>
+            <div><div class="mi-label">Pricing</div></div>
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
         <div class="menu-item" onclick="openFaqPanel()">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 015.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-            <div><div class="mi-label">FAQ</div><div class="mi-value">Common questions, answered</div></div>
+            <div><div class="mi-label">FAQ</div></div>
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
         <div class="menu-item" onclick="openContactUsPanel()">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.79 19.79 0 012.12 4.2 2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.7 2.81a2 2 0 01-.45 2.11L8.1 9.9a16 16 0 006 6l1.26-1.26a2 2 0 012.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0122 16.92z"/></svg></div>
-            <div><div class="mi-label">Contact us</div><div class="mi-value">Call, text, email, feedback</div></div>
+            <div><div class="mi-label">Contact us</div></div>
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
         <div class="menu-item" onclick="openServiceAreaPanel()">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
-            <div><div class="mi-label">Service area &amp; drop-off</div><div class="mi-value">Cities we serve, drop-off hours</div></div>
+            <div><div class="mi-label">Service area</div></div>
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
-        <a class="menu-item" href="https://www.familylaundry.com/terms-conditions" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
-          <div class="mi-left">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div>
-            <div><div class="mi-label">Terms &amp; privacy</div><div class="mi-value">Opens familylaundry.com</div></div>
-          </div>
-          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-        </a>
       </div>
     </div>
   </div>
@@ -9570,11 +9563,7 @@ async function openServiceAreaPanel() {
   body.innerHTML = `
     <div class="hi-p">We pick up and deliver in these cities${s.service_days ? `, ${escHtml(s.service_days)}` : ''}. Not sure about your street? Add your address when you book and we’ll tell you right away.</div>
     <div class="hi-cities">${cities.map(c => `<span>${escHtml(c)}</span>`).join('') || '<span>Ask us about your area</span>'}</div>
-    ${s.dropoff_address ? `<div class="hi-card"><h3>Drop off in person</h3>
-      <div style="font-size:14.5px;font-weight:600">${escHtml(s.dropoff_address)}</div>
-      <div style="font-size:13.5px;color:var(--gray-600);margin-top:4px">${escHtml(s.dropoff_hours || '')}</div>
-      ${s.dropoff_cutoff ? `<div style="font-size:13px;color:var(--gray-500);margin-top:6px">${escHtml(s.dropoff_cutoff)}</div>` : ''}
-    </div>` : ''}`;
+`;
 }
 
 /* ── Send us feedback (session 298) ─────────────────────────────────────
