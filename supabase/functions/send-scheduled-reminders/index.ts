@@ -10,7 +10,7 @@ const TWILIO_FROM         = Deno.env.get('TWILIO_PHONE_NUMBER') ?? Deno.env.get(
 const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 // ── Twilio ────────────────────────────────────────────────────────────────────
-async function sendSms(to: string, body: string): Promise<{ ok: boolean; sid?: string; reason?: string }> {
+async function sendSms(to: string, body: string, customerId?: string): Promise<{ ok: boolean; sid?: string; reason?: string }> {
   if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM) {
     console.warn('Twilio not configured — SMS skipped', { sid: !!TWILIO_SID, token: !!TWILIO_TOKEN, from: !!TWILIO_FROM });
     return { ok: false, reason: 'twilio_not_configured' };
@@ -35,6 +35,7 @@ async function sendSms(to: string, body: string): Promise<{ ok: boolean; sid?: s
 
   // Log to sms_messages so the inbox shows it
   await db.from('sms_messages').insert({
+    customer_id: customerId ?? null,
     direction:   'outbound',
     to_number:   e164,
     from_number: TWILIO_FROM,
@@ -275,78 +276,80 @@ async function runReorder(): Promise<number> {
 }
 
 /**
- * Review request.
- * Fires 2 days after delivery. Reads the review_link URL from settings table
- * (editable in Admin → Settings) and substitutes it into the review_request
- * template's {{review_link}} tag.
+ * Rating request (2026-09-16 — replaces the old direct review-link text).
+ * Morning run. Texts a link to rate the order in the app:
+ *   https://app.familylaundry.com/?rate=<order id>
+ * The app offers the public review link to EVERY rater, whatever the score
+ * (no review gating). Rules:
+ *   - order delivered 12–60h ago, not billed as failed, not rated yet
+ *   - individual customers only (not on-account businesses), phone on file,
+ *     automated SMS not turned off, no open issue on the account
+ *   - at most one rating text per customer every 30 days
+ *   - at most MAX_PER_RUN texts per run (safety cap)
+ * Template: review_request ({{first_name}}, {{order_number}}, {{rate_link}};
+ * {{review_link}} is kept as an alias of the rate link for old templates).
  */
+const RATING_MAX_PER_RUN = 60;
 async function runReviewRequest(): Promise<number> {
   const now  = new Date();
-  // 2 days ago window: between 44h and 56h after delivery
-  const from = new Date(now.getTime() - 56 * 3_600_000).toISOString();
-  const to   = new Date(now.getTime() - 44 * 3_600_000).toISOString();
+  const from = new Date(now.getTime() - 60 * 3_600_000).toISOString();
+  const to   = new Date(now.getTime() - 12 * 3_600_000).toISOString();
+
+  const template = await getTemplate('review_request');
+  if (!template) return 0;   // switched off in Notifications
 
   const { data: orders, error } = await db
     .from('orders')
     .select(`
-      id, customer_id, actual_delivery_at, review_request_sent_at,
-      customers ( id, first_name_cache, phone_cache, sms_notifications_opt_out_at )
+      id, order_number, customer_id, actual_delivery_at, billing_status,
+      customers ( id, first_name_cache, phone_cache, billing_type, sms_notifications_opt_out_at )
     `)
     .eq('status', 'delivered')
     .gte('actual_delivery_at', from)
     .lte('actual_delivery_at', to)
-    .is('review_request_sent_at', null);
+    .is('review_request_sent_at', null)
+    .order('actual_delivery_at', { ascending: true })
+    .limit(500);
 
   if (error) { console.error('runReviewRequest query error:', error); return 0; }
   if (!orders?.length) return 0;
 
-  const template = await getTemplate('review_request');
-  if (!template) { console.warn('No review_request template found'); return 0; }
-
-  // Read the review link from admin settings
-  const { data: settings } = await db
-    .from('settings')
-    .select('review_link')
-    .eq('id', 1)
-    .single();
-  const reviewLink = settings?.review_link || '';
-  if (!reviewLink) {
-    console.warn('No review_link configured in settings — skipping review requests');
-    return 0;
-  }
+  const markDone = (orderId: string) =>
+    db.from('orders').update({ review_request_sent_at: new Date().toISOString() }).eq('id', orderId);
+  const since30 = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+  const texted = new Set<string>();
 
   let sent = 0;
   for (const order of orders) {
-    const cust = order.customers as { id?: string; first_name_cache?: string; phone_cache?: string; sms_notifications_opt_out_at?: string | null } | null;
-    if (!cust?.phone_cache || !cust.id) continue;
-    if (cust.sms_notifications_opt_out_at) continue; // automated-SMS opt-out (session 174 — Kidango sites)
+    if (sent >= RATING_MAX_PER_RUN) break;
+    const cust = order.customers as { id?: string; first_name_cache?: string; phone_cache?: string; billing_type?: string; sms_notifications_opt_out_at?: string | null } | null;
+    if (!cust?.id || !cust.phone_cache) { await markDone(order.id); continue; }
+    if (cust.sms_notifications_opt_out_at || cust.billing_type === 'on_account') { await markDone(order.id); continue; }
+    if (order.billing_status === 'failed') continue;          // may become eligible once paid, within the window
+    if (texted.has(cust.id)) { await markDone(order.id); continue; }
 
-    // Only send one review request per customer (check if we already sent one for a different order)
-    const { data: alreadySent } = await db
-      .from('orders')
-      .select('id')
-      .eq('customer_id', cust.id)
-      .not('review_request_sent_at', 'is', null)
-      .limit(1);
-    if (alreadySent?.length) {
-      // Mark this order too so we don't keep checking it
-      await db.from('orders')
-        .update({ review_request_sent_at: new Date().toISOString() })
-        .eq('id', order.id);
-      continue;
-    }
+    const [{ data: rated }, { data: recent }, { data: openIssue }] = await Promise.all([
+      db.from('order_feedback').select('id').eq('order_id', order.id).limit(1),
+      db.from('orders').select('id').eq('customer_id', cust.id).neq('id', order.id)
+        .gte('review_request_sent_at', since30).limit(1),
+      db.from('cs_issues').select('id').eq('customer_id', cust.id).eq('status', 'open').limit(1),
+    ]);
+    if (rated?.length || recent?.length) { await markDone(order.id); continue; }
+    if (openIssue?.length) continue;                            // ask later if the issue is resolved in time
 
+    const rateLink = `https://app.familylaundry.com/?rate=${order.id}`;
     const body = interpolate(template, {
-      first_name:  cust.first_name_cache || 'there',
-      review_link: reviewLink,
+      first_name:   cust.first_name_cache || 'there',
+      order_number: String(order.order_number ?? ''),
+      rate_link:    rateLink,
+      review_link:  rateLink,
     });
 
-    const result = await sendSms(cust.phone_cache, body);
-    console.log(`review_request order=${order.id}`, result);
+    const result = await sendSms(cust.phone_cache, body, cust.id);
+    console.log(`review_request (rating) order=${order.id}`, result);
     if (result.ok) {
-      await db.from('orders')
-        .update({ review_request_sent_at: new Date().toISOString() })
-        .eq('id', order.id);
+      await markDone(order.id);
+      texted.add(cust.id);
       sent++;
     }
   }

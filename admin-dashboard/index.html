@@ -1235,6 +1235,9 @@
 
     /* ── DAILY REVENUE REPORT ── */
     .rev-tbl-wrap { overflow-x: auto; }
+    .fb-tbl { width:100%; border-collapse:collapse; font-size:13px; }
+    .fb-tbl th { padding:10px 14px; text-align:left; font-size:10.5px; font-weight:700; color:var(--gray-400); border-bottom:1px solid var(--gray-200); white-space:nowrap; }
+    .fb-tbl td { padding:10px 14px; border-bottom:1px solid var(--gray-100); vertical-align:top; }
     .rev-tbl { width:100%; border-collapse:collapse; font-size:13px; }
     .rev-tbl th { padding:10px 14px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:0;  color:var(--gray-400); border-bottom:1px solid var(--gray-200); white-space:nowrap; }
     .rev-tbl th:first-child { text-align:left; }
@@ -1709,6 +1712,10 @@
         <div class="nav-item" data-page="referrals" data-section="settings" onclick="showPage('referrals',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
           Referrals
+        </div>
+        <div class="nav-item" data-page="feedback" data-section="settings" onclick="showPage('feedback',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Feedback
         </div>
         <div class="nav-item" data-page="team" data-section="settings" onclick="showPage('team',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
@@ -3480,6 +3487,34 @@
         </div><!-- /page-racks -->
 
         <!-- ── DISCOUNTS ── -->
+        <!-- ══════════════ FEEDBACK (2026-09-16) ══════════════ -->
+        <div class="page" id="page-feedback">
+          <div class="card">
+            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+              <div>
+                <div class="card-title">Customer Ratings</div>
+                <div class="card-sub" id="feedback-summary">&nbsp;</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <select id="feedback-filter" class="form-input" style="width:auto;padding:6px 10px;font-size:13px" onchange="loadFeedbackPage()">
+                  <option value="all">All ratings</option>
+                  <option value="low">1–3 stars</option>
+                  <option value="high">4–5 stars</option>
+                </select>
+                <select id="feedback-range" class="form-input" style="width:auto;padding:6px 10px;font-size:13px" onchange="loadFeedbackPage()">
+                  <option value="7">Last 7 days</option>
+                  <option value="30" selected>Last 30 days</option>
+                  <option value="90">Last 90 days</option>
+                </select>
+                <button class="btn btn-ghost" style="padding:7px 14px;font-size:13px" onclick="loadFeedbackPage()">Refresh</button>
+              </div>
+            </div>
+            <div id="feedback-list-body">
+              <div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>
+            </div>
+          </div>
+        </div>
+
         <!-- ══════════════ REFERRALS (session 292) ══════════════ -->
         <div class="page" id="page-referrals">
 
@@ -9592,7 +9627,7 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', bookkeeping:'Bookkeeping', discounts:'Discounts', referrals:'Referrals', settings:'General', team:'Team' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', smsdelivery:'SMS Delivery', bookkeeping:'Bookkeeping', discounts:'Discounts', referrals:'Referrals', feedback:'Feedback', settings:'General', team:'Team' };
   // Bookkeeping's CTA depends on which sub-tab (Overview/Loans/Payroll) is active —
   // set dynamically by switchBookkeepingView()/updateBookkeepingTopbar(), not here.
   const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', smsdelivery:'', bookkeeping:'', discounts:'', referrals:'', settings:'', team:'' };
@@ -9667,6 +9702,7 @@
     if (id === 'racks') loadRackManagement();
     if (id === 'discounts') renderDiscounts();
     if (id === 'referrals') loadReferralsPage();
+    if (id === 'feedback') loadFeedbackPage();
     if (id === 'settings') renderSettingsTab();
     if (id === 'team') loadTeamPage();
 
@@ -27144,13 +27180,13 @@ ${noActivityNote}
         <div class="card" style="max-width:540px">
           <div class="card-header">
             <div class="card-title">Review Link</div>
-            <div class="card-sub">Where customers are sent when they receive the automated review request SMS (2 days after delivery).</div>
+            <div class="card-sub">Offered to every customer after they rate an order, whatever the rating. Use your Google review link (Google Business Profile → “Ask for reviews”, starts with g.page/r/…). Yelp links are ignored — Yelp asks businesses not to request reviews.</div>
           </div>
           <div style="padding:20px 24px 24px">
             <div style="margin-bottom:16px">
-              <div style="font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-500);margin-bottom:6px">Review URL (Yelp, Google, etc.)</div>
+              <div style="font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-500);margin-bottom:6px">Google review URL</div>
               <input id="settings-review-link" class="form-input" type="url"
-                placeholder="https://www.yelp.com/writeareview/biz/..."
+                placeholder="https://g.page/r/..."
                 value="${BIZ_REVIEW_LINK.replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
                 style="width:100%;font-size:13.5px;margin-bottom:4px">
               <div style="font-size:11px;color:var(--gray-400)">This URL is substituted into the <strong>{{review_link}}</strong> tag in the Review Request template (Notifications → Message Templates).</div>
@@ -38163,6 +38199,7 @@ ${oneCopy}
     { tag:'{{order_link}}',      label:'Order Link' },
     { tag:'{{amount}}',          label:'Amount ($)' },
     { tag:'{{review_link}}',     label:'Review Link' },
+    { tag:'{{rate_link}}',       label:'Rate-this-order Link' },
   ];
 
   const NOTIF_CAT_LABELS = { account:'Account', order:'Order Events', reminders:'Reminders', payment:'Payment', marketing:'Marketing' };
@@ -38222,7 +38259,7 @@ ${oneCopy}
       order_delivered:            'Sent after the driver marks the order as delivered.',
       payment_received:           'Sent when a payment is successfully processed.',
       payment_failed:             'Sent when a payment attempt fails.',
-      review_request:             'Sent a day after delivery to request a review.',
+      review_request:             'Morning text 12–60h after delivery asking the customer to rate the order in the app ({{rate_link}}). Everyone who rates is offered the Google review link, whatever the score. Max once per customer per 30 days; skips businesses, open issues, failed payments.',
       reorder_reminder:           'Sent 10–14 days after delivery if no new order has been placed. ⚠️ Requires a scheduled job.',
     };
     const tagsHtml = NOTIF_TAGS.map(t =>
@@ -40843,6 +40880,53 @@ ${oneCopy}
   async function loadReferralsPage() {
     await loadReferralTerms();
     await loadReferralPairs();
+  }
+
+  /* ── Customer ratings (2026-09-16) ── 1–3 stars also open a cs_issue
+     server-side (submit_order_feedback); this page is the read-only list. */
+  async function loadFeedbackPage() {
+    const body = document.getElementById('feedback-list-body');
+    const sum  = document.getElementById('feedback-summary');
+    if (!body) return;
+    const days   = Number(document.getElementById('feedback-range')?.value || 30);
+    const filter = document.getElementById('feedback-filter')?.value || 'all';
+    const since  = new Date(Date.now() - days * 86400000).toISOString();
+    body.innerHTML = '<div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>';
+
+    const { data, error } = await db.from('order_feedback')
+      .select('id, order_id, rating, comment, source, issue_id, review_link_clicked_at, created_at, updated_at, orders(order_number), customers(id, first_name_cache, last_name_cache)')
+      .gte('created_at', since).order('created_at', { ascending: false }).limit(500);
+    if (error) { body.innerHTML = `<div style="padding:16px;color:var(--red)">Could not load ratings: ${esc(error.message)}</div>`; return; }
+
+    const all = data || [];
+    const n = all.length;
+    const avg = n ? (all.reduce((a, r) => a + Number(r.rating), 0) / n) : 0;
+    const low = all.filter(r => r.rating <= 3).length;
+    const clicked = all.filter(r => r.review_link_clicked_at).length;
+    if (sum) sum.textContent = n
+      ? `${n} rating${n === 1 ? '' : 's'} · average ${avg.toFixed(2)}★ · ${low} at 1–3★ · ${clicked} opened the review link`
+      : 'No ratings in this period';
+
+    const rows = all.filter(r => filter === 'low' ? r.rating <= 3 : filter === 'high' ? r.rating >= 4 : true);
+    if (!rows.length) { body.innerHTML = '<div style="padding:16px;color:var(--gray-500);font-size:13px">Nothing to show.</div>'; return; }
+
+    const stars = r => `<span style="color:#f59e0b;letter-spacing:1px">${'★'.repeat(r)}</span><span style="color:var(--gray-200);letter-spacing:1px">${'★'.repeat(5 - r)}</span>`;
+    body.innerHTML = `
+      <div class="rev-tbl-wrap"><table class="fb-tbl">
+        <thead><tr><th>When</th><th>Customer</th><th>Order</th><th>Rating</th><th>Comment</th><th>Follow-up</th></tr></thead>
+        <tbody>${rows.map(r => {
+          const name = [r.customers?.first_name_cache, r.customers?.last_name_cache].filter(Boolean).join(' ') || '—';
+          const when = new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+          return `<tr style="${r.rating <= 2 ? 'background:#fef2f2' : ''}">
+            <td style="white-space:nowrap">${esc(when)}</td>
+            <td>${r.customers?.id ? `<a href="#" onclick="openCustomerPanel('${r.customers.id}');return false">${esc(name)}</a>` : esc(name)}</td>
+            <td>${r.orders?.order_number ? '#' + esc(String(r.orders.order_number)) : '—'}</td>
+            <td style="white-space:nowrap">${stars(Number(r.rating))}</td>
+            <td style="max-width:420px">${r.comment ? esc(r.comment) : '<span style="color:var(--gray-400)">—</span>'}</td>
+            <td style="white-space:nowrap;font-size:12px">${r.issue_id ? `Issue #${esc(String(r.issue_id))}` : ''}${r.review_link_clicked_at ? `${r.issue_id ? ' · ' : ''}Opened review link` : ''}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>`;
   }
 
   async function loadReferralTerms() {

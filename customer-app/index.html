@@ -685,6 +685,15 @@
     .sheet-grab { width: 40px; height: 5px; border-radius: 3px; background: var(--gray-200); margin: 0 auto 14px; }
     .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
     .sheet-title { font-size: 18px; font-weight: 800; color: var(--text); }
+    .rate-stars { display: flex; justify-content: center; gap: 6px; margin: 6px 0 14px; }
+    .rate-star { background: none; border: none; padding: 4px; cursor: pointer; font-size: 38px; line-height: 1; color: var(--gray-200); transition: transform .1s, color .1s; font-family: inherit; }
+    .rate-star.on { color: #f59e0b; }
+    .rate-star:active { transform: scale(.9); }
+    .rate-hint { text-align: center; font-size: 13px; color: var(--gray-500); min-height: 18px; margin-bottom: 10px; }
+    .rate-note { width: 100%; box-sizing: border-box; min-height: 84px; padding: 10px 12px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 14px; font-family: inherit; resize: vertical; outline: none; }
+    .rate-review { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; padding: 13px; border-radius: 10px; border: 1.5px solid var(--gray-200); background: white; color: var(--navy); font-size: 15px; font-weight: 700; text-align: center; text-decoration: none; font-family: inherit; }
+    .d-rated { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .d-rated-stars { color: #f59e0b; font-size: 18px; letter-spacing: 1px; }
     .sheet-x { background: none; border: none; font-size: 26px; line-height: 1; color: var(--gray-400); cursor: pointer; padding: 0 4px; }
     .sheet-err { display: none; background: #fef2f2; color: #b91c1c; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 12px; }
     .sheet-legal { font-size: 11px; color: var(--gray-400); text-align: center; margin-top: 10px; line-height: 1.4; }
@@ -1508,6 +1517,7 @@
     <div class="detail-body main-content">
       <div class="d-section"><div class="d-section-title">Status</div><div id="d-badge"></div><div id="d-track" style="margin-top:14px"></div></div>
       <div class="d-section"><div class="d-section-title">Order Details</div><div id="d-rows"></div><div id="d-pay-section"></div></div>
+      <div id="d-rating-section"></div>
       <div id="d-referral-section"></div>
       <div id="d-edit-section"></div>
       <div id="d-skip-section"></div>
@@ -3723,6 +3733,7 @@ async function loadHome() {
 
   renderHomeReferralStrip();   // fire-and-forget; never blocks the order list
   if (currentCustomer?.id) maybeOpenPendingAddCard();
+  if (currentCustomer?.id) maybeOpenPendingRating();
 
   if (!currentCustomer) { renderNoActive(); return; }
   try {
@@ -6265,7 +6276,7 @@ async function openDetail(orderId) {
   document.getElementById('d-svc').textContent  = o.services?.name || '—';
   document.getElementById('d-date').textContent = 'Placed ' + fmtDate(o.created_at);
   document.getElementById('d-badge').innerHTML  = buildStatusBadge(o.status);
-  renderPostDeliveryAsk(o);   // session 292 — no-op unless the order is delivered and the surface is on
+  renderOrderRating(o);       // 2026-09-16 — rating first; renderOrderRating calls the referral ask once rated
   document.getElementById('d-track').innerHTML  = ''; // progress bar hidden on detail view
 
   const bags = o.total_bags || 1;
@@ -8657,7 +8668,8 @@ function closeSheet(id, instant) {
 }
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (document.getElementById('addcard-sheet')) closeSheet('addcard-sheet');
+  if (document.getElementById('rate-sheet')) closeSheet('rate-sheet');
+  else if (document.getElementById('addcard-sheet')) closeSheet('addcard-sheet');
   else if (document.getElementById('cardact-sheet')) closeSheet('cardact-sheet');
 });
 
@@ -9129,6 +9141,147 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', captureReferralFromUrl);
 } else {
   captureReferralFromUrl();
+}
+
+/* ── Order ratings (2026-09-16) ──────────────────────────────────────────
+   A delivered order shows "How was this order?" until it's rated. Ratings go
+   through submit_order_feedback; 1–3 stars open a staff issue server-side.
+   The public review link (settings.review_link) is offered to EVERY rater,
+   whatever the score — Google forbids asking only happy customers. The text
+   link is https://app.familylaundry.com/?rate=<order id>. */
+const RATE_KEY = 'wr_open_rating';
+const RATE_WORDS = ['', 'Poor', 'Not great', 'Okay', 'Good', 'Great'];
+let _rateOrderId = null, _rateStars = 0;
+
+(function captureRateIntent() {
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    const id = qs.get('rate');
+    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return;
+    localStorage.setItem(RATE_KEY, JSON.stringify({ id, until: Date.now() + 24 * 60 * 60 * 1000 }));
+    qs.delete('rate');
+    const rest = qs.toString();
+    history.replaceState({}, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+  } catch (_) {}
+})();
+
+function maybeOpenPendingRating() {
+  let pending = null;
+  try { pending = JSON.parse(localStorage.getItem(RATE_KEY) || 'null'); } catch (_) {}
+  if (!pending) return;
+  try { localStorage.removeItem(RATE_KEY); } catch (_) {}
+  if (!pending.id || pending.until < Date.now()) return;
+  setTimeout(async () => {
+    await openDetail(pending.id);
+    if (window._currentDetailOrder?.id === pending.id && window._currentDetailOrder?.status === 'delivered') {
+      openRatingSheet(pending.id);
+    }
+  }, 350);
+}
+
+async function renderOrderRating(order) {
+  const host = document.getElementById('d-rating-section');
+  if (!host) return;
+  host.innerHTML = '';
+  if (!order || order.status !== 'delivered') { renderPostDeliveryAsk(order); return; }
+
+  let fb = null;
+  try {
+    const { data } = await db.from('order_feedback').select('rating, comment, created_at').eq('order_id', order.id).maybeSingle();
+    fb = data || null;
+  } catch (_) {}
+  if (window._currentDetailOrder?.id !== order.id) return;   // user moved on
+
+  if (!fb) {
+    host.innerHTML = `
+      <div class="d-section">
+        <div style="font-size:16px;font-weight:700;color:var(--navy)">How was this order?</div>
+        <div style="font-size:13.5px;color:var(--gray-600);margin:4px 0 10px">Tap a star — it takes a few seconds.</div>
+        <div class="rate-stars" style="margin:0">
+          ${[1,2,3,4,5].map(n => `<button class="rate-star" aria-label="${n} star${n>1?'s':''}" onclick="openRatingSheet('${order.id}', ${n})">★</button>`).join('')}
+        </div>
+      </div>`;
+    return;   // one ask at a time: the referral ask waits until they've rated
+  }
+
+  const editable = (Date.now() - new Date(fb.created_at).getTime()) < 14 * 24 * 60 * 60 * 1000;
+  host.innerHTML = `
+    <div class="d-section">
+      <div class="d-rated">
+        <div>
+          <div class="d-section-title" style="margin-bottom:4px">Your rating</div>
+          <div class="d-rated-stars">${'★'.repeat(fb.rating)}<span style="color:var(--gray-200)">${'★'.repeat(5 - fb.rating)}</span></div>
+        </div>
+        ${editable ? `<button onclick="openRatingSheet('${order.id}', ${fb.rating})" style="background:none;border:none;color:var(--accent);font-weight:600;font-size:14px;cursor:pointer;font-family:inherit">Edit</button>` : ''}
+      </div>
+      ${fb.comment ? `<div style="font-size:13.5px;color:var(--gray-600);margin-top:8px">“${escHtml(fb.comment)}”</div>` : ''}
+    </div>`;
+  renderPostDeliveryAsk(order);
+}
+
+function openRatingSheet(orderId, stars) {
+  _rateOrderId = orderId;
+  _rateStars = stars || 0;
+  const o = window._currentDetailOrder;
+  const num = o?.id === orderId && o.order_number ? ` #${o.order_number}` : '';
+  openSheet('rate-sheet', `
+    <div class="sheet-head">
+      <div class="sheet-title">Rate order${num}</div>
+      <button class="sheet-x" onclick="closeSheet('rate-sheet')" aria-label="Close">×</button>
+    </div>
+    <div id="rate-body">
+      <div class="rate-stars" id="rate-stars">
+        ${[1,2,3,4,5].map(n => `<button class="rate-star" data-n="${n}" aria-label="${n} star${n>1?'s':''}" onclick="setRatingStars(${n})">★</button>`).join('')}
+      </div>
+      <div class="rate-hint" id="rate-hint"></div>
+      <textarea class="rate-note" id="rate-note" maxlength="2000" placeholder="Anything we should know? (optional)"></textarea>
+      <div class="sheet-err" id="rate-err"></div>
+      <button class="rw-send" id="rate-submit" style="margin-top:12px" onclick="submitRating()">Send</button>
+    </div>`);
+  setRatingStars(_rateStars);
+}
+
+function setRatingStars(n) {
+  _rateStars = n;
+  document.querySelectorAll('#rate-stars .rate-star').forEach(b => b.classList.toggle('on', Number(b.dataset.n) <= n));
+  const hint = document.getElementById('rate-hint');
+  if (hint) hint.textContent = n ? RATE_WORDS[n] : 'Tap a star';
+  const note = document.getElementById('rate-note');
+  if (note) note.placeholder = n && n <= 3 ? 'What went wrong? We read every one.' : 'Anything we should know? (optional)';
+  const btn = document.getElementById('rate-submit');
+  if (btn) { btn.disabled = !n; btn.style.opacity = n ? '' : '.5'; }
+}
+
+async function submitRating() {
+  if (!_rateOrderId || !_rateStars) return;
+  const btn = document.getElementById('rate-submit');
+  const err = document.getElementById('rate-err');
+  if (err) err.style.display = 'none';
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  const comment = document.getElementById('rate-note')?.value || '';
+  const { data, error } = await db.rpc('submit_order_feedback', {
+    p_order_id: _rateOrderId, p_rating: _rateStars, p_comment: comment, p_source: 'app',
+  });
+  if (error || !data?.ok) {
+    if (err) { err.textContent = error?.message || data?.message || 'Could not send your rating.'; err.style.display = 'block'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+    return;
+  }
+  const orderId = _rateOrderId;
+  const link = data.review_link;
+  const isGoogle = /g\.page|google\./i.test(link || '');
+  const body = document.getElementById('rate-body');
+  if (body) body.innerHTML = `
+    <div style="text-align:center;padding:6px 4px 2px">
+      <div style="font-size:40px;line-height:1">${data.low ? '🙏' : '💙'}</div>
+      <div style="font-size:17px;font-weight:700;color:var(--navy);margin-top:8px">${escHtml(data.message)}</div>
+      ${link ? `<div style="font-size:13.5px;color:var(--gray-600);margin-top:10px;line-height:1.5">
+        ${data.low ? 'You’re also welcome to share your experience publicly.' : `Would you share it${isGoogle ? ' on Google' : ''}? It helps neighbors find us.`}
+      </div>` : ''}
+    </div>
+    ${link ? `<a class="rate-review" href="${escHtml(link)}" target="_blank" rel="noopener" onclick="db.rpc('mark_review_link_clicked',{p_order_id:'${orderId}'}).then(()=>{},()=>{})">${isGoogle ? 'Write a Google review' : 'Write a review'}</a>` : ''}
+    <button class="rw-send" style="margin-top:10px" onclick="closeSheet('rate-sheet')">Done</button>`;
+  if (window._currentDetailOrder?.id === orderId) renderOrderRating(window._currentDetailOrder);
 }
 
 /* ── "Add your card" deep link (session 293) ─────────────────────────────
