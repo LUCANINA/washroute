@@ -21200,3 +21200,39 @@ Added `s307` assertions, each proved to discriminate by deliberately breaking th
 - the Variance total says "to resolve" **exactly when** it is not the column's sum — asserts the relation, so it keeps biting whatever the fixture's months do.
 
 **The lesson, again:** a column whose words nothing asserts on is a column whose words a later session can quietly delete.
+
+---
+
+## Session 308 — reverted 306 and 307 at David's request
+
+David, after seeing the built verdict block against live August data: *"Still not doing it. I want you to reverse the work done on this section."* Scope confirmed with him: **both** sessions, back to the Checks column as it was.
+
+`git revert --no-commit 1db654e d2a6d76`. `admin-dashboard/index.html` and `tests/bookkeeping-harness.mjs` are now **byte-identical to 61403cd** (verified with `git diff 61403cd --`, empty for both).
+
+### What was deliberately NOT reverted, and why
+
+Two things rode along in those commits that have nothing to do with the screen:
+
+**1. `tests/bk-stub.js` — kept.** Session 306's real find was that the harness had not run a single assertion since ~Aug 27: the stub had no `db.auth.initialize()`, `index.html` calls it at module scope, and the throw left every `let` below it in the temporal dead zone. Reverting that would re-blind ~1,959 assertions across 60 groups. It is test infrastructure, not the Checks column. The `initialize` method and the `_authProxy` that names the next missing method both stay.
+
+**2. This notes file — kept, and this entry added.** Never delete the record of a diagnosis; the harness-blindness write-up and the Rapid Credit analysis below are the expensive part and stay true whatever the UI does.
+
+### What went back to how it was
+
+- The Checks column returns to four glyphs (`✓ ✓ ● —`) with the footnote and tooltips defining them.
+- The close band returns to the one-line strip: "Not ready to close" / "Ready for your accountant", the progress bar, and "N of M statements uploaded".
+- The Variance total returns to a bare figure with no "to resolve" qualifier.
+- `Ledger differs` loses its dollar figure; `subtotal()` loses `varianceShown`.
+- The harness returns to the glyph allowlist; `SAYS_BLOCKED`, the s307 ledger and variance-total assertions, and the re-anchored `chips-come-back` mutation all go with it.
+
+Suite after the revert: **1,505 assertions run across the groups that touch these surfaces, 0 failures.**
+
+### ⚠️ Two real findings from 307 that are STILL TRUE and now have no home on screen
+
+The UI is reverted; the accounting is not. Both of these were diagnosed against live data and survive the revert:
+
+**Rapid Credit Line, August 2026 — a genuine $457.14 difference.** Our walk gives 51,529.02; Xero's own Aug 31 balance is 51,071.88. The gap is the 2026-08-31 interest reallocation (principal −457.14 / interest +457.14, journal `71ed82b2`, posted to Xero 2026-09-04) — **our splits put it in August, Xero's August window does not contain it.** Component check: ledger drawn 1,498.19 = 513.28 + 499.42 + 471.42 + **14.07**, so the 8/31 journal is absent from August *and* $14.07 of ledger increase has no split behind it. On the reverted screen this shows as a bare red ✗ in the Ledger position with the figure on hover only.
+
+**The Variance total does not foot, by design, and nothing says so.** The cells print raw signed variance; the total sums absolute residuals over material+immaterial only. In August the column shows +15.38 and −5.00 over a total of $20.38. Three individually-correct rules (raw vs residual, signed vs absolute per s236, narrower population) producing a row labelled "Total" that a reader cannot reproduce. **Unfixed as of this revert.**
+
+Nothing else in Bookkeeping changed. The `stale-anchor-ask` / `rollback-beats-stale` reds (PayPal 2's $3,120.61, awaiting Ramona's journal) and `history / s240 #10` are untouched and still red on purpose.

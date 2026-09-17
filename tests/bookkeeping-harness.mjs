@@ -157,22 +157,6 @@ function excerpt(text, at) {
 
 /* ── money helpers ────────────────────────────────────────────────────────── */
 const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-/* ── SESSION 307: THE BLOCKED VERDICT IS A MEANING, NOT A STRING ─────────
-   Two assertions pinned the literal 'Not ready to close'. Session 307 replaced
-   that line with the named verdict block — 'Three things before August 2026 can
-   close' — and both went red. The INVARIANT they were guarding is intact and
-   is worth keeping: the close band must never claim readiness while a gate is
-   bad, and it must say in words that something blocks it. So the assertions
-   move to the invariant rather than being tuned green (session 306's rule).
-   Kept as one predicate so the next wording change edits one place, and written
-   as BOTH halves — a lead that merely lacks the ready phrase would pass a
-   negative-only test even if it were blank, which is how a deletion goes green. */
-const CLAIMS_READY = (lead) => /Ready for your accountant/i.test(String(lead || ''));
-const SAYS_BLOCKED = (lead) => {
-  const v = String(lead || '').trim();
-  return !CLAIMS_READY(v) && (/can close\s*$/i.test(v) || /Not ready to close/i.test(v));
-};
-
 function parseMoney(s) {
   if (s == null) return null;
   const t = String(s).replace(/[−–]/g, '-');
@@ -747,27 +731,6 @@ function readSurfaces() {
       // that measures pixels breaks on a style change and proves nothing about
       // the arithmetic, which is the part that can be wrong.
       asksText: txt('#loans-close-band .lcb-asks'),
-      /* ── SESSION 307: THE STRIP'S LEGITIMATE PARTS, ENUMERATED ────────────
-         Session 273's "verdict + bar + ask" equality was written against a
-         one-line strip. Session 307 replaced that line with the named verdict
-         block, so the baseline has to list what the block legitimately renders:
-         the lead, one row per blocking gate, the calm line and the statements
-         tile (plus .lcb-asks, still used by the month-in-flight strip).
-         The PROTECTION is unchanged and is the reason this is rebuilt rather
-         than deleted: anything the renderer puts on the strip that is not one
-         of these — a `.map` that puts the chips back, say — lands in stripText
-         and not here, and the equality fails. The ce11 control proves it. */
-      verdictParts: (() => {
-        if (!stripEl) return null;
-        const bits = [];
-        const push = (el) => { if (el) bits.push(el.textContent); };
-        push(stripEl.querySelector('.lcb-lead'));
-        stripEl.querySelectorAll('.lcb-ask').forEach(a => bits.push(a.textContent));
-        push(stripEl.querySelector('.lcb-calm'));
-        push(stripEl.querySelector('.lcb-stmt'));
-        push(stripEl.querySelector('.lcb-asks'));
-        return bits.join(' ').replace(/\s+/g, ' ').trim();
-      })(),
       progress: (() => {
         try { return JSON.parse(att(stripEl, 'data-progress') || 'null'); } catch (_) { return null; }
       })(),
@@ -3228,12 +3191,7 @@ GROUPS.push({
         return captured;
       });
       t.ok(csv && !/^THREW/.test(csv), 'close band: the rollforward exports without throwing', csv.slice(0, 200));
-      /* Session 307: the FINDER, not the claim. The export writes the strip's own
-         lead as the first field of this row, and session 307 changed that lead
-         from 'Not ready to close' to the named verdict. What this row must still
-         carry — every gate, in full — is asserted below and is unchanged; it just
-         has to be located by the same rule the verdict is judged by. */
-      const stripLine = (csv.split(/\r?\n/).find(l => SAYS_BLOCKED(l.split('\u00b7')[0].replace(/^"|"$/g, '')) || /Ready for your accountant/.test(l)) || '');
+      const stripLine = (csv.split(/\r?\n/).find(l => /Not ready to close|Ready for your accountant/.test(l)) || '');
       t.ok(!!stripLine, 'close band: ...and the file carries the close verdict');
       // Every gate the strip stopped printing must be IN that line. Compared
       // against the gates themselves, not a typed list, so a gate added later
@@ -3717,11 +3675,7 @@ GROUPS.push({
       // August 2026". Session 241 made it the first words of the strip rather
       // than a clause inside one, and a test that fails on a capital letter is
       // a test that punishes copy edits.
-      // Session 307: SAYS_BLOCKED rather than a literal, for the reason given
-      // where that predicate is defined. The claim is identical — the headline
-      // must say "blocked" exactly when a gate is bad, and must never say
-      // "ready" otherwise.
-      t.eq(SAYS_BLOCKED(cb.lead || ''), anyBad,
+      t.eq(/not ready to close/i.test(cb.lead || ''), anyBad,
            `close band — ${c.name}: headline agrees with its own gates`);
       // …and each gate must agree with the rows underneath it.
       //
@@ -3752,9 +3706,10 @@ GROUPS.push({
       // render the verdict plus the progress line and NOTHING MORE, so a `.map`
       // that puts the chips back still fails. The bar itself contributes no
       // text, which is why this equality holds with it on screen.
-      t.eq((cb.stripText || '').trim(), (cb.verdictParts || '').trim(),
-           `close band — ${c.name}: the strip renders its verdict, its asks and its tile — and nothing else`,
-           `strip=${JSON.stringify(cb.stripText)} · parts=${JSON.stringify(cb.verdictParts)}`);
+      t.eq((cb.stripText || '').trim(),
+           `${(cb.lead || '').trim()} ${(cb.asksText || '').trim()}`.trim(),
+           `close band — ${c.name}: the strip renders its verdict, its bar and the ask — and nothing else`,
+           `strip=${JSON.stringify(cb.stripText)} · asks=${JSON.stringify(cb.asksText)}`);
       // THE BAR'S ARITHMETIC, NOT ITS APPEARANCE. Every statement the gate
       // requires lands in exactly one of the three states — a document that
       // slips out of all three is one nobody is waiting for, which is the
@@ -3773,7 +3728,7 @@ GROUPS.push({
         t.eq(!!pr.tail, otherBad.length > 0,
              `close band — ${c.name}: ⭐ the bar shows a grey tail exactly when a blocker it cannot draw is standing`,
              `tail=${pr.tail} · otherBad=${JSON.stringify(otherBad.map(g => g.key))}`);
-        t.ok(!(pr.tail === false && pr.checked === pr.total && SAYS_BLOCKED(cb.lead || '')),
+        t.ok(!(pr.tail === false && pr.checked === pr.total && /not ready to close/i.test(cb.lead || '')),
              `close band — ${c.name}: ⭐ the bar never reads complete beside a "not ready" verdict`,
              `progress=${JSON.stringify(pr)} · lead=${JSON.stringify(cb.lead)}`);
         // The schedule count is David's third question and a separate one: a
@@ -5758,12 +5713,8 @@ const CLOSE_REVERTS = {
   // that happens to hold. Reinstating them must turn that assertion red — if
   // it does not, the assertion is decoration and the chips could come back
   // unnoticed.
-  // Session 307: re-anchored on the verdict block's ask rows, because the line
-  // this used to hook ("'Ready for your accountant'}</span>") no longer exists.
-  // Same mutation, same purpose: put every gate back on the strip as a chip and
-  // prove the "nothing else" assertion notices.
-  'chips-come-back': ["${badGates.map(askRow).join('')}",
-                      "${badGates.map(askRow).join('')}${gates.map(g => '<span class=\"lcb-gate\">' + esc(g.text) + '</span>').join('')}"],
+  'chips-come-back': ["'Ready for your accountant'}</span>",
+                      "'Ready for your accountant'}</span>${gates.map(g => '<span class=\"lcb-gate\">' + esc(g.text) + '</span>').join('')}"],
 };
 
 /* A revert entry is one [from, to] pair or a list of them. Normalised here so a
@@ -6244,7 +6195,7 @@ GROUPS.push({
       // The close is now genuinely blocked, by a real number.
       t.eq(cb.gateByKey['variance'].ok, false, 'ce4: the variance chip goes bad');
       t.eq(cb.gateByKey['variance'].count, 1, 'ce4: ...counting exactly this one loan');
-      t.ok(SAYS_BLOCKED(cb.lead || ''), 'ce4: ...and the band says the close is not ready');
+      t.ok(/not ready to close/i.test(cb.lead || ''), 'ce4: ...and the band says the close is not ready');
 
       // ── CONTROL ── ignore the books balance, as the page did before s246
       const rev = await revertFn(p, '_loanCloseRollforward', EDITS('ignore-book-balances'));
@@ -6368,7 +6319,7 @@ GROUPS.push({
         const br = rowOf(b, 'EIDL SBA Loan');
         t.eq(br.band, 'material', 'ce5 CONTROL: without materiality, $5.00 is "material"');
         t.eq(b.gateByKey['variance'].ok, false, 'ce5 CONTROL: ...the variance gate goes bad');
-        t.ok(SAYS_BLOCKED(b.lead || ''),
+        t.ok(/not ready to close/i.test(b.lead || ''),
              'ce5 CONTROL: ...and a $5.00 rounding difference blocks the whole close — the A1 contradiction',
              `lead=${JSON.stringify(b.lead)}`);
       }
@@ -6737,9 +6688,10 @@ GROUPS.push({
         // gone on reporting that it discriminates while measuring nothing — an
         // assertion that goes green on the wrong change, which is the failure
         // mode this whole control exists to catch.
-        t.ok((back.stripText || '').trim() !== (back.verdictParts || '').trim(),
-             'ce11 CONTROL: ⭐ ...and the strip then says more than its verdict block — so the assertion discriminates',
-             `strip=${JSON.stringify(back.stripText)} · parts=${JSON.stringify(back.verdictParts)}`);
+        t.ok((back.stripText || '').trim()
+               !== `${(back.lead || '').trim()} ${(back.asksText || '').trim()}`.trim(),
+             'ce11 CONTROL: ⭐ ...and the strip then says more than its verdict and its bar — so the assertion discriminates',
+             `strip=${JSON.stringify(back.stripText)} · asks=${JSON.stringify(back.asksText)}`);
         t.ok(back.gates.length > 0,
              'ce11 CONTROL: ...with the gates unchanged, proving the assertion measures what is SHOWN, not what is computed');
       }
@@ -7371,7 +7323,7 @@ GROUPS.push({
 
       const p = await newHarnessPage({ tab: 'loans' });
       const a = await read(p);
-      t.ok(SAYS_BLOCKED(a.lead || ''),
+      t.ok(/not ready to close/i.test(a.lead || ''),
            'ce16: July really is blocked on the close band', `lead=${JSON.stringify(a.lead)}`);
       t.notMatch(a.count, /ready for your accountant/i,
                  'ce16: ...so the client checklist does NOT say the month is ready');
@@ -7410,7 +7362,7 @@ GROUPS.push({
         t.ok(/ready for your accountant/i.test(c.count || ''),
              'ce16 CONTROL: pre-review, the client card said July was ready for the accountant',
              `count=${JSON.stringify(c.count)}`);
-        t.ok(SAYS_BLOCKED(c.lead || ''),
+        t.ok(/not ready to close/i.test(c.lead || ''),
              'ce16 CONTROL: ...two clicks from a band saying it was not — the same month, two verdicts');
         t.notMatch(c.list, /not yet in Xero/,
                    'ce16 CONTROL: ...and the payment holding it open appeared nowhere on the card');
@@ -8699,7 +8651,7 @@ GROUPS.push({
       t.ok(!!(bad.gateByKey && bad.gateByKey['unread']),
            'ce33: ...and a failed read raises the unread gate',
            `chips: ${JSON.stringify(bad.gates.map(g => g.key))}`);
-      t.ok(SAYS_BLOCKED(bad.lead || ''),
+      t.ok(/not ready to close/i.test(bad.lead || ''),
            'ce33: ⭐ ...so the ONLY thing that changed flips the verdict — a failed read blocks the close',
            `lead=${JSON.stringify(bad.lead)}`);
 
@@ -9576,7 +9528,7 @@ GROUPS.push({
       t.ok(checked && g.unanalysed.every(u => checked.text.includes(u.name)),
            'g5: ...naming every loan behind it, per the session-256 rule', checked && checked.text);
       t.eq(strip.clear, false, 'g5: ⭐ ...and the strip does NOT read ready while a document is unchecked');
-      t.ok(SAYS_BLOCKED(strip.lead), 'g5: ...saying so in words', strip.lead);
+      t.ok(/Not ready to close/i.test(strip.lead), 'g5: ...saying so in words', strip.lead);
     }
 
     // The Overview says the same sentence, from the same function.
@@ -10797,7 +10749,7 @@ GROUPS.push({
     t.ok(/moves this month.s opening/.test((withProv.gate || {}).text || ''),
          '...and explaining the mechanism, not just the state', (withProv.gate || {}).text);
     t.eq(withProv.blocked, '1', 'the strip is marked blocked');
-    t.ok(SAYS_BLOCKED(withProv.lead),
+    t.eq(withProv.lead.trim(), 'Not ready to close',
          '⭐ "Ready for your accountant" is NOT claimed over an opening that can still move', withProv.lead);
     await june.close();
 
@@ -13391,82 +13343,9 @@ GROUPS.push({
       });
       t.ok(marks.si2 > 0, 's280: ⭐ Status DOES still exist on the Closing table — it carries the unposted claim too',
            JSON.stringify(marks));
-      /* Session 306: the three glyphs became words, so this assertion moves with
-         the invariant rather than being tuned green. It is still an ALLOWLIST and
-         still the same protection — a branch that forgets its word now renders an
-         unrecognised string and fails HERE, exactly as an unrecognised glyph did.
-         Empty is legal and deliberate: a row that ties prints nothing, and the
-         claim lives on in data-status (asserted below), so this reads the cells
-         that DID print. */
-      const STATUS_WORDS = ['Lender differs', 'Not posted', 'Immaterial', 'Explained',
-                            'By construction', 'Statement needed', 'Nothing to compare'];
-      t.ok(marks.glyphs.length > 0 && marks.glyphs.every(g => STATUS_WORDS.includes(g)),
-           's280/s306: ...and every word there is one of the seven, not free prose',
+      t.ok(marks.glyphs.length > 0 && marks.glyphs.every(g => ['✓', '✗', '·'].includes(g)),
+           's280: ...and every mark there is one of the three, not prose',
            JSON.stringify(marks.glyphs));
-      /* NOTHING IS DELETED (ce17). A tie prints no word, so the sentence it used
-         to carry has to still be somewhere — it is on data-status, which is what
-         the CSV export and the hover both read. An assertion that only counted
-         the visible words would go green the day someone dropped the attribute. */
-      const statusClaims = await p.evaluate(() => [...document.querySelectorAll('#lcb-table tbody tr [data-col="status"]')]
-        .map(el => (el.getAttribute('data-status') || '').trim()));
-      t.ok(statusClaims.length > 0 && statusClaims.every(v => v.length > 0),
-           's306: \u2b50 every row still states its lender verdict in full, word or no word',
-           JSON.stringify(statusClaims.slice(0, 4)));
-      /* ── SESSION 307: THE LEDGER COLUMN HAD NO ALLOWLIST AT ALL ──────────────
-         Session 306 gave `status` an allowlist and left `ledger` bare, so when
-         session 307 changed "Ledger differs" to carry its dollar figure the
-         suite stayed 98/98 green and said nothing. A column whose words nothing
-         asserts on is a column whose words a later session can quietly delete.
-         This is the same protection, on the other half of the cell.
-         SHAPE, NOT LITERAL, and on purpose: the differs case now ends in a
-         signed figure (David could not check the verdict without it — the other
-         operand, Xero's own closing balance, is on no column of this table), so
-         a fixed string list would have to be rewritten every time the number
-         moves. The shape still discriminates: free prose, a dropped word or a
-         differs-with-no-figure all fail here. */
-      const ledgerWords = await p.evaluate(() => [...document.querySelectorAll('#lcb-table tbody tr [data-col="ledger"]')]
-        .map(el => (el.textContent || '').trim()).filter(v => v !== ''));
-      const LEDGER_OK = (w) => w === 'Ledger not checked'
-        || /^Ledger differs [+\u2212]\d[\d,]*\.\d{2}$/.test(w);
-      t.ok(ledgerWords.every(LEDGER_OK),
-           's307: \u2b50 every Ledger word is a known verdict, and "differs" always carries its figure',
-           JSON.stringify(ledgerWords));
-      /* Same ce17 pairing as status above: a tie prints nothing, so the claim has
-         to survive on the attribute the export and the hover read. */
-      const ledgerClaims = await p.evaluate(() => [...document.querySelectorAll('#lcb-table tbody tr [data-col="ledger"]')]
-        .map(el => (el.getAttribute('data-status') || '').trim()));
-      t.ok(ledgerClaims.length > 0 && ledgerClaims.every(v => v.length > 0),
-           's307: \u2b50 ...and every row states its ledger verdict in full, word or no word',
-           JSON.stringify(ledgerClaims.slice(0, 4)));
-      /* ── THE TOTAL SAYS SO WHEN IT DOES NOT FOOT (session 307) ──────────────
-         David: "the total variance doesn't add up correctly." It does not, for
-         three individually-correct reasons (raw vs residual, signed vs absolute,
-         and a narrower population), so the Total row now prints "to resolve"
-         underneath whenever the figure is not the arithmetic sum of the column.
-         This asserts the RELATION rather than either number, so it keeps biting
-         whatever the fixture's months do: if they disagree the qualifier must be
-         there, and if they agree it must NOT be (the cut is only worth making
-         where it is true). */
-      const varFoot = await p.evaluate(() => {
-        const num = (el) => {
-          const m = (el && el.textContent || '').replace(/[^0-9.\-\u2212]/g, '').replace('\u2212', '-');
-          return m === '' ? null : parseFloat(m);
-        };
-        const shown = [...document.querySelectorAll('#lcb-table tbody tr [data-col="variance"]')]
-          .map(el => el.getAttribute('data-variance'))
-          .filter(v => v != null && v !== '' && !Number.isNaN(parseFloat(v)))
-          .map(v => parseFloat(v));
-        const cell = document.querySelector('#lcb-table tfoot [data-col="variance"]');
-        return { total: cell ? parseFloat(cell.getAttribute('data-variance')) : null,
-                 signedSum: shown.reduce((n, v) => n + v, 0),
-                 qualified: !!(cell && /to resolve/.test(cell.textContent || '')),
-                 printed: num(cell) };
-      });
-      const footsExactly = varFoot.total != null
-        && Math.abs(Math.abs(varFoot.signedSum) - varFoot.total) < 0.005;
-      t.ok(varFoot.total == null || varFoot.qualified === !footsExactly,
-           's307: \u2b50 the Variance total says "to resolve" exactly when it is not the column\u2019s sum',
-           JSON.stringify(varFoot));
       await p.close();
     }
   },
@@ -13547,7 +13426,7 @@ GROUPS.push({
            'rf: ...in words a reader can act on, not a status code',
            JSON.stringify(gate && gate.text));
       /* THE POINT OF THE WHOLE GROUP. */
-      t.ok(SAYS_BLOCKED(cb.lead || ''),
+      t.ok(/not ready to close/i.test(cb.lead || ''),
            'rf: ⭐ ...so the verdict is NOT "Ready for your accountant" over books we could not read',
            `lead=${JSON.stringify(cb.lead)}`);
 
