@@ -13343,9 +13343,27 @@ GROUPS.push({
       });
       t.ok(marks.si2 > 0, 's280: ⭐ Status DOES still exist on the Closing table — it carries the unposted claim too',
            JSON.stringify(marks));
-      t.ok(marks.glyphs.length > 0 && marks.glyphs.every(g => ['✓', '✗', '·'].includes(g)),
-           's280: ...and every mark there is one of the three, not prose',
+      /* Session 306: the three glyphs became words, so this assertion moves with
+         the invariant rather than being tuned green. It is still an ALLOWLIST and
+         still the same protection — a branch that forgets its word now renders an
+         unrecognised string and fails HERE, exactly as an unrecognised glyph did.
+         Empty is legal and deliberate: a row that ties prints nothing, and the
+         claim lives on in data-status (asserted below), so this reads the cells
+         that DID print. */
+      const STATUS_WORDS = ['Lender differs', 'Not posted', 'Immaterial', 'Explained',
+                            'By construction', 'Statement needed', 'Nothing to compare'];
+      t.ok(marks.glyphs.length > 0 && marks.glyphs.every(g => STATUS_WORDS.includes(g)),
+           's280/s306: ...and every word there is one of the seven, not free prose',
            JSON.stringify(marks.glyphs));
+      /* NOTHING IS DELETED (ce17). A tie prints no word, so the sentence it used
+         to carry has to still be somewhere — it is on data-status, which is what
+         the CSV export and the hover both read. An assertion that only counted
+         the visible words would go green the day someone dropped the attribute. */
+      const statusClaims = await p.evaluate(() => [...document.querySelectorAll('#lcb-table tbody tr [data-col="status"]')]
+        .map(el => (el.getAttribute('data-status') || '').trim()));
+      t.ok(statusClaims.length > 0 && statusClaims.every(v => v.length > 0),
+           's306: ⭐ every row still states its lender verdict in full, word or no word',
+           JSON.stringify(statusClaims.slice(0, 4)));
       await p.close();
     }
   },

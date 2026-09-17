@@ -137,10 +137,29 @@
   }
 
   const noSession = { data: { session: null }, error: null };
+  const _authProxy = (real) => new Proxy(real, {
+    get(t, k) {
+      if (k in t || typeof k === 'symbol') return t[k];
+      return () => { throw new Error(
+        `harness: tests/bk-stub.js has no db.auth.${String(k)}() — the page calls it. ` +
+        `Add it to the auth object in bk-stub.js. (If it is called at module scope, its ` +
+        `absence throws mid-script and every later 'let' lands in the temporal dead zone, ` +
+        `which is why this message exists instead of a confusing TDZ error.)`); };
+    },
+  });
+
   const client = {
     from: (t) => new QB(t),
     rpc: () => Promise.resolve({ data: null, error: { message: 'harness: rpc blocked', code: 'HARNESS_RO' } }),
-    auth: {
+    auth: _authProxy({
+      // Session 306. `db.auth.initialize()` is called at MODULE SCOPE
+      // (index.html, `db.auth.initialize().catch(...)`), so its absence did not
+      // fail a test — it threw partway through the page's only script and left
+      // every `let` declared below it permanently in the temporal dead zone.
+      // The harness then reported `Cannot access 'currentUserRole' before
+      // initialization`, which names the harness's own next line and not the
+      // cause. Every group died that way, at every commit, for three weeks.
+      initialize: async () => noSession,
       getSession: async () => noSession,
       getUser: async () => ({ data: { user: null }, error: null }),
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
@@ -151,7 +170,13 @@
       updateUser: async () => ({ data: {}, error: null }),
       resetPasswordForEmail: async () => ({ data: {}, error: null }),
       exchangeCodeForSession: async () => noSession,
-    },
+    }),
+    /* Anything the page starts calling on db.auth that this stub does not have
+       now announces itself by name. Reading an unknown key still yields a
+       function (so feature-detection behaves), but calling it throws a sentence
+       that says what to add and where — never `undefined is not a function`
+       three thousand lines from the cause. Same instinct as the allowlist in
+       _bkLoanStatusMark: a new case must fail VISIBLY. */
     channel: () => { const ch = { on: () => ch, subscribe: () => ch, unsubscribe: () => {} }; return ch; },
     removeChannel: () => {},
     removeAllChannels: () => {},

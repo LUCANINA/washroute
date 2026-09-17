@@ -1,5 +1,83 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 306 — Sep 17, 2026: the harness was blind for three weeks, and the Checks column speaks
+
+### 🔴 THE HARNESS HAD NOT RUN A SINGLE ASSERTION SINCE ~AUG 27
+
+**Every group died at boot, at every commit, and the error named the wrong thing.** The report was
+`Cannot access 'currentUserRole' before initialization`, which is the harness's own next line —
+`page.evaluate(() => { currentUserRole = 'admin'; ... })` in `newHarnessPage`. It was a symptom.
+
+**The cause: `tests/bk-stub.js` has no `db.auth.initialize()`, and index.html calls it at MODULE
+SCOPE** (`db.auth.initialize().catch(...).finally(_stripAuthUrlParams)`). The stub was last touched
+2026-08-27; that call arrived after. So the page's only script threw partway through, every `let`
+below the throw stayed in the temporal dead zone, and the harness's assignment reported the TDZ
+instead of the throw. `showPage` still resolved — function declarations survive as window properties
+— which is exactly why it looked like a scoping quirk rather than a broken page.
+
+**How it was isolated**, because the next one will look just as confusing: the page boots CLEAN under
+a bare Playwright context. It only fails once `ctx.route('**/*')` blocks non-`file://` — which aborts
+the CDN `<script>` tags, so the real supabase client never arrives and the stub is all there is. Add
+the route, add the clock, and it reproduces; take the route away and it does not. The first page
+error under those conditions names it in one line.
+
+**Fixed, and the class is fixed with it.** `initialize` is added, and `auth` is now wrapped in a
+Proxy: an unknown `db.auth.X()` throws a sentence saying which method to add to bk-stub.js and why a
+module-scope call goes silent. Same instinct as `_bkLoanStatusMark`'s allowlist — a new case must
+fail VISIBLY.
+
+**⚠️ `--only` TAKES A COMMA LIST, AND REPEATING THE FLAG SILENTLY RUNS ONLY ONE GROUP.**
+`--only=a --only=b --only=c` runs `a`. It looks like three groups passing. Use `--only=a,b,c`.
+
+**⚠️ THE BROWSER LIVES UNDER `$HOME`, WHICH IS RECLAIMED WHEN THE BRIDGE RECONNECTS.** It vanished
+mid-session here, having worked minutes earlier. `bash tests/run-harness.sh` prints the exact curl +
+unzip recovery; `libXdamage` needs re-extracting into `~/syslibs` at the same time. Budget ~90s.
+The build the script pins ("1234") is **Chromium 151**, not an old one — version was not the problem.
+
+### Measured, 2026-09-17, with the stub fixed
+
+| | |
+|---|---|
+| Groups | **59** (`--list`; the skill's "46" is stale) |
+| Browser assertions | **~1,959** |
+| Real failures | **11 deliberate + 1 pre-existing** |
+
+The 11 are all `stale-anchor-ask` and `rollback-beats-stale` — red ON PURPOSE until PayPal 2 and the
+lender agree (START HERE §0). **Do not re-pin them.** The 1 is `history / s240 #10`
+("no non-principal_only balance basis inside the published debt total"), which fails identically on
+the pre-change file — pre-existing, not from this session's UI work, and unexplained.
+
+### The Checks column now says what it found
+
+David: *"the multiple green checks and red crosses made the whole table confusing."*
+
+Four verdicts rode on three glyphs with no column labels — and every word explaining them was
+written, correct, and reachable only by hovering. The close band's lender and ledger marks are now
+WORDS, set on the branch that already chose the class, the glyph and the sentence, so a verdict
+cannot be coloured one way and worded another:
+`Lender differs` · `Not posted` · `Immaterial` · `Explained` · `By construction` · `Statement needed` ·
+`Nothing to compare` · `Ledger differs` · `Ledger not checked`.
+
+- **A tie prints nothing.** David's own audit of the Booked column, applied one column over: a word
+  repeated down a column until nobody reads the two rows where it changes. `data-status` still
+  carries the full sentence on every row, so the hover, the CSV export and the harness are unchanged.
+- **`By construction` is §246 finally said out loud.** A grey dot could not distinguish "agrees by
+  construction" from "not checked". Three words can.
+- **The green staging dot is untouched, at David's instruction.** `_bkLoanStagingCell` never entered
+  the diff.
+- **The in-flight table needed no structural change** — session 280's own comment records that it
+  already prints words (`per schedule`, `small`, `explained`). The rebus was closing-only. What
+  remains is vocabulary alignment (`small` vs `Immaterial`), left alone because the suite pins it.
+- **§247 applied:** the footnote and both column tooltips still defined a ✓/✗/· vocabulary that no
+  longer exists. Rewritten in the same commit.
+
+**The assertion moved with the invariant rather than being tuned green.** `s280: ...every mark there
+is one of the three, not prose` caught this change exactly — which is the suite's first act after
+three weeks blind, and a good sign. It is now an allowlist of the seven words (an unworded branch
+still fails HERE), **plus a second assertion that every row still states its verdict in full via
+`data-status`** — because a test that only counted visible words would go green the day someone
+dropped the attribute. Either half alone is worthless; §245's pair rule.
+
 > ## ⏭️ START HERE — first thing, next session (left by session 291, updated 2026-09-09 21:00 local)
 >
 > ### 🔴 THE LIST, IN ORDER.
