@@ -3050,7 +3050,7 @@
                 <span class="rev2-foot-tax" id="rev-tax-note"></span>
               </div>
               <div class="rev2-note" id="rev-method-note" style="display:none">
-                Delivery orders are grouped by <strong>processed date</strong> (the moment the order reaches the rack) — orders still in processing or folding don't appear yet, and cancelled, skipped, pickup-failed and $0 placeholder orders are excluded. <strong>Subscriptions</strong>, <strong>POS Sales</strong> and <strong>Commercial</strong> never reach the rack, so those three are grouped by the day the money arrived. POS is shown net of sales tax. Commercial is on-account funds actually received (check, ACH, wire) — their orders are excluded from the other streams so nothing is counted twice. Refunded orders stay counted but deduct in the ledger. <strong>Charged</strong> is what the cards were actually billed — the order total <em>plus the tip</em>, settled as one charge; <strong>Net revenue</strong> is Charged less refunds and Stripe processing fees, which is exactly how this report computes it. Tips are counted as revenue here, so Net revenue is before any tip payout to drivers.
+                Delivery orders are grouped by <strong>processed date</strong> (the moment the order reaches the rack) — orders still in processing or folding don't appear yet, and cancelled, skipped, pickup-failed and $0 placeholder orders are excluded. <strong>Subscriptions</strong>, <strong>POS Sales</strong> and <strong>Commercial</strong> never reach the rack, so those three are grouped by the day the money arrived. POS is shown net of sales tax. Commercial is on-account funds actually received (check, ACH, wire) — their orders are excluded from the other streams so nothing is counted twice. Refunded orders stay counted but deduct in the ledger. <strong>Total revenue</strong> (the headline) is Gross less discounts and credits — card charges (order total <em>plus the tip</em>, settled as one charge) plus Commercial money received by check, ACH or wire; <strong>Net revenue</strong> is Total revenue less refunds and Stripe processing fees, which is exactly how this report computes it. Tips are counted as revenue here, so Net revenue is before any tip payout to drivers.
               </div>
             </div>
           </div>
@@ -53352,7 +53352,7 @@ async function _dvIframeLoaded() {
       const k = item.kind || '';
       if      (t === 'base')                                        service   += amt;
       else if (t === 'pref_service' || t === 'addon' || t === 'addon_service') addons += amt;
-      else if (t === 'overage' || t === 'extra_weight')             overages  += amt;
+      else if (t === 'overage' || t === 'extra_weight' || t === 'lb_overage') overages += amt; // lb_overage: per-lb overage trigger (since Jun 2026) — was missing from Gross
       else if (t === 'delivery_fee' || t === 'route_fee')           fees      += amt;
       else if (t === 'same_day_fee' || t === 'same_day_surcharge')  overages  += amt;
       else if (t === 'tax'  || k === 'tax')                         tax       += amt;
@@ -53392,8 +53392,8 @@ async function _dvIframeLoaded() {
     { grp: 'earned',  id: 'comm', label: 'Commercial',      keys: ['comm'], zeroHide: true,
       tip: 'On-account funds actually received that day — check, ACH or wire, voided payments excluded. Cash basis: those orders are left out of the other streams so no job is counted twice.' },
     { grp: 'earned',  id: 'gross', label: 'Gross',          keys: ['gross'], strong: true },
-    { grp: 'settled', id: 'chg',  label: 'Charged',         keys: ['total'], strong: true,
-      tip: 'What the cards were actually billed — order total plus tip, settled as one charge.' },
+    { grp: 'settled', id: 'chg',  label: 'Total revenue',   keys: ['total'], strong: true,
+      tip: 'Gross less discounts and credits: card charges (order total plus tip) plus Commercial check/ACH/wire received.' },
     { grp: 'settled', id: 'off',  label: 'Taken off',       keys: ['credits', 'discounts', 'refunds', 'procFees'], neg: true,
       parts: [{ key: 'credits', label: 'Credits', neg: true }, { key: 'discounts', label: 'Discounts', neg: true },
               { key: 'refunds', label: 'Refunds', neg: true, alert: true }, { key: 'procFees', label: 'Processing fees', neg: true, fee: true }] },
@@ -53853,8 +53853,19 @@ async function _dvIframeLoaded() {
 
     // ── The ledger. Only lines that happened get drawn, and it chains exactly
     //    as the aggregation above does: net = charged − refunds − processing. ──
-    let ledgerHtml = `<div class="rev2-led-row"><span>Charged to cards${_live(tot.tips)
-      ? `<span style="display:block;font-size:12.5px;color:#63666D">including $${$fmt(tot.tips)} in tips</span>` : ''}</span><span>$${$fmt(tot.total)}</span></div>`;
+    // Session 302: the ledger now starts at Gross so the page reconciles top to bottom:
+    //   Gross − discounts − credits = Total revenue (what was billed/received) − refunds − fees = Net.
+    // "Charged to cards" was wrong — Total includes Commercial check/ACH/wire money.
+    const _cards = tot.total - tot.comm;
+    const _resid = tot.gross - tot.discounts - tot.credits - tot.total;   // should be ~0
+    let ledgerHtml = `<div class="rev2-led-row"><span>Gross earned</span><span>$${$fmt(tot.gross)}</span></div>`;
+    if (_live(tot.discounts)) ledgerHtml += `<div class="rev2-led-row"><span>Discounts</span><span>−$${$fmt(tot.discounts)}</span></div>`;
+    if (_live(tot.credits))   ledgerHtml += `<div class="rev2-led-row"><span>Credits used</span><span>−$${$fmt(tot.credits)}</span></div>`;
+    if (Math.abs(_resid) > 0.005) ledgerHtml += `<div class="rev2-led-row" title="Orders whose billed total does not match their line items (e.g. an add-on listed but not charged). Shown so the ledger still adds up."><span>Other adjustments</span><span>${_resid > 0 ? '−' : '+'}$${$fmt(Math.abs(_resid))}</span></div>`;
+    const _totSub = [ `$${$fmt(_cards)} on cards` ];
+    if (_live(tot.comm)) _totSub.push(`$${$fmt(tot.comm)} commercial (check/ACH)`);
+    if (_live(tot.tips)) _totSub.push(`incl. $${$fmt(tot.tips)} tips`);
+    ledgerHtml += `<div class="rev2-led-row" style="border-top:1px solid #E3E1DC;padding-top:10px"><span><strong>Total revenue</strong><span style="display:block;font-size:12.5px;color:#63666D">${_totSub.join(' · ')}</span></span><span><strong>$${$fmt(tot.total)}</strong></span></div>`;
     if (_live(tot.refunds))  ledgerHtml += `<div class="rev2-led-row"><span class="rev2-alert">Refunds</span><span class="rev2-alert">−$${$fmt(tot.refunds)}</span></div>`;
     if (_live(tot.procFees)) ledgerHtml += `<div class="rev2-led-row"><span>Processing fees${tot.feeEstimated ? ' <span style="color:#63666D;font-size:13px">(part estimated)</span>' : ''}</span><span>−$${$fmt(tot.procFees)}</span></div>`;
     ledgerHtml += `<div class="rev2-led-net"><span>Net revenue</span><span>$${$fmt(tot.net)}</span></div>`;
@@ -53881,7 +53892,7 @@ async function _dvIframeLoaded() {
     }
     if (_applied.length) {
       const a = _listed(_applied, 'and');
-      leadTxt += ' ' + a.charAt(0).toUpperCase() + a.slice(1) + ' were applied before the charge went out.';
+      leadTxt += ' ' + a.charAt(0).toUpperCase() + a.slice(1) + ' came off gross before anything was charged.';
     }
     const zeroTxt = _zeros.length ? `No ${_listed(_zeros, 'or')} ${_when}, so those lines are not shown.` : '';
 
@@ -53892,9 +53903,9 @@ async function _dvIframeLoaded() {
     body.innerHTML = `
       <div class="rev2-hero">
         <div>
-          <div class="rev2-kicker">Net revenue</div>
-          <div class="rev2-big">$${$fmt(tot.net)}</div>
-          <div class="rev2-delta" id="rev-delta">$${$fmt(tot.total)} charged</div>
+          <div class="rev2-kicker">Total revenue</div>
+          <div class="rev2-big">$${$fmt(tot.total)}</div>
+          <div class="rev2-delta" id="rev-delta">$${$fmt(tot.net)} net after fees</div>
         </div>
         <div class="rev2-spark" id="rev-spark-slot"></div>
       </div>
@@ -53936,7 +53947,7 @@ async function _dvIframeLoaded() {
 
     // The trend is a second, cheaper query. It loads AFTER the report paints so it
     // can never hold up the number the user opened the page for.
-    _loadRevenueSpark(selFrom, selTo, tot.total, _myRun);
+    _loadRevenueSpark(selFrom, selTo, tot.net, _myRun);
   }
 
   // ── Session 300: the 30-day trend beside the hero figure ──────────────────
@@ -54044,7 +54055,7 @@ async function _dvIframeLoaded() {
       </svg>`;
   }
 
-  async function _loadRevenueSpark(selFrom, selTo, chargedInRange, runId) {
+  async function _loadRevenueSpark(selFrom, selTo, netInRange, runId) {
     const slot = document.getElementById('rev-spark-slot');
     if (!slot) return;
     const from = addDaysPacific(selTo, -29);
@@ -54059,7 +54070,7 @@ async function _dvIframeLoaded() {
     // The report may have been re-run for another range while this was in flight.
     if (runId !== _revRunId || !document.getElementById('rev-spark-slot')) return;
 
-    slot.innerHTML = _revSparkSvg(series) + '<div class="rev2-cap">Charged, last 30 days</div>';
+    slot.innerHTML = _revSparkSvg(series) + '<div class="rev2-cap">Total revenue, last 30 days</div>';
 
     const deltaEl = document.getElementById('rev-delta');
     if (!deltaEl) return;
@@ -54068,7 +54079,7 @@ async function _dvIframeLoaded() {
 
     if (selFrom !== selTo) {
       const days = series.filter(p => p.date >= selFrom && p.date <= selTo).length;
-      deltaEl.textContent = days > 1 ? `${$m(chargedInRange)} charged across ${days} days` : `${$m(chargedInRange)} charged`;
+      deltaEl.textContent = days > 1 ? `${$m(netInRange)} net after fees · ${days} days` : `${$m(netInRange)} net after fees`;
       return;
     }
 
@@ -54076,14 +54087,14 @@ async function _dvIframeLoaded() {
     const dow   = new Date(selTo + 'T12:00:00').getDay();
     const peers = series.filter(p => p.date !== selTo && p.v > 0 && new Date(p.date + 'T12:00:00').getDay() === dow);
     const today = series.find(p => p.date === selTo);
-    if (peers.length < 2 || !today || !today.v) { deltaEl.textContent = `${$m(chargedInRange)} charged`; return; }
+    if (peers.length < 2 || !today || !today.v) { deltaEl.textContent = `${$m(netInRange)} net after fees`; return; }
     const avg = peers.reduce((a, p) => a + p.v, 0) / peers.length;
     const pct = ((today.v - avg) / avg) * 100;
     const wd  = new Date(selTo + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
     const openNote = selTo === todayPT ? ' so far' : '';
     deltaEl.innerHTML = `<span style="font-size:12px">${pct >= 0 ? '▲' : '▼'}</span> ${Math.abs(pct).toFixed(1)}% `
       + `${pct >= 0 ? 'above' : 'below'} the average ${wd}${openNote} `
-      + `<span style="color:#63666D">· ${$m(chargedInRange)} charged, ${peers.length} ${wd}s compared</span>`;
+      + `<span style="color:#63666D">· ${peers.length} ${wd}s compared · ${$m(netInRange)} net after fees</span>`;
   }
 
   // Footer controls. The table and the accounting note are both opt-in now — the
