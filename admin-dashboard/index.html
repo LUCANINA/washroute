@@ -4187,6 +4187,11 @@
                verdicts. Spacing does the grouping — no divider, no second
                colour (one contrast step, session 219). */
             .lcb-checks > [data-col="staging"] { margin-left: 11px; }
+            .lcb-ledger-fig { font-size: 10.5px; font-weight: 600; margin-left: 3px; font-variant-numeric: tabular-nums; }
+            .lcb-foldrow { cursor: pointer; }
+            .lcb-foldrow td { padding: 7px 10px; font-size: 11.5px; color: var(--gray-600); background: var(--gray-50); border-top: 1px solid var(--gray-200); }
+            .lcb-foldrow:hover td { background: var(--gray-100); }
+            .lcb-foldcaret { display: inline-block; font-size: 10px; margin-right: 4px; }
             .lcb-fixline { font-size: 11px; color: var(--gray-600); margin-top: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: help; }
             .lcb-do { font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 7px;
                       border: 1px solid var(--gray-200); background: #fff; color: var(--gray-700);
@@ -11012,6 +11017,60 @@
   // the row says so and the journal is NOT shown as ready. ⚠️ The column list
   // below must match versionKey() in _shared/proposed-fix.ts exactly, or every
   // row reads Re-check forever (or, worse, never).
+  // ══════════════════════════════════════════════════════════════════════
+  //  THE VARIANCE COLUMN AND ITS TOTAL ARE ONE FUNCTION (session 310, David)
+  // ══════════════════════════════════════════════════════════════════════
+  // David, looking at August: "The TOTAL variance is still wrong."
+  //
+  // He was right, and s307 diagnosed it exactly: the cells printed the RAW
+  // signed variance while the footer summed the ABSOLUTE RESIDUAL over a
+  // narrower population. Three individually-correct rules producing a row
+  // labelled "Total" that a reader cannot reproduce by adding the column above
+  // it. s307's fix was to print "to resolve" underneath when the two differed;
+  // David reverted that session, so the qualifier is not coming back.
+  //
+  // This is the other fix, and it is the one this module's own history points
+  // at: ONE FUNCTION decides what the column prints, and the total sums exactly
+  // that. Two surfaces answering one question with two numbers is the defect
+  // sessions 214-217 were, and the fix every time was a shared function.
+  //
+  // Returns the number the Variance cell prints, or null when the cell prints
+  // something that is not a figure (a tie, an ask for a statement, "by
+  // construction", or no variance at all). ⚠️ THE BRANCHES BELOW MUST STAY IN
+  // STEP WITH `varCell`; varCell calls this, so they cannot drift.
+  //
+  // ⚠️ WHAT IS NOT LOST. The residual total — "still to resolve" — was the more
+  // rigorous quantity and it does NOT leave the screen: it stays on the footer
+  // cell as `data-variance-to-resolve`, in its hover, and in the CSV export.
+  // What changes is which of the two sits under a column headed "Variance" in a
+  // row labelled "Total". A figure in that position is a claim about the column
+  // above it (ce17: cut the words, keep the claim).
+  // session 310: the fold. Rows are only HIDDEN, never removed — the export,
+  // the hover and the suite all read the same DOM they always did.
+  function _bkToggleQuiet(ev) {
+    if (ev) ev.stopPropagation();
+    const tbl = document.getElementById('lcb-table');
+    if (!tbl) return;
+    const quiet = [...tbl.querySelectorAll('tr[data-quiet="1"]')];
+    const open = quiet.some(tr => !tr.hidden);
+    quiet.forEach(tr => { tr.hidden = open; });
+    const fold = tbl.querySelector('.lcb-foldrow');
+    if (fold) {
+      const caret = fold.querySelector('.lcb-foldcaret');
+      if (caret) caret.textContent = open ? '\u25B8' : '\u25BE';
+      const tail = fold.querySelector('.lcb-quiet');
+      if (tail) tail.textContent = open ? ' \u00b7 show' : ' \u00b7 hide';
+    }
+  }
+
+  function _bkVarianceShown(r) {
+    if (!r || r.circular) return null;              // agrees by construction — not a check
+    if (r.band === 'tie') return null;              // a tie prints nothing
+    if (r.staleAnchor && r.band !== 'material') return null;  // an ask, not a number (s272)
+    if (r.variance == null) return null;
+    return Number(r.variance);
+  }
+
   function _bkLoanFixVersion(loanId) {
     let v = null;
     const bump = (t) => { const x = t ? String(t) : ''; if (x && (!v || x > v)) v = x; };
@@ -11571,6 +11630,7 @@
         loanId: _bkIssueLoanId(it), tier: it.severityRank === 0 ? 1 : 2,
         amount: it.amount, name: it.title, reason: it.explain || 'Needs a decision.',
         stale: it.stale || null, action: 'Review', onclick: spec.onclick, detailHtml: spec.detailHtml,
+        period: it.period || null,   // s310: names the month when it is not this one
         peek: _bkAttnPeekSpec(it) ? `bkPeekAttn('${it.key}')` : null,
         archive: true, archiveLabel: 'Ignore',
         archiveTitle: 'Set this aside — restore it any time from Ignored',
@@ -20192,6 +20252,15 @@
       // The RESIDUAL, not the raw variance: on a partly-explained row the raw
       // figure would put the explained portion into a column headed "still to
       // resolve", which is the opposite of what the explanation established.
+      // session 310: what the COLUMN prints, summed. Absolute for s236's reason
+      // (a +415.88 and a -415.88 must not report $0.00), over exactly the rows
+      // whose cell shows a figure — `_bkVarianceShown` is the one predicate and
+      // `varCell` calls it too, so the column and this total cannot disagree.
+      varianceShown: set.reduce((n, r) => n + Math.abs(_bkVarianceShown(r) || 0), 0),
+      varianceShownCount: set.filter(r => _bkVarianceShown(r) != null).length,
+      // The RESIDUAL total — still to resolve once partly-explained rows are
+      // allowed for. No longer the printed figure (a reader cannot reproduce it
+      // from the column); kept on the cell, its hover and the export.
       variance:  set.reduce((n, r) => n + ((r.band === 'immaterial' || r.band === 'material') ? Math.abs(r.varianceResidual) : 0), 0),
       count:     set.length,
       circular:  set.filter(r => r.circular).length,
@@ -20307,6 +20376,7 @@
           opening: ro.opening, drawn: ro.drawn, drawnMeasured: ro.drawnMeasured,
           principal: ro.principal, interest: ro.interest, computed: ro.computed,
           perLender: cl.perLender, variance: cl.variance, material: cl.material,
+          varianceShown: cl.varianceShown, varianceShownCount: cl.varianceShownCount,
           rollCount: rollable.length, rollCovers: rollable.length === rows.length,
           closingCount: closable.length, closingCovers: closable.length === rows.length,
         };
@@ -21297,6 +21367,25 @@
     const queueByLoan = _bkQueueByLoan();
     const placedIds = new Set();
 
+    // ══════════════════════════════════════════════════════════════════════
+    //  SESSION 310 — THE ROWS WITH NOTHING TO DO GO LAST, AND FOLD (David)
+    // ══════════════════════════════════════════════════════════════════════
+    // Two thirds of an August screen is loans that tie, carry no action and
+    // need no document — and they sit interleaved with the five that do, at the
+    // same weight. LESS IS BEST (s250) applied to ROWS rather than columns: the
+    // first test is "would a reader act differently without it", and on a tying
+    // row the answer is no.
+    //
+    // ⚠️ FOLDED, NEVER DROPPED. Every row still renders, in full, with every
+    // data- attribute it had; the quiet ones carry `hidden` until the reader
+    // asks. That is the ce17 limit — cut the pixels, keep the claim — and it is
+    // also what keeps the export, the hover and ~150 suite assertions reading
+    // exactly what they read before.
+    //
+    // A row is QUIET only when nothing on it asks for anything: no action, no
+    // queued item, a variance that ties or is by-construction, and a ledger mark
+    // that is not red. Any one of those failing puts it back at the top.
+    const quietIds = new Set();
     const row = (r) => {
       const a = r.a;
 
@@ -21657,7 +21746,7 @@
         : ties ? ''
         : r.staleAnchor && r.band !== 'material'
         ? `<span class="lcb-quiet">needs ${esc(_cvMonthShort(r.staleAnchor.monthEnd.slice(0, 7)))} statement</span>`
-        : r.variance == null
+        : _bkVarianceShown(r) == null
         ? '<span class="lcb-na">—</span>'
         // The figure is always the RAW variance — it is what sits between the
         // Computed and Closing columns either side of it, and a reader checks it
@@ -21826,7 +21915,31 @@
         : r.unexplainedBand === 'tie' ? 'ledger fully explained — no difference'
         : r.ledgerStale ? ledgerNote
         : (ledgerNote || 'no ledger figure to compare this month');
-      const ledgerCell = `<span class="lcb-mark lcb-chk ${ledgerCls}" data-col="ledger" data-status="${esc(ledgerVerdict)}" title="Ledger: ${esc(ledgerVerdict)}">${ledgerGlyph}</span>`;
+      // ── SESSION 310: A RED MARK CARRIES ITS FIGURE (David) ───────────────
+      // David, on Rapid Credit: "still shows a red X even though the numbers
+      // seem to match." He is right, and the asymmetry is exact. The Variance
+      // column's red has its figure one cell to the left, so a reader can check
+      // it by looking. THE LEDGER MARK HAD NOTHING: `unexplained` is
+      // booksClosing − computed, and booksClosing — Xero's own closing balance
+      // for the loan account — is on NO column of this table. So the reader sees
+      // Books and Lender agreeing and a red mark produced by arithmetic that
+      // appears nowhere on the screen.
+      //
+      // s307 fixed this by appending the figure to the WORD "Ledger differs";
+      // s308 reverted that session and the words with it. The figure was never
+      // the part David objected to — the words were — so it comes back attached
+      // to the glyph, which is what the column has always been.
+      //
+      // ⚠️ ONLY ON THE RED. A ✓ or a · gains nothing from a number, and a figure
+      // on every row is a column nobody reads (s306's own lesson, one column
+      // over). And ⚠️ DO NOT "for consistency" put the figure on the Variance
+      // mark too: that one WOULD be the same fact twice on one row, and the
+      // reason this column can stay glyphs at all is that Variance keeps its
+      // figures. The test is not "is it a dollar verdict", it is CAN THE READER
+      // CHECK IT FROM THIS ROW.
+      const ledgerFigure = (r.unexplainedBand === 'material' && r.unexplained != null && Math.abs(r.unexplained) >= 0.005)
+        ? `<span class="lcb-ledger-fig">${signed(r.unexplained)}</span>` : '';
+      const ledgerCell = `<span class="lcb-mark lcb-chk ${ledgerCls}" data-col="ledger" data-status="${esc(ledgerVerdict)}"${ledgerFigure ? ` data-ledger-figure="${r.unexplained}"` : ''} title="Ledger: ${esc(ledgerVerdict)}">${ledgerGlyph}${ledgerFigure}</span>`;
 
       // ── THE HINT ─────────────────────────────────────────────────────────
       // Everything that came off the screen, in the order a person reads a row:
@@ -21862,7 +21975,12 @@
         _bkHintAttribution(a.id),
       ].filter(Boolean).join(' · ');
 
-      return `<tr onclick="_bkOpenLoanFromRow(event,'${esc(a.id)}')" style="cursor:pointer" data-loan-id="${esc(a.id)}" data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
+      // session 310: does this row ask for anything? Decided HERE, where every
+      // input already exists, so nothing is re-derived and the two cannot drift.
+      const quiet = !action.cell && !queuedCell && !moreCell
+        && (r.circular || ties) && r.unexplainedBand !== 'material';
+      if (quiet) quietIds.add(a.id);
+      return `<tr onclick="_bkOpenLoanFromRow(event,'${esc(a.id)}')" style="cursor:pointer"${quiet ? ' data-quiet="1"' : ''} data-loan-id="${esc(a.id)}" data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
         <td data-col="loan" data-agreement="${agreement.has ? '1' : '0'}"><span class="td-name">${esc(a.xero_account_name || a.lender_account_number)}</span>${agreement.has ? `<span class="lit-agree" title="${esc(agreement.title)}" aria-label="Agreement on file">\u2713</span>` : ''}${(a.flagged_note && a.flag_status !== 'resolved') ? ' <span class="lcb-notedot" title="Note on file — see below the table">📝</span>' : ''}<span class="lcb-lender" title="${esc(a.lender || '')}">${esc(a.lender || '')}</span></td>
         <td class="lcb-c" data-col="source" data-close-basis="${esc(a.close_basis || '')}" title="${esc(basis.title)}">${basis.cell}</td>
         <td class="lcb-n" data-col="opening" data-amount="${r.opening ? r.opening.amount : ''}" data-source="${esc((r.opening && r.opening.source) || '')}" data-source-label="${esc(r.opening ? _closeOpeningSourceLabel(r.opening.source) : '')}"${r.opening && !r.opening.authoritative ? ' data-opening-soft="1"' : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''}${r.openingStaged ? ` data-opening-staged="${r.openingStaged}"` : ''}${openTitle ? ` title="${esc(openTitle)}"` : ''}>${openCell}</td>
@@ -21889,9 +22007,12 @@
     // rf.gradeB / rf.totalsA / rf.totalsB are all still computed and still
     // exported, the chips still count them, and the footer sentence still names
     // them. What went is the second telling of it in the footer.
-    const varianceCell = (st) => st.variance < 0.005
+    // session 310: the figure under the Variance column is the sum of the
+    // figures IN the Variance column. Colour is still the verdict's, from the
+    // band counts, not from this number.
+    const varianceCell = (st) => (st.varianceShown == null ? st.variance : st.varianceShown) < 0.005
       ? '<span class="lcb-na">$0.00</span>'
-      : `<span class="${st.material ? 'lcb-off' : 'lcb-quiet'}">${money(st.variance)}</span>`;
+      : `<span class="${st.material ? 'lcb-off' : 'lcb-quiet'}">${money(st.varianceShown == null ? st.variance : st.varianceShown)}</span>`;
 
     // ── THE GRAND TOTAL ───────────────────────────────────────────────────
     // Opening / Principal / Interest / Computed cover EVERY loan and foot to the
@@ -21937,6 +22058,15 @@
     // shortfall is named separately, because they are different populations and
     // collapsing them is the "two numbers, no way to tell which is real" defect
     // this module keeps having to fix.
+    // session 310: the two variance figures, and the hover that tells them apart.
+    // The printed one adds up the column; the residual one is what is still to
+    // resolve once partly-explained rows are allowed for. They agree on most
+    // months; when they do not, the reader is told which is which rather than
+    // being left to find that the column does not foot.
+    const varTotalTitle = Math.abs(Number(ta.varianceShown) - Number(ta.variance)) < 0.005
+      ? ' title="The sum of the differences printed in this column, ignoring their signs — so it can be checked by adding the figures above."'
+      : ' title="The sum of the ' + ta.varianceShownCount + ' differences printed in this column, ignoring their signs. ' + money(ta.variance)
+        + ' of it is still to resolve: the rest sits on rows where part of the difference is already explained, and this figure shows the raw difference those rows print."';
     const coverParts = [];
     if (!ta.rollCovers) coverParts.push(`${ta.rollCount} of ${ta.count} rolled forward`);
     if (!ta.closingCovers) coverParts.push(`${ta.closingCount} of ${ta.count} closing checked`);
@@ -21953,7 +22083,7 @@
       <td class="lcb-n" data-col="interest" data-amount="${ta.interest}">${money(ta.interest)}</td>
       <td class="lcb-n" data-col="books" data-amount="${ta.computed}"${rollTitle}>${money(ta.computed)}</td>
       <td class="lcb-n" data-col="lender" data-amount="${ta.perLender}"${closingTitle}>${money(ta.perLender)}</td>
-      <td class="lcb-n" data-col="variance" data-variance="${ta.variance}" data-material="${ta.material}"${closingTitle}>${varianceCell(ta)}</td>
+      <td class="lcb-n" data-col="variance" data-variance="${ta.varianceShown}" data-variance-to-resolve="${ta.variance}" data-variance-rows="${ta.varianceShownCount}" data-material="${ta.material}"${varTotalTitle || closingTitle}>${varianceCell(ta)}</td>
       <td data-col="checks"></td><td data-col="action"></td>
     </tr>`;
 
@@ -22005,7 +22135,19 @@
     // Rows first, template second: placedIds is only true once every row has
     // rendered, and a line that claims what "did not fit" before the fitting has
     // happened is a claim about nothing.
-    const bodyHtml = rf.rows.map(row).join('');
+    // Built first, partitioned second: `quietIds` is only true once every row
+    // has rendered — the same ordering rule `placedIds` below depends on.
+    const built = rf.rows.map(r => ({ id: r.a.id, html: row(r) }));
+    const quietRows = built.filter(b => quietIds.has(b.id));
+    const workRows = built.filter(b => !quietIds.has(b.id));
+    const foldRow = quietRows.length
+      ? `<tr class="lcb-foldrow" data-fold="${quietRows.length}" onclick="_bkToggleQuiet(event)"><td colspan="11">
+           <span class="lcb-foldcaret">▸</span> ${quietRows.length} loan${quietRows.length === 1 ? '' : 's'} ${quietRows.length === 1 ? 'ties' : 'tie'} and ${quietRows.length === 1 ? 'asks' : 'ask'} for nothing this month<span class="lcb-quiet"> · show</span>
+         </td></tr>`
+      : '';
+    const bodyHtml = workRows.map(b => b.html).join('')
+      + foldRow
+      + quietRows.map(b => b.html.replace('<tr ', '<tr hidden ')).join('');
     const elsewhereHtml = _bkQueueElsewhereHtml(placedIds);
 
     el.innerHTML = `
@@ -22949,6 +23091,45 @@
     return html;
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  //  WHEN IS THIS FINDING ABOUT? (session 310, David)
+  // ══════════════════════════════════════════════════════════════════════
+  // David, on the August table: BayFirst "still displays Review even though the
+  // numbers agree." The numbers DO agree for August. The button is a September
+  // event — a $1,046.56 transaction deleted in Xero on 2026-09-05 — sitting on
+  // the August row with nothing to say so.
+  //
+  // `_bkQueueCellHtml` has named the period since s288 (`Review · Sep`), but it
+  // reads `item.period`, and a recon finding was built without one. So every
+  // finding, whatever month it is about, read as work on the month being closed.
+  //
+  // ⚠️ AN ALLOWLIST, KEYED BY CHECK. Never a regex over the title: the date is IN
+  // the detail, and parsing a fact back out of prose is the thing this module
+  // refuses to do (s290 cont. 5, on exactly these items). A check_key that is not
+  // listed returns null and the cell says nothing — which is what it did before,
+  // so a new check fails safe rather than claiming a month it does not know.
+  const _BK_FINDING_DATE_FIELD = {
+    voided_since_last_run:        'date',
+    lumped_payment:               'date',
+    split_collision:              'date',
+    derived_drift:                'date',
+    unexplained_ledger_adjustment:'date',
+    adjustment_pattern_candidate: 'date',
+    balance_vs_lender:            'anchor_date',
+    schedule_vs_statement:        'statement_date',
+    stale_anchor:                 'latest_anchor',
+    future_dated_rows:            'furthest_date',
+    off_schedule_principal_payment:'window_to',
+    derivable_not_derived:        'latest',
+  };
+  function _bkFindingDate(f) {
+    if (!f || !f.detail) return null;
+    const field = _BK_FINDING_DATE_FIELD[f.check_key];
+    if (!field) return null;
+    const v = f.detail[field];
+    return (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) ? v.slice(0, 10) : null;
+  }
+
   function _bkLoanAttentionItems() {
     const items = [];
     (_allLoanAccounts || []).filter(a => a.flagged_note && a.flag_status !== 'resolved').forEach(a => {
@@ -22974,7 +23155,9 @@
       items.push({
         key: 'recon-' + f.id, kind: 'recon_finding', severityRank: f.severity === 'error' ? 0 : 1, finding: f,
         title: f.title || 'Untitled finding', explain: _bkOneLine(raw), rawExplain: raw, amount: null,
-        tag: f.check_key || null, stale,
+        // session 310: the date this finding is ABOUT, from its own detail.
+        // Carried so a month table can say when an item is not its work.
+        period: _bkFindingDate(f), tag: f.check_key || null, stale,
       });
     });
     // Session 226: a staged pre-split transaction the sweep flagged — either a

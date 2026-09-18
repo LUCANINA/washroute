@@ -21257,6 +21257,32 @@ The UI is reverted; the accounting is not. Both of these were diagnosed against 
 
 Nothing else in Bookkeeping changed. The `stale-anchor-ask` / `rollback-beats-stale` reds (PayPal 2's $3,120.61, awaiting Ramona's journal) and `history / s240 #10` are untouched and still red on purpose.
 
+## Session 310 (2026-09-18) — THE FOUR THINGS DAVID COULD SEE
+
+David, on a fresh screenshot of the August close: *"I see exactly zero changes. The TOTAL variance is still 'wrong', Rapid still shows a red X even though the numbers seem to match, BayFirst SBA still displays 'Review' even though the numbers agree."*
+
+**He was right on all three, and on the zero.** s309 built item A (the prepared journal on the row) — deployed and live, confirmed by curl against admin.familylaundry.com — and it renders NOTHING today, because all three loans with an open difference are ones the engine cannot fix (a recorded explanation, a cause already named, a partly-explained gap). **The three things he was pointing at were items B–F of the same list, which I never built.** I offered him A-first and did not say plainly that A would be invisible on today's data. That sequencing error is the lesson, not the code.
+
+### Built
+
+**F · THE VARIANCE TOTAL FOOTS.** `_bkVarianceShown(r)` is the ONE predicate for "does this cell print a figure"; `varCell` calls it and `subtotal()` sums it. The footer publishes **Σ|printed|** — reproducible by adding the column — and the older, stricter figure (absolute RESIDUAL over unexplained bands only) stays as `data-variance-to-resolve`, in the cell's hover and in the export. s307 fixed this with a "to resolve" line under the total and David reverted that session; this is the other fix, the one this module's history points at (one function, every surface calls it).
+⚠️ **Two suite assertions MOVED WITH THE INVARIANT and neither was tuned green.** `s236` (absolute, never signed) now measures the printed sum — and reads the cell's TEXT, because every row carries `data-variance` including ties and asks, so the attribute said 14 where the column shows 6. `ce12` (an unbooked difference is not money to resolve) moved to `data-variance-to-resolve` and **gained its pair**: the printed total must still CARRY Dexter's explained figure, or "excluding it" would be satisfied by a table that quietly stopped printing it.
+
+**D · A RED LEDGER MARK CARRIES ITS FIGURE.** Rapid Credit: Books 51,529.02 = Lender 51,529.02, and a red ✗ produced by `booksClosing − computed` — where `booksClosing`, Xero's own closing balance, **is on no column of this table**. s307 attached the figure to the word "Ledger differs"; s308 reverted the words. The figure was never what David objected to, so it returns attached to the GLYPH: `✗ −457.14`. Only on the red — a figure on every row is a column nobody reads — and deliberately NOT on the Variance mark, which keeps its figures one cell away.
+
+**E · A QUEUED ITEM SAYS WHICH MONTH IT IS ABOUT.** BayFirst's "Review" is a **September** event (a $1,046.56 transaction deleted in Xero on 2026-09-05) on the August row. `_bkQueueCellHtml` has printed `· Sep` since s288, but it reads `item.period` and a recon finding was built without one. `_bkFindingDate(f)` is an **allowlist of check_key → detail field** (never a regex over the title — s290 cont. 5, on these very items); an unlisted check returns null and the cell says nothing, exactly as before. E5-4751 now reads `Review · July`.
+
+**B · THE ROWS THAT ASK FOR NOTHING GO LAST, AND FOLD.** A row is quiet when no action, no queued item, a variance that ties or is by-construction, AND a ledger mark that is not red. `_bkToggleQuiet` shows them. ⚠️ **They are `hidden`, never removed** — every data- attribute, the export, the hover and ~150 assertions read the same DOM they always did.
+
+**C · NOT BUILT, ON PURPOSE.** Header counts in the close strip contradict s264 ("remove all the content in the Not ready to close section") and were part of s307's reverted block. The fold line states the same count where the reader acts on it.
+
+### Measured
+Harness in four batches: **389 + 1,590 + 282 + 358 = 2,619 assertions, 12 failures — the 11 deliberate `stale-anchor-ask` / `rollback-beats-stale` reds (PayPal 2, awaiting Ramona) and the pre-existing `history / s240 #10`.** New group **`s310-row-reads`**, 10 assertions, every claim a PAIR (the figure/month appears where owed AND not where it is not) with two inverse-rebuild discriminators. Node `proposed-fix` 41/41.
+Mutations proved to go red: footer prints the residual again → s236/s310 + ce12's pair; fold keeps rows visible → the hidden assertion; ledger figure removed → both halves; `_bkFindingDate` → null → every suffix.
+
+### Where to pick up
+Reload the page — these are all visible on today's data, unlike s309. Then: the fold's default (open vs closed) once David has looked at it; whether `reconciliation-run` should be scheduled at 6am ahead of the 7am attribution job.
+
 ## Session 309 (2026-09-17) — THE JOURNAL ON THE ROW: spec, then steps 1–2 built
 
 David: *"identify how to make this page genuinely useful for a Bookkeeper ... identify variance ... and propose a fix."* Diagnosis: the page answers "is there a difference?" fourteen times and never "what journal fixes it?" — 306/307 were still verdicts, which is why they were reverted. Spec: `docs/bookkeeping/DESIGN-PROPOSED-FIX.md`.

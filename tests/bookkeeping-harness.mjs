@@ -483,7 +483,11 @@ function readSurfaces() {
     //   N undated         → Status
     // Reading them from their new homes is not cosmetic: an attribute parked on
     // the wrong cell would still parse and would silently stop meaning anything.
-    const rows = [...cb.querySelectorAll('tbody tr')].map(tr => {
+    // s310: the fold separator is a single colspan cell, not a loan row. It is
+    // excluded HERE rather than defended against per-field, and the group
+    // `close-band-columns` asserts separately that it exists and is the only
+    // row shaped that way — so the exclusion cannot quietly hide a real row.
+    const rows = [...cb.querySelectorAll('tbody tr:not(.lcb-foldrow)')].map(tr => {
       const tds = [...tr.children];
       const c = tds.map(td => td.textContent.replace(/\s+/g, ' ').trim());
       // The loan cell concatenates the account name and the lender, so the
@@ -664,6 +668,13 @@ function readSurfaces() {
         openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
         computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
         varianceN: numA(tds[C.variance], 'data-variance'),
+        // s310: the footer now publishes TWO variance figures and they answer
+        // different questions. `varianceN` is what the column adds up to — the
+        // one a reader can check by looking. `varianceToResolveN` is the older,
+        // stricter quantity: residuals, over unexplained bands only. Both are
+        // asserted, each against its own claim.
+        varianceToResolveN: numA(tds[C.variance], 'data-variance-to-resolve'),
+        varianceRows: numA(tds[C.variance], 'data-variance-rows'),
         // Session 272: the RESIDUAL — raw minus every explanation (unposted
         // payments, and now a closing anchor older than the month's own
         // payments). The footer has always summed this; before there was an
@@ -1988,7 +1999,13 @@ GROUPS.push({
           ? col(tr, 'action').querySelector('[title]').getAttribute('title') : '',
         band: tr.querySelector('[data-band]') ? tr.querySelector('[data-band]').getAttribute('data-band') : '',
       }));
-      const cellCounts = [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => tr.children.length);
+      const cellCounts = [...document.querySelectorAll('#lcb-table tbody tr:not(.lcb-foldrow)')].map(tr => tr.children.length);
+      // s310: the fold separator, measured so its exclusion above is a stated
+      // fact rather than a silent filter. `quiet` is how many rows it folds.
+      const foldRows = [...document.querySelectorAll('#lcb-table tbody tr.lcb-foldrow')]
+        .map(tr => ({ cells: tr.children.length, span: Number(tr.children[0] && tr.children[0].getAttribute('colspan')), folds: Number(tr.getAttribute('data-fold')) }));
+      const quietRows = document.querySelectorAll('#lcb-table tbody tr[data-quiet="1"]').length;
+      const quietHidden = [...document.querySelectorAll('#lcb-table tbody tr[data-quiet="1"]')].filter(tr => tr.hidden).length;
       const footCounts = [...document.querySelectorAll('#lcb-table tfoot tr')].map(tr => tr.children.length);
       const keyedHead = document.querySelectorAll('#lcb-table thead th[data-col]').length;
       // DIRECT CHILDREN ONLY (session 292). The Checks column carries four
@@ -1996,9 +2013,9 @@ GROUPS.push({
       // against an 11-column header -- red for a reason that is the opposite of
       // the defect this asserts. The claim is "every CELL is keyed", and that is
       // what this measures; the spans are covered by the readers that use them.
-      const keyedBody = [...document.querySelectorAll('#lcb-table tbody tr')]
+      const keyedBody = [...document.querySelectorAll('#lcb-table tbody tr:not(.lcb-foldrow)')]
         .map(tr => [...tr.children].filter(td => td.hasAttribute('data-col')).length);
-      return { head, rows, cellCounts, footCounts, keyedHead, keyedBody };
+      return { head, rows, cellCounts, footCounts, keyedHead, keyedBody, foldRows, quietRows, quietHidden };
     });
 
     // Every row must have as many cells as the header has columns, and so must
@@ -2101,6 +2118,21 @@ GROUPS.push({
     t.eq(seen.keyedHead, cols, 'every header column carries a data-col key', JSON.stringify(seen.head));
     t.ok(seen.keyedBody.every(n => n === cols),
          'every body row keys all of its cells', `saw ${[...new Set(seen.keyedBody)].join('/')}`);
+
+    // ── s310: THE FOLD, AND WHY THIS IS A PAIR ──────────────────────────────
+    // The two assertions above now skip `.lcb-foldrow`. On its own that is a
+    // filter that would also hide a real row someone broke. So the separator is
+    // asserted to EXIST, to span the whole header, and to fold exactly the rows
+    // that are actually hidden — measured, never assumed. Together they say
+    // "one separator, N rows, all hidden"; either half alone says nothing.
+    t.eq(seen.foldRows.length, seen.quietRows ? 1 : 0,
+         'one fold separator when any row is quiet, none when none is', JSON.stringify(seen.foldRows));
+    if (seen.foldRows.length) {
+      t.eq(seen.foldRows[0].cells, 1, 'the separator is a single cell');
+      t.eq(seen.foldRows[0].span, cols, 'and it spans every column of the header');
+      t.eq(seen.foldRows[0].folds, seen.quietRows, 'it counts exactly the quiet rows');
+      t.eq(seen.quietHidden, seen.quietRows, 'every quiet row starts hidden — folded, not deleted');
+    }
 
     // Expectation rebuilt from the fixture, not typed in.
     const expect = await p.evaluate(() => {
@@ -4142,8 +4174,38 @@ GROUPS.push({
         t.ok(unexplainedRows.length >= 2,
              's236: the scenario really did put a variance on more than one loan',
              `${unexplainedRows.length} rows carry an unexplained variance`);
-        t.close(Math.abs(Number((cbx.subtotals.all || {}).varianceN || 0)), absUnexplained, 0.05,
-          's236: the close-band variance total is the sum of ABSOLUTE row variances');
+        // ⭐ s310: THE INVARIANT MOVED, SO THIS MOVED WITH IT — and the claim did
+        // not change. David: "the TOTAL variance is still wrong", because the
+        // cells printed raw signed figures while the footer summed absolute
+        // residuals over a narrower set of rows, under a row labelled "Total".
+        // The footer now publishes the sum of the figures the column PRINTS, so
+        // a reader can check it; the residual figure stays on the cell as
+        // `data-variance-to-resolve` and is asserted just below.
+        //
+        // s236's own claim — ABSOLUTE, NEVER SIGNED — is what this still tests,
+        // against the figure that is now on screen. The planted ±$415.88 pair
+        // still cancels under a signed total and still cannot under this one.
+        // ⚠️ READ THE CELL'S TEXT, NOT ITS ATTRIBUTE. Every row carries
+        // `data-variance`, including the ones whose cell prints a tie, an ask or
+        // "by construction" — so an attribute-based count says 14 where the
+        // column shows 6. The claim under test is about what is PRINTED, and the
+        // only honest way to measure that is to read the printed characters.
+        const asMoney = (txt) => {
+          const t0 = String(txt == null ? '' : txt).trim();
+          if (!/\d/.test(t0)) return null;                 // a tie, an ask, "by construction", "—"
+          const n = Number(t0.replace(/[^0-9.]/g, ''));
+          return Number.isFinite(n) ? n : null;
+        };
+        const printed = cbx.rows.map(r => asMoney(r.variance)).filter(x => x != null);
+        const absPrinted = printed.reduce((n, x) => n + Math.abs(x), 0);
+        t.close(Math.abs(Number((cbx.subtotals.all || {}).varianceN || 0)), absPrinted, 0.05,
+          's236/s310: the variance total is the sum of the ABSOLUTE figures the column prints');
+        t.eq(Number((cbx.subtotals.all || {}).varianceRows || 0), printed.length,
+          's236/s310: ...over exactly the rows that print one');
+        // And the stricter figure is still computed, still absolute, still over
+        // unexplained bands only — it simply is not the one under the column.
+        t.close(Math.abs(Number((cbx.subtotals.all || {}).varianceToResolveN || 0)), absUnexplained, 0.05,
+          's236/s310: ...and "still to resolve" keeps the residual, unexplained-only sum');
         // The signed sum cancels the pair this scenario planted; the absolute one
         // cannot. The gap is at least twice the plant BY CONSTRUCTION now, so
         // this compares against the figure the scenario chose rather than against
@@ -6897,13 +6959,24 @@ GROUPS.push({
       t.eq(cbD.gateByKey['posting'].ok, false, 'ce12: ...which is the one gate that does report it');
       // The per-grade footer rows are gone; the Total sums UNEXPLAINED variance
       // only, so an 'unbooked' row contributes nothing to it however large.
-      const totalVar = Math.abs(Number((cbD.subtotals.all || {}).varianceN || 0));
+      // s310: the claim is unchanged — an 'unbooked' difference is owned by the
+      // posting gate and is not money to resolve — but it now lives on the
+      // figure that makes that claim. `data-variance` is the sum of the printed
+      // column (a reader can check it); `data-variance-to-resolve` is this one.
       const unexplainedRows = cbD.rows.filter(x => x.band === 'immaterial' || x.band === 'material');
-      t.close(totalVar, unexplainedRows.reduce((n, x) => n + Math.abs(x.varianceN), 0), 0.05,
-              'ce12: ...and the Total counts UNEXPLAINED variance only');
+      const toResolve = Math.abs(Number((cbD.subtotals.all || {}).varianceToResolveN || 0));
+      t.close(toResolve, unexplainedRows.reduce((n, x) => n + Math.abs(x.varianceN), 0), 0.05,
+              'ce12: ...and "still to resolve" counts UNEXPLAINED variance only');
+      // The pair: the printed total DOES include Dexter's explained figure,
+      // because the column prints it. Without this, "to resolve" excluding it
+      // would be satisfied by a table that had quietly stopped printing it.
+      const printedTotal = Math.abs(Number((cbD.subtotals.all || {}).varianceN || 0));
+      t.ok(printedTotal > toResolve + 0.05,
+           'ce12: ...while the printed total still carries it, because the row still shows it',
+           `printed ${printedTotal} vs to-resolve ${toResolve}`);
       t.ok(Math.abs(rd.varianceN) > 3000 && !unexplainedRows.some(x => /Dexter/.test(x.loan)),
            'ce12: ...so Dexter’s $3,326.23 stays out of it entirely',
-           `row ${rd.varianceN}, total ${totalVar}`);
+           `row ${rd.varianceN}, to-resolve ${toResolve}`);
       t.ok(/differs? by exactly the payments not yet booked/.test(cbD.note || ''),
            'ce12: ...and the footer says so in words', `note=${JSON.stringify(cbD.note)}`);
 
@@ -14267,7 +14340,7 @@ GROUPS.push({
     await p.switchTab('loans');
 
     const helpers = `
-      const rows = () => [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => {
+      const rows = () => [...document.querySelectorAll('#lcb-table tbody tr:not(.lcb-foldrow)')].map(tr => {
         const td = tr.querySelector('td.lcb-action');
         const fl = td && td.querySelector('.lcb-fixline');
         return { loan: tr.getAttribute('data-loan-id'), action: td && td.getAttribute('data-action'),
@@ -14395,6 +14468,146 @@ GROUPS.push({
     t.ok(inv.built && inv.row.fix === 'fix', '⭐ ...and without the check a stale journal WOULD render as ready — the recheck assertion discriminates', inv.built ? inv.row.fix : 'not built');
 
     await p.close();
+  },
+});
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   s310-row-reads — WHAT A RED MARK OWES THE READER, AND WHEN AN ITEM IS ABOUT
+   David, on the August close: "Rapid still shows a red X even though the
+   numbers seem to match... BayFirst still displays Review even though the
+   numbers agree."
+
+   Both were true and both had the same shape: a confident mark with its
+   evidence somewhere the reader cannot see. Every assertion here is a PAIR —
+   the figure/month appears where it is owed AND does not appear where it is
+   not — because "shows a figure" alone is satisfied by printing one on every
+   row, which is the column nobody reads.
+   ═══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 's310-row-reads',
+  async run(t) {
+    const READ = `
+      const marks = () => [...document.querySelectorAll('#lcb-table tbody tr[data-loan-id]')].map(tr => {
+        const led = tr.querySelector('[data-col="ledger"]');
+        const act = tr.querySelector('td.lcb-action');
+        return {
+          loan: tr.getAttribute('data-loan'),
+          band: (tr.querySelector('[data-col="variance"]') || {}).getAttribute
+                  ? tr.querySelector('[data-col="variance"]').getAttribute('data-unexplained-band') : null,
+          unexplained: tr.querySelector('[data-col="variance"]')
+                  ? tr.querySelector('[data-col="variance"]').getAttribute('data-unexplained') : null,
+          ledgerText: led ? led.textContent.replace(/\\s+/g, ' ').trim() : null,
+          ledgerFig: led ? led.getAttribute('data-ledger-figure') : null,
+          ledgerCls: led ? led.className : '',
+          actionText: act ? act.textContent.replace(/\\s+/g, ' ').trim() : '',
+        };
+      });
+    `;
+
+    // ── THE LEDGER MARK ────────────────────────────────────────────────────
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      await p.switchTab('loans');
+      const seen = await p.evaluate(new Function(READ + ' return marks();'));
+      t.ok(seen.length >= 10, 'the close table rendered its loans', String(seen.length));
+
+      const red = seen.filter(r => /lcb-mark-bad/.test(r.ledgerCls));
+      const notRed = seen.filter(r => !/lcb-mark-bad/.test(r.ledgerCls));
+      // PAIR, half one: every red ledger mark states its magnitude.
+      t.ok(red.every(r => /\d/.test(r.ledgerText || '')),
+           'every RED ledger mark carries a figure — the number is on no other column of this row',
+           JSON.stringify(red.map(r => [r.loan, r.ledgerText])));
+      // PAIR, half two: nothing else does. Without this, a change that printed a
+      // figure on all fourteen rows would satisfy the half above.
+      t.ok(notRed.every(r => !/\d/.test(r.ledgerText || '')),
+           '...and no ✓ or · mark carries one — a figure on every row is a column nobody reads',
+           JSON.stringify(notRed.filter(r => /\d/.test(r.ledgerText || '')).map(r => [r.loan, r.ledgerText])));
+      // The figure is the row's own measured gap, not a restatement of Variance.
+      t.ok(red.every(r => r.ledgerFig != null
+             && Math.abs(Number(r.ledgerFig) - Number(r.unexplained)) < 0.005),
+           '...and it is this row’s measured ledger gap, to the cent',
+           JSON.stringify(red.map(r => [r.loan, r.ledgerFig, r.unexplained])));
+      t.ok(red.every(r => r.band === 'material'),
+           '...shown only where the ledger band is material', JSON.stringify(red.map(r => r.band)));
+      await p.close();
+    }
+
+    // ── DISCRIMINATION: take the figure away and the pair must go red ───────
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      await p.switchTab('loans');
+      const inv = await p.evaluate(new Function(READ + `
+        const src = renderLoansCloseBand.toString();
+        const cut = src.replace(
+          "? \`<span class=\\"lcb-ledger-fig\\">\${signed(r.unexplained)}</span>\` : ''",
+          "? '' : ''");
+        if (cut === src) return { built: false };
+        const orig = renderLoansCloseBand;
+        try {
+          renderLoansCloseBand = new Function('return ' + cut)();
+          renderLoansCloseBand();
+          const m = marks();
+          return { built: true, redWithFigure: m.filter(r => /lcb-mark-bad/.test(r.ledgerCls) && /\\d/.test(r.ledgerText || '')).length,
+                   red: m.filter(r => /lcb-mark-bad/.test(r.ledgerCls)).length };
+        } finally { renderLoansCloseBand = orig; renderLoansCloseBand(); }
+      `));
+      t.ok(inv.built, 'the inverse (a red mark with no figure) could be rebuilt from the shipped function');
+      t.ok(inv.built && inv.red > 0 && inv.redWithFigure === 0,
+           '⭐ ...and without it every red mark goes back to carrying nothing — the assertion discriminates',
+           JSON.stringify(inv));
+      await p.close();
+    }
+
+    // ── WHEN IS THIS QUEUED ITEM ABOUT? ────────────────────────────────────
+    // BayFirst's "Review" was a September event on the August row with nothing
+    // to say so. Findings now carry their own date (`_bkFindingDate`, an
+    // allowlist over `detail`, never a regex over the title), so the Action
+    // cell's existing period suffix can name the month when it is not this one.
+    //
+    // Asserted against the book as it stands rather than a planted row: the
+    // fixture already carries findings dated outside the closing month, and a
+    // plant that misses the item actually rendered proves nothing.
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      await p.switchTab('loans');
+      const seen = await p.evaluate(new Function(READ + `
+        const month = (typeof _cvLastMonth === 'function') ? _cvLastMonth() : null;
+        const mine = (typeof _cvMonthShort === 'function' && month) ? _cvMonthShort(month) : null;
+        return { month, mine, rows: marks().filter(r => /Review|waiting/.test(r.actionText)) };
+      `));
+      const named = seen.rows.filter(r => /·\s*[A-Z][a-z]+/.test(r.actionText));
+      // PAIR, half one: the month reaches the button at all.
+      t.ok(named.length > 0,
+           'a queued item dated outside the closing month names its month on the button',
+           JSON.stringify(seen.rows.map(r => [r.loan, r.actionText])));
+      // PAIR, half two: it never names the month the table is already about —
+      // otherwise "always print the month" would satisfy the half above and the
+      // column would carry fourteen redundant suffixes.
+      t.ok(seen.mine && !named.some(r => new RegExp('·\\\\s*' + seen.mine + '\\\\b').test(r.actionText)),
+           `...and never names ${seen.mine} — the month this table is already about`,
+           JSON.stringify(named.map(r => [r.loan, r.actionText])));
+      await p.close();
+    }
+
+    // ── DISCRIMINATION: a finding with no date must name no month ───────────
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      await p.switchTab('loans');
+      const inv = await p.evaluate(new Function(READ + `
+        const before = marks().filter(r => /·\\s*[A-Z][a-z]+/.test(r.actionText)).length;
+        const orig = _bkFindingDate;
+        try {
+          _bkFindingDate = () => null;                  // the state before s310
+          renderLoansCloseBand();
+          return { before, after: marks().filter(r => /·\\s*[A-Z][a-z]+/.test(r.actionText)).length };
+        } finally { _bkFindingDate = orig; renderLoansCloseBand(); }
+      `));
+      t.ok(inv.before > 0 && inv.after === 0,
+           '⭐ with the finding date removed every suffix disappears — the assertion discriminates',
+           JSON.stringify(inv));
+      await p.close();
+    }
   },
 });
 
