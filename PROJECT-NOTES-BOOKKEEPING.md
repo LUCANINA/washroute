@@ -21270,5 +21270,14 @@ David: *"identify how to make this page genuinely useful for a Bookkeeper ... id
 3. **Dashboard** — `_bkLoanFix(loanId, actionKind)` is the ONE reader (`_bkStoredFix`, `_bkLoanFixVersion`, `_bkFixLineHtml`). Shape decided on the dashboard, not the server: `upload/ask` → **ask** (a stored fix is never shown; the document outranks it), `post` → post, tie → none; otherwise the stored fix: at the live version → **fix** (sub-line `Dr 800 / Cr 284 · $15.38 · 31 Aug 2026`, full claim on `data-fix-title`), live version newer → **recheck** ("Books changed since this was worked out — re-run"), `accountant` → the question "— for your accountant", `none`/unknown → **investigate**. **Deviations from the spec, on purpose:** the fix is a SUB-LINE in the existing Action cell, not a new column (s280's 16-column set is untouched); the Action button and `data-action` are unchanged on every shape, including accountant (the walk is still where the working lives). The header counts (§5) are NOT built — David sees the row first.
 4. **Tests.** `tests/proposed-fix.test.mts` 35 Node assertions, six mutations all red (drop allowlist, drop footing, drop voided_at, whole based_on as check, write-off before proposal, includeImmaterial ignored). Harness group `proposed-fix`, 24 assertions, injects stored rows in page context (the fixture predates the job), pairs per §245, inverse of the version check rebuilt from `.toString()` goes red. Groups touching the closing table re-run: 685 + 924 assertions, only the 11 deliberate PayPal 2 reds and `history / s240 #10`.
 
+### The cron, measured — and it was not what the notes said
+David chose "drop the cron to twice a day". `cron.job` 25 was **once a day, `20 13 * * *`** — not the every-6h that s262's entry, the dashboard's retry sentence and my own cost estimate all repeated (§247: a sentence outlived the fact). Set to **`20 1,13 * * *`** (06:20 / 18:20 Pacific) via `cron.alter_job`. Real cost now ≈ 70 calls × 2 = ~140/day, up from ~35; the dashboard's two sentences that said "every 6 hours" now say "twice a day".
+
+⚠️ **`loan-attribution-run` is NOT DEPLOYED (live is v2 from 2026-09-01).** The CLI, no flag change (it is already `verify_jwt: false`):
+```
+npx -y supabase@latest functions deploy loan-attribution-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+```
+Proof it runs is the ROWS, not the version: after the next 13:20 UTC firing, `select loan_account_id, payload->'fix'->>'state' from loan_attributions` must show a `fix` key on every row. A version bump with no `fix` key is a deploy that did not boot.
+
 ### Where to pick up
-Deploy `loan-attribution-run` (David's call on the immaterial cost first), let one 6h run land, refresh the fixture, and look at the live rows. Then: scroll the Find the Fix modal to the prepared entry on a `fix` row; the header counts; the CSV export reading `data-fix-title`.
+Deploy (above), let one run land, refresh the fixture, and look at the live rows. Then: scroll the Find the Fix modal to the prepared entry on a `fix` row; the header counts; the CSV export reading `data-fix-title`.

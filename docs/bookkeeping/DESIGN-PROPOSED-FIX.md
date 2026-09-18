@@ -12,7 +12,7 @@ Prior art this builds on, all live today:
   `crossloan_reallocation_journal` — each with a `token`, a `dated_into`, a
   `dated_because` and a `journal` (Narration, Date, JournalLines). They render only inside
   the Find the Fix modal, only after a click, and each click costs Xero calls.
-* `loan-attribution-run` (cron, every 6h) already calls that engine in analyze mode for
+* `loan-attribution-run` (cron, twice a day since s309) already calls that engine in analyze mode for
   every loan carrying an open material finding and stores `headline` + `payload` in
   `loan_attributions`. **The proposal comes back in that same response and is discarded.**
 * `_bkLoanAttribution()` is the one dashboard reader of `loan_attributions`; five states

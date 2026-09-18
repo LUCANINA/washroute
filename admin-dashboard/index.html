@@ -10954,7 +10954,7 @@
         + '.';
     }
     if (at.state === 'error') {
-      return 'The cause could not be worked out — the last analysis of this loan failed. It retries on its own every 6 hours.';
+      return 'The cause could not be worked out — the last analysis of this loan failed. It retries on its own twice a day.';
     }
     if (at.state === 'unread') {
       return 'The cause is not known right now — the explanations could not be read from your books.';
@@ -11039,7 +11039,7 @@
     if (!actionKind) return out('none');
     const fx = _bkStoredFix(loanId);
     if (!fx || fx.state === 'none') {
-      return out('investigate', '', fx && fx.why ? `Nothing prepared: ${fx.why}` : 'Nothing prepared yet — the analysis runs every 6 hours.');
+      return out('investigate', '', fx && fx.why ? `Nothing prepared: ${fx.why}` : 'Nothing prepared yet — the analysis runs twice a day.');
     }
     if (fx.state === 'accountant') {
       return out('accountant', `${fx.question} — for your accountant`, `For your accountant: ${fx.question}`);
@@ -15034,7 +15034,7 @@
   // The close rollforward reads this for its OPENING balance so that Verdant's
   // walk stops being the amortization schedule compared with itself.
   let _allLoanBookBalances = [];
-  // Session 262. The output of `loan-attribution-run` (cron jobid 25, every 6h
+  // Session 262. The output of `loan-attribution-run` (cron jobid 25, twice a day since s309 — it was once a day at 13:20 UTC before, not the 6h the older comments say; s309 measured it in cron.job
   // at :20): one row per loan, PK on loan_account_id, saying WHY that loan's
   // variance exists in a sentence a CPA can read. Until now nothing read this
   // table at all -- the job had been writing answers four times a day into a
