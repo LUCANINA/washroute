@@ -466,7 +466,10 @@ function readSurfaces() {
     // (a claim attached to what it describes, not standing in its own column).
     // `status` therefore points at Checks and the readers below take the SPAN,
     // never the cell's text -- the cell's text is now four verdicts run together.
-                checks: colIx('Checks') };
+                // s311: the header reads "Issue" — the column names what is wrong
+                // rather than how every check went. `data-col` is still "checks",
+                // and so is every span inside it, so nothing else moved.
+                checks: colIx('Issue') };
     C.status = C.checks;
     // `lender` here is the lender's NAME, folded into the Loan cell in session
     // 249 — NOT the Lender column above, which is the lender's BALANCE. Two
@@ -14556,6 +14559,46 @@ GROUPS.push({
       t.ok(inv.built && inv.red > 0 && inv.redWithFigure === 0,
            '⭐ ...and without it every red mark goes back to carrying nothing — the assertion discriminates',
            JSON.stringify(inv));
+      await p.close();
+    }
+
+    // ── s311: THE COLUMN NAMES ISSUES, AND KEEPS EVERY CLAIM ───────────────
+    // David: "Is the Checks column necessary or just confusing? The goal is to
+    // find the variance, name the issue." Passes stopped printing. The ce17
+    // limit is the whole test here: a mark that prints nothing must still STATE
+    // its verdict, or this was a deletion wearing a trim's clothes.
+    {
+      const p = await newHarnessPage({ tab: 'loans' });
+      await p.switchTab('loans');
+      const seen = await p.evaluate(() => [...document.querySelectorAll('#lcb-table tbody tr[data-loan-id]')].map(tr => {
+        const cell = (k) => tr.querySelector(`[data-col="${k}"]`);
+        const one = (k) => { const e = cell(k); return e ? { text: e.textContent.replace(/\s+/g, ' ').trim(),
+                                                            status: e.getAttribute('data-status'),
+                                                            bad: /lcb-mark-bad/.test(e.className) } : null; };
+        return { loan: tr.getAttribute('data-loan'), status: one('status'), ledger: one('ledger'),
+                 stagingInLoan: !!(cell('loan') && cell('loan').querySelector('[data-col="staging"]')),
+                 stagingInChecks: !!(tr.querySelector('td.lcb-checks [data-col="staging"]')) };
+      }));
+      const marks = seen.flatMap(r => [r.status, r.ledger]).filter(Boolean);
+      // PAIR, half one: nothing prints unless it is a problem.
+      t.ok(marks.filter(m => !m.bad).every(m => m.text === ''),
+           's311: a check that PASSED prints nothing — the column names issues, not method',
+           JSON.stringify(marks.filter(m => !m.bad && m.text !== '').slice(0, 4)));
+      // PAIR, half two: and every one of them still STATES its verdict. Without
+      // this, "prints nothing" is satisfied by having deleted the check.
+      t.ok(marks.every(m => (m.status || '').length > 5),
+           's311: ...and every mark, printing or not, still carries its verdict in full (ce17)',
+           JSON.stringify(marks.filter(m => !(m.status || '').length).slice(0, 4)));
+      t.ok(marks.some(m => m.bad && m.text !== ''),
+           's311: ...while a real issue still prints', JSON.stringify(marks.filter(m => m.bad).map(m => m.text)));
+
+      // The staging dot moved to the Loan column, and moved rather than copied.
+      t.ok(seen.every(r => r.stagingInLoan),
+           's311: every row carries its staging state in the Loan column (David)',
+           JSON.stringify(seen.filter(r => !r.stagingInLoan).map(r => r.loan)));
+      t.ok(seen.every(r => !r.stagingInChecks),
+           's311: ...and no longer in the Issue column — moved, not duplicated',
+           JSON.stringify(seen.filter(r => r.stagingInChecks).map(r => r.loan)));
       await p.close();
     }
 

@@ -21257,6 +21257,28 @@ The UI is reverted; the accounting is not. Both of these were diagnosed against 
 
 Nothing else in Bookkeeping changed. The `stale-anchor-ask` / `rollback-beats-stale` reds (PayPal 2's $3,120.61, awaiting Ramona's journal) and `history / s240 #10` are untouched and still red on purpose.
 
+## Session 311 (2026-09-18) — THE COLUMN NAMES THE ISSUE, NOT THE METHOD
+
+David, on the s310 screen: *"Is the Checks column necessary or just confusing? The goal is to find the variance, name the issue. How we got there is not as important [as] finding the issue."* Also: PCV and Verdant had vanished, and the green staging dot with them.
+
+### THE LENDER MARK WAS RESTATING THE VARIANCE COLUMN, AND THIS FILE SAID SO
+
+The `status` glyph's own comment: *"driven by the SAME tie/variance verdict the Variance column already carries."* So a green ✓ sat beside a cell already reading −5.00, and a grey · beside one already reading "by construction" or "needs Sep statement". **s279's once-per-screen rule, broken twice in one row, fourteen times down the page** — and nine rows of `✓ ✓ —` is exactly how a reader learns to stop looking at the two rows where it changes (s306's own lesson, one column over).
+
+**Passes stopped printing. Nothing was deleted.** `markQuiet` / `ledgerQuiet` blank the GLYPH on any mark that is not `lcb-mark-bad`; the span, its class and `data-status` are unchanged on every row, so the verdict in full is still on the hover, still in the CSV, and still what ~40 assertions read. ce17: cut the pixels, keep the claim. Header reads **Issue**.
+
+⚠️ **THE TEST IS A PAIR AND IT HAS TO BE.** "A pass prints nothing" is satisfied by deleting the check; "every mark states its verdict" is satisfied by printing all fourteen. Only together do they describe the change — `s311` in group `s310-row-reads`, with three mutations proved red (passes print again; the verdict dropped when quiet; staging left in both columns).
+
+### THE STAGING DOT MOVED TO THE LOAN COLUMN (David asked)
+`_bkLoanStagingCell(a)` now renders inside the loan cell, beside the agreement tick and the note dot. **Moved, not copied** — asserted both ways, because a dot in two places is the duplication this module keeps fixing.
+
+### WHY PCV AND VERDANT VANISHED — WORKING AS BUILT, WORTH KNOWING
+s310's fold. Both tie, carry no action and no queued item, so they are behind *"5 loans tie and ask for nothing this month · show"*. Their staged Sep/Oct splits are real but are not AUGUST work. **If David wants a loan with a live staged transaction never to fold, that is one clause in the `quiet` predicate** — left alone until he says so, because the alternative is a fold that keeps three of its five rows.
+
+### Measured
+389 + 1,590 + 282 + 363 = **2,624 assertions, 12 failures — the 11 deliberate `stale-anchor-ask` / `rollback-beats-stale` reds and the pre-existing `history / s240 #10`.** `s310-row-reads` is now 15 assertions.
+⚠️ The harness reads the column by header text (`colIx('Issue')`); `data-col` is still `checks` on the cell and on all four spans, so nothing else moved.
+
 ## Session 310 (2026-09-18) — THE FOUR THINGS DAVID COULD SEE
 
 David, on a fresh screenshot of the August close: *"I see exactly zero changes. The TOTAL variance is still 'wrong', Rapid still shows a red X even though the numbers seem to match, BayFirst SBA still displays 'Review' even though the numbers agree."*
