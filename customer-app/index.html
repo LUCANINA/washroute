@@ -231,6 +231,11 @@
     .home-greeting { font-size: 25px; font-weight: 800; }
     #screen-home .section { padding-top: 28px; }
     #screen-home .section-title { margin-bottom: 14px; }
+    /* Active Orders keeps 28px under the hero when it's first on the page. When the
+       subscription card or card-on-file banner sits above it, it drops to the same
+       16px rhythm as hero → subscription card. Hidden blocks carry style="display:none". */
+    #screen-home .sub-home-card { margin-bottom: 0; }
+    #screen-home .main-content > :not([style*="none"]) ~ .section.home-orders-section { padding-top: 16px; }
     #screen-home .home-cta-section { padding-top: 22px !important; }
     /* Home invite strip — pinned above the tab bar, deliberately quieter than "Schedule a Pickup" */
     .ref-strip { position: fixed; left: 50%; transform: translateX(-50%); width: calc(100% - 36px); max-width: 394px;
@@ -725,13 +730,19 @@
     .rate-review { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; padding: 13px; border-radius: 10px; border: 1.5px solid var(--gray-200); background: white; color: var(--navy); font-size: 16px; font-weight: 700; text-align: center; text-decoration: none; font-family: inherit; }
     .d-rated { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .d-rated-stars { color: #f59e0b; font-size: 19px; letter-spacing: 1px; }
-    /* Preferences panel: one spacing rhythm for every section, including the
-       Save button (session 299). Inline margins on those blocks are overridden
-       here so the gaps can never drift apart again. */
-    #sub-prefs .sub-panel-body > * + * { margin-top: 22px !important; }
-    #sub-prefs .sub-panel-body > #account-prefs-container > .order-addon-section:first-child { margin-top: 0; }
-    #sub-prefs .sub-panel-body > #account-prefs-container > .order-pref-group:last-child { margin-bottom: 0; }
-    #sub-prefs .pref-save-btn { margin-top: 22px; }
+    /* Preferences panel = three labelled sections: Laundry Plan / Laundry Care / Tips.
+       Section headings use the Profile hub's .pf-label; inside a section, group
+       titles are quieter sentence-case sub-labels so the hierarchy reads at a glance. */
+    #sub-prefs .prefs-section { margin-bottom: 26px; }
+    #sub-prefs .prefs-section .pf-card { margin-bottom: 0; }
+    #sub-prefs .prefs-section .pf-row { border-bottom: none; border-radius: 12px; }
+    #sub-prefs .prefs-sub,
+    #sub-prefs .order-addon-section-title,
+    #sub-prefs #account-prefs-container .order-pref-label { font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--gray-600); margin: 0 2px 8px; }
+    #sub-prefs #account-prefs-container > .order-addon-section:first-child { margin-top: 0; }
+    #sub-prefs #account-prefs-container > .order-pref-group:last-child { margin-bottom: 0; }
+    #sub-prefs .prefs-notes { margin-top: 18px; }
+    #sub-prefs .pref-save-btn { margin-top: 4px; }
 
     /* ── Help & Info / FAQ (session 299) ── */
     .faq-search { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 10px; padding: 10px 12px; font-size: 15.5px; font-family: inherit; outline: none; }
@@ -1323,7 +1334,7 @@
         </div>
       </div>
 
-      <div class="section">
+      <div class="section home-orders-section">
         <div class="section-title">Active Orders</div>
         <div id="home-active"></div>
       </div>
@@ -1633,7 +1644,7 @@
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
             <div>
               <div class="mi-label">Profile</div>
-              <div class="mi-value">Contact, addresses, payment, plan</div>
+              <div class="mi-value">Contact, addresses, payment</div>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -1647,7 +1658,7 @@
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
             <div>
               <div class="mi-label">Preferences</div>
-              <div class="mi-value">Detergent, care notes, default tip</div>
+              <div class="mi-value">Laundry plan, care notes, tips</div>
             </div>
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
@@ -1749,11 +1760,6 @@
           <div class="pf-main"><div class="pf-title">Payment</div><div class="pf-val" id="acct-menu-card-info"></div></div>
           <span class="mi-badge warn" id="pf-payment-badge" style="display:none">Required</span><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
-        <!-- Subscription — hidden behind SUBSCRIPTIONS_ENABLED feature flag -->
-        <div class="pf-row" id="acct-menu-plan-item" onclick="openPlanPanel()" style="display:none">
-          <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
-          <div class="pf-main"><div class="pf-title">Laundry Plan</div><div class="pf-val" id="acct-menu-plan-name"></div></div><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
         <!-- Billing History — moved here from the Account menu (session 299) -->
         <div class="pf-row" onclick="openBillingHistory()">
           <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg></div>
@@ -1821,15 +1827,34 @@
       <div class="sub-panel-title">Preferences</div>
     </div>
     <div class="sub-panel-body">
-      <div id="account-prefs-container">
-        <div style="color:#94a3b8;font-size:15px;text-align:center;padding:20px 0">Loading preferences…</div>
+      <!-- 1. Laundry Plan (moved here from Profile) — hidden behind SUBSCRIPTIONS_ENABLED -->
+      <div class="prefs-section" id="acct-menu-plan-item" style="display:none">
+        <div class="pf-label">Laundry Plan</div>
+        <div class="pf-card">
+          <div class="pf-row" onclick="openPlanPanel()">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
+            <div class="pf-main"><div class="pf-title" id="prefs-plan-title">Pay As You Go</div><div class="pf-val" id="acct-menu-plan-name"></div></div>
+            <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+          </div>
+        </div>
       </div>
-      <div style="margin-top:22px">
-        <div class="order-pref-label" style="margin-bottom:8px">Special Care Notes</div>
-        <textarea id="pref-notes" rows="3" placeholder="e.g. Hang dry delicates, separate darks…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:15px;color:var(--text);resize:none;box-sizing:border-box;outline:none"></textarea>
+      <!-- 2. Laundry Care: wash preferences, add-ons, care notes -->
+      <div class="prefs-section">
+        <div class="pf-label">Laundry Care</div>
+        <div id="account-prefs-container">
+          <div style="color:#94a3b8;font-size:15px;text-align:center;padding:20px 0">Loading preferences…</div>
+        </div>
+        <div class="prefs-notes">
+          <div class="prefs-sub">Special care notes</div>
+          <textarea id="pref-notes" rows="3" placeholder="e.g. Hang dry delicates, separate darks…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:15px;color:var(--text);resize:none;box-sizing:border-box;outline:none"></textarea>
+        </div>
       </div>
-      <div id="prefs-tip-section" style="margin-top:22px"></div>
-      <button class="pref-save-btn" onclick="savePreferences()" style="margin-top: 20px">Save Preferences</button>
+      <!-- 3. Tips -->
+      <div class="prefs-section">
+        <div class="pf-label">Tips</div>
+        <div id="prefs-tip-section"></div>
+      </div>
+      <button class="pref-save-btn" onclick="savePreferences()">Save Preferences</button>
     </div>
   </div>
 
@@ -9841,7 +9866,7 @@ function renderPaymentSection() {
   _custTipType  = tipType;
   // Session 293: saved together with add-ons + notes by "Save Preferences".
   const tipHtml = `
-    <div class="order-pref-label" style="margin-bottom:8px">Default Tip</div>
+    <div class="prefs-sub">Default tip</div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div id="tip-type-toggle" style="display:inline-flex;align-items:stretch;height:42px;border:1.5px solid var(--gray-200);border-radius:8px;overflow:hidden">
         <button type="button" class="tip-toggle-btn${tipType==='$'?' active':''}" data-type="$" onclick="setCustomerTipType('$')">$</button>
@@ -10307,7 +10332,6 @@ async function loadAccount() {
   const planMenuValue  = document.getElementById('acct-menu-plan-name');
   if (planMenuValue) {
     if (_activeSub) {
-      const pname = _activeSub.subscription_plans?.name || 'Subscriber';
       // Session 167 phase 7 fix: surface scheduled cancellation in the menu sub-label.
       const statusSuffix = _activeSub.cancel_at_period_end ? ' · cancelling' :
                            _activeSub.status === 'active' ? '' :
@@ -10315,9 +10339,9 @@ async function loadAccount() {
                            _activeSub.status === 'past_due' ? ' · past due' :
                            _activeSub.status === 'trialing' ? ' · scheduled' :  // session 190
                            _activeSub.status === 'cancelled' ? ' · cancelled' : '';
-      planMenuValue.textContent = pname + statusSuffix;
+      planMenuValue.textContent = 'Manage your subscription' + statusSuffix;
     } else {
-      planMenuValue.textContent = 'Pay As You Go · see plans';
+      planMenuValue.textContent = 'Compare plans & save';
     }
   }
   if (planMenuItem) planMenuItem.style.display = SUBSCRIPTIONS_ENABLED() ? '' : 'none';
@@ -10614,6 +10638,8 @@ function planBadgeInfo() {
 function renderPlanBadges() {
   const show = !!currentCustomer && SUBSCRIPTIONS_ENABLED();
   const info = show ? planBadgeInfo() : null;
+  const prefsTitle = document.getElementById('prefs-plan-title');
+  if (prefsTitle && info) prefsTitle.textContent = info.text;
   document.querySelectorAll('.plan-badge-slot').forEach(slot => {
     if (!show) { slot.innerHTML = ''; return; }
     const compact = slot.dataset.variant === 'compact';
