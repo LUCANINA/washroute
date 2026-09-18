@@ -64,9 +64,23 @@ console.log('fixFromWalk')
   // 5. the accountant's own entry: with a prepared correction it is a fix; without, her note is the question
   const ceFix = fixFromWalk(walk({ proposal: null, cpa_exception: { note: 'Her split double-counted June. Reverse 283.07.', token: 'ce', proposed_entry: { amount: 283.07, direction: 'interest_back_to_loan', dated_because: 'July closed', ...journal(283.07) } } }), V)
   ok(ceFix.state === 'fix' && ceFix.kind === 'cpa_exception' && ceFix.post_flag === 'post_exception' && ceFix.amount === 283.07, 't5 exception with entry → fix via post_exception')
-  const ceQ = fixFromWalk(walk({ proposal: null, cpa_exception: { note: 'Two journals book the 5 Aug principal — which one should stand? Both are live.', token: null, proposed_entry: null } }), V)
+  const ceQ = fixFromWalk(walk({ proposal: null, cpa_exception: { note: 'Two journals book the 5 Aug principal — which one should stand? Both are live.', token: null, proposed_entry: null, diagnosis: { shape: 'partly_duplicated' } } }), V)
   ok(ceQ.state === 'accountant' && ceQ.question === 'Two journals book the 5 Aug principal — which one should stand?', 't5b exception without entry → accountant, first sentence')
   ok(ceQ.state === 'accountant' && ceQ.working.some(w => w.text.includes('Both are live')), 't5c the rest of the note survives in working')
+  // 5d. undecomposable: the question is built from the diagnosis figures, not the note's first sentence
+  const und = fixFromWalk(walk({ proposal: null, cpa_exception: { split_period: '2026-08', note: 'Your accountant split this payment herself, putting $720.59 on Interest Expense. Left for her.', token: null, proposed_entry: null, diagnosis: { shape: 'undecomposable', at_source: 720.59, owed: 283.07 } } }), V)
+  ok(und.state === 'accountant' && und.question === 'Her $720.59 interest split on 2026-08 does not match the $283.07 the schedule owes, and the engine cannot say what the extra covers.', 't5d undecomposable → accountant, question from the figures')
+  // 5h. an exception inside closed books with nothing to post is history, not a question
+  const closedQ = fixFromWalk(walk({ proposal: null, cpa_exception_closed: true, cpa_exception: { split_period: '2026-01-07', note: 'Left for her.', token: null, proposed_entry: null, diagnosis: { shape: 'undecomposable', at_source: 720.59, owed: 707.78 } } }), V)
+  ok(closedQ.state === 'none' && /closed books/.test(closedQ.why || ''), 't5h closed-books exception without an entry → none, never accountant')
+  const closedFix = fixFromWalk(walk({ proposal: null, cpa_exception_closed: false, cpa_exception: { note: 'x.', token: 'ce', proposed_entry: { amount: 5, ...journal(5) }, diagnosis: { shape: 'partly_duplicated' } } }), V)
+  ok(closedFix.state === 'fix', 't5i ...but one WITH a prepared entry is still a fix (the engine re-dates it into an open month)')
+  // 5e. no_duplication is NOT a question — examined and found sound. Falls through to none (or a write-off).
+  const sound = fixFromWalk(walk({ proposal: null, writeoff: { eligible: false, why: 'material' }, cpa_exception: { note: "Your accountant's $471.42 interest split covers the 1 month below. Nothing to propose.", token: null, proposed_entry: null, diagnosis: { shape: 'no_duplication', at_source: 471.42, owed: 471.42 } } }), V)
+  ok(sound.state === 'none', 't5e no_duplication → none, never accountant')
+  ok(sound.state === 'none' && /material/.test(sound.why || ''), 't5f ...with the write-off refusal as the why (most specific first)')
+  const soundWo = fixFromWalk(walk({ proposal: null, writeoff: { eligible: true, amount: 0.01, journal: journal(0.01), token: 'w', dated_into: '2026-08-31' }, cpa_exception: { note: 'sound.', token: null, proposed_entry: null, diagnosis: { shape: 'no_duplication' } } }), V)
+  ok(soundWo.state === 'fix' && soundWo.kind === 'unexplained_difference_writeoff', 't5g no_duplication does not block an eligible write-off')
 
   // 6. no history, no run, nothing — each says why in the engine's words
   eq(fixFromWalk(walk({ verdict: 'not_enough_history', narrative: 'needs two statements' }), V), { schema: 1, state: 'none', why: 'needs two statements', version: V }, 't6 not enough history')

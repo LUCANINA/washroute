@@ -76,6 +76,7 @@ export type ProposedFix =
     }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
+const money = (n: number) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function firstSentence(s: unknown): string {
   const t = String(s ?? '').trim()
@@ -149,11 +150,25 @@ export function fixFromWalk(walk: any, version: string | null): ProposedFix {
     return none(`the analysis proposed "${p.kind}", which the row cannot show`)
   }
 
-  // `cpa_exception` (s232/236): a payment the accountant worked herself. With a
-  // prepared `proposed_entry` it is a fix; without one its `note` IS the decision
-  // and belongs to her, so the row states it and offers nothing to click.
+  // `cpa_exception` (s232/236): a payment the accountant worked herself. Four shapes
+  // from diagnoseWorkedEntry, and they do NOT all mean the same thing on the row:
+  //   duplicated_reallocation / partly_duplicated  + proposed_entry  → a fix
+  //   undecomposable                                                  → hers ("Left for her")
+  //   no_duplication                                                  → NOT a finding: examined and
+  //                                                                     found sound. Falls through.
+  //                                                                     (attribution-from-walk skips
+  //                                                                     it for the same reason.)
+  // The first live run (2026-09-17) put "Your accountant's $471.42 interest split covers
+  // the 1 month below" on Rapid Credit as a QUESTION for her — it is the engine saying
+  // there is nothing to ask. A row that asks a person to decide something already
+  // decided is the queue people learn to ignore.
+  // And an exception with nothing to post that sits INSIDE CLOSED BOOKS is history,
+  // not a question (s272; the engine says so itself via `cpa_exception_closed`). The
+  // second live run put a January question on PayPal 2's August row.
   const ce = walk.cpa_exception
-  if (ce) {
+  const ceShape = String(ce?.diagnosis?.shape ?? '')
+  const ceClosed = walk.cpa_exception_closed === true
+  if (ce && ceShape !== 'no_duplication' && !ceClosed) {
     const pe = ce.proposed_entry
     const j = pe ? cleanJournal(pe) : null
     if (j && ce.token) {
@@ -166,7 +181,14 @@ export function fixFromWalk(walk: any, version: string | null): ProposedFix {
         journal: j, token: String(ce.token), version, working: W,
       }
     }
-    const q = firstSentence(ce.note)
+    // No entry to post: the question, stated from the diagnosis's own figures rather
+    // than the note's first sentence (which on `undecomposable` is a description, not
+    // the question).
+    const d = ce.diagnosis || {}
+    const at = Number(d.at_source), owed = Number(d.owed)
+    const q = (Number.isFinite(at) && Number.isFinite(owed) && ce.split_period)
+      ? `Her ${money(at)} interest split on ${ce.split_period} does not match the ${money(owed)} the schedule owes, and the engine cannot say what the extra covers.`
+      : firstSentence(ce.note)
     if (q) {
       push('In full', ce.note)
       return { schema: PROPOSED_FIX_SCHEMA, state: 'accountant', question: q, version, working: W }
@@ -190,6 +212,9 @@ export function fixFromWalk(walk: any, version: string | null): ProposedFix {
   }
 
   // Nothing postable. Say why in the engine's words, most specific first.
-  const why = wo?.why || walk.trueup?.why || walk.recorded_entry?.why || walk.no_action_detail || null
+  const why = wo?.why || walk.trueup?.why || walk.recorded_entry?.why
+    || (ceShape === 'no_duplication' ? firstSentence(ce.note) : null)
+    || (ce && ceClosed ? 'the entry your accountant worked sits inside closed books; nothing is proposed' : null)
+    || walk.no_action_detail || null
   return none(why)
 }
