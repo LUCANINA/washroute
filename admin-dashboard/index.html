@@ -4187,7 +4187,20 @@
                verdicts. Spacing does the grouping — no divider, no second
                colour (one contrast step, session 219). */
             .lcb-checks > [data-col="staging"] { margin-left: 11px; }
-            .lcb-mark-quiet { display: none; }
+            /* s313: a passing mark is not drawn at all. ⚠️ THE SELECTOR NEEDS TWO
+               CLASSES. `.lcb-checks > .lcb-chk { display: inline-block }` above is
+               (0,2,0) and a bare `.lcb-mark-quiet` is (0,1,0), so the one-class rule
+               lost however late it sat in the file — and s311 shipped fourteen rows
+               of empty grey circles that read as an unfilled status light. The
+               element STAYS in the DOM; only its box goes. */
+            /* The inline "+N" inside a queued button. Carries `lcb-more` too: that is
+               the marker this codebase already uses for the +N counter, and what the
+               action-label suite excludes by name. Padding is reset because that class
+               was written for a standalone chip, not for text inside a button. */
+            .lcb-more-n { font-weight: 700; margin-left: 5px; padding: 0; opacity: .65; color: inherit; }
+            .lcb-mark-quiet,
+            .lcb-checks > .lcb-mark-quiet,
+            .lcb-checks > .lcb-chk.lcb-mark-quiet { display: none; }
             .lcb-ledger-fig { font-size: 10.5px; font-weight: 600; margin-left: 3px; font-variant-numeric: tabular-nums; }
             .lcb-foldrow { cursor: pointer; }
             .lcb-foldrow td { padding: 7px 10px; font-size: 11.5px; color: var(--gray-600); background: var(--gray-50); border-top: 1px solid var(--gray-200); }
@@ -20814,8 +20827,19 @@
       const it = items[0];
       return `<button type="button" class="lcb-do lcb-queued" onclick="event.stopPropagation();${it.onclick || ''}" title="${esc(`${it.name} — ${it.reason || ''}`)}">${esc(it.action || 'Review')}${per(it)}</button>`;
     }
+    // ── s313: "3 waiting" NAMES NOTHING (David) ───────────────────────────
+    // David: "Why is BayFirst, Ford 4140, 4751 still showing a problem when
+    // there's no variance?" On BayFirst the row could answer him — one item, so
+    // it reads `Review · September`. On the two Ford loans it could not: several
+    // items collapsed to a bare count, and a count is not an issue.
+    //
+    // The list is already severity-ordered, so the leading item is the one worth
+    // naming. It gets the same verb and the same month suffix a single item gets,
+    // and the rest become `+N` — the pattern this column already uses for a row
+    // that has its own action (`moreCell`). The full list stays on the hover.
     const t = items.map(i => `${i.name} — ${i.reason || ''}`).join(' · ');
-    return `<button type="button" class="lcb-do lcb-queued" onclick="event.stopPropagation();openLoanDetailModal('${esc(items[0].loanId)}')" title="${esc(t)}">${items.length} waiting</button>`;
+    const lead = items[0];
+    return `<button type="button" class="lcb-do lcb-queued" onclick="event.stopPropagation();openLoanDetailModal('${esc(lead.loanId)}')" title="${esc(t)}">${esc(lead.action || 'Review')}${per(lead)}<span class="lcb-more lcb-more-n">+${items.length - 1}</span></button>`;
   }
 
   // ── NOTHING IS UNREACHABLE, INCLUDING WHAT HAS NO ROW ──────────────────

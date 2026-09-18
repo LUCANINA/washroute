@@ -14592,6 +14592,23 @@ GROUPS.push({
       t.ok(marks.some(m => m.bad && m.text !== ''),
            's311: ...while a real issue still prints', JSON.stringify(marks.filter(m => m.bad).map(m => m.text)));
 
+      // ── s313: HIDDEN MEANS NOT DRAWN, AND THE SUITE HAS TO MEASURE PIXELS ──
+      // s311 blanked the glyph but the mark still had a box: `.lcb-checks >
+      // .lcb-chk { display: inline-block }` is (0,2,0) and `.lcb-mark-quiet` was
+      // (0,1,0), so fourteen rows kept an empty grey circle that reads as an
+      // unfilled status light. Asserting on TEXT could never have caught it —
+      // the text really was empty. This asks the browser what it painted.
+      const boxes = await p.evaluate(() => [...document.querySelectorAll('#lcb-table tbody tr[data-loan-id] [data-col="status"], #lcb-table tbody tr[data-loan-id] [data-col="ledger"]')]
+        .map(e => ({ quiet: /lcb-mark-quiet/.test(e.className),
+                     drawn: e.getClientRects().length > 0,
+                     display: getComputedStyle(e).display })));
+      t.ok(boxes.filter(b => b.quiet).every(b => !b.drawn && b.display === 'none'),
+           's313: a passing mark is not DRAWN — no empty circle where nothing is wrong',
+           JSON.stringify(boxes.filter(b => b.quiet && b.drawn).slice(0, 3)));
+      t.ok(boxes.filter(b => !b.quiet).every(b => b.drawn),
+           's313: ...and a real issue IS drawn — the rule cannot hide the marks that matter',
+           JSON.stringify(boxes.filter(b => !b.quiet && !b.drawn).slice(0, 3)));
+
       // The staging dot moved to the Loan column, and moved rather than copied.
       t.ok(seen.every(r => r.stagingInLoan),
            's311: every row carries its staging state in the Loan column (David)',

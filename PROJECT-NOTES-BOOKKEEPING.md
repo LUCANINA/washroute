@@ -21257,6 +21257,42 @@ The UI is reverted; the accounting is not. Both of these were diagnosed against 
 
 Nothing else in Bookkeeping changed. The `stale-anchor-ask` / `rollback-beats-stale` reds (PayPal 2's $3,120.61, awaiting Ramona's journal) and `history / s240 #10` are untouched and still red on purpose.
 
+## Session 313 (2026-09-18) — A DAILY RECONCILIATION, AND RAPID'S $457.14 PROVED AGAINST XERO
+
+### 1 · `reconciliation-run` IS NOW SCHEDULED — `wr-reconciliation-daily`, jobid 30, `0 13 * * *`
+6am Pacific, an hour before the 7am attribution job (jobid 25), so the walk reads balances refreshed that morning instead of whenever someone last clicked. **This closes the gap s309 recorded: there was no cron for it at all.** Preflight run per the skill and the answer was LOW on every axis — the function has **zero** outbound-message paths (no twilio / sms_log / notification_queue / klaviyo), **zero** POST or PUT to Xero, and writes only `reconciliation_runs`, `reconciliation_findings`, `loan_book_balances`, `loan_tie_outs`. Mode `incremental`, the same the dashboard button sends. ~24 Xero calls/day of 1,000.
+
+### 2 · RAPID CREDIT'S $457.14 IS REAL, AND IT IS A DATE — MEASURED FROM XERO, NOT INFERRED
+| | |
+|---|---|
+| Our walk / the lender, 31 Aug | **51,529.02** (they agree to the cent) |
+| **Xero's own Trial Balance, account 247, "As at 31 August 2026"** | **51,071.88** |
+| Difference | **457.14** |
+
+**It is one journal.** `71ed82b2-c62e-4c27-8a0a-75074ce8e2f7`, narration *"Rapid Credit Line — interest, 2026-08-31"*, and **Xero's Date on it is 2026-09-01**. 51,071.88 + 457.14 = 51,529.02 exactly. August interest expense is $457.14 light and September the same amount heavy; the cumulative balance self-corrects by 30 Sep.
+
+⚠️ **THE TRIAL BALANCE IS WHAT SETTLES THIS, NOT THE JOURNAL READ.** `xero-read` normalises two date shapes, so a +1 day in its output could have been our parsing. The Trial Balance is Xero's own report and it excludes the amount — independent of how we read a date. Do not re-litigate this from the journal alone.
+
+**It is not systemic.** The loan's other three August journals (`dac01378` 08-03, `2e721761` 08-10, `4b1bca28` 08-18) all carry the dates their narrations claim. Our product has posted exactly three zero-total journals ever (all on Rapid); one is off.
+
+**Where it came from:** `loan-xero-post:1887`, the pure-reclass branch, sets `Date: split.period_label` — the only place the product ORIGINATES a journal date rather than echoing a Xero `DateString`. One sample, so **this is a lead, not a proven root cause** — do not write it up as one.
+
+🔴 **THE FIX IS A HUMAN EDIT IN XERO: re-date `71ed82b2` from 1 Sep to 31 Aug.** The product has no journal-edit path and should not grow one for this.
+⭐ **THE GUARD WORTH BUILDING, NOT YET BUILT:** every ManualJournals POST response already carries the date Xero kept (`postJson.ManualJournals[0].Date`), and **nothing reads it**. Comparing it to the date we sent costs zero extra Xero calls and would have named this on 4 September instead of leaving it to a balance gap found on a screenshot two weeks later. Sites: `loan-xero-post` 1906 and 2538.
+
+### 3 · TWO DEFECTS DAVID FOUND ON THE s311 SCREEN
+**a · FOURTEEN EMPTY CIRCLES — a CSS specificity bug I shipped.** s311 blanked the glyph on a passing mark and added `.lcb-mark-quiet { display: none }`. But `.lcb-checks > .lcb-chk { display: inline-block }` is **(0,2,0)** and a bare `.lcb-mark-quiet` is **(0,1,0)** — the one-class rule loses however late it sits. Every passing mark kept its 19px bordered circle, which reads as an unfilled status light: exactly the "still showing a problem" David asked about. Now a two-class selector.
+⚠️ **AND THE ASSERTION COULD NEVER HAVE CAUGHT IT, because the TEXT really was empty.** `s313` asks the browser what it PAINTED — `getClientRects().length` and computed `display` — and is a pair: a quiet mark is not drawn, AND a real issue still is. Mutation (restore the one-class rule) proved red.
+
+**b · "3 waiting" NAMED NOTHING.** One queued item got a verb and a month (`Review · September`); several collapsed to a bare count — so the two Ford loans, the ones David asked about, were the rows the product declined to explain. The list is severity-ordered, so the leading item now gets the same verb and month suffix, with the rest as `+N`; the full list stays on the hover.
+⚠️ **The `+N` span carries `lcb-more`** — the marker this codebase already uses for that counter and the one `action-two-labels` excludes by name. A new spelling (`lcb-more-n` alone) turned that suite red, and the right fix was the class, not the test.
+
+### WHY BAYFIRST / 4140 / 4751 SHOW WORK WITH NO VARIANCE — the answer to David's question
+They are not variances. The ACTION column is a **work queue**, and a loan can tie to the lender to the cent and still carry: a payment booked with no interest split (4140: 2026-08-11 $5,000 and 2026-07-17 $1,180.32; 4751: 2026-09-14 and 2026-07-13, both $1,046.95), two periods booked against one payment (4140), an extra principal payment (4140, ~2026-08-10), or a transaction deleted in Xero (BayFirst 2026-09-05 $1,046.56; 4140 2026-09-17; 4751 2026-09-12). **Open question for David: should items dated outside the closing month appear on that month's table at all, or only on the month they belong to?** They are labelled now; whether they belong is his call.
+
+### Measured
+807 + 1,172 + 319 + 328 = **2,626 assertions, 12 failures — the 11 deliberate (`stale-anchor-ask` 6, `rollback-beats-stale` 5) and the pre-existing `history / s240 #10`.** `s310-row-reads` is 17.
+
 ## Session 311 (2026-09-18) — THE COLUMN NAMES THE ISSUE, NOT THE METHOD
 
 David, on the s310 screen: *"Is the Checks column necessary or just confusing? The goal is to find the variance, name the issue. How we got there is not as important [as] finding the issue."* Also: PCV and Verdant had vanished, and the green staging dot with them.
