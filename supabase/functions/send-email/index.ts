@@ -29,7 +29,7 @@ const STAFF_EMAIL_ROLES = new Set(['admin', 'manager', 'attendant']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type AuthOk =
-  | { ok: true; mode: 'staff' }
+  | { ok: true; mode: 'staff'; sender: { id: string; name: string } | null }
   | { ok: true; mode: 'customer'; customerId: string; toEmail: string };
 type AuthResult = AuthOk | { ok: false; status: number; reason: string };
 
@@ -44,7 +44,7 @@ async function authorize(req: Request, payload: any): Promise<AuthResult> {
   if (internalSecret) {
     const secretClient = createClient(SUPABASE_URL, SUPABASE_SVC_KEY);
     const { data: iaRow } = await secretClient.from('wr_internal_auth').select('secret').maybeSingle();
-    if (iaRow?.secret && internalSecret === iaRow.secret) return { ok: true, mode: 'staff' };
+    if (iaRow?.secret && internalSecret === iaRow.secret) return { ok: true, mode: 'staff', sender: null };
   }
 
   const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || '';
@@ -52,7 +52,7 @@ async function authorize(req: Request, payload: any): Promise<AuthResult> {
   if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' };
   const jwt = m[1];
 
-  if (jwt === SUPABASE_SVC_KEY) return { ok: true, mode: 'staff' };
+  if (jwt === SUPABASE_SVC_KEY) return { ok: true, mode: 'staff', sender: null };
 
   if (jwt === SUPABASE_ANON_KEY) {
     return { ok: false, status: 401, reason: 'Anon key not accepted; sign-in required' };
@@ -66,10 +66,15 @@ async function authorize(req: Request, payload: any): Promise<AuthResult> {
 
   const adminClient = createClient(SUPABASE_URL, SUPABASE_SVC_KEY);
   const { data: profile, error: profErr } = await adminClient
-    .from('profiles').select('role').eq('id', user.id).single();
+    .from('profiles').select('role, first_name, last_name, email').eq('id', user.id).single();
   if (profErr || !profile) return { ok: false, status: 403, reason: 'Profile not found' };
 
-  if (STAFF_EMAIL_ROLES.has(profile.role)) return { ok: true, mode: 'staff' };
+  // Session 312: record who sent it, from the verified login (never the body).
+  if (STAFF_EMAIL_ROLES.has(profile.role)) {
+    const name = [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim()
+      || profile.email || user.email || 'Staff';
+    return { ok: true, mode: 'staff', sender: { id: user.id, name } };
+  }
 
   if (profile.role === 'customer') {
     const orderId = payload?.order_id;
@@ -186,6 +191,9 @@ Deno.serve(async (req: Request) => {
       body: finalBody,
       from_email: FROM_EMAIL,
       to_email,
+      ...(auth.mode === 'staff' && auth.sender
+        ? { sent_by_user_id: auth.sender.id, sent_by_name: auth.sender.name }
+        : {}),
     });
 
     if (insertErr) console.warn('email_messages insert error:', insertErr.message);

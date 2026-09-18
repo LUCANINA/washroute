@@ -35351,6 +35351,23 @@ ${oneCopy}
     return `<div class="message-bubble message-${m.direction}${media.length ? ' has-media' : ''}">${mediaHtml}${bodyHtml}</div>`;
   }
 
+  // Session 312: who sent an outbound message. send-sms stamps sent_by_name
+  // from the sender's login (server-side, can't be faked from the browser).
+  // No name + sent after the change went live = sent by the system.
+  // Older messages carry no attribution, so they show nothing.
+  const _SMS_SENDER_TRACKING_SINCE = '2026-09-18T18:16:00Z';
+  function _smsSenderLabel(m) {
+    if (!m || m.direction !== 'outbound') return '';
+    if (m.sent_by_name) {
+      return ` · <span style="color:var(--gray-700);font-weight:600" title="Sent from this staff login">${esc(m.sent_by_name)}</span>`;
+    }
+    if (m.sent_by_driver_id) return ` · <span style="color:var(--gray-700);font-weight:600">Driver</span>`;
+    if (m.created_at && m.created_at >= _SMS_SENDER_TRACKING_SINCE) {
+      return ` · <span style="color:var(--gray-400)" title="Sent automatically by WashRoute, not by a person">Automated</span>`;
+    }
+    return '';
+  }
+
   // Inline delivery indicator shown next to an outbound bubble's timestamp
   // (session 178). Reads Twilio delivery receipts captured on sms_messages.
   // Historical messages (pre-tracking) are all 'sent' → grey "Sent".
@@ -35528,7 +35545,7 @@ ${oneCopy}
                   <button class="msg-action-btn" onclick="convertMsgToLostFound('${m.id}','lost')" title="Add to Lost &amp; Found as Lost">+ Lost</button>
                 </div>
               ` : ''}
-              <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}${_smsDeliveryBadge(m)}</div>
+              <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}${_smsSenderLabel(m)}${_smsDeliveryBadge(m)}</div>
             </div>`).join('')}
           ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
         </div>
@@ -36663,7 +36680,7 @@ ${oneCopy}
             body,
             media_urls: mediaUrls.map(u => ({ url: u, content_type: '' })),
           };
-          bubble.innerHTML = `${renderMessageBubble(optimisticMsg)}<div class="msg-ts">${fmtDate(new Date().toISOString())} ${fmtTime(new Date().toISOString())}</div>`;
+          bubble.innerHTML = `${renderMessageBubble(optimisticMsg)}<div class="msg-ts">${fmtDate(new Date().toISOString())} ${fmtTime(new Date().toISOString())}${_smsSenderLabel(data.message || {})}</div>`;
           container.appendChild(bubble);
           msgThread.scrollTop = msgThread.scrollHeight;
         }

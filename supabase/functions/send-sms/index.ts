@@ -10,6 +10,30 @@ const SUPABASE_URL      = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SVC_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
+// --- Staging kill-switch (Track A3, Aug 2026) ---------------------------
+// Fail-closed: if we can't PROVE this project is production, refuse to
+// send. Never rely on client-side env detection for this — see
+// WashRoute-Staging-Config-Scope.md and the Golden Rule in
+// washroute-preflight: assume an outbound send WILL reach a real person
+// unless proven otherwise.
+async function assertProductionOrRefuse(): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/settings?select=wr_environment&id=eq.1`, {
+      headers: { 'Authorization': `Bearer ${SUPABASE_SVC_KEY}`, 'apikey': SUPABASE_SVC_KEY },
+    });
+    if (!res.ok) return { ok: false, status: 500, reason: 'wr_environment check failed (fail-closed)' };
+    const rows = await res.json();
+    const env = rows?.[0]?.wr_environment;
+    if (env !== 'production') {
+      return { ok: false, status: 403, reason: `Blocked by staging kill-switch: wr_environment='${env ?? 'unset'}', not 'production'` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, status: 500, reason: `wr_environment check errored (fail-closed): ${String(e)}` };
+  }
+}
+// --------------------------------------------------------------------------
+
 // Roles allowed to originate outbound SMS via this endpoint. The roles in
 // public.profiles are: customer, attendant, driver, manager, admin,
 // pos_device, laundry_tech. Staff who interact with customers can send SMS;
@@ -17,13 +41,18 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 // laundry_tech (back-of-house, no customer contact) are excluded.
 const STAFF_SMS_ROLES = new Set(['admin', 'manager', 'driver', 'attendant']);
 
-async function authorize(req: Request): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+// Session 312: who sent it. Taken from the caller's verified login, never from
+// the request body, so a browser cannot send as someone else. null = system
+// caller (service-role key) -> shown as "Automated" in the Admin inbox.
+type Sender = { id: string; name: string } | null;
+
+async function authorize(req: Request): Promise<{ ok: true; sender: Sender } | { ok: false; status: number; reason: string }> {
   const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || '';
   const m = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' };
   const jwt = m[1];
 
-  if (jwt === SUPABASE_SVC_KEY) return { ok: true };
+  if (jwt === SUPABASE_SVC_KEY) return { ok: true, sender: null };
 
   if (jwt === SUPABASE_ANON_KEY) {
     return { ok: false, status: 401, reason: 'Anon key not accepted; staff login required' };
@@ -37,13 +66,15 @@ async function authorize(req: Request): Promise<{ ok: true } | { ok: false; stat
 
   const adminClient = createClient(SUPABASE_URL, SUPABASE_SVC_KEY);
   const { data: profile, error: profErr } = await adminClient
-    .from('profiles').select('role').eq('id', user.id).single();
+    .from('profiles').select('role, first_name, last_name, email').eq('id', user.id).single();
   if (profErr || !profile) return { ok: false, status: 403, reason: 'Profile not found' };
   if (!STAFF_SMS_ROLES.has(profile.role)) {
     return { ok: false, status: 403, reason: `Role '${profile.role}' not allowed to send SMS` };
   }
 
-  return { ok: true };
+  const name = [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim()
+    || profile.email || user.email || 'Staff';
+  return { ok: true, sender: { id: user.id, name } };
 }
 
 Deno.serve(async (req: Request) => {
@@ -62,6 +93,15 @@ Deno.serve(async (req: Request) => {
     if (!auth.ok) {
       return new Response(JSON.stringify({ error: auth.reason }), {
         status: auth.status,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
+
+    const envCheck = await assertProductionOrRefuse();
+    if (!envCheck.ok) {
+      console.warn('send-sms blocked by staging kill-switch:', envCheck.reason);
+      return new Response(JSON.stringify({ error: envCheck.reason }), {
+        status: envCheck.status,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       });
     }
@@ -104,6 +144,7 @@ Deno.serve(async (req: Request) => {
 
     // Delivery receipts (session 178): tell Twilio where to POST each
     // message's final status (delivered / failed / undelivered + ErrorCode).
+    // Handled by the twilio-status-callback function -> record_sms_delivery_status RPC.
     tParams.append('StatusCallback', `${SUPABASE_URL}/functions/v1/twilio-status-callback`);
 
     const twilioRes = await fetch(
@@ -147,6 +188,10 @@ Deno.serve(async (req: Request) => {
     };
     if (sent_by_driver_id) {
       dbPayload.sent_by_driver_id = sent_by_driver_id;
+    }
+    if (auth.sender) {
+      dbPayload.sent_by_user_id = auth.sender.id;
+      dbPayload.sent_by_name    = auth.sender.name;
     }
 
     const dbRes = await fetch(`${SUPABASE_URL}/rest/v1/sms_messages`, {
