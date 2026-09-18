@@ -34,6 +34,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { attributionFromWalk } from '../_shared/attribution-from-walk.ts'
 import { buildAttributionPayload, recordedEntryAmounts, ATTRIBUTION_SCHEMA } from '../_shared/attribution-store.ts'
 import { effectiveCloseDate } from '../_shared/close-date.ts'
+import { fixFromWalk, versionKey } from '../_shared/proposed-fix.ts'
 import { selectLoans, orderByStaleness, bankEntryIds, xeroIdWhereChunks, typeMapFromRows } from './selection.ts'
 
 const cors = {
@@ -155,8 +156,17 @@ async function runOne(supa: any, loanId: string, findingId: string, secret: stri
   // amount we filed it at. An entry on file at a DIFFERENT amount is the PCV shape and
   // is still reported — see recordedEntryAmounts.
   const { data: splits } = await supa.from('loan_splits')
-    .select('xero_manual_journal_id, matched_xero_bank_transaction_id, principal_amount, voided_at')
+    .select('xero_manual_journal_id, matched_xero_bank_transaction_id, principal_amount, voided_at, computed_at, xero_posted_at, staged_at')
     .eq('loan_account_id', loanId)
+
+  // session 309: the staleness key for the stored fix — the same three tables the
+  // dashboard reads, so it can tell a journal built from today's books from one
+  // built before a statement landed. See _shared/proposed-fix.ts versionKey().
+  const [{ data: stmtTimes }, { data: lastRun }] = await Promise.all([
+    supa.from('loan_statements').select('created_at').eq('loan_account_id', loanId),
+    supa.from('reconciliation_runs').select('finished_at').not('finished_at', 'is', null).order('finished_at', { ascending: false }).limit(1),
+  ])
+  const version = versionKey({ statements: stmtTimes ?? [], splits: splits ?? [], runs: lastRun ?? [] })
 
   const ids = bankEntryIds(walk)
   const types = ids.length ? await fetchTxnTypes(ids, secret) : { map: new Map(), missing: [], rejected: [], errors: [], calls: 0 }
@@ -174,6 +184,9 @@ async function runOne(supa: any, loanId: string, findingId: string, secret: stri
     priorCloseDate,
     source: 'loan-attribution-run',
   })
+  // session 309: KEEP THE JOURNAL THE WALK PREPARED. Stored beside the cause, read
+  // by the Loans close row. Pure and bounded; see _shared/proposed-fix.ts.
+  ;(payload as any).fix = fixFromWalk(walk, version)
 
   return {
     payload,
@@ -214,7 +227,7 @@ async function handle(req: Request): Promise<Response> {
     .eq('check_key', 'balance_vs_lender').eq('status', 'open')
   if (fErr) return new Response(JSON.stringify({ error: `findings: ${fErr.message}` }), { status: 500, headers: cors })
 
-  let selected = selectLoans(findings ?? [])
+  let selected = selectLoans(findings ?? [], true)   // s309: immaterial gaps get a write-off prepared
   if (onlyLoan) selected = selected.filter(s => s.loan_account_id === onlyLoan)
 
   const { data: stored } = await supa.from('loan_attributions').select('loan_account_id, generated_at')

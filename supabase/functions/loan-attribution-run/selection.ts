@@ -46,13 +46,17 @@ export type Selected = { loan_account_id: string; finding_id: string }
  * Newest `last_seen_at` wins when a loan somehow carries two open findings, so the
  * choice is deterministic rather than dependent on row order.
  */
-export function selectLoans(rows: FindingRow[]): Selected[] {
+// session 309: `includeImmaterial` lets the job walk the loans whose gap the engine
+// called immaterial (severity 'info') too — not for a CAUSE, which those rarely have,
+// but for the write-off journal the walk prepares for them. The Loans row shows it
+// as the fix. Default false keeps every existing caller and test exactly as it was.
+export function selectLoans(rows: FindingRow[], includeImmaterial = false): Selected[] {
   const best = new Map<string, FindingRow>()
   for (const r of rows ?? []) {
     if (!r || !r.loan_account_id || !r.id) continue
     if (r.check_key !== 'balance_vs_lender') continue
     if (r.status !== 'open') continue
-    if (r.severity === 'info') continue          // the engine called it immaterial
+    if (r.severity === 'info' && !includeImmaterial) continue   // the engine called it immaterial
     const prev = best.get(r.loan_account_id)
     if (!prev || String(r.last_seen_at ?? '') > String(prev.last_seen_at ?? '')) {
       best.set(r.loan_account_id, r)
