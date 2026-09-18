@@ -730,19 +730,17 @@
     .rate-review { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; padding: 13px; border-radius: 10px; border: 1.5px solid var(--gray-200); background: white; color: var(--navy); font-size: 16px; font-weight: 700; text-align: center; text-decoration: none; font-family: inherit; }
     .d-rated { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .d-rated-stars { color: #f59e0b; font-size: 19px; letter-spacing: 1px; }
-    /* Preferences panel = three labelled sections: Laundry Plan / Laundry Care / Tips.
-       Section headings use the Profile hub's .pf-label; inside a section, group
-       titles are quieter sentence-case sub-labels so the hierarchy reads at a glance. */
-    #sub-prefs .prefs-section { margin-bottom: 26px; }
-    #sub-prefs .prefs-section .pf-card { margin-bottom: 0; }
-    #sub-prefs .prefs-section .pf-row { border-bottom: none; border-radius: 12px; }
-    #sub-prefs .prefs-sub,
-    #sub-prefs .order-addon-section-title,
-    #sub-prefs #account-prefs-container .order-pref-label { font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--gray-600); margin: 0 2px 8px; }
-    #sub-prefs #account-prefs-container > .order-addon-section:first-child { margin-top: 0; }
-    #sub-prefs #account-prefs-container > .order-pref-group:last-child { margin-bottom: 0; }
-    #sub-prefs .prefs-notes { margin-top: 18px; }
-    #sub-prefs .pref-save-btn { margin-top: 4px; }
+    /* Preferences = hub (like Profile): Laundry Plan / Laundry Care / Tips rows,
+       each opening its own panel. Inside Laundry Care, group titles are quiet
+       sentence-case sub-labels. */
+    #sub-care .prefs-sub, #sub-tips .prefs-sub,
+    #sub-care .order-addon-section-title,
+    #sub-care #account-prefs-container .order-pref-label { font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--gray-600); margin: 0 2px 8px; }
+    #sub-care #account-prefs-container > .order-addon-section:first-child { margin-top: 0; }
+    #sub-care #account-prefs-container > .order-pref-group:last-child { margin-bottom: 0; }
+    #sub-care .prefs-notes { margin-top: 22px; }
+    #sub-care .pref-save-btn, #sub-tips .pref-save-btn { margin-top: 26px; }
+    #sub-tips .prefs-hint { font-size: 13.5px; color: var(--gray-500); margin: 12px 2px 0; line-height: 1.45; }
 
     /* ── Help & Info / FAQ (session 299) ── */
     .faq-search { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 10px; padding: 10px 12px; font-size: 15.5px; font-family: inherit; outline: none; }
@@ -1821,40 +1819,57 @@
     </div>
   </div>
 
+  <!-- Preferences hub — must stay ABOVE sub-care / sub-tips / sub-plan in the DOM
+       (same z-index, later panels paint on top when opened from here). -->
   <div class="sub-panel" id="sub-prefs">
     <div class="sub-panel-header">
       <button class="sub-back-btn" onclick="closeSubPanel('sub-prefs')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="sub-panel-title">Preferences</div>
     </div>
     <div class="sub-panel-body">
-      <!-- 1. Laundry Plan (moved here from Profile) — hidden behind SUBSCRIPTIONS_ENABLED -->
-      <div class="prefs-section" id="acct-menu-plan-item" style="display:none">
-        <div class="pf-label">Laundry Plan</div>
-        <div class="pf-card">
-          <div class="pf-row" onclick="openPlanPanel()">
-            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
-            <div class="pf-main"><div class="pf-title" id="prefs-plan-title">Pay As You Go</div><div class="pf-val" id="acct-menu-plan-name"></div></div>
-            <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-          </div>
+      <div class="pf-card">
+        <!-- Laundry Plan — hidden behind SUBSCRIPTIONS_ENABLED -->
+        <div class="pf-row" id="acct-menu-plan-item" onclick="openPlanPanel()" style="display:none">
+          <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
+          <div class="pf-main"><div class="pf-title">Laundry Plan</div><div class="pf-val" id="acct-menu-plan-name"></div></div><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <div class="pf-row" onclick="openCarePanel()">
+          <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.47a1 1 0 00.99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.47a2 2 0 00-1.34-2.23z"/></svg></div>
+          <div class="pf-main"><div class="pf-title">Laundry Care</div><div class="pf-val" id="prefs-care-val">Add-ons and care notes</div></div><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <div class="pf-row" onclick="openTipsPanel()">
+          <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg></div>
+          <div class="pf-main"><div class="pf-title">Tips</div><div class="pf-val" id="prefs-tip-val">Default tip</div></div><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
       </div>
-      <!-- 2. Laundry Care: wash preferences, add-ons, care notes -->
-      <div class="prefs-section">
-        <div class="pf-label">Laundry Care</div>
-        <div id="account-prefs-container">
-          <div style="color:#94a3b8;font-size:15px;text-align:center;padding:20px 0">Loading preferences…</div>
-        </div>
-        <div class="prefs-notes">
-          <div class="prefs-sub">Special care notes</div>
-          <textarea id="pref-notes" rows="3" placeholder="e.g. Hang dry delicates, separate darks…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:15px;color:var(--text);resize:none;box-sizing:border-box;outline:none"></textarea>
-        </div>
+    </div>
+  </div>
+
+  <div class="sub-panel" id="sub-care">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-care')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Laundry Care</div>
+    </div>
+    <div class="sub-panel-body">
+      <div id="account-prefs-container">
+        <div style="color:#94a3b8;font-size:15px;text-align:center;padding:20px 0">Loading preferences…</div>
       </div>
-      <!-- 3. Tips -->
-      <div class="prefs-section">
-        <div class="pf-label">Tips</div>
-        <div id="prefs-tip-section"></div>
+      <div class="prefs-notes">
+        <div class="prefs-sub">Special care notes</div>
+        <textarea id="pref-notes" rows="3" placeholder="e.g. Hang dry delicates, separate darks…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:15px;color:var(--text);resize:none;box-sizing:border-box;outline:none"></textarea>
       </div>
-      <button class="pref-save-btn" onclick="savePreferences()">Save Preferences</button>
+      <button class="pref-save-btn" onclick="savePreferences('care', this)">Save</button>
+    </div>
+  </div>
+
+  <div class="sub-panel" id="sub-tips">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-tips')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Tips</div>
+    </div>
+    <div class="sub-panel-body">
+      <div id="prefs-tip-section"></div>
+      <button class="pref-save-btn" onclick="savePreferences('tip', this)">Save</button>
     </div>
   </div>
 
@@ -9875,7 +9890,8 @@ function renderPaymentSection() {
       <input type="number" id="cust-tip-input" value="${tipVal}" min="0" step="any" placeholder="0" inputmode="decimal"
         style="width:80px;height:42px;padding:0 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:16px;font-weight:600;text-align:center;outline:none;font-family:inherit">
       <div style="font-size:14px;color:var(--gray-500);flex:1;min-width:110px">Added to each order</div>
-    </div>`;
+    </div>
+    <div class="prefs-hint">Set to 0 for no default tip.</div>`;
 
   // ── Payment methods (session 293: in-app sheet, real card details) ──
   let cardsListHtml = '';
@@ -10339,9 +10355,9 @@ async function loadAccount() {
                            _activeSub.status === 'past_due' ? ' · past due' :
                            _activeSub.status === 'trialing' ? ' · scheduled' :  // session 190
                            _activeSub.status === 'cancelled' ? ' · cancelled' : '';
-      planMenuValue.textContent = 'Manage your subscription' + statusSuffix;
+      planMenuValue.textContent = (_activeSub.subscription_plans?.name || 'Subscriber') + statusSuffix;
     } else {
-      planMenuValue.textContent = 'Compare plans & save';
+      planMenuValue.textContent = 'Pay As You Go · compare plans';
     }
   }
   if (planMenuItem) planMenuItem.style.display = SUBSCRIPTIONS_ENABLED() ? '' : 'none';
@@ -10638,8 +10654,6 @@ function planBadgeInfo() {
 function renderPlanBadges() {
   const show = !!currentCustomer && SUBSCRIPTIONS_ENABLED();
   const info = show ? planBadgeInfo() : null;
-  const prefsTitle = document.getElementById('prefs-plan-title');
-  if (prefsTitle && info) prefsTitle.textContent = info.text;
   document.querySelectorAll('.plan-badge-slot').forEach(slot => {
     if (!show) { slot.innerHTML = ''; return; }
     const compact = slot.dataset.variant === 'compact';
@@ -10851,7 +10865,50 @@ function openPrefsSubPanel() {
   renderAccountPrefs();
   const _prefNotesEl = document.getElementById('pref-notes');
   if (_prefNotesEl) _prefNotesEl.value = currentCustomer?.preferences?._notes || '';
+  renderPrefsSummaries();
   openSubPanel('sub-prefs');
+}
+
+// Hub row sub-labels: what's currently saved for Laundry Care and Tips.
+function renderPrefsSummaries() {
+  const saved = currentCustomer?.preferences || {};
+  const careEl = document.getElementById('prefs-care-val');
+  if (careEl) {
+    const addons = globalPrefs.filter(g => _isAddonPref(g)).filter(g => {
+      const on = (g.options || []).find(o => !o.is_default);
+      return on && saved[g.id] === on.id;
+    }).map(g => g.name);
+    const parts = [addons.length ? addons.join(', ') : 'No add-ons'];
+    if (saved._notes) parts.push('care notes');
+    careEl.textContent = parts.join(' · ');
+  }
+  const tipEl = document.getElementById('prefs-tip-val');
+  if (tipEl) {
+    const v = parseFloat(currentCustomer?.default_tip || 0);
+    const t = currentCustomer?.default_tip_type === '%' ? '%' : '$';
+    tipEl.textContent = v > 0 ? `${t === '%' ? v + '%' : $m(v)} per order` : 'No default tip';
+  }
+}
+
+function openCarePanel() {
+  // Re-sync with saved values so an unsaved edit doesn't linger after Back.
+  const saved = currentCustomer?.preferences || {};
+  acctPrefs = {};
+  globalPrefs.forEach(g => {
+    if (saved[g.id]) acctPrefs[g.id] = saved[g.id];
+    else { const def = (g.options || []).find(o => o.is_default); if (def) acctPrefs[g.id] = def.id; }
+  });
+  renderAccountPrefs();
+  const n = document.getElementById('pref-notes');
+  if (n) n.value = saved._notes || '';
+  openSubPanel('sub-care');
+}
+
+function openTipsPanel() {
+  const input = document.getElementById('cust-tip-input');
+  if (input) input.value = parseFloat(currentCustomer?.default_tip || 0);
+  setCustomerTipType(currentCustomer?.default_tip_type === '%' ? '%' : '$');
+  openSubPanel('sub-tips');
 }
 
 function renderAccountPrefs() {
@@ -10923,30 +10980,37 @@ function toggleAcctAddon(groupId, activeOptId, defaultOptId) {
   renderAccountPrefs();
 }
 
-async function savePreferences() {
+// which = 'care' (add-ons + notes) or 'tip' (default tip) — one panel each.
+async function savePreferences(which, btn) {
   if (!currentCustomer) return;
-  const btn = document.querySelector('#sub-prefs .pref-save-btn');
+  const label = btn?.textContent || 'Save';
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-  // Merge notes into the prefs object alongside the pref toggles
-  const notesVal = (document.getElementById('pref-notes')?.value || '').trim();
-  const prefsToSave = { ...acctPrefs };
-  if (notesVal) prefsToSave._notes = notesVal; else delete prefsToSave._notes;
-  const update = { preferences: prefsToSave };
+  const update = {};
+  let prefsToSave = null;
+  if (which !== 'tip') {
+    // Merge notes into the prefs object alongside the pref toggles
+    const notesVal = (document.getElementById('pref-notes')?.value || '').trim();
+    prefsToSave = { ...acctPrefs };
+    if (notesVal) prefsToSave._notes = notesVal; else delete prefsToSave._notes;
+    update.preferences = prefsToSave;
+  }
   const tipInput = document.getElementById('cust-tip-input');
-  if (tipInput) {
+  if (which !== 'care' && tipInput) {
     update.default_tip = Math.max(0, parseFloat(tipInput.value) || 0);
     update.default_tip_type = _custTipType === '%' ? '%' : '$';
     update.updated_at = new Date().toISOString();
   }
   const { error } = await db.from('customers').update(update).eq('id', currentCustomer.id);
-  if (btn) { btn.disabled = false; btn.textContent = 'Save Preferences'; }
+  if (btn) { btn.disabled = false; btn.textContent = label; }
   if (error) { showToast('Error saving preferences', 'error'); return; }
-  currentCustomer.preferences = { ...prefsToSave };
+  if (prefsToSave) currentCustomer.preferences = { ...prefsToSave };
   if ('default_tip' in update) {
     currentCustomer.default_tip = update.default_tip;
     currentCustomer.default_tip_type = update.default_tip_type;
   }
-  showToast('Preferences saved ✓', 'success');
+  renderPrefsSummaries();
+  closeSubPanel(which === 'tip' ? 'sub-tips' : 'sub-care');
+  showToast(which === 'tip' ? 'Tip saved ✓' : 'Laundry care saved ✓', 'success');
 }
 
 /* ── ACCOUNT SUB-PANELS ── */
