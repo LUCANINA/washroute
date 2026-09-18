@@ -457,7 +457,14 @@ function readSurfaces() {
     // ⚠️ The internal names stay `computed`/`closing` on purpose. Renaming them
     // here would touch ~40 assertions for no gain and would mean the diff that
     // fixed this could not be read at a glance.
-                interest: colIx('Interest'), computed: colIx('Books'),
+    // ── AND BOOKS LOST ITS COLUMN IN SESSION 315 ─────────────────────────
+    // Variance now means Xero against the lender, so the column that carries a
+    // balance is **Xero**. Our own walk did not disappear — it rides on that
+    // same cell as `data-books` and is still exported. So `C.computed` keeps
+    // pointing at the cell that holds it, and the readers below take the
+    // ATTRIBUTE, never the cell's figure: on this cell those are two different
+    // claims and reading the wrong one would pass by accident.
+                interest: colIx('Interest'), xero: colIx('Xero'),
                 closing: colIx('Lender'), variance: colIx('Variance'),
     // ── AND FOUR BECAME ONE IN SESSION 292 ───────────────────────────────
     // Booked, Staging, Status and Ledger merged into a single **Checks** column
@@ -471,6 +478,7 @@ function readSurfaces() {
                 // and so is every span inside it, so nothing else moved.
                 checks: colIx('Issue') };
     C.status = C.checks;
+    C.computed = C.xero;   // s315: same cell, different attribute — see above.
     // `lender` here is the lender's NAME, folded into the Loan cell in session
     // 249 — NOT the Lender column above, which is the lender's BALANCE. Two
     // different facts that ended up sharing a word.
@@ -521,7 +529,7 @@ function readSurfaces() {
                openingSource: att(tds[C.openingSrc], 'data-source-label'),
                openingSourceRaw: att(tds[C.openingSrc], 'data-source'),
                drawn: c[C.drawn], principal: c[C.principal], interest: c[C.interest],
-               computed: c[C.computed], perLender: c[C.closing],
+               computed: att(tds[C.xero], 'data-books'), perLender: c[C.closing],
                // The AWAITING-EVIDENCE state, read as a marker rather than as
                // English. Session 277 improved this cell's copy from "not received"
                // to a named ask and turned six assertions red that were counting the
@@ -562,7 +570,11 @@ function readSurfaces() {
                  return el ? att(el, 'data-staging') : '';
                })(),
                openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
-               computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
+               computedN: numA(tds[C.xero], 'data-books'), perLenderN: num(tds[C.closing]),
+        // s314: Xero's own balance, and how many rows it actually covers. A total
+        // over fewer rows than the column beside it must say so — the same rule
+        // the closing and rollforward counts have carried since s249.
+        xeroN: numA(tds[C.xero], 'data-amount'), xeroCount: numA(tds[C.xero], 'data-xero-count'),
                // ══ SESSION 247: DRAWN, AND THE SECOND CHECK ════════════════
                // `opening − principal = closing` is only true if nothing was
                // BORROWED. Stripe drew $125,000 in July. `drawn` is measured
@@ -669,7 +681,15 @@ function readSurfaces() {
         rollCount: numA(tr, 'data-roll-count'),
         closingCount: numA(tr, 'data-closing-count'),
         openingN: num(tds[C.opening]), principalN: num(tds[C.principal]), interestN: num(tds[C.interest]),
-        computedN: num(tds[C.computed]), perLenderN: num(tds[C.closing]),
+        computedN: numA(tds[C.xero], 'data-books'), perLenderN: num(tds[C.closing]),
+        // s315: the footer's Xero cell carries TWO figures and they are not the
+        // same claim. `computedN` above is our own walk, on data-books, and it
+        // is what the footing identity is asserted against. `xeroN` is what the
+        // cell PRINTS — Xero's own balances — over `xeroCount` of the rows it
+        // could read. Taking the printed figure for the walk is exactly the
+        // mistake that turned these assertions red in s315: one attribute per
+        // claim, and each asserted separately.
+        xeroN: numA(tds[C.xero], 'data-amount'), xeroCount: numA(tds[C.xero], 'data-xero-count'),
         varianceN: numA(tds[C.variance], 'data-variance'),
         // s310: the footer now publishes TWO variance figures and they answer
         // different questions. `varianceN` is what the column adds up to — the
@@ -2318,7 +2338,7 @@ GROUPS.push({
           if (src.indexOf(keyed) < 0) return { inverseFailed: 'the keyed lookup is no longer in the source' };
           const broken = src.replace(
             /const c = byCol\(tr\);\s*\n\s*const cLoan = c\.loan[\s\S]*?cLedgerMark = c\.ledger;/,
-            'const _td = [...tr.children];\n      const [cLoan, cOpen, cDrawn, cPrin, cInt, cComp, cClose, cVar, cBooked, cStaged, cStat, cLedgerMark] = _td;');
+            'const _td = [...tr.children];\n      const [cLoan, cOpen, cDrawn, cPrin, cInt, cComp, cXero, cClose, cVar, cBooked, cStaged, cStat, cLedgerMark] = _td;');
           if (broken === src) return { inverseFailed: 'the inverse rewrite matched nothing' };
           try { fn = new Function('return (' + broken + ')')(); }
           catch (e) { return { inverseFailed: 'rebuild threw: ' + e.message }; }
@@ -2357,7 +2377,8 @@ GROUPS.push({
           screen[tr.getAttribute('data-loan')] = {
             opening: g('opening', 'data-amount'), drawn: g('drawn', 'data-amount'),
             principal: g('principal', 'data-amount'), interest: g('interest', 'data-amount'),
-            books: g('books', 'data-amount'), lender: g('lender', 'data-amount'),
+            books: g('xero', 'data-books'), xero: g('xero', 'data-amount'),
+            lender: g('lender', 'data-amount'),
             agreement: g('loan', 'data-agreement'),
             drawnMeasured: g('drawn', 'data-drawn-measured'),
           };
@@ -2375,7 +2396,8 @@ GROUPS.push({
             Opening: num(sc.opening),
             Principal: num(sc.principal),
             Interest: num(sc.interest),
-            Books: num(sc.books),
+            'Books (our records)': num(sc.books),
+            'Xero balance': num(sc.xero),
             'Lender balance': num(sc.lender),
             Drawn: sc.drawnMeasured === '1' ? num(sc.drawn) : 'not measured',
             Agreement: sc.agreement === '1' ? 'on file' : 'none on file',
@@ -3273,8 +3295,25 @@ GROUPS.push({
     if (sub.all) {
       t.eq(sub.all.count, cb.rows.length,
            'close band total: covers every row on the table, not just the checkable ones');
-      t.eq(money(at('all', 'opening') + at('all', 'drawn') - at('all', 'principal')), money(at('all', 'computed')),
-           'close band total: opening + drawn − principal = computed');
+      // ── s315: THE WALK MOVED OFF THE PRINTED FIGURE ────────────────────
+      // Books lost its column when Variance became Xero-against-lender. The
+      // walk did not disappear — it rides on the Xero cell as data-books — so
+      // the footing identity is asserted against THAT, never against the text,
+      // which now prints Xero's own balances. Reading the text here is how this
+      // assertion went red in s315: it was comparing the walk's inputs to a
+      // different quantity entirely and calling the mismatch an arithmetic bug.
+      t.eq(money(at('all', 'opening') + at('all', 'drawn') - at('all', 'principal')), money(sub.all.computedN),
+           'close band total: opening + drawn − principal = computed (the walk, carried on data-books)');
+      // ── AND ITS PAIR: THE PRINTED TOTAL IS XERO'S, OVER THE ROWS IT COVERS ──
+      // Without this, the footing check above could pass on a cell that prints
+      // anything at all. One assertion for each claim on the cell (§245).
+      {
+        const xr = cb.rows.filter(r => r.xeroN != null);
+        t.eq(money(at('all', 'xero')), money(xr.reduce((n, r) => n + r.xeroN, 0)),
+             'close band total: the Xero column prints the sum of the rows that HAVE a rebuilt balance');
+        t.eq(sub.all.xeroCount, xr.length,
+             'close band total: ...and it says how many rows that is, because it is fewer than the table');
+      }
       // Each of the four walk columns equals the sum of the rows behind it —
       // the composition check the deleted "of which" rows used to provide, now
       // done against the table itself, which is a stronger statement anyway.
@@ -3282,7 +3321,10 @@ GROUPS.push({
                               ['principal', 'principalN'], ['interest', 'interestN'],
                               ['computed', 'computedN']]) {
         const rows = cb.rows.filter(r => r.openingN != null && r.computedN != null);
-        t.eq(money(at('all', col)), money(rows.reduce((n, r) => n + (r[f] || 0), 0)),
+        // s315: 'computed' is the only one of these that is no longer the cell's
+        // printed figure — see the note above.
+        const footed = col === 'computed' ? sub.all.computedN : at('all', col);
+        t.eq(money(footed), money(rows.reduce((n, r) => n + (r[f] || 0), 0)),
              `close band total: ${col} is the sum of the rows it covers`);
       }
       // Closing legitimately covers fewer rows — and must announce it.
@@ -3678,15 +3720,20 @@ GROUPS.push({
       // does not cover the month, nor by a month in which nothing happened.
       for (const r of cb.rows) {
         if (r.ties) {
-          t.ok(r.openingN != null && r.perLenderN != null,
-               `close band — ${c.name}: a tie on ${r.loan} is backed by both an opening and a lender figure`,
-               `opening=${r.opening} perLender=${r.perLender} principal=${r.principal}`);
-          // A tie is a claim that two figures agree. Now that the cell prints
-          // nothing, check the arithmetic behind the silence rather than
-          // trusting that something rendered.
-          if (r.openingN != null && r.perLenderN != null) {
-            t.close(r.openingN - (r.principalN || 0), r.perLenderN, 0.01,
-              `close band — ${c.name}: ${r.loan} ties because opening − principal really equals the lender`);
+          // ── s315: A TIE IS NOW A CLAIM ABOUT XERO, NOT ABOUT THE WALK ─────
+          // Variance became Xero MINUS the lender, so a tie says those two
+          // readings agree. It used to say `opening − principal` landed on the
+          // lender, which on a statement-derived loan was the lender's own
+          // figures on both sides — the §246 circularity the redefinition
+          // removed. The assertion MOVED WITH THE INVARIANT rather than being
+          // relaxed: it is still one exact figure against another, and it is
+          // still the arithmetic behind a cell that prints nothing.
+          t.ok(r.xeroN != null && r.perLenderN != null,
+               `close band — ${c.name}: a tie on ${r.loan} is backed by both a Xero balance and a lender figure`,
+               `xero=${r.xeroN} perLender=${r.perLender} opening=${r.opening} principal=${r.principal}`);
+          if (r.xeroN != null && r.perLenderN != null) {
+            t.close(r.xeroN, r.perLenderN, 0.01,
+              `close band — ${c.name}: ${r.loan} ties because Xero's own balance really equals the lender's`);
           }
         }
       }
@@ -3700,7 +3747,8 @@ GROUPS.push({
       t.ok(!!all, `close band — ${c.name}: the footer carries a grand total`);
       if (all) {
         const cellE = (name) => parseMoney(all.cells[CIe[name]]) || 0;
-        t.eq(money(cellE('opening') + cellE('drawn') - cellE('principal')), money(cellE('computed')),
+        // s315: the walk is on data-books, not on the Xero cell's text.
+        t.eq(money(cellE('opening') + cellE('drawn') - cellE('principal')), money(all.computedN),
              `close band — ${c.name}: footer opening + drawn − principal = computed`);
       }
       // The band's own headline must not contradict its gates.
@@ -4091,19 +4139,37 @@ GROUPS.push({
       const now = new Date(HARNESS_NOW); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const MONTH = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}`;
       const acctKey = (a) => (a.xero_account_name || a.lender_account_number || '');
-      const liveSplits = (d, acctId) => (d.loan_splits || []).filter(sp =>
-        sp.loan_account_id === acctId &&
-        String(sp.period_label || '').slice(0, 7) === MONTH &&
-        sp.status !== 'voided' && sp.status !== 'staged');
+      // s315: `liveSplits` went with the split-planting it existed for.
       // Returns false rather than throwing when there is nothing to move, so a
       // scenario that cannot be planted FAILS AN ASSERTION saying so instead of
       // rendering an unplanted page and quietly asserting against the book.
+      // ── s315: THE PLANT HAD TO MOVE WITH THE DEFINITION ──────────────────
+      // This planted a split's principal, because the variance used to be our
+      // WALK minus the lender and a split is an input to the walk. Variance is
+      // now XERO minus the lender, and a split's principal is an input to
+      // neither — so the plant stopped reaching the number under test and the
+      // probe measured a $0.00 move. That is not a failing product, it is a
+      // probe pointed at the wrong lever, and the fix is to point it at the new
+      // one rather than to loosen what it asserts.
+      //
+      // The lever is Xero's own rebuilt month-end balance. Moving it by $X moves
+      // the variance by exactly $X, which is what makes the probe a probe: it
+      // proves the plant lands on the figure the assertions below then read.
+      const monthEnd = (() => {
+        const [y, mo] = MONTH.split('-').map(Number);
+        return `${MONTH}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`;
+      })();
+      const bookRow = (d, acctId) => (d.loan_book_balances || [])
+        .filter(b => b.loan_account_id === acctId && String(b.basis || '') === 'xero_rebuild'
+                     && b.as_of === monthEnd && b.balance != null)
+        // Same tiebreak the page uses: newest measurement of the same date wins.
+        .sort((x, y) => String(y.computed_at || '').localeCompare(String(x.computed_at || '')))[0];
       const plant = (d, key, amount) => {
         const a = (d.loan_accounts || []).find(x => acctKey(x) === key);
         if (!a) return false;
-        const sp = liveSplits(d, a.id)[0];
-        if (!sp) return false;
-        sp.principal_amount = Number(sp.principal_amount) + amount;
+        const b = bookRow(d, a.id);
+        if (!b) return false;
+        b.balance = Number(b.balance) + amount;
         return true;
       };
 
@@ -4112,11 +4178,16 @@ GROUPS.push({
       const base = (await p0.surfaces()).loans.closeBand;
       await p0.close();
 
+      // s315: plantable means the row already REPORTS a variance and has a Xero
+      // balance to move — the two things the plant needs to be observable. A row
+      // with no rebuilt balance, or no lender figure, has no variance to shift
+      // and would make the probe measure nothing while looking like a pass.
       const plantable = (base.rows || []).filter(r => r.loanAttr &&
+        r.varianceN != null && r.xeroN != null && r.perLenderN != null &&
         (baseFixture.loan_accounts || []).some(a => acctKey(a) === r.loanAttr &&
-          liveSplits(baseFixture, a.id).length));
+          bookRow(baseFixture, a.id)));
       t.ok(plantable.length >= 2,
-           's236: the fixture offers two loans with a live split to plant on',
+           's236: the fixture offers two loans with a rebuilt Xero balance to plant on',
            `${plantable.length} plantable of ${(base.rows || []).length} rows in ${MONTH}`);
       if (plantable.length >= 2) {
         // The heaviest residual anywhere on the band — the counterweight has to
@@ -5991,8 +6062,21 @@ GROUPS.push({
       if (revI.ok) {
         const b = rowOf((await pNoBooks.surfaces()).loans.closeBand, 'Dexter Loan 2');
         t.eq(b.circular, false, 'ce1 CONTROL: pre-review, a frozen backfill counted as an independent opening');
-        t.eq(b.ties, true, 'ce1 CONTROL: ...and Dexter printed a GREEN TIE against the contract it was built from');
-        t.close(b.varianceN, 0, 0.005, 'ce1 CONTROL: ...at exactly $0.00, forever, because it could not fail');
+        // ── s315: THE TAUTOLOGY NOW HAS A SECOND LOCK ON IT ─────────────────
+        // Before s315 this control printed the defect: with the independence
+        // test disabled, the walk ran opening → movement → closing all off one
+        // document and the row showed a green $0.00 tie that could not fail.
+        // It cannot print it any more, and the reason is worth pinning. The
+        // variance no longer reads the walk at all — it reads Xero's own rebuilt
+        // balance — and this scenario has DROPPED that loan's books rows. No
+        // reading, no verdict (§247). So even with the guard removed, the row
+        // refuses to claim a tie, which is a strictly stronger property than the
+        // guard alone: the tautology is now blocked by the absence of evidence
+        // as well as by the test for it.
+        t.eq(b.ties, false,
+             'ce1 CONTROL: ⭐ ...and Dexter STILL prints no tie — with no rebuilt Xero balance there is nothing to tie against');
+        t.eq(b.varianceN, null,
+             'ce1 CONTROL: ...the variance is refused outright, not computed to $0.00 off a document arguing with itself');
       }
       await restoreFns(pNoBooks);
       await pNoBooks.close();
@@ -6204,7 +6288,14 @@ GROUPS.push({
       if (rev.ok) {
         const b = rowOf((await pNo.surfaces()).loans.closeBand, 'Verdant Capital Loan');
         t.eq(b.circular, false, 'ce3 CONTROL: a guard that never fires leaves the row unmarked');
-        t.eq(b.ties, true, 'ce3 CONTROL: ...and Verdant prints a GREEN TIE against the document it was built from');
+        // s315, same as ce1's control: this scenario has no books row for
+        // Verdant, and since the variance reads Xero's own rebuilt balance
+        // rather than our walk, a missing reading is a refusal and not a $0.00
+        // agreement. The guard being off is no longer sufficient to produce the
+        // tautology — the evidence has to be absent too, and here it is absent
+        // in the direction that protects the reader.
+        t.eq(b.ties, false,
+             'ce3 CONTROL: ⭐ ...and Verdant STILL prints no tie — there is no rebuilt Xero balance to tie against');
         t.notMatch(b.variance, /agrees by construction/,
                    'ce3 CONTROL: ...with no warning of any kind — which is the defect the assertion catches');
       }
@@ -6836,7 +6927,21 @@ GROUPS.push({
       //     production is a finding rather than a gap in this test.
       // No plant at all now: reconciliation-run wrote Dexter's real 7/31 rebuild
       // at 89,411.25, so August opens independently on Xero's own figure.
-      const pAug = await newHarnessPage({ tab: 'loans' });
+      // s315: this fixture is the JULY pull, so it carries no 2026-08-31 rebuild
+      // for anyone — and Variance now needs one. The planted figure is not a
+      // convenience: with the August payment STAGED, nothing reduced the account
+      // in August, so Xero still holds July's 89,411.25 while the schedule's 8/31
+      // row assumes 86,066.61. The $3,344.64 this block is about IS that
+      // difference, and planting the walk's old answer would have been the
+      // circularity the redefinition removed.
+      const pAug = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        const dex = d.loan_accounts.find(x => x.xero_account_name === 'Dexter Loan 2');
+        d.loan_book_balances.push({
+          id: 'harness-bb-dexter-aug', loan_account_id: dex.id, as_of: '2026-08-31',
+          balance: 89411.25, basis: 'xero_rebuild', run_id: null,
+          detail: { staged_entries_at_or_before: 0 }, computed_at: '2026-09-02T02:48:00Z',
+        });
+      } });
       const aug = await pAug.evaluate(() => {
         const rf = _loanCloseRollforward('2026-08');
         const r = rf.rows.find(x => x.a.xero_account_name === 'Dexter Loan 2');
@@ -6924,6 +7029,14 @@ GROUPS.push({
         const jul = d.loan_splits.find(sp => sp.loan_account_id === dex.id && sp.period_label === '2026-07');
         jul.status = 'staged';
         jul.stage_reference = 'WR-STAGE harness';
+        // s315: and the LEDGER has to describe the same world. The fixture's
+        // 7/31 rebuild (89,411.25) was measured with this payment posted; with
+        // the split staged, nothing reduced the account in July, so Xero holds
+        // June's 92,737.48. Leaving the old figure would have described a ledger
+        // that both did and did not carry the payment — the same inconsistency
+        // the `setMovement(null)` above exists to avoid, on the other side.
+        const bb = d.loan_book_balances.find(b => b.loan_account_id === dex.id && b.as_of === '2026-07-31');
+        if (bb) bb.balance = 92737.48;
       } });
       const sd = await pDom.surfaces();
       const cbD = sd.loans.closeBand;
@@ -7000,7 +7113,23 @@ GROUPS.push({
       await pDom.close();
 
       // (c) the undated half: Verdant's 'Period 14' (A10), $2,707.61.
-      const verBooks = (bal) => (d) => setBooks(d, 'Verdant Capital Loan', [{ as_of: '2026-06-30', balance: bal }]);
+      // ── s315: THE CLOSING SIDE HAS TO EXIST NOW ──────────────────────────
+      // Variance became Xero MINUS the lender, so a scenario that plants only an
+      // OPENING books balance leaves the row with no closing reading at all and
+      // no variance to band — every assertion below then reads null. The gap
+      // these cases are built around is unchanged; it simply has to be built on
+      // the right side of the subtraction.
+      //
+      // The closing figure is the honest one for the shape: Period 14 is UNDATED
+      // and therefore unposted, so Xero holds the opening less only the $2,687.94
+      // that WAS booked. bal − 2,687.94 − 250,894.33 (the schedule) is the same
+      // $2,707.61 this block has always been about, now measured between two
+      // independent readings instead of between our walk and the lender.
+      const VER_BOOKED = 2687.94;
+      const verBooks = (bal) => (d) => setBooks(d, 'Verdant Capital Loan', [
+        { as_of: '2026-06-30', balance: bal },
+        { as_of: '2026-07-31', balance: Math.round((bal - VER_BOOKED) * 100) / 100 },
+      ]);
       // 256,289.88 − 2,687.94 booked − 250,894.33 schedule = 2,707.61 exactly.
       const pU = await newHarnessPage({ tab: 'loans', mutate: verBooks(256289.88) });
       const ru = rowOf((await pU.surfaces()).loans.closeBand, 'Verdant Capital Loan');
@@ -7224,8 +7353,24 @@ GROUPS.push({
       // the only books balance on file is for the wrong date. That is the shape
       // a missed reconciliation-run month produces, and it is the shape the
       // exact-date test exists to refuse.
-      const p = await newHarnessPage({ tab: 'loans', mutate: (d) =>
-        setBooks(d, 'BayFirst SBA 2', [{ as_of: '2026-05-31', balance: 999999 }]) });
+      // s315: the CLOSING reading is planted too, at the lender's own 7/31 figure.
+      // This section is about the OPENING lookup and nothing else; since the
+      // variance became Xero against the lender, leaving the loan with no 7/31
+      // rebuild at all would have removed the verdict this section reads, and
+      // leaving its real one in would have made every assertion below depend on
+      // a ledger difference that has nothing to do with the date-matching rule
+      // under test. A row whose ledger agrees with its lender isolates the
+      // opening, which is the variable this section moves.
+      const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        setBooks(d, 'BayFirst SBA 2', [{ as_of: '2026-05-31', balance: 999999 },
+                                       { as_of: '2026-07-31', balance: 135901.60 }]);
+        // setBooks writes a bare row, and a bare row is an UNMEASURED month: the
+        // ledger check then refuses to run and the control below has nothing to
+        // corrupt. The movement is stated to match the two balances it sits
+        // between — 137,568.21 − 1,666.61 = 135,901.60 — so the world is
+        // coherent and the check has something to read.
+        setMovement(d, 'BayFirst SBA 2', MEASURED({ drawn: 0, reduced: 1666.61 }));
+      } });
       const cb = (await p.surfaces()).loans.closeBand;
       const r = rowOf(cb, 'BayFirst SBA 2');
       t.eq(r.openingFromBooks, false,
@@ -7248,8 +7393,14 @@ GROUPS.push({
         const br = rowOf(b, 'BayFirst SBA 2');
         t.eq(br.openingFromBooks, true, 'ce13 CONTROL: the stale May row wins');
         t.close(br.openingN, 999999, 0.005, 'ce13 CONTROL: ...opening the walk at $999,999.00');
-        t.eq(br.band, 'material', 'ce13 CONTROL: ...producing a material, blocking variance out of nothing');
-        t.eq(b.gateByKey['variance'].ok, false, 'ce13 CONTROL: ...and the close stops being ready');
+        // s315: a stale OPENING no longer reaches the variance — the variance is
+        // Xero against the lender and the opening is on neither side of it. What
+        // it corrupts is the WALK, and the ledger check is what catches that now.
+        // The defect is the same defect and it is still caught, one column over.
+        t.eq(br.unexplainedBand, 'material',
+             'ce13 CONTROL: ...producing a material, blocking LEDGER difference out of nothing',
+             `unexplained ${br.unexplainedN} from a walk opened at ${br.openingN}`);
+        t.eq(b.gateByKey['ledger'].ok, false, 'ce13 CONTROL: ...and the close stops being ready');
       }
       await restoreFns(p);
       await p.close();
@@ -7697,23 +7848,65 @@ GROUPS.push({
         t.close(r.drawnN, 0, 0.005, `ce21b: ...leaving $0.00 of real borrowing`);
       }
 
-      // ── THE FOUR THAT GO BACK TO AN EXACT TIE ───────────────────────────
-      for (const n of ['Dexter Loan 2', 'BayFirst SBA Loan', 'E-Transit Loan E6-7410', 'BayFirst SBA 2']) {
+      // ══ s315: THE NETTING'S EFFECT LANDED ON THE WALK, AND THE WALK IS NO
+      //         LONGER THE VARIANCE ════════════════════════════════════════
+      // Drawn is an input to `opening + drawn − principal`. That sum used to BE
+      // the variance's left-hand side; since s315 the variance is Xero's own
+      // balance minus the lender's, and Drawn is an input to neither. So the
+      // netting fix is now visible on the LEDGER check — our walk against Xero —
+      // and that is where these assertions belong. They are not weaker for
+      // moving: `unexplained` is an exact figure with a band, same as before.
+      for (const n of ['Dexter Loan 2', 'Verdant Capital Loan', 'BayFirst SBA Loan',
+                       'E-Transit Loan - 4140', 'E-Transit Loan E5-4751', 'E-Transit Loan E6-7410']) {
         const r = row(n);
-        t.eq(r.ties, true, `ce21b: ${n} ties exactly once its interest is not counted as borrowing`);
-        t.close(r.varianceN, 0, 0.005, `ce21b: ...at $0.00`);
+        t.close(r.unexplainedN, 0, 0.005,
+                `ce21b: ${n}'s walk lands exactly on Xero's own balance once its interest is not counted as borrowing`,
+                `walk ${r.computedN} vs xero ${r.xeroN}`);
+        t.eq(r.unexplainedBand, 'tie', `ce21b: ...so the ledger check ties for ${n}`);
       }
-      // ── AND THE ONES THAT ARE GENUINELY OFF STAY OFF, UNCHANGED ─────────
-      // The netting must not quietly absolve a real finding.
-      for (const [n, want] of [['E-Transit Loan - 4140', 415.88], ['E-Transit Loan E5-4751', 266.42],
-                               ['Paypal 2', 21.66], ['Verdant Capital Loan', -0.04], ['EIDL SBA Loan', -5]]) {
-        t.close(row(n).varianceN, want, 0.005, `ce21b: ${n} still reports $${want}`);
+      // THE EXCEPTION, AND IT IS A REAL ONE. Paypal 2's netting is correct and
+      // its ledger still disagrees — section 24's finding, not an artefact of
+      // this fix. Pinned so a future change cannot quietly absolve it.
+      t.close(row('Paypal 2').unexplainedN, -3142.26, 0.005,
+              'ce21b: Paypal 2 is the one netted loan whose ledger still disagrees, and it is not the netting that does it');
+
+      // ══ AND THE VARIANCE ITSELF, WHICH IS NOW A DIFFERENT COMPARISON ═════
+      // Each figure below is Xero MINUS the lender and nothing else, so it can
+      // be checked from the two columns either side of it on the row — which is
+      // why both operands are asserted beside it rather than only the answer.
+      // BayFirst SBA 2 and Paypal 2 are the two rows the redefinition moved, and
+      // they moved for the reason the redefinition exists: their LEDGERS
+      // disagree with their lenders while their walks did not, and the old
+      // definition could not see it. BayFirst SBA 2's $858.66 is the exact
+      // figure the Ledger column has been reporting on that row all along.
+      for (const [n, xero, lender, want] of [
+        ['Dexter Loan 2',           89411.25,  89411.25,     0],
+        ['BayFirst SBA Loan',      115260.89, 115260.89,     0],
+        ['E-Transit Loan E6-7410',  22639.56,  22639.56,     0],
+        ['E-Transit Loan - 4140',   17171.69,  16755.81,   415.88],
+        ['E-Transit Loan E5-4751',  30360.56,  30094.14,   266.42],
+        ['Verdant Capital Loan',   250894.29, 250894.33,    -0.04],
+        ['EIDL SBA Loan',          960000.00, 960005.00,    -5.00],
+        ['BayFirst SBA 2',         136760.26, 135901.60,   858.66],
+        ['Paypal 2',                58775.97,  61896.57, -3120.60],
+      ]) {
+        const r = row(n);
+        t.close(r.xeroN, xero, 0.005, `ce21b: ${n}'s Xero balance is ${xero}`);
+        t.close(r.perLenderN, lender, 0.005, `ce21b: ...its lender says ${lender}`);
+        t.close(r.varianceN, want, 0.005, `ce21b: ...so the variance is ${want}, and it is their difference`);
       }
-      t.eq(cb.rows.filter(x => x.ties).length, 6, 'ce21b: six loans tie');
-      t.eq(cb.rows.filter(x => x.band === 'immaterial').length, 3, 'ce21b: three are small differences');
-      t.eq(cb.rows.filter(x => x.band === 'material').length, 4, 'ce21b: four are genuinely off');
-      t.ok(/\$1,887\.50/.test(cb.gateByKey['variance'].text || ''),
-           'ce21b: ...totalling $1,887.50 on the chip', `chip=${JSON.stringify(cb.gateByKey['variance'].text)}`);
+      // THE INVARIANT BEHIND EVERY FIGURE ABOVE, asserted over the whole table
+      // so the pinned numbers cannot drift out of agreement with the definition.
+      for (const r of cb.rows.filter(x => x.varianceN != null && x.xeroN != null && x.perLenderN != null && !x.circular)) {
+        t.close(r.varianceN, r.xeroN - r.perLenderN, 0.005,
+                `ce21b: ${r.name}'s printed variance IS Xero minus the lender, with nothing else in it`,
+                `${r.xeroN} − ${r.perLenderN}`);
+      }
+      t.eq(cb.rows.filter(x => x.ties).length, 5, 'ce21b: five loans tie');
+      t.eq(cb.rows.filter(x => x.band === 'immaterial').length, 2, 'ce21b: two are small differences');
+      t.eq(cb.rows.filter(x => x.band === 'material').length, 6, 'ce21b: six are genuinely off');
+      t.ok(/\$5,851\.62/.test(cb.gateByKey['variance'].text || ''),
+           'ce21b: ...totalling $5,851.62 on the chip', `chip=${JSON.stringify(cb.gateByKey['variance'].text)}`);
 
       // ── THE CLAMP ───────────────────────────────────────────────────────
       // BayFirst SBA 2 books $2,549.88 of split interest against $1,300.30 of
@@ -7750,78 +7943,45 @@ GROUPS.push({
       if (rev.ok) {
         const b = (await p.surfaces()).loans.closeBand;
         const brow = (n) => b.rows.find(x => x.name === n);
-        // Every one of the eight starts showing a variance equal to its own
-        // interest — the signature of the bug, and the reason it was findable.
+        // ══ s315: THE SAME BUG, AND WHERE IT CAN NOW REACH ═════════════════
+        // The gross-Drawn bug put "10 loans off — $8,751.73" on the board in
+        // August 2026, and this control reproduced that board for four sessions.
+        // It cannot reproduce it any more, and the reason is the point: Drawn
+        // feeds `opening + drawn − principal`, the variance no longer reads that
+        // sum, so the bug HAS NO PATH TO THE CLOSE VERDICT AT ALL. The old
+        // figures are recorded in this comment because they were real; asserting
+        // them would now be asserting a board no code can produce.
+        //
+        // What replaces them is a stronger claim, and one the old control could
+        // not make: reverting the fix still moves every netted loan's LEDGER
+        // figure by exactly its own interest — the signature is intact and still
+        // findable — while the variance and the variance chip do not move at all.
         let matched = 0;
         for (const n of NETTED) {
           const before = row(n), after = brow(n);
-          if (Math.abs((after.varianceN - before.varianceN) - before.interestN) < 0.005) matched++;
+          // `unexplained` is withheld on a row the revert pushes out of measured
+          // state; the walk is the figure that always moves, so the signature is
+          // read there and the band is read beside it.
+          if (Math.abs((after.computedN - before.computedN) - before.interestN) < 0.005) matched++;
         }
         t.eq(matched, NETTED.length,
-             'ce21b CONTROL: pre-fix, each of those loans’ variance moves by exactly its own interest',
+             'ce21b CONTROL: pre-fix, each of those loans’ WALK moves by exactly its own interest — the signature is unchanged',
              `${matched} of ${NETTED.length}`);
+        // ⭐ AND THE PROPERTY THE REDEFINITION BOUGHT: not one variance moves.
+        let moved = 0;
+        for (const r0 of cb.rows) {
+          const r1 = brow(r0.name);
+          if (!r1) continue;
+          if (Math.abs((r1.varianceN || 0) - (r0.varianceN || 0)) > 0.005) moved++;
+        }
+        t.eq(moved, 0,
+             'ce21b CONTROL: ⭐ ...and NO row’s variance moves — since s315 a Drawn bug cannot reach the close verdict',
+             `${moved} row(s) moved`);
+        t.eq(b.gateByKey['variance'].text, cb.gateByKey['variance'].text,
+             'ce21b CONTROL: ...so the chip is word-for-word what it was',
+             `${b.gateByKey['variance'].text}`);
         t.close(brow('Stripe Capital Loan').drawnN, 145875, 0.005,
                 'ce21b CONTROL: ...while Stripe, the one real draw, is identical either way — the fix touches only the add-backs');
-      }
-      await restoreFns(p);
-
-      // ── THE BOARD EXACTLY AS IT SHIPPED ─────────────────────────────────
-      // "10 loans off — $8,751.73" is the number that was on the screen, and
-      // reproducing it is the point of this control. It takes TWO reverts, not
-      // one, because two fixes have landed since: gross Drawn AND banding on the
-      // raw variance rather than the residual. Reverting only the first would
-      // measure today's banding against yesterday's arithmetic and land on a
-      // figure that was never on anyone's screen — which is exactly what
-      // happened when this assertion first went red, and is why it is spelled
-      // out here rather than quietly renumbered.
-      {
-        const rev2 = await revertFn(p, '_loanCloseRollforward',
-          [...EDITS('drawn-is-gross'), ...EDITS('band-the-raw-variance'), ...EDITS('totals-on-the-raw-variance')]);
-        t.ok(rev2.ok, 'ce21b CONTROL: the board as it shipped — gross Drawn, banded and totalled on the whole gap — could be rebuilt',
-             JSON.stringify(rev2.missing));
-        if (rev2.ok) {
-          const b2 = (await p.surfaces()).loans.closeBand;
-          const mat2 = b2.rows.filter(x => x.band === 'material');
-          t.eq(mat2.length, 10, 'ce21b CONTROL: ...ten loans read as off instead of four');
-          // THE DURABLE FORM OF THIS ASSERTION. The chip is a sentence and the
-          // sentence will be edited; the arithmetic is the finding. Ten rows of
-          // RAW variance summing to $8,751.73 is what the gross-Drawn bug put on
-          // the board, and it is checked here from the rows themselves so it
-          // survives any rewording of the chip.
-          t.close(mat2.reduce((n, x) => n + Math.abs(x.varianceN), 0), 8751.73, 0.005,
-                  'ce21b CONTROL: ...whose raw variances sum to $8,751.73',
-                  JSON.stringify(mat2.map(x => [x.name, x.varianceN])));
-          t.ok(/\$8,751\.73/.test(b2.gateByKey['variance'].text || ''),
-               'ce21b CONTROL: ...and that is what the chip claimed, against a real $1,887.50',
-               `chip=${JSON.stringify(b2.gateByKey['variance'].text)}`);
-        }
-        await restoreFns(p);
-      }
-
-      // ── AND WHAT RESIDUAL BANDING DOES TO THAT SAME BROKEN BOARD ────────
-      // ⚠ THIS IS A FINDING, PINNED WHERE IT WAS FOUND. Revert ONLY the netting
-      // and the board reads "9 loans off — $6,896.39": one of the ten
-      // disappeared. It is Verdant, whose $1,855.34 of phantom variance got
-      // "explained" by an undated split of $2,462.79 — a payment LARGER than the
-      // entire gap — leaving −$607.45, which lands immaterial. Section 32
-      // reproduces that on unmodified code and argues it is a real gap in the
-      // matcher rather than a quirk of this control. It is asserted here so the
-      // control keeps stating what it actually observes.
-      const rev3 = await revertFn(p, '_loanCloseRollforward', EDITS('drawn-is-gross'));
-      t.ok(rev3.ok, 'ce21b CONTROL: gross Drawn alone could be rebuilt', JSON.stringify(rev3.missing));
-      if (rev3.ok) {
-        const b3 = (await p.surfaces()).loans.closeBand;
-        t.eq(b3.rows.filter(x => x.band === 'material').length, 9,
-             'ce21b CONTROL: with today’s banding, only NINE of the ten are still material');
-        t.ok(/\$6,896\.39/.test(b3.gateByKey['variance'].text || ''),
-             'ce21b CONTROL: ...and $1,855.34 of the phantom total has been de-escalated away',
-             `chip=${JSON.stringify(b3.gateByKey['variance'].text)}`);
-        const vr = b3.rows.find(x => x.name === 'Verdant Capital Loan');
-        t.close(vr.varianceN, 1855.34, 0.005, 'ce21b CONTROL: ...on Verdant, whose phantom gap is $1,855.34');
-        t.close(vr.unbookedN, 2462.79, 0.005,
-                'ce21b CONTROL: ...claimed against an undated split of $2,462.79 — LARGER than the whole gap');
-        t.eq(vr.band, 'immaterial',
-             'ce21b CONTROL: ...which is the overshoot reported in section 32');
       }
       await restoreFns(p);
       await p.close();
@@ -7955,6 +8115,24 @@ GROUPS.push({
     // one happens to be smaller.
     {
       const p = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+        // ── s315: DIRECTION 1 HAS TO BE BUILT, BECAUSE THE LIVE ROW MOVED ───
+        // BayFirst SBA 2 used to be direction 1 as it stood: its WALK tied the
+        // lender to the cent while $858.66 moved in Xero that no split explained.
+        // Since s315 the variance is Xero against the lender, so that same row
+        // now reports the $858.66 as a variance — which is the whole point of
+        // the redefinition, and is asserted in ce21b.
+        //
+        // The SHAPE this section exists for is still real and still possible:
+        // Xero agrees with the lender exactly, and our own records do not agree
+        // with Xero. It is built here, coherently — the ledger moved $807.95 in
+        // July (136,709.55 → 135,901.60, which is the lender's figure to the
+        // cent) while our splits claim $1,666.61 of principal, so the walk lands
+        // $858.66 BELOW the ledger and nothing accounts for the difference.
+        const bf2 = d.loan_accounts.find(x => x.xero_account_name === 'BayFirst SBA 2');
+        const bOpen  = d.loan_book_balances.find(b => b.loan_account_id === bf2.id && b.as_of === '2026-06-30');
+        const bClose = d.loan_book_balances.find(b => b.loan_account_id === bf2.id && b.as_of === '2026-07-31');
+        bOpen.balance  = 136709.55;
+        bClose.balance = 135901.60;
         setMovement(d, 'BayFirst SBA 2', MEASURED({ drawn: 0, reduced: 807.95 }));
         setMovement(d, 'E-Transit Loan - 4140', MEASURED({ drawn: 0, reduced: 1058.94 }));
       } });
@@ -7964,6 +8142,8 @@ GROUPS.push({
       const bf = cb.rows.find(x => x.name === 'BayFirst SBA 2');
       t.eq(bf.ties, true, 'ce24: BayFirst SBA 2 agrees with its lender exactly');
       t.eq(bf.band, 'tie', 'ce24: ...variance ties');
+      t.close(bf.xeroN, 135901.60, 0.005, 'ce24: ...because XERO reads exactly what the lender does');
+      t.close(bf.computedN, 135042.94, 0.005, 'ce24: ...while OUR OWN walk lands somewhere else entirely');
       t.eq(bf.unexplainedBand, 'material', 'ce24: ...while the LEDGER underneath it is off by a material amount');
       t.close(bf.unexplainedN, 858.66, 0.005, 'ce24: ...$858.66 that no split explains');
 
@@ -8048,10 +8228,22 @@ GROUPS.push({
                  inLedgerOff: rf.ledgerOff.some(x => x.a.xero_account_name === 'Dexter Loan 2'),
                  ledgerToResolve: rf.ledgerToResolve };
       });
-      t.close(aug.variance, 3344.64, 0.005, 'ce25: the variance is the staged principal, $3,344.64');
-      t.eq(aug.band, 'unbooked', 'ce25: ...de-escalated on the variance side');
+      // ── s315: THE VARIANCE SIDE OF THIS DOUBLE-COUNT NO LONGER ARISES ────
+      // The premise of this section is that the staged transaction is ALREADY IN
+      // XERO while the split is excluded from the month's principal. Under the
+      // old definition that made our walk $3,344.64 higher than the lender, and
+      // the variance needed an 'unbooked' band to stop it blocking. Now the
+      // variance reads Xero — which already carries the reduction — against the
+      // lender, so the two agree and there is nothing to de-escalate. The row
+      // ties, which is the honest answer: the money really has moved in the
+      // ledger. The double-count this section guards against cannot happen on
+      // the variance side any more, and the assertion says so rather than being
+      // deleted — a shape that became impossible is worth pinning as impossible.
+      t.close(aug.variance, 0, 0.005,
+              'ce25: the variance TIES — Xero already carries the staged reduction, so it agrees with the lender');
+      t.eq(aug.band, 'tie', 'ce25: ...so there is nothing left for the variance side to de-escalate');
       t.close(aug.unexplained, -3344.64, 0.005,
-              'ce25: ...and the LEDGER sees the same event from the other side, −$3,344.64');
+              'ce25: ...while the LEDGER still sees the event, −$3,344.64, and that half is where the guard lives');
       t.eq(aug.stagedExplains, true, 'ce25: ...recognised as the staged reduction it is');
       t.eq(aug.unexplainedBand, 'unbooked', 'ce25: ...so it is de-escalated on the ledger side too');
       t.eq(aug.inOff, false, 'ce25: ...not in `off`');
@@ -8388,20 +8580,27 @@ GROUPS.push({
               'ce30 fix: ...leaving Drawn at $0.00 — the month borrowed NOTHING, and now says so');
 
       // ── AND THE CONSEQUENCE THE SECTION WAS WRITTEN FOR ──────────────────
-      t.close(r.varianceN, 3326.23, 0.005,
-              'ce30: the variance is the staged PRINCIPAL alone — the interest never reaches it');
-      t.eq(r.band, 'unbooked',
+      // ── s315: THE CONSEQUENCE MOVED TO THE LEDGER CHECK ──────────────────
+      // The staged transaction IS in Xero — that is this section's premise — so
+      // Xero and the lender agree and the variance ties. The difference the
+      // netting fix governs is between OUR WALK and Xero, which is the ledger
+      // check, and that is where the $3,326.23-not-$3,839.38 claim now lives.
+      // The fix is unchanged and so is what it proves; only the column carrying
+      // the evidence has moved.
+      t.close(r.varianceN, 0, 0.005,
+              'ce30: the variance TIES — Xero already carries the staged payment, and so does the lender');
+      t.eq(r.band, 'tie', 'ce30: ...so nothing on the variance side needs de-escalating');
+      t.close(r.unexplainedN, -3326.23, 0.005,
+              'ce30: the LEDGER difference is the staged PRINCIPAL alone — the interest never reaches it');
+      t.eq(r.unexplainedBand, 'unbooked',
            'ce30: a staged payment in a measured month is de-escalated — the posting gate already owns it');
-      t.eq(r.ties, false, 'ce30: (it is not a tie either — the money genuinely has not moved)');
+      t.eq(r.unexplainedState, 'measured',
+           'ce30: (and it is measured, not withheld — the month’s movement really was read)');
       const off = await p.evaluate(() =>
-        _loanCloseRollforward('2026-07').off.map(x => x.a.xero_account_name));
+        _loanCloseRollforward('2026-07').ledgerOff.map(x => x.a.xero_account_name));
       t.ok(!off.includes('Dexter Loan 2'),
            'ce30: ...and it does NOT block the close a second time for one event',
-           `off: ${JSON.stringify(off)}`);
-      t.close((r.unbookedN || 0), 3326.23, 0.005,
-              'ce30: ...with the explanation covering exactly the staged principal');
-      t.close(r.varianceResidualN, 0, 0.005,
-              'ce30: ...and nothing left over, because there was nothing else wrong');
+           `ledgerOff: ${JSON.stringify(off)}`);
 
       // ══ CONTROL ══ THE DEFECT, REBUILT ═══════════════════════════════════
       // The two assertions this section used to open with pinned the DEFECTIVE
@@ -8419,21 +8618,20 @@ GROUPS.push({
                 'ce30 CONTROL: nothing is netted, so the add-back is counted as BORROWING again');
         t.close(br.drawnNettedN, 0, 0.005,
                 'ce30 CONTROL: ...with data-drawn-netted back to $0.00 — the state route (a) would have shipped');
-        t.close(br.varianceN, 3839.38, 0.005,
-                'ce30 CONTROL: ...making the variance the FULL payment, principal and interest');
-        // And the reason it mattered: the explanation covers the principal, the
-        // residual is the interest, and the residual is material.
-        t.close(br.unbookedN || 0, 3326.23, 0.005,
-                'ce30 CONTROL: ...which the explanation still only covers to the staged principal');
-        t.close(br.varianceResidualN, 513.15, 0.005,
-                'ce30 CONTROL: ...leaving the interest unexplained');
-        t.eq(br.band, 'material',
+        t.close(br.unexplainedN, -3839.38, 0.005,
+                'ce30 CONTROL: ...making the ledger difference the FULL payment, principal and interest');
+        // And the reason it mattered: the staged reduction accounts for the
+        // PRINCIPAL only, so the interest is left over — and left over is what
+        // turns a de-escalation into a blocker.
+        t.close(Math.abs(br.unexplainedN) - 3326.23, 513.15, 0.005,
+                'ce30 CONTROL: ...which the staged reduction still only covers to the staged principal, leaving the interest');
+        t.eq(br.unexplainedBand, 'material',
              'ce30 CONTROL: ...so one staged payment blocks the close for money that has not moved');
         const off2 = await p.evaluate(() =>
-          _loanCloseRollforward('2026-07').off.map(x => x.a.xero_account_name));
+          _loanCloseRollforward('2026-07').ledgerOff.map(x => x.a.xero_account_name));
         t.ok(off2.includes('Dexter Loan 2'),
-             'ce30 CONTROL: ...and lands in `off`, beside the posting gate reporting the same event',
-             `off: ${JSON.stringify(off2)}`);
+             'ce30 CONTROL: ...and lands in `ledgerOff`, beside the posting gate reporting the same event',
+             `ledgerOff: ${JSON.stringify(off2)}`);
       }
       await restoreFns(p);
       await p.close();
@@ -8637,7 +8835,16 @@ GROUPS.push({
        against a $2,707.57 gap, four cents over) and refuses this one ($2,462.79
        against $2,000.00, $462.79 over).                                      */
     {
-      const verBooks = (bal) => (d) => setBooks(d, 'Verdant Capital Loan', [{ as_of: '2026-06-30', balance: bal }]);
+      // s315: the gap has to be planted on the side the variance now reads —
+      // Xero against the lender. The closing figure is the opening less the
+      // $2,687.94 that was actually booked in July, exactly as in section 12,
+      // so the $2,000.00 planted into the opening arrives intact at the variance
+      // and is still "nothing in particular, unrelated to any payment on file".
+      const VER_BOOKED32 = 2687.94;
+      const verBooks = (bal) => (d) => setBooks(d, 'Verdant Capital Loan', [
+        { as_of: '2026-06-30', balance: bal },
+        { as_of: '2026-07-31', balance: Math.round((bal - VER_BOOKED32) * 100) / 100 },
+      ]);
       // 253,582.27 is the balance at which Verdant's July walk lands exactly on
       // its closing anchor, so the plant below IS the gap: $2,000.00 of nothing
       // in particular, unrelated to any payment on file.

@@ -4128,6 +4128,14 @@
             .lcb-off { color: #dc2626; font-weight: 650; }
             .lcb-flag { color: var(--gray-900); font-weight: 600; }
             .lcb-quiet { color: var(--gray-400); font-weight: 400; }
+            /* s315: a stale input, named. Amber, never red — it is a statement
+               about our read time, not an accusation about the loan. */
+            .lcb-stale { display: inline-block; margin-left: 5px; font-size: 10.5px; font-weight: 600;
+                         color: var(--amber-700, #92400e); background: var(--amber-50, #fffbeb);
+                         border: 1px solid var(--amber-200, #fde68a); border-radius: 4px;
+                         padding: 0 4px; white-space: nowrap; cursor: help; }
+            .lcb-sync { font-size: 11.5px; color: var(--gray-500); padding: 0 2px 8px; }
+            .lcb-sync[data-sync-stale="1"] { color: var(--amber-700, #92400e); font-weight: 600; }
             /* THE STATUS ICON (this session, David: "replace text (e.g.
                booked) with either green checkmark (no variance) or red X
                (variance exists)"). It borrows Client View's own mark -- same
@@ -19681,6 +19689,23 @@
     return `${_CLOSE_MONTH_NAME[mi].slice(0, 3)} ${Number(d)}, ${y}`;
   }
 
+  // ── SESSION 315: THE TIME, NOT JUST THE DAY (David) ───────────────────────
+  // "If the data is stale, state it (e.g last sync on X date/time)." The Xero
+  // balance is rebuilt on a daily cron and can also be refreshed by hand at any
+  // hour, so two reads on the same calendar day are routinely on either side of
+  // the journal that matters. A date alone cannot tell them apart. This prints
+  // the clock time as well, in the business timezone, because a reader deciding
+  // whether to re-run the check is asking "before or after this morning's post",
+  // which is a question about the hour.
+  function _bkPlainWhen(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+    return d.toLocaleString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric',
+                                       hour: 'numeric', minute: '2-digit', hour12: true })
+            .replace(',', ' ·').replace(/\u202f/g, ' ');
+  }
+
   // Four bands. An immaterial variance is DE-ESCALATED, never hidden: the figure
   // is printed, in grey, and it does not block the close.
   function _closeVarianceBand(variance, closingAmount) {
@@ -19856,6 +19881,10 @@
       // The CLOSING month-end books row. It carries two different things: what
       // the ledger said on that date, and how it got there during the month.
       const bookClose  = _loanBookBalanceAsOf(a, monthEnd);
+      // Xero's own closing balance for this loan account, rebuilt from the ledger.
+      // Hoisted above the variance in s315 because the variance is now taken
+      // against it rather than against our walk — see the block at `rawVariance`.
+      const booksClosing = bookClose ? bookClose.amount : null;
       const movement   = _loanMonthMovement(bookClose);
       const drawnGross = movement.measured ? movement.drawn : null;
 
@@ -19962,7 +19991,41 @@
       // data-variance="3326.229999999996" and anything reading that attribute
       // then has to know to round before it can compare.
       const cents = (x) => (x == null ? null : Math.round(x * 100) / 100);
-      const rawVariance = cents((computed != null && perLender) ? computed - perLender.amount : null);
+      // ══════════════════════════════════════════════════════════════════════
+      //  SESSION 315 — THE VARIANCE IS XERO AGAINST THE LENDER (David)
+      // ══════════════════════════════════════════════════════════════════════
+      // David: "I feel like adding three sources of truth is overkill. The issue
+      // is: is there a variance between what our Ledger/Xero says and what the
+      // Lender says?" He is right, and the old definition was worse than merely
+      // redundant — it was WEAK IN THE WAY §246 NAMES.
+      //
+      // It was `computed − perLender`: the WALK against the lender. On a
+      // statement-derived loan the walk's principal figures ARE the lender's own
+      // statement deltas, so the lender's numbers sat on both sides of the
+      // comparison. A check whose inputs share a source cannot fail properly.
+      //
+      // And it mis-stated the live book. Rapid Credit, August: the walk and the
+      // lender agree to the cent at 51,529.02 while Xero holds 51,071.88 — so the
+      // column read BLANK on a loan whose ledger is $457.14 short of its lender.
+      // "No variance" on a row that does not reconcile is the defect this whole
+      // table exists to prevent.
+      //
+      // Xero's balance and the lender's statement are two genuinely independent
+      // readings. That difference is the reconciliation, and it is what this
+      // column now means.
+      //
+      // ⚠️ THE WALK IS NOT DELETED — IT CHANGED JOBS. `computed` still exists, is
+      // still carried on the row as `data-books`, still goes to the CSV, and is
+      // still one side of the SECOND check below (`unexplained`): our records
+      // against Xero, which answers "did everything we booked actually reach the
+      // ledger" — a posting question, not a reconciliation one. What it stopped
+      // being is the thing the headline verdict is computed from.
+      //
+      // ⚠️ AND A MISSING XERO BALANCE IS A REFUSAL, NOT A ZERO (§247). No rebuilt
+      // balance means no reading, so no verdict — never a silent tie. All 14
+      // active loans carry one today, and `reconciliation-run` refreshes them at
+      // 6am daily (jobid 30), which is what makes this definition usable.
+      const rawVariance = cents((booksClosing != null && perLender) ? booksClosing - perLender.amount : null);
 
       // ── THE CIRCULARITY GUARD (amendment A4, corrected by review F1) ────
       //
@@ -20107,7 +20170,8 @@
       // IT REFUSES TO RUN ON AN UNMEASURED MONTH. Without `drawn` the
       // subtraction is not a check, it is the drawdown wearing an accusation's
       // clothes.
-      const booksClosing = bookClose ? bookClose.amount : null;
+      // s315: declared with `bookClose` above, not here — the VARIANCE reads it now.
+      // (Left as a comment so the next reader is not looking for a second one.)
       // ⚠ AND THE HALF THAT MATTERS: A LEDGER VERDICT MAY NOT BE GIVEN ON A
       // BALANCE OLDER THAN THE THING IT IS JUDGING.
       //
@@ -20253,6 +20317,12 @@
       principal: set.reduce((n, r) => n + r.principal, 0),
       interest:  set.reduce((n, r) => n + r.interest, 0),
       computed:  set.reduce((n, r) => n + (r.computed || 0), 0),
+      // s314: Xero's own balances, summed over the rows that HAVE one. A row with
+      // no rebuilt balance contributes nothing and is counted out, because a total
+      // covering fewer rows than the column beside it is the population mismatch
+      // this footer was rebuilt to remove.
+      xero:      set.reduce((n, r) => n + (r.booksClosing == null ? 0 : Number(r.booksClosing)), 0),
+      xeroCount: set.filter(r => r.booksClosing != null).length,
       perLender: set.reduce((n, r) => n + (r.perLender ? r.perLender.amount : 0), 0),
       openingCount: set.filter(r => r.opening && r.computed != null).length,
       closingCount: set.filter(r => r.computed != null && r.perLender).length,
@@ -20390,6 +20460,7 @@
           count: rows.length,
           opening: ro.opening, drawn: ro.drawn, drawnMeasured: ro.drawnMeasured,
           principal: ro.principal, interest: ro.interest, computed: ro.computed,
+          xero: ro.xero, xeroCount: ro.xeroCount,
           perLender: cl.perLender, variance: cl.variance, material: cl.material,
           varianceShown: cl.varianceShown, varianceShownCount: cl.varianceShownCount,
           rollCount: rollable.length, rollCovers: rollable.length === rows.length,
@@ -21753,6 +21824,23 @@
             : `undated ${bare(p.amount)}`).join(' + ')
           + (Math.abs(r.unbooked.residual) < 0.005 ? '' : ` · ${signed(r.unbooked.residual)} left`)
         : '';
+      // ── SESSION 315: A STALE INPUT IS STATED ON THE FIGURE (David) ───────
+      // "If the data is stale, state it (e.g last sync on X date/time)."
+      //
+      // Variance is now Xero MINUS the lender, so the figure is only as current
+      // as the Xero side of it. `_ledgerStale` already knows the case that
+      // matters: a split reached Xero AFTER this balance was read, so the
+      // balance is behind by whatever posted in between and the difference
+      // printed here is partly an artefact of the read time.
+      //
+      // The module's rule for a stale input is to NAME it, not to suppress the
+      // number (session 262's ask-don't-assert, session 273's stale anchor). So
+      // the figure keeps its place and its band, and carries a tag that says
+      // when the balance was read — to the minute, because the sync runs daily
+      // and a re-run is exactly the action this tag is asking for.
+      const staleTag = r.ledgerStale
+        ? ` <span class="lcb-stale" title="${esc(`Xero's balance for this loan was last read ${_bkPlainWhen(r.ledgerStale.computedAt)}, and ${r.ledgerStale.splits} split${r.ledgerStale.splits === 1 ? ' has' : 's have'} posted to Xero since (latest ${_bkPlainWhen(r.ledgerStale.latest)}). Part of this difference may simply be those postings. Run the reconciliation check to compare against a current balance.`)}">stale · read ${esc(_bkPlainWhen(r.ledgerStale.computedAt))}</span>`
+        : '';
       const varCell = r.circular
         // A check that cannot fail must never look like a check that passed.
         // Opening, movement and closing all trace to the same document here, so
@@ -21786,7 +21874,7 @@
         // is visible on EVERY row that carries one, including the rows where a
         // more urgent action (an unposted split) rightly owns the button.
         // Gated on the note being CURRENT, same test as everywhere else.
-        : `<span class="${r.band === 'material' ? 'lcb-off' : 'lcb-quiet'}"${_bkNoteAttrs(a, r.variance)}>${signed(r.variance)}${_bkNoteCurrent(a, r.variance) ? ' <span style="font-weight:700;opacity:.7;cursor:help" title="Someone has recorded an explanation for this difference. Hover the figure to read it, or open the loan.">*</span>' : ''}</span>`;
+        : `<span class="${r.band === 'material' ? 'lcb-off' : 'lcb-quiet'}"${_bkNoteAttrs(a, r.variance)}>${signed(r.variance)}${_bkNoteCurrent(a, r.variance) ? ' <span style="font-weight:700;opacity:.7;cursor:help" title="Someone has recorded an explanation for this difference. Hover the figure to read it, or open the loan.">*</span>' : ''}</span>${staleTag}`;
       // ── STATUS: THE ICON IS THE VERDICT, THE WORDS STILL SAY WHAT HAPPENED ──
       // This session (David): the column reads as a checkmark or a red X now,
       // driven by the SAME tie/variance verdict the Variance column already
@@ -21930,8 +22018,13 @@
       // agrees with its lender to the cent while $858.66 moved in Xero with
       // nothing behind it — so folding them into one number would hide exactly
       // that. It is a sentence in the hint now, and it stays its own CSV column.
+      // s315: the words name a POSTING difference now, because that is what this
+      // subtraction has become. It is Xero minus our own walk, and with Variance
+      // moved onto Xero-vs-lender this is the only check left asking "did what we
+      // recorded actually reach the ledger" — so it says that, in those terms,
+      // rather than describing a walk the reader can no longer see a column for.
       const ledgerNote = r.unexplainedBand === 'material'
-        ? `ledger ${signed(r.unexplained)} — ${r.unexplained > 0 ? 'the ledger is higher than this walk' : 'the ledger fell further than our splits explain'}`
+        ? `ledger ${signed(r.unexplained)} — ${r.unexplained > 0 ? 'something reached Xero that our recorded splits do not account for' : 'we have recorded more against this loan than Xero shows — something has not posted'}`
         : r.unexplainedBand === 'immaterial'
         ? `ledger ${signed(r.unexplained)} — a real difference, too small to chase on its own`
         : r.unexplainedBand === 'unbooked'
@@ -21984,6 +22077,39 @@
       // reason this column can stay glyphs at all is that Variance keeps its
       // figures. The test is not "is it a dollar verdict", it is CAN THE READER
       // CHECK IT FROM THIS ROW.
+      // ══════════════════════════════════════════════════════════════════════
+      //  SESSION 314 — XERO'S OWN BALANCE GETS A COLUMN (David)
+      // ══════════════════════════════════════════════════════════════════════
+      // David, on Rapid Credit: "BOOKS displays 51,529.02, but you say Xero shows
+      // 51,071.88. Books and Xero are the same thing, right?"
+      //
+      // They are not, and the column name is what made him think so. BOOKS is a
+      // WALK — opening + drawn − principal, what our own records imply. Xero's
+      // actual closing balance for the loan account is a READING, and until now it
+      // was on NO column of this table. So the row showed two of the three
+      // balances in play and named one of them "Books".
+      //
+      // s307 found this from the other side: the Issue column's red figure is
+      // `booksClosing − computed`, and a reader could not check it because one
+      // operand was invisible. s310 put the FIGURE on the mark, which made the
+      // arithmetic checkable; this puts the OPERAND on the row, which makes it
+      // legible. On Rapid the row now reads 51,529.02 | 51,071.88 | 51,529.02 —
+      // our walk and the lender agreeing, and Xero one journal behind.
+      //
+      // ⚠️ BLANK IS A REAL STATE AND MUST NOT READ AS ZERO (s247). No measured
+      // movement, or a snapshot older than a split that has since reached Xero,
+      // means we have no honest reading — and a dash there says exactly that.
+      const xeroTitle = r.booksClosing == null
+        ? (r.ledgerStale
+            ? `Xero's balance for this loan was last rebuilt on ${_bkPlainDate(String(r.ledgerStale.computedAt).slice(0, 10))}, before ${r.ledgerStale.splits} split${r.ledgerStale.splits === 1 ? '' : 's'} reached Xero. Comparing a fresh walk against it would differ by whatever was posted in between, so no figure is claimed. Run the reconciliation check.`
+            : `No rebuilt Xero balance for this loan at month end, so there is nothing to read. The Books column beside it is our own walk and stands on its own.`)
+        : r.ledgerStale
+        ? `Xero held ${money(r.booksClosing)} when this was last rebuilt, on ${_bkPlainDate(String(r.ledgerStale.computedAt).slice(0, 10))} — before ${r.ledgerStale.splits} split${r.ledgerStale.splits === 1 ? '' : 's'} reached Xero, so it is behind by whatever those posted.`
+        : `Xero's own closing balance for this loan account, rebuilt from the ledger. Books is what our records imply; this is what Xero holds. The Issue column reports the difference.`;
+      const xeroCell = r.booksClosing == null
+        ? '<span class="lcb-none">not read</span>'
+        : `<span${r.ledgerStale ? ' class="lcb-quiet"' : ''}>${bare(r.booksClosing)}</span>`;
+
       const ledgerFigure = (r.unexplainedBand === 'material' && r.unexplained != null && Math.abs(r.unexplained) >= 0.005)
         ? `<span class="lcb-ledger-fig">${signed(r.unexplained)}</span>` : '';
       // s311, same rule: the ledger mark prints only when it has found something.
@@ -22038,9 +22164,9 @@
         <td class="lcb-n" data-col="drawn" data-amount="${r.drawn == null ? '' : r.drawn}" data-drawn-gross="${r.drawnGross == null ? '' : r.drawnGross}" data-drawn-netted="${r.drawnGross == null ? '' : r.drawnNetted}" data-staged-interest="${r.stagedInterest || ''}" data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.movement.skipReason ? ` data-skip-reason="${esc(r.movement.skipReason)}"` : ''}>${drawnCell}</td>
         <td class="lcb-n" data-col="principal" data-amount="${r.principal || ''}">${r.principal ? bare(r.principal) : '<span class="lcb-na">—</span>'}</td>
         <td class="lcb-n" data-col="interest" data-amount="${r.interest || ''}">${r.interest ? bare(r.interest) : '<span class="lcb-na">—</span>'}</td>
-        <td class="lcb-n" data-col="books" data-amount="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}">${r.computed != null ? bare(r.computed) : '<span class="lcb-na">—</span>'}</td>
+        <td class="lcb-n" data-col="xero" data-books="${r.computed != null ? r.computed : ''}" data-reaches-books="${r.booksClosing == null || r.computed == null ? '' : (Math.abs(r.booksClosing - r.computed) < 0.005 ? '1' : '0')}" data-amount="${r.booksClosing == null ? '' : r.booksClosing}"${r.ledgerStale ? ' data-stale="1"' : ''} title="${esc(xeroTitle)}">${xeroCell}</td>
         <td class="lcb-n" data-col="lender" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
-        <td class="lcb-n" data-col="variance"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.ledgerStale ? 'stale' : r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
+        <td class="lcb-n" data-col="variance"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.ledgerStale ? 'stale' : r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}" data-xero-read-at="${esc((r.bookClose && r.bookClose.computedAt) || '')}" data-xero-stale="${r.ledgerStale ? '1' : '0'}">${varCell}</td>
         <td class="lcb-checks" data-col="checks">${booked}${ledgerCell}<span class="lcb-chk" data-col="booked" data-booked="${esc(bookedWord)}" title="${esc(bookedWord)}">${bookedCell}</span></td>
         <td class="lcb-action" data-col="action" data-action="${esc(queuedCell ? 'queued' : action.kind)}" data-fix="${esc(fx.shape)}"${fx.title ? ` data-fix-title="${esc(fx.title)}"` : ''}${queued.length ? ` data-queued="${queued.length}"` : ''}${answeredKeys.length ? ` data-queued-keys="${esc(answeredKeys.join(' '))}"` : ''}>${action.cell || queuedCell}${moreCell}${queuedCell ? '' : _bkFixLineHtml(fx)}</td>
       </tr>`;
@@ -22132,7 +22258,7 @@
       <td class="lcb-n" data-col="drawn" data-amount="${ta.drawn}"${drawnTitle}>${money(ta.drawn)}</td>
       <td class="lcb-n" data-col="principal" data-amount="${ta.principal}">${money(ta.principal)}</td>
       <td class="lcb-n" data-col="interest" data-amount="${ta.interest}">${money(ta.interest)}</td>
-      <td class="lcb-n" data-col="books" data-amount="${ta.computed}"${rollTitle}>${money(ta.computed)}</td>
+      <td class="lcb-n" data-col="xero" data-books="${ta.computed}" data-amount="${ta.xero == null ? '' : ta.xero}" data-xero-count="${ta.xeroCount}"${ta.xeroCount === ta.rollCount ? '' : ' title="Xero was read on ' + ta.xeroCount + ' of the ' + ta.rollCount + ' loans rolled forward. On the rest there is no rebuilt balance to read, so nothing is claimed for them and they add nothing to this total."'}>${ta.xeroCount ? money(ta.xero) : '<span class="lcb-na">—</span>'}</td>
       <td class="lcb-n" data-col="lender" data-amount="${ta.perLender}"${closingTitle}>${money(ta.perLender)}</td>
       <td class="lcb-n" data-col="variance" data-variance="${ta.varianceShown}" data-variance-to-resolve="${ta.variance}" data-variance-rows="${ta.varianceShownCount}" data-material="${ta.material}"${varTotalTitle || closingTitle}>${varianceCell(ta)}</td>
       <td data-col="checks"></td><td data-col="action"></td>
@@ -22201,6 +22327,40 @@
       + quietRows.map(b => b.html.replace('<tr ', '<tr hidden ')).join('');
     const elsewhereHtml = _bkQueueElsewhereHtml(placedIds);
 
+    // ══════════════════════════════════════════════════════════════════════
+    //  SESSION 315 — WHEN WAS XERO READ (David)
+    // ══════════════════════════════════════════════════════════════════════
+    // "Variance = difference between Xero and Lender. If the data is stale,
+    // state it (e.g last sync on X date/time)."
+    //
+    // The whole column now rests on a figure this product REBUILT at some point
+    // in the past, on a daily cron. That makes the read time load-bearing in a
+    // way it has never been before: a reader looking at a $457.14 difference
+    // cannot judge it without knowing whether the balance behind it predates
+    // this morning's journal.
+    //
+    // ⚠️ SESSION 219 DELETED A LINE LIKE THIS AND WAS RIGHT TO. It said "Last
+    // run <date>, covering <range> · N loans" — pure metadata, describing the
+    // machine rather than the books, actionable by nobody. This one is not that
+    // line: it is an input to the column beside it, it changes what a reader
+    // does about a figure, and it goes AMBER and names the button only when
+    // something has actually posted since. On a current book it is one quiet
+    // sentence; if it ever becomes noise, the test is the same one that killed
+    // the old line — does it change what anybody does.
+    //
+    // ⚠️ THE OLDEST READ, NOT THE NEWEST. The band is only as fresh as its
+    // stalest row; reporting the newest would be a true sentence that leaves the
+    // reader more confident than the evidence allows.
+    const syncRows   = rf.rows.filter(r => r.bookClose && r.bookClose.computedAt);
+    const syncStale  = rf.rows.filter(r => r.ledgerStale);
+    const syncOldest = syncRows.map(r => String(r.bookClose.computedAt)).sort()[0] || null;
+    const syncHtml = !syncRows.length
+      // A refusal, not a blank. No rebuilt balance anywhere means the Variance
+      // column is not measuring anything this month, and that is worth a
+      // sentence — §247, a null is not a zero.
+      ? `<div class="lcb-sync" data-sync-stale="1" data-sync-rows="0">Xero balances have not been rebuilt for this month, so Variance has nothing to compare the lender against. Run the reconciliation check.</div>`
+      : `<div class="lcb-sync" data-sync-stale="${syncStale.length ? '1' : '0'}" data-sync-at="${esc(syncOldest || '')}" data-sync-rows="${syncRows.length}" data-sync-stale-rows="${syncStale.length}" title="${esc(`Variance is Xero minus the lender, so it is only as current as the Xero side. This is the OLDEST of the ${syncRows.length} rebuilt balances behind this month's figures — the band is only as fresh as its stalest row. The balances are rebuilt by the reconciliation check, which runs at 6am daily and can be run by hand at any time.`)}">Xero balances last read ${esc(_bkPlainWhen(syncOldest))}${syncStale.length ? ` — ${syncStale.length} loan${syncStale.length === 1 ? ' has' : 's have'} posted to Xero since, so ${syncStale.length === 1 ? 'its' : 'their'} variance is measured against a balance that is behind. Run the reconciliation check.` : ''}</div>`;
+
     el.innerHTML = `
       <!-- Session 267, David: "remove the rollforward section (same)" — the
            column headers already say Opening / Drawn / Principal / Computed /
@@ -22220,6 +22380,7 @@
         ${barHtml}
         <span class="lcb-asks">${askBits.join('<span class="sep">\u00b7</span>')}</span>
       </div>
+      ${syncHtml}
       <div class="card" style="overflow:hidden;box-shadow:0 1px 2px rgba(15,37,71,.04);border-color:var(--gray-200);border-radius:14px">
         <div style="overflow-x:auto;padding:14px 6px 0">
           <table class="lcb-table" id="lcb-table">
@@ -22229,9 +22390,9 @@
               <th class="lcb-n" data-col="opening">Opening · ${esc(short(rf.priorEnd))}</th>
               <th class="lcb-n" data-col="drawn">Drawn</th>
               <th class="lcb-n" data-col="principal">Principal</th><th class="lcb-n" data-col="interest">Interest</th>
-              <th class="lcb-n" title="Opening, plus anything drawn, minus principal paid — this is what OUR books say the closing balance should be. Renamed from Computed in session 280: this table and the month-in-flight table now use one word for our own figure and one for the lender's, so Variance means the same thing on both." data-col="books">Books</th>
+              <th class="lcb-n" title="Xero's own closing balance for this loan account at month end, rebuilt from the ledger. THIS is the figure Variance compares against the lender — the reconciliation. Blank when there is no rebuilt balance to read, or when a split reached Xero after it was read; blank is a refusal, never a zero. What our own records imply the balance should be (Opening + Drawn − Principal) is still computed, still exported, and still checked against this figure — see the Issue column — but it is not a source of truth and no longer has a column of its own (session 315, David)." data-col="xero">Xero</th>
               <th class="lcb-n" title="The LENDER's own closing figure for this month, and the date of the document it came from (hover the cell). Renamed from Closing in session 280 to match the month-in-flight table — Variance is Books minus Lender on both." data-col="lender">Lender</th>
-              <th class="lcb-n" title="Our books against the lender, for this month. An asterisk means somebody has recorded an explanation for that figure — hover it to read what they found. The explanation is shown against the number rather than in the Action column, because Action answers what to do next and an explanation is not a next action." data-col="variance">Variance</th><th data-col="checks" title="What is wrong with this row, if anything — blank means every check passed, and each row still carries all four verdicts in full on hover and in the CSV export.&#10;&#10;LENDER: does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.&#10;&#10;LEDGER: do our recorded splits explain what actually moved in the Xero ledger this month — a different question. Green = yes. Red = money moved in Xero for this loan that no split we have accounts for. Grey = the month’s ledger movement was not measured.&#10;&#10;STAGED: a pre-split transaction already sitting in Xero for a future period, waiting for the payment to land in the bank feed. Green = the staging loop is working and nothing here needs you; red = it needs a look.&#10;&#10;BOOKED: was this month’s payment actually posted to Xero. Blank means yes — only the exceptions print.">Issue</th>
+              <th class="lcb-n" title="Xero against the lender, for this month — the reconciliation. Before session 315 this compared our own WALK to the lender, which on a statement-derived loan put the lender\'s own figures on both sides; Rapid Credit read blank here while its ledger sat $457.14 below its lender. An asterisk means somebody has recorded an explanation for that figure — hover it to read what they found. The explanation is shown against the number rather than in the Action column, because Action answers what to do next and an explanation is not a next action." data-col="variance">Variance</th><th data-col="checks" title="What is wrong with this row, if anything — blank means every check passed, and each row still carries all four verdicts in full on hover and in the CSV export.&#10;&#10;LENDER: does this loan tie to the lender? Green = ties, or a difference too small to chase. Red = a real dollar difference to resolve, or a payment sitting unposted this month. Grey = not independently checked — either the opening, movement and closing all trace to the same document (so agreeing proves nothing), or there is no lender evidence to compare against this month.&#10;&#10;LEDGER: do our recorded splits explain what actually moved in the Xero ledger this month — a different question. Green = yes. Red = money moved in Xero for this loan that no split we have accounts for. Grey = the month’s ledger movement was not measured.&#10;&#10;STAGED: a pre-split transaction already sitting in Xero for a future period, waiting for the payment to land in the bank feed. Green = the staging loop is working and nothing here needs you; red = it needs a look.&#10;&#10;BOOKED: was this month’s payment actually posted to Xero. Blank means yes — only the exceptions print.">Issue</th>
               <th data-col="action" title="The next thing to do about this row. A difference nobody can evaluate asks for the document that would settle it — uploading a current statement is far easier than investigating a gap measured against a stale one. Nothing appears here for a row that ties.">Action</th>
             </tr></thead>
             <tbody>${bodyHtml}</tbody>
@@ -22341,14 +22502,14 @@
     };
 
     const head = ['Loan', 'Lender', 'Agreement', 'Opening', 'Opening source', 'Drawn', 'Drawn gross',
-                  'Principal', 'Interest', 'Books', 'Lender balance', 'Lender balance date',
+                  'Principal', 'Interest', 'Books (our records)', 'Xero balance', 'Lender balance', 'Lender balance date',
                   'Lender balance source', 'Variance', 'Variance explained by',
                   'Ledger unexplained', 'Booked', 'Staged', 'Status', 'Ledger check', 'Notes'];
     const rows = [head];
     for (const tr of table.querySelectorAll('tbody tr')) {
       const c = byCol(tr);
       const cLoan = c.loan, cOpen = c.opening, cDrawn = c.drawn, cPrin = c.principal,
-            cInt = c.interest, cComp = c.books, cClose = c.lender, cVar = c.variance,
+            cInt = c.interest, cXero = c.xero, cClose = c.lender, cVar = c.variance,
             cBooked = c.booked, cStaged = c.staging, cStat = c.status, cLedgerMark = c.ledger;
       rows.push([
         att(tr, 'data-loan'),
@@ -22366,7 +22527,11 @@
         // module spent a session establishing must survive the export.
         att(cDrawn, 'data-drawn-measured') === '1' ? amt(cDrawn) : 'not measured',
         att(cDrawn, 'data-drawn-gross') ? Number(att(cDrawn, 'data-drawn-gross')).toFixed(2) : '',
-        amt(cPrin), amt(cInt), amt(cComp),
+        // s315: Books lost its column but not its claim — it rides on the Xero
+        // cell as data-books and the export still carries it, headed the same way.
+        amt(cPrin), amt(cInt),
+        att(cXero, 'data-books') ? Number(att(cXero, 'data-books')).toFixed(2) : '',
+        amt(cXero),
         att(cClose, 'data-amount') ? amt(cClose) : txt(cClose),
         att(cClose, 'data-closing-date-iso'),
         att(cClose, 'data-closing-source-label') || att(cClose, 'data-closing-source'),

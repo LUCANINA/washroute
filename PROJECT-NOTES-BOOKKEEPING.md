@@ -1,5 +1,85 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 315 — Sep 18, 2026: Variance means Xero against the Lender, and a stale read says so
+
+### 🔴 THE COLUMN WAS MEASURING THE WRONG PAIR
+
+David: *"Why are we showing our own calculations (Books). I feel like adding three sources of truth
+is overkill. The issue is: is there a variance between what our Ledger/Xero says and what the Lender
+says?"* He was right, and the old definition was worse than merely redundant.
+
+`variance` was `computed − perLender` — OUR WALK against the lender. On a statement-derived loan the
+walk's principal figures ARE the lender's own statement deltas, so **the lender's numbers sat on both
+sides of the comparison**. §246: a check whose inputs share a source cannot fail.
+
+**Rapid Credit is the proof.** August: the walk and the lender agree to the cent at 51,529.02 while
+Xero holds 51,071.88. The column read BLANK on a loan whose ledger is $457.14 short of its lender.
+"No variance" on a row that does not reconcile is the exact defect this table exists to prevent.
+
+### WHAT CHANGED
+
+- **Variance = Xero's own rebuilt closing balance − the lender's figure.** Two independent readings.
+- **The Books column is gone.** The walk is not deleted — it changed jobs. It rides on the Xero cell
+  as `data-books`, still exports (header `Books (our records)`), and is still one side of the Issue
+  column's ledger check: our records against Xero, which answers *did everything we booked actually
+  reach the ledger* — a POSTING question, not a reconciliation one.
+- **A missing Xero balance is a refusal, not a zero** (§247). No reading, no verdict.
+- **Rows that moved**, and they moved for the reason the change exists: BayFirst SBA 2 now reports
+  the $858.66 the Ledger column had been reporting on its own all along; Paypal 2 reports −$3,120.60
+  where the walk showed +$21.66.
+
+### 🕐 AND THE READ TIME IS NOW LOAD-BEARING, SO IT IS ON SCREEN
+
+David: *"If the data is stale, state it (e.g last sync on X date/time)."*
+
+The whole column rests on a figure rebuilt by the reconciliation check (6am daily, jobid 30). A
+reader looking at a $457.14 difference cannot judge it without knowing whether the balance behind it
+predates this morning's journal.
+
+- A line above the table: **"Xero balances last read Sep 9 · 8:56 AM"** — the OLDEST of the rebuilt
+  balances behind the month's figures, because the band is only as fresh as its stalest row. It goes
+  amber and names the button when a split has posted to Xero since.
+- Per row, when `_ledgerStale` fires: a **`stale · read <date · time>`** tag on the figure, with the
+  exact time and how many splits posted after it. The figure keeps its place and its band — name the
+  limit, show the number.
+- `_bkPlainWhen()` prints the clock time, not just the day: the sync runs daily and can be run by
+  hand, so two reads on one calendar day routinely sit either side of the journal that matters.
+
+**⚠️ Session 219 deleted a line like this and was right to** ("Last run <date>, covering <range> · N
+loans" — metadata nobody acted on). This one is an INPUT to the column beside it. If it ever becomes
+noise, the test is the same one that killed the old line: does it change what anybody does.
+
+### THE SUITE: ~40 ASSERTIONS MOVED WITH THE INVARIANT, NONE RELAXED
+
+Every claim was re-pointed at the quantity that now carries it, never tuned to green:
+
+- **Footer footing** (`opening + drawn − principal = computed`) reads `data-books`, not the Xero
+  cell's printed text. Its PAIR was added: the printed total is Xero's own, over `data-xero-count`
+  rows — without it the footing check could pass on a cell printing anything.
+- **s236's plant** moved from a split's principal to the month-end Xero rebuild. A split is an input
+  to neither side of the new variance, so the probe was measuring a $0.00 move: a probe pointed at
+  the wrong lever, fixed by pointing it at the right one.
+- **ce21b** (interest netting) moved onto the LEDGER check, where Drawn's effect now lands. Its
+  control gained a stronger claim than it had: reverting the fix still moves every netted loan's walk
+  by its own interest, and **no row's variance moves at all** — since s315 a Drawn bug cannot reach
+  the close verdict. The historical board ("10 loans off — $8,751.73") is recorded in the comment
+  rather than asserted, because no code can now produce it.
+- **ce1 / ce3 circularity controls**: with the guard disabled the row STILL refuses to tie, because
+  those scenarios drop the books rows and there is no rebuilt balance to tie against. The tautology
+  now has two locks on it, not one.
+- **ce25 / ce30** (staged payments): the variance side of the double-count no longer arises — Xero
+  already carries the staged reduction, so the row ties honestly. The guard lives on the ledger half,
+  which is where the $3,326.23-not-$3,839.38 claim is now pinned.
+- **ce12 / ce13 / ce32** plant a CLOSING Xero reading as well as an opening, and each planted figure
+  is the coherent one for its scenario (a staged payment means the ledger did not move).
+
+### ⚠️ KNOWN RED, PRE-EXISTING — NOT THIS SESSION
+
+`stale-anchor-ask` and `rollback-beats-stale` fail IDENTICALLY on HEAD (verified with `WR_INDEX`
+pointed at `git show HEAD:admin-dashboard/index.html`). Paypal 2's fixture state moved and the pinned
+−$9,429.39 / $21.66 figures are stale. `s240 #10` is Tech Debt #19 and reports itself as such.
+
+
 ## Session 306 — Sep 17, 2026: the harness was blind for three weeks, and the Checks column speaks
 
 ### 🔴 THE HARNESS HAD NOT RUN A SINGLE ASSERTION SINCE ~AUG 27
