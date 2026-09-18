@@ -786,7 +786,12 @@ function readSurfaces() {
         return v === null || v === undefined || v === '' ? null : Number(v);
       })(),
       excluded: foot.find(f => /Not checkable/.test(f[0] || '')) || null,
-      note: txt('#loans-close-band .lcb-foot'),
+      // s316: the `.lcb-foot` legend paragraph was deleted (David: "No one is
+      // going to read this"). `note` is kept as a reader of the ELSEWHERE strip,
+      // which is the line that still carries a claim — unplaced work — so a
+      // consumer that used to read the legend fails loudly here rather than
+      // matching against a permanently empty string and passing by never firing.
+      note: txt('#loans-close-band .lcb-elsewhere'),
       text: cb.textContent.replace(/\s+/g, ' ').trim(),
     };
   }
@@ -5823,6 +5828,10 @@ const CLOSE_REVERTS = {
   // session 247 appears TWICE — once in the closing figure and once in the
   // Closing source column — so a first-match replace reverted the wrong branch
   // and the control quietly stopped reproducing the defect.
+  // s316: put the duplicated ledger figure back — the state before David saw
+  // −457.14 printed twice on Rapid's row.
+  'ledger-echo-prints': ['(ledgerFigureValue != null && !ledgerEchoesVariance)',
+                         '(ledgerFigureValue != null)'],
   'stripe-cell-reads-not-received': ['<span class="lcb-na">swept from Xero</span>',
                                      '<span class="lcb-none">not received</span>'],
   // The provenance label stops labelling: every source renders as its raw slug.
@@ -6257,8 +6266,22 @@ GROUPS.push({
            'ce3: ...and it SAYS so, in the column a reader looks at', `cell=${JSON.stringify(rn.variance)}`);
       t.ok(/not an independent check/.test(rn.hint || ''),
            'ce3: ...including why that is not the same as agreeing', `hint=${JSON.stringify(rn.hint)}`);
-      t.ok(/agree.? by construction/.test(cbN.note || ''),
-           'ce3: the footer sentence accounts for the row it excluded', `note=${JSON.stringify(cbN.note)}`);
+      // s316: the footer sentence that used to account for the excluded row is
+      // gone with the legend. The CLAIM — that a circular row is excluded from
+      // both buckets and says so — is unchanged and is asserted where it now
+      // lives: on the row itself (two assertions above) and in the rollforward's
+      // own bucket, read here so a row could not quietly fall out of it.
+      const circN = await pNo.evaluate(() => {
+        const rf = _loanCloseRollforward(_cvLastMonth());
+        return { circular: rf.circularRows.map(x => x.a.xero_account_name),
+                 inTies: rf.ties.some(x => /Verdant/.test(x.a.xero_account_name || '')),
+                 inOff: rf.off.some(x => /Verdant/.test(x.a.xero_account_name || '')) };
+      });
+      t.ok(circN.circular.some(n => /Verdant/.test(n)),
+           'ce3: the rollforward accounts for the row it excluded, in its own bucket',
+           JSON.stringify(circN));
+      t.ok(!circN.inTies && !circN.inOff,
+           'ce3: ...and counts it in neither the ties nor the offs', JSON.stringify(circN));
       t.eq(cbN.rows.filter(x => x.grade === 'B' && x.circular).length, 1,
            'ce3: exactly one grade-B row is marked not independently checked');
       // Verdant's seven undated splits are stated rather than closed over.
@@ -6868,8 +6891,10 @@ GROUPS.push({
       t.ok(/swept from Xero/.test(r.perLender || ''),
            'ce10: ...and its closing cell reads "swept from Xero"', `cell=${JSON.stringify(r.perLender)}`);
       t.notMatch(r.perLender, /not received/, 'ce10: ...never "not received"');
-      t.notMatch(cb.note || '', /2 have nothing to close against/,
-                 'ce10: ...and the footer does not count it among the loans with nothing to close against');
+      // s316: was a regex on the deleted legend. The claim is about the BUCKET,
+      // so it is asserted on the bucket — `counts.noEvidence` two lines below is
+      // the same read, and this states the Stripe-specific half of it.
+      // (kept adjacent to the counts read so the two cannot drift apart)
       const counts = await p.evaluate(() => {
         const rf = _loanCloseRollforward(_cvLastMonth());
         const cov = _bkStatementCoverage(_cvLastMonth());
@@ -6877,6 +6902,9 @@ GROUPS.push({
                  expected: cov.expected.map(x => x.xero_account_name),
                  naCount: cov.naCount };
       });
+      t.ok(!counts.noEvidence.includes('Stripe Capital Loan'),
+           'ce10: ...and it is not counted among the loans with nothing to close against',
+           JSON.stringify(counts.noEvidence));
       t.eq(counts.noEvidence.length, 0, 'ce10: nothing at all reads as "no evidence" this month');
       t.ok(!counts.expected.includes('Stripe Capital Loan'),
            'ce10: ...and Stripe is not in cov.expected either — it is not a statement anybody owes us');
@@ -6889,9 +6917,11 @@ GROUPS.push({
       t.ok(rev.ok, 'ce10 CONTROL: the Stripe-blind rollforward could be rebuilt', JSON.stringify(rev.missing));
       if (rev.ok) {
         const b = (await p.surfaces()).loans.closeBand;
-        t.ok(/1 has nothing to close against/.test(b.note || ''),
+        const noEv = await p.evaluate(() =>
+          _loanCloseRollforward(_cvLastMonth()).noEvidence.map(x => x.a.xero_account_name));
+        t.ok(noEv.includes('Stripe Capital Loan'),
              'ce10 CONTROL: ...and Stripe is counted as a loan with nothing to close against',
-             `note=${JSON.stringify(b.note)}`);
+             JSON.stringify(noEv));
       }
       await restoreFns(p);
 
@@ -7093,8 +7123,11 @@ GROUPS.push({
       t.ok(Math.abs(rd.varianceN) > 3000 && !unexplainedRows.some(x => /Dexter/.test(x.loan)),
            'ce12: ...so Dexter’s $3,326.23 stays out of it entirely',
            `row ${rd.varianceN}, to-resolve ${toResolve}`);
-      t.ok(/differs? by exactly the payments not yet booked/.test(cbD.note || ''),
-           'ce12: ...and the footer says so in words', `note=${JSON.stringify(cbD.note)}`);
+      const ubRows = await pDom.evaluate(() =>
+        _loanCloseRollforward(_cvLastMonth()).unbookedRows.map(x => x.a.xero_account_name));
+      t.ok(ubRows.includes('Dexter Loan 2'),
+           'ce12: ...and it is counted in the bucket for rows that differ by exactly the payments not yet booked',
+           JSON.stringify(ubRows));
 
       // ── CONTROL ── no fourth band
       const rev = await revertFn(pDom, '_closeUnbookedExplanation', EDITS('no-unbooked-band'));
@@ -10763,8 +10796,13 @@ GROUPS.push({
       t.ok(!/needs .* statement/i.test(row.text),
            `${row.loan}: a material leftover keeps its figure, it does not hide behind the ask`, row.text);
     }
-    t.ok(/waiting on a statement dated at or after/.test(screen.footer),
-         'the footer names the population so the denominator is visible');
+    // s316: the legend that named this population is deleted. The denominator is
+    // still visible — every stale-anchor row renders its own cell, and the loop
+    // above reads them — so the claim is asserted against that rendered set
+    // rather than against a sentence summarising it.
+    t.eq(screen.rows.length, rf.stale.length,
+         'every stale-anchor row renders its own cell, so the denominator is visible on the table',
+         `${screen.rows.length} rendered vs ${rf.stale.length} in the rollforward`);
 
     /* ⭐ THE ROW THAT STARTED THIS SESSION, REBUILT (session 287).
        PayPal 2's August closed against a 2026-08-05 statement while three later
@@ -11609,6 +11647,14 @@ GROUPS.push({
         onRows, inLine,
         reached: [...new Set(onRows.concat(inLine))].sort(),
         allApprovalKeys: items.approvals.map(i => i.key).sort(),
+        // s316: tier 3 is the NOTES tier — "nothing to post" by its own
+        // definition. Its standing line under the close table was cut (David:
+        // "No one is going to read this"), so the close table no longer claims
+        // to place these. They are separated here rather than dropped, because
+        // the invariant below still has to hold for them somewhere, and the
+        // assertion that they reach Overview's Approvals queue is written
+        // directly underneath it.
+        infoKeys: items.approvals.filter(i => i.tier === 3).map(i => i.key).sort(),
         stagedKeys: items.staged.map(i => i.key).sort(),
       };
     };
@@ -11652,10 +11698,33 @@ GROUPS.push({
          over the WHOLE item list rather than over what the renderer happened to
          be handed, because a renderer that quietly drops one would otherwise
          satisfy an assertion written against its own output. */
-      const missingClosing = onClosing.allApprovalKeys.filter(k => !onClosing.reached.includes(k));
+      // s316: scoped to the ACTIONABLE items. The close table places work; tier 3
+      // is notes, and since its line was cut the table does not place those. The
+      // pair of assertions below keeps the original invariant whole — nothing is
+      // unreachable — by naming where each half lives, which is a stronger
+      // statement than the single one it replaces, because it now says WHERE.
+      const infoSet = new Set(onClosing.infoKeys);
+      const actionable = onClosing.allApprovalKeys.filter(k => !infoSet.has(k));
+      const missingClosing = actionable.filter(k => !onClosing.reached.includes(k));
       t.eq(missingClosing.length, 0,
-           's288e: ⭐⭐ EVERY queue item is on a row or in the line beneath it — nothing is unreachable',
+           's288e: ⭐⭐ EVERY actionable queue item is on a row or in the line beneath it — nothing is unreachable',
            JSON.stringify({ missing: missingClosing, onRows: onClosing.onRows, inLine: onClosing.inLine }));
+
+      /* ── AND THE OTHER HALF: THE NOTES ARE NOT STRANDED (s316) ───────────
+         Cutting a surface is only safe if the thing it showed still has one. The
+         tier-3 findings the close table stopped placing are read back off the
+         OVERVIEW Approvals queue by key — the same store, a different screen —
+         so "removed from the close band" cannot quietly become "removed from the
+         product". If a future change drops them from both, this is what fails. */
+      if (onClosing.infoKeys.length) {
+        const ov = await newHarnessPage({ tab: 'overview' });
+        const approvalKeys = await ov.evaluate(() => _bkApprovalQueueItems().map(i => i.key));
+        await ov.close();
+        const strandedInfo = onClosing.infoKeys.filter(k => !approvalKeys.includes(k));
+        t.eq(strandedInfo.length, 0,
+             's316: ⭐ ...and every note the close table stopped showing is still on the Approvals queue',
+             JSON.stringify({ stranded: strandedInfo, infoKeys: onClosing.infoKeys }));
+      }
 
       /* ── AND THE DUPLICATE DAVID NAMED IS ACTUALLY GONE ──────────────────
          "the 'scheduled in Xero' sub section duplicates information already in
@@ -12789,7 +12858,11 @@ GROUPS.push({
     const rev = await p.evaluate((SUBJECT) => {
       const real = renderLoansCloseBand;
       const src = real.toString();
-      const anchor = "const queuedCell = action.cell ? '' : _bkQueueCellHtml(queued, month);";
+      // s316 moved this line (the Action gate) — the splice point is the same
+      // statement, one condition wider. An anchor that no longer matches fails
+      // LOUDLY here rather than reconstructing nothing and passing, which is why
+      // it is a string match and not a regex.
+      const anchor = "const queuedCell = (action.cell || !showsVariance) ? '' : _bkQueueCellHtml(queued, month);";
       if (!src.includes(anchor)) return { ok: false, why: 'anchor moved — update this control' };
       // The pre-288 branch, in its widest (pre-278) form: any unsettled schedule on
       // a prestaging loan takes the cell, whatever is prepared behind it.
@@ -14709,6 +14782,14 @@ GROUPS.push({
                   ? tr.querySelector('[data-col="variance"]').getAttribute('data-unexplained') : null,
           ledgerText: led ? led.textContent.replace(/\\s+/g, ' ').trim() : null,
           ledgerFig: led ? led.getAttribute('data-ledger-figure') : null,
+          // s316: the row's Variance figure, to check the ledger mark is not a
+          // second printing of it. The ATTRIBUTE is read for both, never the
+          // formatted text, so a comma or a minus sign cannot decide the answer.
+          varianceN: (() => {
+            const v = tr.querySelector('[data-col="variance"]');
+            const a = v ? v.getAttribute('data-variance') : null;
+            return a === null || a === '' ? null : Number(a);
+          })(),
           ledgerCls: led ? led.className : '',
           actionText: act ? act.textContent.replace(/\\s+/g, ' ').trim() : '',
         };
@@ -14733,6 +14814,71 @@ GROUPS.push({
       t.ok(notRed.every(r => !/\d/.test(r.ledgerText || '')),
            '...and no ✓ or · mark carries one — a figure on every row is a column nobody reads',
            JSON.stringify(notRed.filter(r => /\d/.test(r.ledgerText || '')).map(r => [r.loan, r.ledgerText])));
+      // ── s316: AND IT IS NEVER THE FIGURE ALREADY PRINTED ONE CELL LEFT ──
+      // David, on Rapid: the row showed −457.14 in Variance and −457.14 again on
+      // the ledger mark. Two different claims — Xero vs the lender, Xero vs our
+      // walk — that come to the same number whenever the walk lands on the
+      // lender, which s315 made ordinary rather than rare. §279: once per screen.
+      {
+        // ⚠️ PLANTED, BECAUSE THE BOOK DOES NOT CARRY THE SHAPE TODAY. The echo
+        // needs a row whose walk lands exactly on the lender while Xero sits
+        // somewhere else — David's live Rapid row — and this fixture has none:
+        // every row where Xero differs from the lender also has a walk that
+        // differs from Xero. Asserting "no duplicates" against it would be green
+        // by never firing. E-Transit 4140 ties three ways (walk, Xero and lender
+        // all 10,685.52), so moving ONLY its rebuilt Xero balance produces the
+        // shape exactly: $900.00 of ledger the splits do not explain, on a loan
+        // whose own records agree with its lender to the cent. Variance and the
+        // ledger gap are then the same $900.00 — arrived at two different ways.
+        const pe = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+          const ford = d.loan_accounts.find(x => x.xero_account_name === 'E-Transit Loan - 4140');
+          const bb = d.loan_book_balances.find(b => b.loan_account_id === ford.id && b.as_of === '2026-08-31');
+          bb.balance = Number(bb.balance) + 900;
+        } });
+        const planted = await pe.evaluate(new Function(READ + ' return marks();'));
+        const printed = (r) => {
+          // Read the PRINTED text, not the attribute: `data-ledger-figure`
+          // survives on purpose (the claim is still true and the CSV still
+          // carries it), so an assertion against it could never see the
+          // duplicate come or go.
+          const m = String(r.ledgerText || '').match(/-?[\d,]+\.\d\d/);
+          return m ? Number(m[0].replace(/,/g, '')) : null;
+        };
+        const ford = planted.find(r => /4140/.test(r.loan || ''));
+        // The plant landed, and it landed as the echo shape: one number, two
+        // independent routes to it. Asserted before the rule, so a plant that
+        // silently stopped reproducing the shape fails here rather than making
+        // the rule below look satisfied.
+        t.ok(ford && Math.abs(Number(ford.varianceN) - 900) < 0.005,
+             's316 setup: the planted row shows a $900.00 variance',
+             JSON.stringify(ford));
+        t.ok(ford && Math.abs(Number(ford.ledgerFig) - 900) < 0.005,
+             's316 setup: ...and a $900.00 ledger gap — the same number, reached two ways',
+             JSON.stringify(ford));
+        // THE RULE. David, on Rapid: the row showed −457.14 in Variance and
+        // −457.14 again on the ledger mark. Two different claims that come to one
+        // number whenever the walk lands on the lender — which s315 made ordinary
+        // rather than rare. §279: a claim is stated once per screen.
+        t.ok(ford && !/\d/.test(ford.ledgerText || ''),
+             's316: ⭐ the ledger mark prints no figure when Variance already prints that number (David)',
+             JSON.stringify(ford));
+        t.ok(ford && /lcb-mark-bad/.test(ford.ledgerCls || ''),
+             's316: ...but the MARK still prints — the ledger check failed and the row must say so',
+             JSON.stringify(ford));
+        // ── CONTROL ── put the duplicate back
+        const revEcho = await revertFn(pe, 'renderLoansCloseBand', EDITS('ledger-echo-prints'));
+        t.ok(revEcho.ok, 's316 CONTROL: the pre-s316 duplicate could be rebuilt', JSON.stringify(revEcho.missing));
+        if (revEcho.ok) {
+          const back = await pe.evaluate(new Function(READ + ' return marks();'));
+          const b4140 = back.find(r => /4140/.test(r.loan || ''));
+          t.ok(b4140 && Math.abs(Math.abs(printed(b4140) || 0) - 900) < 0.005,
+               's316 CONTROL: ⭐ ...and without the guard the same $900.00 really is printed twice on one row',
+               JSON.stringify(b4140));
+        }
+        await restoreFns(pe);
+        await pe.close();
+      }
+        await restoreFns(p);
       // The figure is the row's own measured gap, not a restatement of Variance.
       t.ok(red.every(r => r.ledgerFig != null
              && Math.abs(Number(r.ledgerFig) - Number(r.unexplained)) < 0.005),
@@ -14835,23 +14981,49 @@ GROUPS.push({
     // Asserted against the book as it stands rather than a planted row: the
     // fixture already carries findings dated outside the closing month, and a
     // plant that misses the item actually rendered proves nothing.
+    // ⚠️ s316 MOVED THIS TO THE MONTH-IN-FLIGHT TABLE, AND THE REASON IS THE
+    // POINT. David: "unless there's an actual variance to speak of, there's no
+    // need to display anything in Action." A queued-only cell now renders on the
+    // CLOSING table only where the row prints a variance — and a loan carrying a
+    // variance already has an Issues row, which `_bkApprovalQueueItems` excludes
+    // from the queue by design. The two rules meet at zero: "Review · September"
+    // no longer appears on that table, which is exactly what David asked for.
+    // The month-naming itself (`_bkFindingDate` → `period`) is untouched and
+    // still renders wherever a queued cell does, so it is asserted where one
+    // still does: the in-flight table, which carries no such gate.
+    const IN_FLIGHT_READ = `
+      const marks = () => [...document.querySelectorAll('#loans-period-inflight tbody tr[data-loan-id]')].map(tr => {
+        const act = tr.querySelector('td.lcb-action');
+        return { loan: tr.getAttribute('data-loan'),
+                 actionText: act ? act.textContent.replace(/\s+/g, ' ').trim() : '' };
+      });
+    `;
     {
       const p = await newHarnessPage({ tab: 'loans' });
       await p.switchTab('loans');
-      const seen = await p.evaluate(new Function(READ + `
-        const month = (typeof _cvLastMonth === 'function') ? _cvLastMonth() : null;
+      // The s316 half, on the table David was looking at.
+      const closing = await p.evaluate(() =>
+        [...document.querySelectorAll('#lcb-table td[data-col="action"][data-action="queued"]')]
+          .map(td => (td.closest('tr').getAttribute('data-loan') || '') + ': ' + td.textContent.trim()));
+      t.eq(closing.length, 0,
+           's316: ⭐ no row on the closing table offers a queued item without a variance beside it (David)',
+           JSON.stringify(closing));
+
+      await p.evaluate(() => switchLoansPeriod('inflight'));
+      const seen = await p.evaluate(new Function(IN_FLIGHT_READ + `
+        const month = (typeof _bkInFlightMonth === 'function') ? _bkInFlightMonth() : null;
         const mine = (typeof _cvMonthShort === 'function' && month) ? _cvMonthShort(month) : null;
         return { month, mine, rows: marks().filter(r => /Review|waiting/.test(r.actionText)) };
       `));
       const named = seen.rows.filter(r => /·\s*[A-Z][a-z]+/.test(r.actionText));
       // PAIR, half one: the month reaches the button at all.
       t.ok(named.length > 0,
-           'a queued item dated outside the closing month names its month on the button',
+           "a queued item dated outside the table's own month names its month on the button",
            JSON.stringify(seen.rows.map(r => [r.loan, r.actionText])));
       // PAIR, half two: it never names the month the table is already about —
       // otherwise "always print the month" would satisfy the half above and the
       // column would carry fourteen redundant suffixes.
-      t.ok(seen.mine && !named.some(r => new RegExp('·\\\\s*' + seen.mine + '\\\\b').test(r.actionText)),
+      t.ok(seen.mine && !named.some(r => new RegExp('·\\s*' + seen.mine + '\\b').test(r.actionText)),
            `...and never names ${seen.mine} — the month this table is already about`,
            JSON.stringify(named.map(r => [r.loan, r.actionText])));
       await p.close();
@@ -14861,17 +15033,37 @@ GROUPS.push({
     {
       const p = await newHarnessPage({ tab: 'loans' });
       await p.switchTab('loans');
-      const inv = await p.evaluate(new Function(READ + `
-        const before = marks().filter(r => /·\\s*[A-Z][a-z]+/.test(r.actionText)).length;
+      await p.evaluate(() => switchLoansPeriod('inflight'));
+      // ⚠️ SCOPED TO THE ITEMS `_bkFindingDate` ACTUALLY FEEDS. A queued item can
+      // get its month from two places: a reconciliation finding's own detail date
+      // (this function) or a SPLIT's `period_label`, which is a different source
+      // and rightly survives. Counting every suffix on the table made the
+      // discriminator demand zero and fail on the split-derived one — an
+      // assertion failing because a neighbouring feature works. The count is
+      // taken over the recon-keyed rows only, which is the set under test.
+      const inv = await p.evaluate(() => {
+        const suffixes = () => [...document.querySelectorAll('#loans-period-inflight tbody tr[data-loan-id]')]
+          .filter(tr => {
+            const k = tr.querySelector('td.lcb-action')?.getAttribute('data-queued-keys') || '';
+            // A row can carry BOTH a finding and a split, and a split gets its
+            // month from `period_label` — a different source that rightly
+            // survives this revert. Only rows whose month can ONLY have come
+            // from `_bkFindingDate` are counted, or the discriminator measures
+            // a neighbouring feature working.
+            return /recon-/.test(k) && !/appr-split-/.test(k);
+          })
+          .map(tr => tr.querySelector('td.lcb-action').textContent.replace(/\s+/g, ' ').trim())
+          .filter(txt => /·\s*[A-Z][a-z]+/.test(txt));
+        const before = suffixes().length;
         const orig = _bkFindingDate;
         try {
           _bkFindingDate = () => null;                  // the state before s310
-          renderLoansCloseBand();
-          return { before, after: marks().filter(r => /·\\s*[A-Z][a-z]+/.test(r.actionText)).length };
-        } finally { _bkFindingDate = orig; renderLoansCloseBand(); }
-      `));
+          renderLoansTable();
+          return { before, after: suffixes().length };
+        } finally { _bkFindingDate = orig; renderLoansTable(); }
+      });
       t.ok(inv.before > 0 && inv.after === 0,
-           '⭐ with the finding date removed every suffix disappears — the assertion discriminates',
+           '⭐ with the finding date removed every suffix on a finding-backed row disappears — the assertion discriminates',
            JSON.stringify(inv));
       await p.close();
     }

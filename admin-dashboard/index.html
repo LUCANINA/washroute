@@ -20934,9 +20934,20 @@
       `<span class="lcb-elsewhere-item" data-bkkey="${esc(String(i.key))}"${
         i.onclick ? ` onclick="${i.onclick}"` : ''} title="${esc(i.reason || '')}">${esc(i.name)}</span>`
     ).join('<span class="lcb-dot">·</span>');
+    // ── s316: THE "FOR INFORMATION" LINE IS CUT (David: "No one is going to
+    // read this. Remove it.") ─────────────────────────────────────────────
+    // Tier 3 is the notes tier — a payment with no interest split, a document
+    // 48 days old, a recurring hand-post. Nothing to do, by definition of the
+    // tier. A row of chips nobody acts on trains a reader to skip the whole
+    // strip, which costs the line ABOVE it: "N not on a row above" is real
+    // unplaced work and has to keep being read. So the informational half goes
+    // and the actionable half stays.
+    //
+    // ⚠️ `info` is still COMPUTED and still counted on data-elsewhere-info, so
+    // the findings are not deleted — they remain in the reconciliation findings
+    // and reachable from the loan. What is cut is the standing display.
     return `<div class="lcb-elsewhere" data-elsewhere="${info.length + off.length}" data-elsewhere-info="${info.length}" data-elsewhere-off="${off.length}">${
-      off.length ? `<div>${off.length} not on a row above: ${chips(off)}</div>` : ''}${
-      info.length ? `<div>For information — nothing to post: ${chips(info)}</div>` : ''}</div>`;
+      off.length ? `<div>${off.length} not on a row above: ${chips(off)}</div>` : ''}</div>`;
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -21735,7 +21746,38 @@
       // EIDL was offering the same August split as both a button and a +1.
       const unpostedKeys = new Set(r.unposted.map(sp => 'appr-split-' + sp.id));
       const queued = (queueByLoan.get(a.id) || []).filter(i => !unpostedKeys.has(i.key));
-      const queuedCell = action.cell ? '' : _bkQueueCellHtml(queued, month);
+      // ══════════════════════════════════════════════════════════════════
+      //  SESSION 316 — NO VARIANCE, NOTHING IN ACTION (David)
+      // ══════════════════════════════════════════════════════════════════
+      // David: "unless there's an actual variance to speak of, there's no need
+      // to display anything in Action."
+      //
+      // `action` itself already returns nothing on a tie or a null variance —
+      // that line has been there since s310. What kept those rows busy was the
+      // QUEUE cell beside it: BayFirst SBA Loan reading "Review · September",
+      // 4140 and E5-4751 reading "Review · July +2" on rows whose Xero and
+      // lender figures agree to the cent. Three buttons asking a reader to look
+      // at loans that reconcile.
+      //
+      // ⚠️ NOTHING DISAPPEARS. A suppressed item does not reach `placedIds`, so
+      // it falls into the "N not on a row above" line below — which is exactly
+      // what that line is for, and is why the suppression is safe to make. A
+      // queue item that vanished from every surface would be the defect this
+      // module keeps finding; a queue item that moves to the line naming
+      // unplaced work is the module working.
+      //
+      // ⚠️ AND TWO ASKS SURVIVE IT ON PURPOSE, because both are reasons the
+      // variance is missing rather than noise beside one:
+      //   · `upload` — no lender document at all. The blank variance IS the
+      //     symptom; uploading the statement is what produces one to read.
+      //   · `post` — a payment not yet in Xero (s273: "where do I approve the
+      //     balance fee?"). The Issue column already calls it out; removing the
+      //     button would put the row back to naming a problem with nothing to
+      //     press, which is the exact defect s273 fixed.
+      // Both are branches of `action` above and return before its tie check, so
+      // they are unaffected by the gate below.
+      const showsVariance = _bkVarianceShown(r) != null;
+      const queuedCell = (action.cell || !showsVariance) ? '' : _bkQueueCellHtml(queued, month);
       const moreCell = (action.cell && queued.length)
         ? `<button type="button" class="lcb-do lcb-queued lcb-more" onclick="event.stopPropagation();openLoanDetailModal('${esc(a.id)}')" title="${esc(`Also waiting on this loan, outside ${name}: ${queued.map(i => `${i.name} — ${i.reason || ''}`).join(' · ')}`)}">+${queued.length}</button>`
         : '';
@@ -21744,7 +21786,13 @@
       // about whether a person can get to the work, not about which button they
       // press to do it, and leaving the deduped key out here made the suite report
       // EIDL's August split as unreachable while the row was offering it.
-      const answeredKeys = queued.map(i => i.key)
+      // s316: ONLY WHAT THE ROW ACTUALLY OFFERS. This attribute is what the
+      // reachability probe reads, so emitting a key on a row whose Action cell
+      // was suppressed would claim reachability the screen does not provide —
+      // the assertion would pass while the work was invisible, which is worse
+      // than the work being unplaced. A suppressed row answers nothing, and
+      // says nothing.
+      const answeredKeys = ((queuedCell || moreCell) ? queued.map(i => i.key) : [])
         .concat(action.kind === 'post' ? [...unpostedKeys] : []);
       if (queuedCell || moreCell || (action.kind === 'post' && unpostedKeys.size)) placedIds.add(a.id);
       const openCell = r.opening
@@ -22110,13 +22158,36 @@
         ? '<span class="lcb-none">not read</span>'
         : `<span${r.ledgerStale ? ' class="lcb-quiet"' : ''}>${bare(r.booksClosing)}</span>`;
 
-      const ledgerFigure = (r.unexplainedBand === 'material' && r.unexplained != null && Math.abs(r.unexplained) >= 0.005)
+      // ── s316: ONE FIGURE PER ROW (David, on Rapid) ───────────────────────
+      // Rapid printed −457.14 in Variance and −457.14 again on the ledger mark.
+      // They are two different claims — Xero against the lender, and Xero
+      // against our own walk — but on a loan whose walk happens to land on the
+      // lender they are the SAME NUMBER by construction, and s315 made that
+      // coincidence common rather than rare. §279: a claim is stated once per
+      // screen, and a reader seeing one amount twice reasonably concludes the
+      // row is off by twice it.
+      //
+      // The MARK still prints — the ledger check has genuinely failed and the
+      // row must say so. Only the duplicated figure is dropped, and only when it
+      // is the figure already printed one cell to the left. Where the two
+      // differ, which is the case s310 added the figure for, both still show.
+      const ledgerEchoesVariance = r.variance != null && r.unexplained != null
+        && Math.abs(r.unexplained - r.variance) < 0.005;
+      // ⚠️ THE SUPPRESSION IS OF THE PIXEL, NOT OF THE CLAIM. `data-ledger-figure`
+      // keeps the figure whenever there is one to keep — the ledger check really
+      // did measure it, the CSV still exports it, and the harness still reads it.
+      // What the reader stops seeing is the second printing of a number already
+      // on their screen. Gating the attribute too would have deleted evidence to
+      // fix a layout problem.
+      const ledgerFigureValue = (r.unexplainedBand === 'material' && r.unexplained != null
+                                 && Math.abs(r.unexplained) >= 0.005) ? r.unexplained : null;
+      const ledgerFigure = (ledgerFigureValue != null && !ledgerEchoesVariance)
         ? `<span class="lcb-ledger-fig">${signed(r.unexplained)}</span>` : '';
       // s311, same rule: the ledger mark prints only when it has found something.
       // Its ✓ said "our splits explain what the ledger did", which is the state
       // of eleven rows out of fourteen and therefore says nothing on any of them.
       const ledgerQuiet = ledgerCls !== 'lcb-mark-bad';
-      const ledgerCell = `<span class="lcb-mark lcb-chk ${ledgerCls}${ledgerQuiet ? ' lcb-mark-quiet' : ''}" data-col="ledger" data-status="${esc(ledgerVerdict)}"${ledgerFigure ? ` data-ledger-figure="${r.unexplained}"` : ''} title="Ledger: ${esc(ledgerVerdict)}">${ledgerQuiet ? '' : ledgerGlyph + ledgerFigure}</span>`;
+      const ledgerCell = `<span class="lcb-mark lcb-chk ${ledgerCls}${ledgerQuiet ? ' lcb-mark-quiet' : ''}" data-col="ledger" data-status="${esc(ledgerVerdict)}"${ledgerFigureValue != null ? ` data-ledger-figure="${ledgerFigureValue}"` : ''} title="Ledger: ${esc(ledgerVerdict)}">${ledgerQuiet ? '' : ledgerGlyph + ledgerFigure}</span>`;
 
       // ── THE HINT ─────────────────────────────────────────────────────────
       // Everything that came off the screen, in the order a person reads a row:
@@ -22307,7 +22378,15 @@
             </div>
           </div>`).join('')}
       </div>` : '';
-    const footNote = `<b>Drawn</b> is measured from the Xero ledger between ${esc(short(rf.priorEnd))} and ${esc(short(rf.monthEnd))} — never inferred from the balances — and the month’s booked interest is netted off it. <b>Variance</b> covers the ${rf.judged.length} loan${rf.judged.length === 1 ? '' : 's'} checked for ${esc(name)}: ${judgedA} against a lender document${judgedB ? `, ${judgedB} against the contractual schedule` : ''}${rf.unbookedRows.length ? `, ${rf.unbookedRows.length} that differ${rf.unbookedRows.length === 1 ? 's' : ''} by exactly the payments not yet booked` : ''}${rf.circularRows.length ? `, and ${rf.circularRows.length} that agree${rf.circularRows.length === 1 ? 's' : ''} by construction and ${rf.circularRows.length === 1 ? 'is' : 'are'} counted in neither column` : ''}${rf.staleAnchorRows.length ? `. ${rf.staleAnchorRows.length} ${rf.staleAnchorRows.length === 1 ? 'is' : 'are'} waiting on a statement dated at or after ${esc(short(rf.monthEnd))} — ${rf.staleAnchorRows.length === 1 ? 'its' : 'their'} newest document predates payments already booked this month, so no comparison is possible yet` : ''}${rf.noEvidence.length ? `. ${rf.noEvidence.length} ${rf.noEvidence.length === 1 ? 'has' : 'have'} nothing to close against` : ''}. The <b>Ledger</b> column is a second, different check — whether our splits plus the measured movement account for everything the ledger did${rf.ledgerUnmeasured.length ? `, withheld on ${rf.ledgerUnmeasured.length} whose movement is unmeasured` : ''}. Both columns use the same mark: <b>✓</b> ties or is fully explained, <b>✗</b> is a real dollar difference to resolve, and <b>·</b> means the check was not run this month — either the numbers trace back to the same one document (so agreeing proves nothing) or there is nothing yet to compare it against. <span class="lcb-quiet">Hover any row for its sources, dates and notes; Export carries all of it.</span>`;
+    // s316: the `footNote` paragraph that stood under the table is deleted
+    // (David: "No one is going to read this. Remove it."). It restated the
+    // column headers' own tooltips in prose — Drawn's measurement, Variance's
+    // population, the Ledger column's separateness, the meaning of ✓ ✗ · —
+    // every one of which is still on the header it describes, one hover away,
+    // and every one of which is still asserted in the harness against the data
+    // rather than against the sentence. A legend nobody reads is not neutral:
+    // it pushes the table up the page and teaches the eye to skip the strip
+    // above it, which is where the real unplaced work is named.
 
     // Rows first, template second: placedIds is only true once every row has
     // rendered, and a line that claims what "did not fit" before the fitting has
@@ -22403,7 +22482,6 @@
         </div>
         <div class="lcb-detail idle" id="lcb-detail" data-idle="${esc(`Hover a loan for where its figures came from — ${rf.rows.length} rows, ${esc(name)}.`)}">Hover a loan for where its figures came from.</div>
         ${elsewhereHtml}
-        <div class="lcb-foot">${footNote}</div>
         ${notesHtml}
       </div>`;
 

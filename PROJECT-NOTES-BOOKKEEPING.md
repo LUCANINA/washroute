@@ -1,5 +1,78 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 316 — Sep 18, 2026: no variance, nothing in Action — and the legend goes
+
+Three cuts, all David's, all on the close band.
+
+### 1. NO VARIANCE, NOTHING IN ACTION
+
+*"Unless there's an actual variance to speak of, there's no need to display anything in Action."*
+
+`action` itself already returned nothing on a tie — that has been true since s310. What kept those
+rows busy was the QUEUE cell beside it: BayFirst SBA Loan reading "Review · September", 4140 and
+E5-4751 reading "Review · July +2", on rows whose Xero and lender figures agree to the cent.
+
+The gate is `_bkVarianceShown(r) != null` — the same single predicate the Variance cell and the
+footer already use, so the column and the button can never disagree about whether there is a
+variance.
+
+**Two asks survive on purpose**, because each is a reason the variance is MISSING rather than noise
+beside one:
+- `upload` — no lender document at all. The blank variance IS the symptom.
+- `post` — a payment not yet in Xero (s273: *"where do I approve the balance fee?"*).
+
+**⚠️ NOTHING DISAPPEARS.** A suppressed item does not reach `placedIds`, so it falls into the
+"N not on a row above" line — which is what that line is for. `data-queued-keys` is no longer
+emitted on a suppressed row either: leaving it would have claimed reachability the screen does not
+provide, and the reachability probe would have passed while the work was invisible.
+
+**The work band went from 9 rows to 6; the fold from 6 loans to 8.**
+
+### 2. THE LEGEND IS DELETED
+
+*"No one is going to read this. Remove it."*
+
+Gone: the `footNote` paragraph (Drawn's measurement, Variance's population, the Ledger column's
+separateness, ✓ ✗ ·) and the "For information — nothing to post:" chip line.
+
+Every claim in that paragraph is still on the header it describes, one hover away. A legend nobody
+reads is not neutral — it pushes the table up the page and teaches the eye to skip the strip above
+it, which is where the real unplaced work is named. **The "N not on a row above" line STAYS**: that
+one is actionable, and it now also catches what the Action gate stopped placing.
+
+### 3. ONE FIGURE PER ROW
+
+David, on Rapid: the row printed **−457.14 in Variance and −457.14 again on the ledger mark.**
+
+They are two different claims — Xero vs the lender, Xero vs our own walk — that come to the same
+number whenever the walk lands on the lender, which **s315 made ordinary rather than rare**. §279:
+a claim is stated once per screen, and a reader seeing one amount twice reasonably concludes the row
+is off by twice it.
+
+**The MARK still prints** — the ledger check genuinely failed. Only the duplicated figure is dropped,
+and only when it is the figure already one cell to the left. **`data-ledger-figure` is NOT gated**:
+the claim is still true, the CSV still carries it, and gating the attribute would have deleted
+evidence to fix a layout problem.
+
+### THE SUITE
+
+- **s288e was doing its job** and caught the tier-3 stranding the moment the info line went. Scoped
+  to ACTIONABLE items, and PAIRED with a new assertion that every note the close table stopped
+  showing still reaches Overview's Approvals queue. Cutting a surface is only safe if the thing it
+  showed still has one.
+- **s313's month-suffix pair moved to the month-in-flight table.** On the closing table the two rules
+  now meet at zero — a queued cell needs a variance, and a loan with a variance already has an Issues
+  row, which `_bkApprovalQueueItems` excludes. The feature is unchanged; it is asserted where it
+  still renders. Its discriminator is scoped to rows whose month can ONLY have come from
+  `_bkFindingDate` (a split's `period_label` is a different source and rightly survives the revert).
+- **The echo rule is PLANTED, because the book does not carry the shape.** Every row where Xero
+  differs from the lender also has a walk that differs from Xero, so "no duplicates" would have been
+  green by never firing. E-Transit 4140 ties three ways, so moving only its rebuilt Xero balance by
+  $900 produces the shape exactly. Control reverts the guard and demands the duplicate back.
+- `close-band-columns`' inverse and `fix-beats-schedule-ask`'s splice anchor both point at the Action
+  gate line and were updated with it.
+
+
 ## Session 315 — Sep 18, 2026: Variance means Xero against the Lender, and a stale read says so
 
 ### 🔴 THE COLUMN WAS MEASURING THE WRONG PAIR
