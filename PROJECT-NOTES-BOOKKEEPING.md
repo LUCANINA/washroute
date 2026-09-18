@@ -21256,3 +21256,7 @@ The UI is reverted; the accounting is not. Both of these were diagnosed against 
 **The Variance total does not foot, by design, and nothing says so.** The cells print raw signed variance; the total sums absolute residuals over material+immaterial only. In August the column shows +15.38 and −5.00 over a total of $20.38. Three individually-correct rules (raw vs residual, signed vs absolute per s236, narrower population) producing a row labelled "Total" that a reader cannot reproduce. **Unfixed as of this revert.**
 
 Nothing else in Bookkeeping changed. The `stale-anchor-ask` / `rollback-beats-stale` reds (PayPal 2's $3,120.61, awaiting Ramona's journal) and `history / s240 #10` are untouched and still red on purpose.
+
+## Session 309 (2026-09-17) — SPEC ONLY: the proposed fix on the row
+
+David: *"identify how to make this page genuinely useful for a Bookkeeper ... identify variance ... and propose a fix."* Diagnosis: the page answers "is there a difference?" fourteen times and never "what journal fixes it?" — 306/307 were still verdicts, which is why they were reverted. The find that makes it cheap: `loan-attribution-run` already calls the walk every 6h and **discards the proposals the engine returns**. Spec is `docs/bookkeeping/DESIGN-PROPOSED-FIX.md` — four row shapes (Fix / Ask / Accountant / Re-check), stored in `loan_attributions.payload.fix` with a `version` staleness key, posted only through the existing preview. No code changed.
