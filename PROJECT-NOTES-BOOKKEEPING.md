@@ -21281,5 +21281,24 @@ npx -y supabase@latest functions deploy loan-attribution-run --project-ref umjpb
 ```
 Proof it runs is the ROWS, not the version: after the next 13:20 UTC firing, `select loan_account_id, payload->'fix'->>'state' from loan_attributions` must show a `fix` key on every row. A version bump with no `fix` key is a deploy that did not boot.
 
+### DEPLOYED AND RUN — measured 2026-09-18 03:03 UTC (David: "run it now so I can see the difference")
+`loan-attribution-run` **v6**, deployed via the MCP tool (7 files, every sha256 checked against the repo after deploy). Fired three times by hand from SQL (`net.http_post`, the cron's own command). **The rows carry `payload.fix` on all three loans with an open `balance_vs_lender` finding** — that is the proof it runs, per the rule above.
+
+**Two fixes came out of the first two live runs, both to `fixFromWalk`, both now in `2e4e67b` (pushed):**
+1. `cpa_exception` with shape `no_duplication` was rendered as a QUESTION for the accountant ("Your accountant's $471.42 interest split covers the 1 month below") — it is the engine saying there is nothing to ask. Now falls through. `attribution-from-walk` skips it for the same reason.
+2. `cpa_exception` with no entry INSIDE CLOSED BOOKS (`walk.cpa_exception_closed`) put a January 2026 question on PayPal 2's August row. Now `none` with a closed-books why (s272).
+
+**What the live rows say tonight — and none is a journal, each for a real reason:**
+
+| Loan | fix.state | why |
+|---|---|---|
+| EIDL SBA (−5.00) | none | a human explanation is recorded; the engine will not write off over a note |
+| PayPal 2 (−3,180.34) | none | "the reconciliation check has already named a cause" — the double-booked principal, Ramona's call (START HERE §0) |
+| Rapid Credit (+457.14) | none | "later entries account for part of this difference, so the remainder is a different question" |
+
+So on the closing table the sub-line prints on NO row today; the `why` is on each Find the Fix button's hover (`data-fix-title`). **That is the honest answer, not a defect** — but it means David has not yet seen a journal line on a live row. The first row to carry one will be an immaterial gap with no note on it, or a lumped payment. Only three loans carry an open finding after the 02:39 UTC reconciliation run; the +15.38 / −0.01 rows from the morning screenshot no longer have one.
+
+⚠️ **I pushed from the device VM with `.git/wr-deploy-key`** (`2f962bc..2e4e67b`) at David's "run it now" — the first time a session has used it. Only edge-function source and a test moved in that push; the client `index.html` was already on GitHub at `2f962bc`.
+
 ### Where to pick up
-Deploy (above), let one run land, refresh the fixture, and look at the live rows. Then: scroll the Find the Fix modal to the prepared entry on a `fix` row; the header counts; the CSV export reading `data-fix-title`.
+Refresh the fixture (`loan_attributions` now carries `fix`), then: scroll the Find the Fix modal to the prepared entry on a `fix` row; the header counts; the CSV export reading `data-fix-title`. And decide whether to schedule `reconciliation-run` (~24 calls) before the 7am attribution run so the job walks fresh balances. Then: scroll the Find the Fix modal to the prepared entry on a `fix` row; the header counts; the CSV export reading `data-fix-title`.
