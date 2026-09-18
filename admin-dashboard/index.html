@@ -4187,6 +4187,7 @@
                verdicts. Spacing does the grouping — no divider, no second
                colour (one contrast step, session 219). */
             .lcb-checks > [data-col="staging"] { margin-left: 11px; }
+            .lcb-fixline { font-size: 11px; color: var(--gray-600); margin-top: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: help; }
             .lcb-do { font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 7px;
                       border: 1px solid var(--gray-200); background: #fff; color: var(--gray-700);
                       cursor: pointer; line-height: 1.4; }
@@ -10985,6 +10986,94 @@
     // it asserts nothing at all.
     if (at.state === 'empty') return 'no single entry accounts for this gap';
     return '';
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  //  THE FIX ON THE ROW (session 309) — docs/bookkeeping/DESIGN-PROPOSED-FIX.md
+  // ══════════════════════════════════════════════════════════════════════
+  // David: the page answered "is there a difference?" fourteen times and never
+  // "what journal fixes it?". `loan-attribution-run` now keeps the journal the
+  // walk prepares (`loan_attributions.payload.fix`, _shared/proposed-fix.ts);
+  // this is the ONE reader of it. Every surface that shows a fix calls
+  // `_bkLoanFix()` -- the Action cell, the hint, the export -- for the reason
+  // every "two numbers on one screen" bug in this module has taught: one
+  // function computes it, every display calls it.
+  //
+  // THE SHAPE IS DECIDED HERE, NOT ON THE SERVER. Whether a row must ASK for a
+  // statement is a fact about its anchors that the Action column's own branches
+  // already settle (upload / ask / post). The stored fix is consulted only where
+  // that column would otherwise say "go and look" -- so an ask always outranks a
+  // journal, an unposted split always outranks both, and a tie shows nothing.
+  //
+  // THE VERSION IS THE STALENESS GUARD. The job stamps the fix with the latest
+  // timestamp among the loan's statements, its splits' state changes and the
+  // last finished reconciliation run. The same key is recomputed here from rows
+  // the page already holds; if the books moved since the journal was worked out,
+  // the row says so and the journal is NOT shown as ready. ⚠️ The column list
+  // below must match versionKey() in _shared/proposed-fix.ts exactly, or every
+  // row reads Re-check forever (or, worse, never).
+  function _bkLoanFixVersion(loanId) {
+    let v = null;
+    const bump = (t) => { const x = t ? String(t) : ''; if (x && (!v || x > v)) v = x; };
+    (_allLoanStatements || []).forEach(st => { if (st.loan_account_id === loanId) bump(st.created_at); });
+    (_allLoanSplits || []).forEach(sp => { if (sp.loan_account_id !== loanId) return;
+      bump(sp.computed_at); bump(sp.xero_posted_at); bump(sp.voided_at); bump(sp.staged_at); });
+    (_reconRuns || []).forEach(r => bump(r.finished_at));
+    return v;
+  }
+  function _bkStoredFix(loanId) {
+    if (_bkAttributionsRead === false) return null;
+    const row = (_allLoanAttributions || []).find(r => r && r.loan_account_id === loanId);
+    if (!row || row.run_status !== 'ok' || !row.payload || !row.payload.fix) return null;
+    return row.payload.fix;
+  }
+  // Returns { shape, line, title, journal }.
+  //   shape: 'ask' | 'post' | 'none' | 'fix' | 'accountant' | 'recheck' | 'investigate'
+  //   line:  the visible sub-line under the button (≤ 40 words), '' when nothing
+  //   title: the full claim, for the hover / data-fix / export
+  const _BK_FIX_SHAPES = ['ask', 'post', 'none', 'fix', 'accountant', 'recheck', 'investigate'];
+  function _bkLoanFix(loanId, actionKind) {
+    const out = (shape, line, title, journal) => ({ shape, line: line || '', title: title || '', journal: journal || null });
+    if (actionKind === 'upload' || actionKind === 'ask') return out('ask');
+    if (actionKind === 'post') return out('post');
+    if (!actionKind) return out('none');
+    const fx = _bkStoredFix(loanId);
+    if (!fx || fx.state === 'none') {
+      return out('investigate', '', fx && fx.why ? `Nothing prepared: ${fx.why}` : 'Nothing prepared yet — the analysis runs every 6 hours.');
+    }
+    if (fx.state === 'accountant') {
+      return out('accountant', `${fx.question} — for your accountant`, `For your accountant: ${fx.question}`);
+    }
+    if (fx.state === 'fix') {
+      const live = _bkLoanFixVersion(loanId);
+      if (live && (!fx.version || live > fx.version)) {
+        return out('recheck', 'Books changed since this was worked out — re-run.',
+          `A ${fmtMoney(Math.abs(Number(fx.amount)))} correction was prepared on ${_bkPlainDate(String(fx.version || '').slice(0, 10))}, but a statement, split or reconciliation run has changed since (${_bkPlainDate(String(live).slice(0, 10))}). Run Find the Fix again for a current one.`);
+      }
+      const j = fx.journal || {};
+      const lines = Array.isArray(j.JournalLines) ? j.JournalLines : [];
+      const dr = lines.filter(l => Number(l.LineAmount) > 0).map(l => l.AccountCode);
+      const cr = lines.filter(l => Number(l.LineAmount) < 0).map(l => l.AccountCode);
+      const amt = fmtMoney(Math.abs(Number(fx.amount)));
+      const when = _bkPlainDate(String(fx.dated_into || j.Date || '').slice(0, 10));
+      const line = `Dr ${dr.join('+')} / Cr ${cr.join('+')} · ${amt} · ${when}`;
+      const title = `${_bkFixKindLabel(fx.kind)}: ${line}. ${fx.check || ''}${fx.dated_because ? ` Dated ${when} because ${fx.dated_because}.` : ''} Opens the prepared journal for your approval — nothing is written until you approve it.`;
+      return out('fix', line, title, j);
+    }
+    return out('investigate', '', 'Nothing prepared — an unrecognised proposal shape.');   // allowlist: unknown fails safe
+  }
+  function _bkFixKindLabel(kind) {
+    return kind === 'unexplained_difference_writeoff' ? 'Write off as immaterial'
+      : kind === 'stale_split_trueup' ? 'True up stale splits'
+      : kind === 'interest_reallocation_journal' ? 'Reallocate interest'
+      : kind === 'cpa_exception' ? 'Prepared from your accountant’s entry'
+      : 'Prepared correction';
+  }
+  // The sub-line under the Action button. Weight, not colour: the button is the
+  // thing to press; the line says what pressing it would write.
+  function _bkFixLineHtml(fx) {
+    if (!fx || !fx.line) return '';
+    return `<div class="lcb-fixline" data-fix-shape="${esc(fx.shape)}" title="${esc(fx.title)}">${esc(fx.line)}</div>`;
   }
 
   function _bkAttributionConfidence(at) {
@@ -21430,6 +21519,9 @@
         return { kind: 'investigate',
                  cell: `<button type="button" class="lcb-do" onclick="bkOpenFixModal('noflag-${esc(a.id)}','${esc(a.id)}')" title="A real difference with no open balance-vs-lender finding behind it. Walks this loan's history against the lender's anyway — the analyser reads the loan, not the flag. It proposes a correcting journal ONLY where the shape is mechanically safe, and never invents one to make the books agree: where it cannot explain the difference it says so and leaves it for a person.">${ACT_FIX}</button>` };
       })();
+      // session 309: the journal the 6-hourly walk prepared, if the column is
+      // about to say "go and look". Decided in ONE place -- see _bkLoanFix().
+      const fx = _bkLoanFix(a.id, action.kind);
       // ── SESSION 288: AND IF THIS MONTH ASKS NOTHING, THE QUEUE MIGHT ──────
       // The Waiting on you card's items land here. THE ROW'S OWN MONTH ALWAYS
       // WINS: every branch above is about the month being closed, and a September
@@ -21781,7 +21873,7 @@
         <td class="lcb-n" data-col="lender" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
         <td class="lcb-n" data-col="variance"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.ledgerStale ? 'stale' : r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}">${varCell}</td>
         <td class="lcb-checks" data-col="checks">${booked}${ledgerCell}${_bkLoanStagingCell(a)}<span class="lcb-chk" data-col="booked" data-booked="${esc(bookedWord)}" title="${esc(bookedWord)}">${bookedCell}</span></td>
-        <td class="lcb-action" data-col="action" data-action="${esc(queuedCell ? 'queued' : action.kind)}"${queued.length ? ` data-queued="${queued.length}"` : ''}${answeredKeys.length ? ` data-queued-keys="${esc(answeredKeys.join(' '))}"` : ''}>${action.cell || queuedCell}${moreCell}</td>
+        <td class="lcb-action" data-col="action" data-action="${esc(queuedCell ? 'queued' : action.kind)}" data-fix="${esc(fx.shape)}"${fx.title ? ` data-fix-title="${esc(fx.title)}"` : ''}${queued.length ? ` data-queued="${queued.length}"` : ''}${answeredKeys.length ? ` data-queued-keys="${esc(answeredKeys.join(' '))}"` : ''}>${action.cell || queuedCell}${moreCell}${queuedCell ? '' : _bkFixLineHtml(fx)}</td>
       </tr>`;
     };
 

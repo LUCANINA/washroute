@@ -14249,6 +14249,156 @@ GROUPS.push({
 });
 
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   proposed-fix (session 309) — THE JOURNAL ON THE ROW
+   docs/bookkeeping/DESIGN-PROPOSED-FIX.md. The 6-hourly job stores the journal
+   the walk prepared in loan_attributions.payload.fix; `_bkLoanFix()` is the one
+   reader. The fixture predates the job, so the stored rows are INJECTED in page
+   context and the band re-rendered -- which is also what lets each shape be
+   tested on a real August row rather than a synthetic one.
+
+   PAIRS, per §245: every "shows X" has a "and does not show X when …". A test
+   that only counts fix lines is satisfied by printing one on every row.
+   ═══════════════════════════════════════════════════════════════════════════ */
+GROUPS.push({
+  name: 'proposed-fix',
+  async run(t) {
+    const p = await newHarnessPage({ tab: 'loans' });
+    await p.switchTab('loans');
+
+    const helpers = `
+      const rows = () => [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => {
+        const td = tr.querySelector('td.lcb-action');
+        const fl = td && td.querySelector('.lcb-fixline');
+        return { loan: tr.getAttribute('data-loan-id'), action: td && td.getAttribute('data-action'),
+                 fix: td && td.getAttribute('data-fix'), title: td && (td.getAttribute('data-fix-title') || ''),
+                 line: fl ? fl.textContent.trim() : '', shape: fl ? fl.getAttribute('data-fix-shape') : '',
+                 words: fl ? fl.textContent.trim().split(/\\s+/).filter(Boolean).length : 0,
+                 variance: (tr.querySelector('td[data-col=variance]') || {}).getAttribute?.('data-variance') || '' };
+      });
+      const journal = (a) => ({ Narration: 'X — test', Date: '2026-08-31', JournalLines: [
+        { LineAmount: a, AccountCode: '800', Description: 'Interest', AccountName: 'Interest Expense' },
+        { LineAmount: -a, AccountCode: '284', Description: 'principal', AccountName: 'PayPal 2' } ] });
+      const store = (loanId, fix) => {
+        _allLoanAttributions = (_allLoanAttributions || []).filter(r => r.loan_account_id !== loanId);
+        _allLoanAttributions.push({ loan_account_id: loanId, run_status: 'ok', headline: null, generated_at: '2026-09-17T03:00:00Z',
+          payload: { counts: {}, fix } });
+        _bkAttributionsRead = true;
+      };
+      const live = (id) => _bkLoanFixVersion(id);
+    `;
+
+    // 0. Before any injection: every row carries a data-fix in the allowlist, and
+    //    nothing prints a fix line (the fixture has no stored fixes).
+    const before = await p.evaluate(new Function(helpers + ' return rows();'));
+    const ALLOW = ['ask', 'post', 'none', 'fix', 'accountant', 'recheck', 'investigate'];
+    t.ok(before.length >= 10 && before.every(r => ALLOW.includes(r.fix)),
+         'every row states a fix shape from the allowlist', JSON.stringify(before.map(r => r.fix)));
+    t.ok(before.every(r => !r.line), 'with nothing stored, no row prints a fix line', JSON.stringify(before.filter(r => r.line)));
+    t.ok(before.filter(r => r.action === '' || r.action === 'queued').every(r => r.fix === 'none' || r.fix === 'none'),
+         'a row that ties this month has shape none', JSON.stringify(before.filter(r => !r.action)));
+    t.ok(before.filter(r => r.action === 'upload' || r.action === 'ask').every(r => r.fix === 'ask'),
+         'a row that asks for a document has shape ask', JSON.stringify(before.filter(r => r.action === 'upload' || r.action === 'ask')));
+
+    const target = before.find(r => r.action === 'fix' || r.action === 'investigate' || r.action === 'explained');
+    const askRow = before.find(r => r.action === 'upload' || r.action === 'ask');
+    t.ok(!!target, 'the fixture has a row the column sends to Find the Fix', JSON.stringify(before.map(r => r.action)));
+    if (!target) { await p.close(); return; }
+
+    // 1. A stored FIX at the live version → the journal line, ≤ 40 words, the
+    //    claim in full on data-fix-title.
+    const fixed = await p.evaluate(new Function('loanId', helpers + `
+      const v = live(loanId);
+      store(loanId, { schema: 1, state: 'fix', kind: 'unexplained_difference_writeoff', post_flag: 'post_writeoff', amount: 15.38,
+        dated_into: '2026-08-31', dated_because: 'the month is open', check: 'No entry of this amount exists in Xero.',
+        journal: journal(15.38), token: 'tok', version: v, working: [] });
+      renderLoansCloseBand();
+      return { v, row: rows().find(r => r.loan === loanId) };
+    `), target.loan);
+    t.eq(fixed.row.fix, 'fix', 'a stored fix at the live version renders shape fix');
+    t.ok(/^Dr 800 \/ Cr 284 · \$15\.38 · /.test(fixed.row.line), 'the line is the journal: Dr / Cr · amount · date', fixed.row.line);
+    t.ok(fixed.row.words <= 40, 'the visible line is within the 40-word budget', String(fixed.row.words));
+    t.ok(fixed.row.title.includes('800') && fixed.row.title.includes('284') && fixed.row.title.includes('$15.38') && fixed.row.title.includes('No entry of this amount'),
+         'data-fix-title carries both account codes, the amount and the check sentence', fixed.row.title);
+    t.eq(fixed.row.action, target.action, 'the Action button and its data-action are unchanged by the fix line');
+    t.ok(!fixed.row.line.includes(fixed.row.variance) || fixed.row.variance === '' || Math.abs(Math.abs(Number(fixed.row.variance)) - 15.38) < 0.005,
+         'the fix line does not restate the Variance column (a write-off equal to it is its own statement)', `${fixed.row.line} / ${fixed.row.variance}`);
+
+    // 2. The same fix with an OLDER version than the live books → recheck, and the
+    //    journal line is gone. The pair: bump a statement's created_at past the
+    //    stored version and the shape must move.
+    const stale = await p.evaluate(new Function('loanId', helpers + `
+      const st = _allLoanStatements.find(x => x.loan_account_id === loanId);
+      const saved = st ? st.created_at : null;
+      if (st) st.created_at = '2099-01-01T00:00:00Z';
+      renderLoansCloseBand();
+      const row = rows().find(r => r.loan === loanId);
+      if (st) st.created_at = saved;
+      return { hadStatement: !!st, row };
+    `), target.loan);
+    t.ok(stale.hadStatement, 'the target loan has a statement to bump', target.loan);
+    t.eq(stale.row.fix, 'recheck', 'books that moved after the fix was prepared render Re-check');
+    t.ok(!/^Dr /.test(stale.row.line) && /re-run/i.test(stale.row.line), 'a stale fix prints no journal, only the re-run line', stale.row.line);
+
+    // 3. state none → investigate, no line; an UNKNOWN state → investigate too
+    //    (allowlist: an unrecognised proposal never becomes a fix).
+    const none = await p.evaluate(new Function('loanId', helpers + `
+      store(loanId, { schema: 1, state: 'none', why: 'material: above the floor', version: live(loanId) });
+      renderLoansCloseBand(); const a = rows().find(r => r.loan === loanId);
+      store(loanId, { schema: 1, state: 'brand_new_state', journal: journal(5), token: 'x', version: live(loanId) });
+      renderLoansCloseBand(); const b = rows().find(r => r.loan === loanId);
+      return { a, b };
+    `), target.loan);
+    t.eq(none.a.fix, 'investigate', 'state none → investigate');
+    t.ok(!none.a.line && /above the floor/.test(none.a.title), 'state none prints no line and carries the engine’s why on the title', none.a.title);
+    t.eq(none.b.fix, 'investigate', 'an unrecognised stored state fails safe to investigate, never fix');
+    t.ok(!none.b.line, 'and prints no journal line', none.b.line);
+
+    // 4. accountant → the question, named for the accountant, no journal.
+    const acct = await p.evaluate(new Function('loanId', helpers + `
+      store(loanId, { schema: 1, state: 'accountant', question: 'Two journals book the 5 Aug principal — which one should stand?', version: live(loanId), working: [] });
+      renderLoansCloseBand(); return rows().find(r => r.loan === loanId);
+    `), target.loan);
+    t.eq(acct.fix, 'accountant', 'state accountant → shape accountant');
+    t.ok(/which one should stand\\?.*for your accountant$/.test(acct.line), 'the line is the question, marked for the accountant', acct.line);
+
+    // 5. An ASK row never shows a stored fix, however good it is — the document
+    //    outranks the journal (§262).
+    if (askRow) {
+      const asked = await p.evaluate(new Function('loanId', helpers + `
+        store(loanId, { schema: 1, state: 'fix', kind: 'interest_reallocation_journal', post_flag: 'post_fix', amount: 100,
+          dated_into: '2026-08-31', check: 'x.', journal: journal(100), token: 't', version: live(loanId), working: [] });
+        renderLoansCloseBand(); return rows().find(r => r.loan === loanId);
+      `), askRow.loan);
+      t.eq(asked.fix, 'ask', 'a row asking for a statement keeps shape ask despite a stored fix');
+      t.ok(!asked.line, 'and prints no journal line', asked.line);
+    } else {
+      t.ok(true, '⚠ REPORTED: fixture has no ask row this month — the ask-outranks-fix pair could not run');
+    }
+
+    // 6. DISCRIMINATION: rebuild _bkLoanFix without its version check, from the
+    //    shipped function's own source, and the recheck assertion must go red.
+    const inv = await p.evaluate(new Function('loanId', helpers + `
+      const src = _bkLoanFix.toString();
+      const cut = src.replace('if (live && (!fx.version || live > fx.version)) {', 'if (false) {');
+      if (cut === src) return { built: false };
+      const orig = _bkLoanFix;
+      try {
+        _bkLoanFix = new Function('return ' + cut)();
+        store(loanId, { schema: 1, state: 'fix', kind: 'unexplained_difference_writeoff', post_flag: 'post_writeoff', amount: 15.38,
+          dated_into: '2026-08-31', check: 'x.', journal: journal(15.38), token: 'tok', version: '2000-01-01T00:00:00Z', working: [] });
+        renderLoansCloseBand();
+        return { built: true, row: rows().find(r => r.loan === loanId) };
+      } finally { _bkLoanFix = orig; }
+    `), target.loan);
+    t.ok(inv.built, 'the inverse (no version check) could be rebuilt from the shipped function');
+    t.ok(inv.built && inv.row.fix === 'fix', '⭐ ...and without the check a stale journal WOULD render as ready — the recheck assertion discriminates', inv.built ? inv.row.fix : 'not built');
+
+    await p.close();
+  },
+});
+
+
 if (LIST) { console.log(GROUPS.map(g => g.name).join('\n')); process.exit(0); }
 
 if (ONLY.length) {
