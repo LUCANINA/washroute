@@ -396,6 +396,9 @@
     .d-svc  { font-size: 22px; font-weight: 800; }
     .d-date { font-size: 14px; color: rgba(255,255,255,.55); margin-top: 4px; }
     .detail-body { padding: 18px; }
+    /* .detail-body's padding was overriding .main-content's bottom room for the tab bar,
+       so the last button (Cancel Order) ended up partly under the nav. */
+    .detail-body.main-content { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
     .d-section { margin-bottom: 24px; }
     .d-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 12px; }
     .d-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--gray-100); }
@@ -632,6 +635,9 @@
     .sub-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation: spin .7s linear infinite; vertical-align:-2px; margin-right:6px; }
     .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(16px); background: #1a1a2e; color: white; padding: 11px 20px; border-radius: 999px; font-size: 15px; font-weight: 500; opacity: 0; transition: all .28s; z-index: 999; white-space: nowrap; max-width: 340px; text-align: center; }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    /* The faded-out toast kept catching taps (z-index 999, bottom: 90px) and sat on top of
+       Order Detail's "Cancel Order" button, so the button did nothing. Toasts are never tappable. */
+    .toast { pointer-events: none; }
     .toast.toast-error   { background: #c0392b; }
     .toast.toast-success { background: #1a7a4a; }
     textarea.field-input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 15px; font-family: inherit; resize: none; outline: none; min-height: 72px; transition: border-color .2s; }
