@@ -21271,7 +21271,9 @@ David: *"identify how to make this page genuinely useful for a Bookkeeper ... id
 4. **Tests.** `tests/proposed-fix.test.mts` 35 Node assertions, six mutations all red (drop allowlist, drop footing, drop voided_at, whole based_on as check, write-off before proposal, includeImmaterial ignored). Harness group `proposed-fix`, 24 assertions, injects stored rows in page context (the fixture predates the job), pairs per §245, inverse of the version check rebuilt from `.toString()` goes red. Groups touching the closing table re-run: 685 + 924 assertions, only the 11 deliberate PayPal 2 reds and `history / s240 #10`.
 
 ### The cron, measured — and it was not what the notes said
-David chose "drop the cron to twice a day". `cron.job` 25 was **once a day, `20 13 * * *`** — not the every-6h that s262's entry, the dashboard's retry sentence and my own cost estimate all repeated (§247: a sentence outlived the fact). Set to **`20 1,13 * * *`** (06:20 / 18:20 Pacific) via `cron.alter_job`. Real cost now ≈ 70 calls × 2 = ~140/day, up from ~35; the dashboard's two sentences that said "every 6 hours" now say "twice a day".
+David chose "drop the cron to twice a day". `cron.job` 25 was **once a day, `20 13 * * *`** — not the every-6h that s262's entry, the dashboard's retry sentence and my own cost estimate all repeated (§247: a sentence outlived the fact). Briefly set to twice a day, then David: *"7 am. Just once a day."* — now **`0 14 * * *`** (07:00 Pacific in PDT, 06:00 once clocks go back) via `cron.alter_job`. Real cost ≈ 70 calls/day, up from ~35. The dashboard's two sentences that said "every 6 hours" now say "every morning".
+
+⚠️ **There is STILL no cron for `reconciliation-run`** (s265's finding, re-measured in `cron.job` today) — I told David the attribution ran "20 minutes before the reconciliation run's window", which was wrong; there is no window. The attribution job walks whatever balances exist; `loan_book_balances` refresh only when someone clicks Run Reconciliation.
 
 ⚠️ **`loan-attribution-run` is NOT DEPLOYED (live is v2 from 2026-09-01).** The CLI, no flag change (it is already `verify_jwt: false`):
 ```
