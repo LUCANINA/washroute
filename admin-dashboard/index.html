@@ -54078,7 +54078,9 @@ async function _dvIframeLoaded() {
     const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
 
     if (selFrom !== selTo) {
-      const days = series.filter(p => p.date >= selFrom && p.date <= selTo).length;
+      // Count the SELECTED range, not the 30-day spark series (which capped this at 30).
+      const _d = x => { const [y, m, dd] = x.split('-').map(Number); return Date.UTC(y, m - 1, dd); };
+      const days = Math.round((_d(selTo) - _d(selFrom)) / 864e5) + 1;
       deltaEl.textContent = days > 1 ? `${$m(netInRange)} net after fees · ${days} days` : `${$m(netInRange)} net after fees`;
       return;
     }
