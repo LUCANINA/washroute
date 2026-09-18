@@ -445,6 +445,13 @@
     /* Subscription plan badge in hero */
     .plan-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: 5px 12px; font-size: 13.5px; font-weight: 600; color: white; }
     .plan-dot { width: 7px; height: 7px; border-radius: 50%; }
+    /* Plan badge is a button on every tab (Home / New Order / Orders / Account)
+       and opens "Your Laundry Plan". */
+    button.plan-badge { cursor: pointer; font-family: inherit; line-height: 1.2; -webkit-tap-highlight-color: transparent; }
+    button.plan-badge:active { background: rgba(255,255,255,.28); }
+    .plan-badge.compact { padding: 4px 10px; font-size: 12.5px; white-space: nowrap; }
+    .plan-badge-slot.compact-slot { min-width: 36px; display: flex; justify-content: flex-end; flex-shrink: 0; }
+    .plan-sub { font-size: 13px; color: var(--gray-500); margin: -2px 0 6px; }
 
     /* Subscription plans */
     .plan-cards { display: flex; flex-direction: column; gap: 10px; padding: 0 18px 18px; }
@@ -1275,6 +1282,7 @@
   <div class="screen" id="screen-home">
     <div class="home-hero">
       <div class="home-greeting" id="home-greeting">Hello 👋</div>
+      <div class="plan-badge-slot"></div>
     </div>
     <div class="main-content">
       <!-- Card-on-file nudge (hidden until loaded) -->
@@ -1306,7 +1314,7 @@
         </div>
         <div class="sub-home-footer">
           <span id="home-sub-renew">Renews —</span>
-          <button class="sub-home-manage-btn" onclick="goTo('account');setTimeout(()=>openSubPanel('sub-plan'),200)">Manage →</button>
+          <button class="sub-home-manage-btn" onclick="openPlanPanel()">Manage →</button>
         </div>
         <div class="sub-dunning-banner" id="home-sub-dunning">
           <div class="dunning-title">⚠️ Payment failed</div>
@@ -1336,7 +1344,7 @@
         <svg viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
       </button>
       <span class="order-step-title" id="order-title">Your Address</span>
-      <div style="width:44px"></div>
+      <div class="plan-badge-slot compact-slot" data-variant="compact"></div>
     </div>
     <div class="step-indicator">
       <div class="sdot active" id="sd0"></div>
@@ -1561,7 +1569,7 @@
     <div class="topbar">
       <button class="topbar-back-btn" onclick="goTo('home')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <span class="topbar-title">My Orders</span>
-      <div style="width:36px"></div>
+      <div class="plan-badge-slot compact-slot" data-variant="compact"></div>
     </div>
     <div class="orders-tab-bar">
       <button class="otab active" id="otab-current" onclick="switchOrderTab('current')">Current</button>
@@ -1614,7 +1622,7 @@
           doubt for the 99% of customers who are in the right account.
         -->
       </div>
-      <div id="acct-plan-badge"></div>
+      <div id="acct-plan-badge" class="plan-badge-slot"></div>
     </div>
     <div class="main-content" style="padding: 0 0 100px;">
       <div class="acct-menu">
@@ -1742,9 +1750,9 @@
           <span class="mi-badge warn" id="pf-payment-badge" style="display:none">Required</span><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
         <!-- Subscription — hidden behind SUBSCRIPTIONS_ENABLED feature flag -->
-        <div class="pf-row" id="acct-menu-plan-item" onclick="openSubPanel('sub-plan')" style="display:none">
+        <div class="pf-row" id="acct-menu-plan-item" onclick="openPlanPanel()" style="display:none">
           <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
-          <div class="pf-main"><div class="pf-title">Subscription</div><div class="pf-val" id="acct-menu-plan-name"></div></div><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+          <div class="pf-main"><div class="pf-title">Laundry Plan</div><div class="pf-val" id="acct-menu-plan-name"></div></div><div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
         <!-- Billing History — moved here from the Account menu (session 299) -->
         <div class="pf-row" onclick="openBillingHistory()">
@@ -1909,7 +1917,7 @@
   <div class="sub-panel" id="sub-plan">
     <div class="sub-panel-header">
       <button class="sub-back-btn" onclick="closeSubPanel('sub-plan')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
-      <div class="sub-panel-title">Subscription</div>
+      <div class="sub-panel-title">Your Laundry Plan</div>
     </div>
     <div class="sub-panel-body" style="padding: 16px 0 28px;">
       <!-- Active subscription detail (shown if subscriber) -->
@@ -3782,9 +3790,10 @@ async function renderHomeSubscriptionCard() {
     .limit(1);
 
   const sub = subs?.[0];
-  if (!sub) { card.style.display = 'none'; _activeSub = null; return; }
+  if (!sub) { card.style.display = 'none'; _activeSub = null; renderPlanBadges(); return; }
 
   _activeSub = sub;
+  renderPlanBadges();
   const plan = sub.subscription_plans || {};
   const weightLimit = plan.weight_limit_lbs || 100;
   // pickup_limit = NULL on the plan means UNLIMITED — we hide the denominator + show "this cycle" instead.
@@ -10236,23 +10245,7 @@ async function loadAccount() {
   // Active plan — check for active subscription first, then fall back to plan_id
   const activePlanId = currentCustomer?.subscription_plan_id;
   const activePlan = dbPlans.find(p => p.id === activePlanId);
-  let planBadgeText = activePlan?.name || 'Pay As You Go';
-  // Default to green — a Pay-As-You-Go customer is an active customer in
-  // good standing. The dot conveys account health, not plan type.
-  let dotColor = '#34d399';
-  if (_activeSub && ['active','paused','past_due','trialing'].includes(_activeSub.status)) {
-    const subPlan = _activeSub.subscription_plans || activePlan;
-    planBadgeText = (subPlan?.name || 'Subscriber');
-    if (_activeSub.status === 'paused') planBadgeText += ' (Paused)';
-    if (_activeSub.status === 'past_due') planBadgeText += ' (Past Due)';
-    if (_activeSub.status === 'trialing') planBadgeText += ' (Scheduled)'; // session 190
-    dotColor = _activeSub.status === 'active' ? '#34d399' : _activeSub.status === 'paused' ? '#fbbf24' : _activeSub.status === 'trialing' ? '#818cf8' : '#f87171';
-  }
-  document.getElementById('acct-plan-badge').innerHTML = SUBSCRIPTIONS_ENABLED() ? `
-    <div class="plan-badge" style="margin-top:12px">
-      <div class="plan-dot" style="background:${dotColor}"></div>
-      ${planBadgeText}
-    </div>` : '';
+  renderPlanBadges();
 
   // Update menu value hints
   const planEl = document.getElementById('acct-menu-plan-name');
@@ -10302,14 +10295,8 @@ async function loadAccount() {
 
   // Fetch active subscription (if any) before rendering plan cards
   if (currentCustomer?.id) {
-    const { data: subs } = await db
-      .from('subscriptions')
-      .select('*, subscription_plans(name, price_monthly, weight_limit_lbs, pickup_limit, overage_price_per_lb, features)')
-      .eq('customer_id', currentCustomer.id)
-      .in('status', ['active', 'paused', 'past_due', 'trialing'])
-      .order('created_at', { ascending: false })
-      .limit(1);
-    _activeSub = subs?.[0] || null;
+    await fetchActiveSub();
+    renderPlanBadges();
   }
 
   // "My Plan" menu item is always visible — non-subscribers see a
@@ -10330,7 +10317,7 @@ async function loadAccount() {
                            _activeSub.status === 'cancelled' ? ' · cancelled' : '';
       planMenuValue.textContent = pname + statusSuffix;
     } else {
-      planMenuValue.textContent = 'Not subscribed · tap to browse plans';
+      planMenuValue.textContent = 'Pay As You Go · see plans';
     }
   }
   if (planMenuItem) planMenuItem.style.display = SUBSCRIPTIONS_ENABLED() ? '' : 'none';
@@ -10482,19 +10469,26 @@ function renderPlanCards(activePlanId) {
 
   // Render ONLY real, active plans from the DB. No hardcoded fallback —
   // showing fabricated plans is worse than showing an empty state.
-  const source = dbPlans;
+  // Pay As You Go is built from live pricing (paygPlanCardHTML), so any $0
+  // "free" plan row in subscription_plans is skipped to avoid a duplicate card.
+  const source = dbPlans.filter(p => Number(p.price_monthly) > 0);
+  const paygCard = paygPlanCardHTML();
+  if (!_paygPricing) loadPaygPricing().then(() => {
+    const el = document.getElementById('payg-plan-card');
+    if (el) el.outerHTML = paygPlanCardHTML();
+  });
 
-  // Empty state: no active plans available (e.g. plan not yet activated for launch)
+  // Empty state: no paid plans available (e.g. plan not yet activated for launch)
   if (!source.length) {
-    document.getElementById('plan-cards').innerHTML = `
-      <div style="text-align:center;padding:32px 20px;color:var(--gray-500)">
+    document.getElementById('plan-cards').innerHTML = paygCard + `
+      <div style="text-align:center;padding:24px 20px;color:var(--gray-500)">
         <div style="font-size:16px;font-weight:600;color:var(--navy);margin-bottom:6px">No subscription plans available yet</div>
         <div style="font-size:14px;line-height:1.5">Check back soon — we're putting the finishing touches on our subscription.</div>
       </div>`;
     return;
   }
 
-  document.getElementById('plan-cards').innerHTML = source.map(p => {
+  document.getElementById('plan-cards').innerHTML = paygCard + source.map(p => {
     const isCurrent = p.id === activePlanId;
     const isFree    = Number(p.price_monthly) === 0;
     const isPopular = Number(p.price_monthly) > 0;
@@ -10517,6 +10511,132 @@ function renderPlanCards(activePlanId) {
       </button>
     </div>`;
   }).join('');
+}
+
+/* ── YOUR LAUNDRY PLAN (badge on every tab + PAYG card) ──
+   The plan badge sits on Home, New Order, Orders and Account and opens the
+   "Your Laundry Plan" panel. Pay As You Go prices are read live from the
+   same tables checkout uses (services + service_fees) — never typed here. */
+let _paygPricing = null;
+
+async function loadPaygPricing() {
+  try {
+    const pricelist = 'Delivery';
+    const [svcRes, feeRes, sameDay] = await Promise.all([
+      db.from('services').select('base_price,pricing_type,lbs_per_bag,has_weight_overage,overage_rate_per_lb')
+        .eq('pricelist', pricelist).eq('is_addon', false).eq('is_active', true)
+        .order('sort_order').limit(1).maybeSingle(),
+      db.from('service_fees').select('name,amount,pricelist').eq('is_active', true).ilike('name', 'delivery fee'),
+      _fetchSameDaySurcharge()
+    ]);
+    const svc = svcRes.data || {};
+    const fees = feeRes.data || [];
+    const deliv = fees.find(f => f.pricelist === pricelist) || fees.find(f => !f.pricelist);
+    const delivery = parseFloat(deliv?.amount || 0);
+    _paygPricing = {
+      bagPrice:  parseFloat(svc.base_price || 0),
+      perBag:    svc.pricing_type === 'per_bag',
+      lbsPerBag: parseFloat(svc.lbs_per_bag || 0),
+      overage:   svc.has_weight_overage ? parseFloat(svc.overage_rate_per_lb || 0) : 0,
+      delivery,
+      sameDay:   sameDay > 0 ? delivery + sameDay : 0
+    };
+  } catch (e) {
+    console.warn('[plan] PAYG pricing load failed', e);
+    _paygPricing = { failed: true };
+  }
+  return _paygPricing;
+}
+
+function paygPlanCardHTML() {
+  const pr = _paygPricing;
+  const onPayg = !(_activeSub && ['active','paused','past_due','trialing'].includes(_activeSub.status));
+  const whole = n => '$' + (n % 1 === 0 ? n.toFixed(0) : n.toFixed(2));
+  let price, perks;
+  if (!pr) {
+    price = '<div class="plan-price" style="color:var(--gray-300)">—</div>';
+    perks = '<li>Loading prices…</li>';
+  } else if (pr.failed) {
+    price = '<div class="plan-price">Pay per order</div>';
+    perks = '<li>See Info → Pricing for current rates</li>';
+  } else {
+    price = `<div class="plan-price">${whole(pr.bagPrice)}<span>${pr.perBag ? '/bag' : ''} + delivery</span></div>`;
+    const items = [];
+    if (pr.lbsPerBag) items.push(`Up to ${pr.lbsPerBag} lbs per bag`);
+    if (pr.overage && pr.lbsPerBag) items.push(`Overage at ${$m(pr.overage)}/lb above ${pr.lbsPerBag} lbs`);
+    if (pr.delivery) items.push(`Next-day delivery ${$m(pr.delivery)}`);
+    if (pr.sameDay) items.push(`Same-day delivery ${$m(pr.sameDay)}`);
+    items.push('No monthly commitment');
+    perks = items.map(t => `<li>${escHtml(t)}</li>`).join('');
+  }
+  return `
+    <div class="plan-card ${onPayg ? 'current' : ''}" id="payg-plan-card">
+      <div class="plan-name" style="color:var(--navy)">Pay As You Go</div>
+      <div class="plan-sub">Best for occasional orders</div>
+      ${price}
+      <ul class="plan-perks">${perks}</ul>
+      ${onPayg ? '<button class="plan-select-btn" disabled>✓ Your Current Plan</button>' : ''}
+    </div>`;
+}
+
+async function fetchActiveSub() {
+  if (!currentCustomer?.id) { _activeSub = null; return null; }
+  const { data: subs } = await db
+    .from('subscriptions')
+    .select('*, subscription_plans(name, price_monthly, weight_limit_lbs, pickup_limit, overage_price_per_lb, features)')
+    .eq('customer_id', currentCustomer.id)
+    .in('status', ['active', 'paused', 'past_due', 'trialing'])
+    .order('created_at', { ascending: false })
+    .limit(1);
+  _activeSub = subs?.[0] || null;
+  return _activeSub;
+}
+
+function planBadgeInfo() {
+  const activePlan = dbPlans.find(p => p.id === currentCustomer?.subscription_plan_id);
+  let text = activePlan?.name || 'Pay As You Go';
+  let short = activePlan ? 'Subscriber' : 'Pay As You Go';
+  // Green = account in good standing; the dot conveys health, not plan type.
+  let dot = '#34d399';
+  const st = _activeSub?.status;
+  if (_activeSub && ['active','paused','past_due','trialing'].includes(st)) {
+    const subPlan = _activeSub.subscription_plans || activePlan;
+    text = subPlan?.name || 'Subscriber';
+    short = 'Subscriber';
+    if (st === 'paused')   { text += ' (Paused)';    short = 'Paused'; }
+    if (st === 'past_due') { text += ' (Past Due)';  short = 'Past Due'; }
+    if (st === 'trialing') { text += ' (Scheduled)'; short = 'Scheduled'; } // session 190
+    dot = st === 'active' ? '#34d399' : st === 'paused' ? '#fbbf24' : st === 'trialing' ? '#818cf8' : '#f87171';
+  }
+  return { text, short, dot };
+}
+
+function renderPlanBadges() {
+  const show = !!currentCustomer && SUBSCRIPTIONS_ENABLED();
+  const info = show ? planBadgeInfo() : null;
+  document.querySelectorAll('.plan-badge-slot').forEach(slot => {
+    if (!show) { slot.innerHTML = ''; return; }
+    const compact = slot.dataset.variant === 'compact';
+    const label = compact ? info.short : info.text;
+    slot.innerHTML = `<button type="button" class="plan-badge${compact ? ' compact' : ''}"${compact ? '' : ' style="margin-top:12px"'}
+      onclick="openPlanPanel()" aria-label="Your laundry plan: ${escHtml(info.text)}">
+      <span class="plan-dot" style="background:${info.dot}"></span>${escHtml(label)}</button>`;
+  });
+}
+
+async function openPlanPanel() {
+  if (!SUBSCRIPTIONS_ENABLED()) return;
+  openSubPanel('sub-plan');
+  try {
+    const tasks = [fetchActiveSub()];
+    if (!dbPlans.length) tasks.push(
+      db.from('subscription_plans').select('*').eq('is_active', true).order('price_monthly')
+        .then(({ data }) => { if (data?.length) dbPlans = data; }));
+    if (!_paygPricing || _paygPricing.failed) tasks.push(loadPaygPricing());
+    await Promise.all(tasks);
+  } catch (e) { console.warn('[plan] open refresh failed', e); }
+  renderPlanCards(currentCustomer?.subscription_plan_id);
+  renderPlanBadges();
 }
 
 async function selectPlan(planId, isFree) {
@@ -10562,7 +10682,7 @@ async function pauseSubscription() {
 
     // Refetch subscription and re-render
     await loadUserData();
-    renderSubscriptionCard();
+    await fetchActiveSub(); renderPlanCards(currentCustomer?.subscription_plan_id); renderPlanBadges(); // was renderSubscriptionCard() — undefined, threw after a successful pause/resume
     toast('Subscription paused ✓', '');
   } catch (e) {
     toast('Error pausing subscription: ' + e.message, '');
@@ -10591,7 +10711,7 @@ async function resumeSubscription() {
 
     // Refetch subscription and re-render
     await loadUserData();
-    renderSubscriptionCard();
+    await fetchActiveSub(); renderPlanCards(currentCustomer?.subscription_plan_id); renderPlanBadges(); // was renderSubscriptionCard() — undefined, threw after a successful pause/resume
     toast('Subscription resumed ✓', '');
   } catch (e) {
     toast('Error resuming subscription: ' + e.message, '');
