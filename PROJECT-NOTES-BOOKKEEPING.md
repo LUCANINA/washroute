@@ -1,45 +1,55 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
-## ⚠️ OPEN AT THE END OF SESSION 319 — read this first
+## ⚠️ OPEN — read this first (updated Sep 19, 2026, after the s318 deploy)
 
-Everything through s319 is committed AND pushed (`2e7c5ec`). These are the things that are NOT done,
-in the order they cost something:
+**✅ s318 IS DEPLOYED, AND IT CAUGHT RAPID ON THE FIRST SCHEDULED RUN.**
+`reconciliation-run` v86 and `loan-xero-post` v75, both still `verify_jwt: false` — the flag survived
+the deploy, verified from the function list rather than assumed. The 6am cron
+(run `d5f405d0`, 2026-09-19 13:00 UTC) then raised, unprompted, on the real book:
 
-**1. THE s318 EDGE FUNCTIONS ARE NOT DEPLOYED.** The journal-date check exists in the repo and is
-green in tests, and it is doing nothing in production until these run. Measured by behaviour, not
-assumed: a POST with no `Authorization` header returns **400** on `loan-xero-post` and **403** on
-`reconciliation-run` — both are the functions' own guards answering, so the gateway let them through
-and **both are `verify_jwt: false`**. The flag is a decision, never a default (CLAUDE.md):
+> **Rapid Credit Line — a journal for 2026-08 is dated 2026-09-01 in Xero**
+> `journal_id 71ed82b2-c62e-4c27-8a0a-75074ce8e2f7 · our_period 2026-08-31 · xero_date 2026-09-01`
 
-```
-npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-npx -y supabase@latest functions deploy loan-xero-post    --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
-```
+**ONE finding, on the one loan.** That is the check behaving as designed — it is narrow by
+construction (only a MONTH boundary counts) and it proved it on live data rather than on a fixture.
 
-Re-measure before re-running this later — do not inherit the flag from this note.
+The items below are what is still not done.
 
-**2. RAPID'S $457.14 IS STILL THERE.** Journal `71ed82b2` needs its date changed from 2026-09-01 to
-**2026-08-31** in Xero. Nothing in the product can do this: the posting path is create-only, and a
-re-date capability needs the closed-period check hard-wired first (a re-date crossing the close date
-must refuse, not try). Once done, the row ties and s318's finding clears itself.
+**1. RAPID'S $457.14 IS STILL THERE — and now it is on screen telling you what to do.**
+Journal `71ed82b2` needs its date changed from 2026-09-01 to **2026-08-31** in Xero. Nothing in the
+product can do this: the posting path is create-only, and a re-date capability needs the closed-period
+check hard-wired first (a re-date crossing the close date must refuse, not try). **The finding clears
+itself on the next run once the date is fixed** — that is the half of s318 that has not been observed
+yet, and watching it disappear is the proof the resolve path works.
 
-**3. THE FIND-THE-DIFFERENCE MODAL CANNOT SEE JOURNAL DATES.** It reasons over statement spans only,
+**2. THE FIND-THE-DIFFERENCE MODAL CANNOT SEE JOURNAL DATES.** It reasons over statement spans only,
 which is why on Rapid it reports $27.79 on a Jul 31 → Aug 16 span and "one for your CPA" while the
-actual $457.14 cause sits entirely outside its field of view. A reader following that modal is being
-sent the wrong way on this row.
+actual $457.14 cause sits entirely outside its field of view. **A reader following that modal is being
+sent the wrong way on this row** — and now the Issue queue and the modal disagree about the same loan,
+which is worse than the modal being merely incomplete.
 
-**4. THE TOTALS ROW DISAGREES WITH ITSELF, and s315 is why.** Xero total − Lender total is the signed
+**3. THE TOTALS ROW DISAGREES WITH ITSELF, and s315 is why.** Xero total − Lender total is the signed
 difference; the Variance total is the ABSOLUTE sum (deliberately — so a +1,472 and a −3,180 cannot
 cancel into a clean close, s236). Before s315 there was no Xero total on that row to subtract, so the
 two could not be compared. Now they can, and they differ with nothing on screen explaining it.
 Undecided: label it, or print both.
 
-**5. TWO HARNESS GROUPS ARE RED AND HAVE BEEN SINCE BEFORE s315.** `stale-anchor-ask` and
+**4. TWO HARNESS GROUPS ARE RED AND HAVE BEEN SINCE BEFORE s315.** `stale-anchor-ask` and
 `rollback-beats-stale` fail IDENTICALLY on HEAD — verified by pointing `WR_INDEX` at
 `git show HEAD:admin-dashboard/index.html`. PayPal 2's fixture state moved and their pinned
 −$9,429.39 / $21.66 figures are stale. `s240 #10` is Tech Debt #19 and reports itself as such. These
 three are the ONLY expected reds; anything else is new.
 
+**⚠️ ON RE-DEPLOYING THESE FUNCTIONS LATER:** the `verify_jwt` flag is a decision, never a default
+(CLAUDE.md). Both were measured by behaviour before the s318 deploy — a POST with no `Authorization`
+header returned **400** on `loan-xero-post` and **403** on `reconciliation-run`, both the functions'
+own guards answering, so the gateway let them through. **Re-measure; do not inherit that from this
+note.**
+
+```
+npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+npx -y supabase@latest functions deploy loan-xero-post    --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+```
 
 ## Session 319 — Sep 19, 2026: the same format, on the month in flight
 
