@@ -24128,7 +24128,23 @@
     // in a stable, predictable order instead of shuffling on every render.
     const dir = _loansSortDir === 'asc' ? 1 : -1;
     const tiebreak = (x, y) => (x.a.lender || '').localeCompare(y.a.lender || '') || (x.a.xero_account_name || '').localeCompare(y.a.xero_account_name || '');
+    // ── s319: THE WORK IS ON TOP, WHATEVER THE SORT (David) ─────────────────
+    // "Place those with variances on the top" — s317's rule for the close band,
+    // arriving here. It is a PARTITION, not a sort key: it runs before whichever
+    // column the reader has clicked and the click still orders everything inside
+    // each half. That is deliberate. A reader sorting by Lender is asking "show
+    // me these in lender order", not "bury the row that does not reconcile
+    // between two that do", and the close band answers it the same way.
+    //
+    // ⚠️ A TICKED ROW IS THE ONLY QUIET ONE. Exactly the set the Action column
+    // goes quiet for, computed from the same `v.state`, so the two can never
+    // disagree about which rows are finished. Everything else — a variance, an
+    // immaterial difference, a month with no statement yet, an unchecked row —
+    // stays in the top half, because none of those is settled.
+    const restQuiet = (r) => (r.v && r.v.state === 'ties') ? 1 : 0;
     const sorted = filtered.slice().sort((x, y) => {
+      const q = restQuiet(x) - restQuiet(y);
+      if (q) return q;
       const av = _loansSortValue(x, _loansSortCol), bv = _loansSortValue(y, _loansSortCol);
       const aEmpty = av == null || av === '', bEmpty = bv == null || bv === '';
       if (aEmpty && bEmpty) return tiebreak(x, y);
@@ -24299,7 +24315,31 @@
     const loanRow = (r) => {
       const { a, lastSplit, inFlight, isAutomaticLoan, statusKey, statusBadge, type, bal, v } = r;
       const queued = queueByLoan.get(a.id) || [];
-      const queuedCell = _bkQueueCellHtml(queued, _bkInFlightMonth());
+      // ── s319: NO VARIANCE, NOTHING IN ACTION (David, s316's rule) ──────
+      // A row whose Xero balance matches its lender to the cent is a row that
+      // reconciles, and a "Review" button on it asks a reader to go and look at
+      // a loan that is right. The close band stopped doing that in s316; this
+      // table was still doing it (E-Transit 4140 and E5-4751, both 0.00, both
+      // offering Review) one tab away.
+      //
+      // ⚠️ SCOPED TO A GENUINE TIE, and no wider. 'unverified' (no statement yet),
+      // 'na', 'variance' and 'immaterial' all keep their actions: each of those
+      // is a row where something is unresolved, and the in-flight month is WHERE
+      // unresolved things are supposed to live. Only the ticked rows go quiet.
+      //
+      // ⚠️ NOTHING DISAPPEARS. A suppressed item never reaches `placedIds`, so it
+      // falls into the "N not on a row above" line under this table — the same
+      // safety net the close band uses, already wired here as inflightElsewhere.
+      //
+      // ⚠️ AND ONE EXCEPTION, WHICH THE SUITE CAUGHT ME MISSING. A tied row can
+      // still carry an UNPOSTED SPLIT — money that has not reached Xero — and on
+      // this table the Action cell is its only home (s288h pins exactly that: a
+      // split belongs on its own loan's row, not exiled to the line beneath).
+      // That is s273's rule, "unposted beats a tie", which the close band honours
+      // through its own `post` branch; this table had no equivalent, so it is
+      // stated here. A tie silences NOTES, never work.
+      const ticks = v.state === 'ties' && !queued.some(i => String(i.key || '').startsWith('appr-split-'))
+      const queuedCell = ticks ? '' : _bkQueueCellHtml(queued, _bkInFlightMonth());
       if (queuedCell) placedIds.add(a.id);
       // David's ask: Lender moved to the far left; "Last statement" (the pulled
       // lender-document date) replaced with "Last payment" (the full amount
@@ -24405,7 +24445,13 @@
         const dir = d2 > 0 ? `Xero is ABOVE ${againstWord}` : `Xero is BELOW ${againstWord}`;
         varianceCell = `<span class="td-mono lit-off" title="${esc(dir)} as of ${esc(v.asOf || '')} — this one blocks the close">${d2 > 0 ? '+' : ''}${bare2(d2)}</span>`;
       } else if (v.state === 'ties') {
-        varianceCell = `<span class="td-mono lit-quiet" title="Xero matches the lender exactly as of ${esc(v.asOf || '')}">0.00</span>`;
+        // ── s319: THE SAME TICK THE CLOSE BAND PRINTS (David) ──────────────
+        // "0.00" is a figure, and a column of figures is a column a reader has
+        // to READ. The close band answered this in s317: a row that reconciles
+        // gets a green ✓, which is scannable and means one thing — checked, and
+        // it agrees. Two tables showing the same verdict two different ways is
+        // the drift this module spends sessions removing; they now match.
+        varianceCell = `<span class="lcb-tick" title="Xero matches the lender exactly as of ${esc(v.asOf || '')}">\u2713</span>`;
       } else if (v.state === 'explained') {
         // Not red, and deliberately so: the books are right, the gap is timing.
         varianceCell = `<span class="td-mono lit-quiet" title="${esc(v.reason || '')} — nothing to fix">${v.difference > 0 ? '+' : ''}${bare2(v.difference)} <span style="font-size:11px">explained</span></span>`;
@@ -24459,9 +24505,9 @@
 
     // Same click-to-sort header convention as the Customers table's thSort/th-sort
     // (see _loansSetSort above) -- reused, not reinvented.
-    const thSort = (col, label, alignRight) => {
+    const thSort = (col, label, alignRight, title) => {
       const cls = _loansSortCol === col ? `th-sort ${_loansSortDir === 'asc' ? 'sort-asc' : 'sort-desc'}` : 'th-sort';
-      return `<th class="${cls}"${alignRight ? ' style="text-align:right"' : ''} onclick="_loansSetSort('${col}')">${label}</th>`;
+      return `<th class="${cls}"${alignRight ? ' style="text-align:right"' : ''}${title ? ` title="${esc(title)}"` : ''} onclick="_loansSetSort('${col}')">${label}</th>`;
     };
     // Session 236: Status is gone. With "Hide closed loans" ticked -- the default --
     // every visible row said "active", so the column cost 7% of the width to carry
@@ -24498,7 +24544,17 @@
         ${thSort('date', 'Date')}
         ${thSort('principal', 'Principal', true)}
         ${thSort('interest', 'Interest', true)}
-        ${thSort('xero', 'Books', true)}
+        ${/* ── s319: THE COLUMN IS CALLED WHAT IT HOLDS (David) ──────────────
+             This column has ALWAYS been Xero's own rebuilt balance — the cell's
+             own tooltip says so, the sort key is already 'xero', and the comment
+             above varianceCell says "Variance is literally Xero minus Statement".
+             Only the HEADER said Books. That is the exact word that sent David
+             looking for a third source of truth on the closing band in s315
+             ("Books and Xero are the same thing, right?"), and it was sitting
+             here too, one tab away, saying it about a column that never was our
+             walk. Renaming costs nothing and removes the last place the word
+             misleads. */''}${thSort('xero', 'Xero', true,
+          "Xero's own rebuilt balance for this loan account, as of the date on the row. Variance is this figure minus the lender's, which is why the subtraction on screen is always exact. Labelled Books until session 319 — it was never our walk, and the name was the only thing suggesting it was.")}
         ${thSort('outstanding', 'Lender', true)}
         ${thSort('variance', 'Variance', true)}
         ${thSort('type', 'Booked')}

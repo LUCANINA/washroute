@@ -1,5 +1,58 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 319 — Sep 19, 2026: the same format, on the month in flight
+
+David: *"Apply the same format to the IN FLIGHT section."* Four changes, each one the close band's
+own rule arriving on the other table.
+
+### 1. THE COLUMN IS CALLED WHAT IT HOLDS
+
+**This column was never our walk.** Its own cell tooltip said "Xero's rebuilt balance", the sort key
+was already `'xero'`, and the comment above `varianceCell` said *"Variance is literally Xero minus
+Statement"*. **Only the header said Books** — the exact word that sent David hunting for a third
+source of truth on the closing band in s315, sitting here too, one tab away, saying it about a column
+that genuinely was Xero all along. Renamed, with the tooltip to explain it.
+
+### 2. A TIE GETS THE GREEN TICK
+
+"0.00" is a figure, and a column of figures is a column a reader has to READ. s317 answered this on
+the close band; the two tables now say the same verdict the same way.
+
+### 3. THE WORK IS ON TOP, WHATEVER THE SORT
+
+A PARTITION, not a sort key — it runs before whichever column the reader clicked, and the click still
+orders everything inside each half. A reader sorting by Lender is asking "show me these in lender
+order", not "bury the row that does not reconcile between two that do".
+
+### 4. NO VARIANCE, NOTHING IN ACTION — with one exception the suite caught
+
+s316's rule, scoped to a genuine tie: `unverified`, `na`, `variance` and `immaterial` all keep their
+actions, because the in-flight month is WHERE unresolved things are supposed to live.
+
+**⚠️ AND THE EXCEPTION I MISSED, WHICH s288h CAUGHT ON THE FIRST RUN.** A tied row can still carry an
+**unposted split** — money that has not reached Xero — and on this table the Action cell is its only
+home. s288h pins exactly that ("a split is on its own loan's ROW, not exiled to the line"), and my
+first cut exiled it. That is **s273's "unposted beats a tie"**, which the close band honours through
+its own `post` branch and this table had no equivalent for. **A tie silences notes, never work.**
+
+### THE SUITE
+
+- **s280's shared-vocabulary assertion inverted.** Its claim is that the two tables use ONE
+  vocabulary, not that the word is "Books" — so the required column is now `Xero` and the forbidden
+  duplicate is `Books`.
+- **s313's month-suffix pair is now PLANTED.** The rows that carried an out-of-month "Review · July"
+  were the tied ones, and change 4 gated them — so the book no longer exercises the suffix on either
+  table. One finding is re-dated (BayFirst SBA 2's `schedule_vs_statement`, whose date field is
+  `statement_date`) on a row that keeps a variance so it is not gated.
+- **⚠️ AND ITS DISCRIMINATOR HAD TO STOP TESTING THE PIXEL.** Nulling `_bkFindingDate` and
+  re-rendering does NOT clear the suffix on a row whose LEAD queued item is a split: that item takes
+  its month from `period_label`, a different source that rightly survives the revert. The DOM-level
+  revert cannot isolate this function, and an assertion built on it reports a neighbouring feature
+  working as this one broken. `_bkFindingDate` is a pure function over one finding, so it is now
+  asserted as one — the allowlist is the whole claim, including that an un-allowlisted check_key
+  names NO month rather than guessing at one.
+
+
 ## Session 318 — Sep 19, 2026: the one field we author was the one field nobody checked
 
 ### 🔴 RAPID'S $457.14 WAS A DATE, NOT A DIFFERENCE

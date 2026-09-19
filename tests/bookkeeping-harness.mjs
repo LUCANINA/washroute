@@ -13579,15 +13579,24 @@ GROUPS.push({
     {
       const p = await newHarnessPage({ tab: 'loans' });
       const hdr = await heads(p);
+      /* ── s319: THE SHARED WORD IS NOW "XERO", ON BOTH TABLES ──────────────
+         s280's claim is that the two tables use ONE vocabulary, not that the word
+         is "Books". s315 renamed the closing band's column after David asked
+         "Books and Xero are the same thing, right?" — and the answer was no, the
+         closing band's Books was our WALK. On THIS table the column never was a
+         walk: its own cell tooltip, its sort key and the comment above varianceCell
+         all said Xero, and only the header said Books. s319 renamed it to what it
+         holds, which restores the shared vocabulary rather than breaking it. */
       for (const col of ['Loan', 'Account #', 'Source', 'Last payment', 'Date',
-                         'Principal', 'Interest', 'Staging', 'Books', 'Lender', 'Variance']) {
+                         'Principal', 'Interest', 'Staging', 'Xero', 'Lender', 'Variance']) {
         t.ok(hdr.includes(col), `s280: In flight carries the shared column "${col}"`, JSON.stringify(hdr));
       }
       /* THE RENAMES HAVE TO HAVE HAPPENED, not merely the new names appeared.
-         "Xero" and "Statement" surviving beside "Books" and "Lender" would be
-         the same fact told twice under two headings — the exact defect the
-         consolidation exists to remove. */
-      t.ok(!hdr.includes('Xero'), 's280: ⭐ ...and "Xero" is GONE, not sitting beside "Books"', JSON.stringify(hdr));
+         "Books" and "Statement" surviving beside "Xero" and "Lender" would be the
+         same fact told twice under two headings — the exact defect the
+         consolidation exists to remove, and since s315/s319 "Books" is the word
+         that would be the duplicate. */
+      t.ok(!hdr.includes('Books'), 's319: ⭐ ...and "Books" is GONE, not sitting beside "Xero"', JSON.stringify(hdr));
       /* ── STATUS IS NOT ON THIS TABLE, AND THAT IS THE POINT (session 280) ──
          I added it here earlier this session, and David spotted the shape of the
          problem: the Variance cell beside it already renders the same verdict, in
@@ -15053,8 +15062,24 @@ GROUPS.push({
                  actionText: act ? act.textContent.replace(/\s+/g, ' ').trim() : '' };
       });
     `;
+    // ⚠️ s319 PLANTED THIS, AND THE REASON IS THE SAME ONE THAT MOVED IT HERE.
+    // The rows that used to carry an out-of-month "Review · July" on the in-flight
+    // table were the TIED ones, and s319 gated those for exactly David's reason —
+    // a row that reconciles asks for nothing. What is left queued happens to be
+    // dated in the table's own month, so the book no longer exercises the suffix
+    // on either table. Rather than delete the coverage or let it pass by never
+    // firing, one finding is re-dated: BayFirst SBA 2 carries a real
+    // `schedule_vs_statement`, its date field is `statement_date` (see
+    // _BK_FINDING_DATE_FIELD), and the row keeps a variance so it is not gated.
+    const datePlant = (d) => {
+      const bf = d.loan_accounts.find((x) => x.xero_account_name === 'BayFirst SBA 2');
+      const f = (d.reconciliation_findings || []).find((x) =>
+        x.loan_account_id === bf.id && x.check_key === 'schedule_vs_statement' && x.status === 'open');
+      if (!f) throw new Error('s319 plant: no open schedule_vs_statement on BayFirst SBA 2');
+      f.detail = { ...(f.detail || {}), statement_date: '2026-07-15' };
+    };
     {
-      const p = await newHarnessPage({ tab: 'loans' });
+      const p = await newHarnessPage({ tab: 'loans', mutate: datePlant });
       await p.switchTab('loans');
       // The s316 half, on the table David was looking at.
       const closing = await p.evaluate(() =>
@@ -15086,40 +15111,40 @@ GROUPS.push({
 
     // ── DISCRIMINATION: a finding with no date must name no month ───────────
     {
-      const p = await newHarnessPage({ tab: 'loans' });
+      const p = await newHarnessPage({ tab: 'loans', mutate: datePlant });
       await p.switchTab('loans');
       await p.evaluate(() => switchLoansPeriod('inflight'));
-      // ⚠️ SCOPED TO THE ITEMS `_bkFindingDate` ACTUALLY FEEDS. A queued item can
-      // get its month from two places: a reconciliation finding's own detail date
-      // (this function) or a SPLIT's `period_label`, which is a different source
-      // and rightly survives. Counting every suffix on the table made the
-      // discriminator demand zero and fail on the split-derived one — an
-      // assertion failing because a neighbouring feature works. The count is
-      // taken over the recon-keyed rows only, which is the set under test.
-      const inv = await p.evaluate(() => {
-        const suffixes = () => [...document.querySelectorAll('#loans-period-inflight tbody tr[data-loan-id]')]
-          .filter(tr => {
-            const k = tr.querySelector('td.lcb-action')?.getAttribute('data-queued-keys') || '';
-            // A row can carry BOTH a finding and a split, and a split gets its
-            // month from `period_label` — a different source that rightly
-            // survives this revert. Only rows whose month can ONLY have come
-            // from `_bkFindingDate` are counted, or the discriminator measures
-            // a neighbouring feature working.
-            return /recon-/.test(k) && !/appr-split-/.test(k);
-          })
-          .map(tr => tr.querySelector('td.lcb-action').textContent.replace(/\s+/g, ' ').trim())
-          .filter(txt => /·\s*[A-Z][a-z]+/.test(txt));
-        const before = suffixes().length;
-        const orig = _bkFindingDate;
-        try {
-          _bkFindingDate = () => null;                  // the state before s310
-          renderLoansTable();
-          return { before, after: suffixes().length };
-        } finally { _bkFindingDate = orig; renderLoansTable(); }
-      });
-      t.ok(inv.before > 0 && inv.after === 0,
-           '⭐ with the finding date removed every suffix on a finding-backed row disappears — the assertion discriminates',
+      // ⚠️ THE DISCRIMINATOR TESTS THE FUNCTION, NOT THE PIXEL — and it had to,
+      // twice over. Nulling `_bkFindingDate` and re-rendering does not clear the
+      // suffix on a row whose LEAD queued item is a split: that item takes its
+      // month from `period_label`, a different source that rightly survives the
+      // revert. So the DOM-level revert cannot isolate this function, and an
+      // assertion built on it reports a neighbouring feature working as this one
+      // broken. `_bkFindingDate` is a pure function over one finding, so it is
+      // asserted as one: the allowlist is the whole claim.
+      const inv = await p.evaluate(() => ({
+        // The allowlisted field is read...
+        allowed: _bkFindingDate({ check_key: 'schedule_vs_statement', detail: { statement_date: '2026-07-15' } }),
+        // ...from the field THAT key names, never from whatever date is lying about
+        // in `detail` (this one carries a schedule_date too, and it is not the answer).
+        rightField: _bkFindingDate({ check_key: 'balance_vs_lender',
+                                     detail: { anchor_date: '2026-07-15', statement_date: '2026-01-01' } }),
+        // A key nobody allowlisted names no month rather than guessing at one.
+        unknownKey: _bkFindingDate({ check_key: 'not_a_real_check', detail: { date: '2026-07-15' } }),
+        // §247: a missing date is not a date.
+        noDetail: _bkFindingDate({ check_key: 'lumped_payment', detail: null }),
+        notADate: _bkFindingDate({ check_key: 'lumped_payment', detail: { date: 'Period 14' } }),
+      }));
+      t.eq(inv.allowed, '2026-07-15',
+           '⭐ the month on the button comes from the finding\'s own allowlisted date field',
            JSON.stringify(inv));
+      t.eq(inv.rightField, '2026-07-15',
+           '...from the field that check_key names, not from any date in detail', JSON.stringify(inv));
+      t.eq(inv.unknownKey, null,
+           '...and a check_key nobody allowlisted names NO month — the assertion discriminates',
+           JSON.stringify(inv));
+      t.eq(inv.noDetail, null, '...a finding with no detail names no month', JSON.stringify(inv));
+      t.eq(inv.notADate, null, '...and neither does one whose field is not a date', JSON.stringify(inv));
       await p.close();
     }
   },
