@@ -1,5 +1,46 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## ⚠️ OPEN AT THE END OF SESSION 319 — read this first
+
+Everything through s319 is committed AND pushed (`2e7c5ec`). These are the things that are NOT done,
+in the order they cost something:
+
+**1. THE s318 EDGE FUNCTIONS ARE NOT DEPLOYED.** The journal-date check exists in the repo and is
+green in tests, and it is doing nothing in production until these run. Measured by behaviour, not
+assumed: a POST with no `Authorization` header returns **400** on `loan-xero-post` and **403** on
+`reconciliation-run` — both are the functions' own guards answering, so the gateway let them through
+and **both are `verify_jwt: false`**. The flag is a decision, never a default (CLAUDE.md):
+
+```
+npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+npx -y supabase@latest functions deploy loan-xero-post    --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+```
+
+Re-measure before re-running this later — do not inherit the flag from this note.
+
+**2. RAPID'S $457.14 IS STILL THERE.** Journal `71ed82b2` needs its date changed from 2026-09-01 to
+**2026-08-31** in Xero. Nothing in the product can do this: the posting path is create-only, and a
+re-date capability needs the closed-period check hard-wired first (a re-date crossing the close date
+must refuse, not try). Once done, the row ties and s318's finding clears itself.
+
+**3. THE FIND-THE-DIFFERENCE MODAL CANNOT SEE JOURNAL DATES.** It reasons over statement spans only,
+which is why on Rapid it reports $27.79 on a Jul 31 → Aug 16 span and "one for your CPA" while the
+actual $457.14 cause sits entirely outside its field of view. A reader following that modal is being
+sent the wrong way on this row.
+
+**4. THE TOTALS ROW DISAGREES WITH ITSELF, and s315 is why.** Xero total − Lender total is the signed
+difference; the Variance total is the ABSOLUTE sum (deliberately — so a +1,472 and a −3,180 cannot
+cancel into a clean close, s236). Before s315 there was no Xero total on that row to subtract, so the
+two could not be compared. Now they can, and they differ with nothing on screen explaining it.
+Undecided: label it, or print both.
+
+**5. TWO HARNESS GROUPS ARE RED AND HAVE BEEN SINCE BEFORE s315.** `stale-anchor-ask` and
+`rollback-beats-stale` fail IDENTICALLY on HEAD — verified by pointing `WR_INDEX` at
+`git show HEAD:admin-dashboard/index.html`. PayPal 2's fixture state moved and their pinned
+−$9,429.39 / $21.66 figures are stale. `s240 #10` is Tech Debt #19 and reports itself as such. These
+three are the ONLY expected reds; anything else is new.
+
+
 ## Session 319 — Sep 19, 2026: the same format, on the month in flight
 
 David: *"Apply the same format to the IN FLIGHT section."* Four changes, each one the close band's
