@@ -10409,7 +10409,7 @@ function renderPlanCards(activePlanId) {
     document.getElementById('plan-detail-price').textContent = '$' + Number(plan.price_monthly || 0).toFixed(0) + '/month';
 
     const features = Array.isArray(plan.features) ? plan.features : [];
-    document.getElementById('plan-detail-features').innerHTML = features.map(f => '✓ ' + f).join('<br>');
+    document.getElementById('plan-detail-features').innerHTML = features.map(f => '✓ ' + escHtml(f)).join('<br>');
 
     document.getElementById('plan-detail-lbs').textContent = usageLbs % 1 === 0 ? usageLbs : usageLbs.toFixed(1);
     // Surface remaining lbs explicitly — "of 100 lbs used · 52.5 lbs left"
@@ -10543,13 +10543,13 @@ function renderPlanCards(activePlanId) {
       ? '<div class="plan-price">Free<span> · pay per order</span></div>'
       : `<div class="plan-price">$${Number(p.price_monthly).toFixed(0)}<span>/month</span></div>`;
     const perks = Array.isArray(p.features)
-      ? p.features.map(f => `<li>${f}</li>`).join('')
+      ? p.features.map(f => `<li>${escHtml(f)}</li>`).join('')
       : '';
 
     return `
     <div class="plan-card ${isCurrent ? 'current' : ''} ${isPopular ? 'popular' : ''}" data-plan-id="${p.id}">
       ${isPopular ? '<div class="popular-tag">Best Value</div>' : ''}
-      <div class="plan-name" style="color:${dotColor}">${p.name}</div>
+      <div class="plan-name" style="color:${dotColor}">${escHtml(p.name)}</div>
       ${priceDisplay}
       <ul class="plan-perks">${perks}</ul>
       <button class="plan-select-btn" onclick="selectPlan('${p.id}', ${isFree})" ${isCurrent ? 'disabled' : ''}>
@@ -11005,6 +11005,10 @@ async function savePreferences(which, btn) {
     update.default_tip = Math.max(0, parseFloat(tipInput.value) || 0);
     update.default_tip_type = _custTipType === '%' ? '%' : '$';
     update.updated_at = new Date().toISOString();
+  }
+  if (!Object.keys(update).length) {   // e.g. Tips tapped before the tip field rendered
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+    showToast('Nothing to save yet — try again in a moment', 'error'); return;
   }
   const { error } = await db.from('customers').update(update).eq('id', currentCustomer.id);
   if (btn) { btn.disabled = false; btn.textContent = label; }
