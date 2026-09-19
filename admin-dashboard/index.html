@@ -4128,6 +4128,10 @@
             .lcb-off { color: #dc2626; font-weight: 650; }
             .lcb-flag { color: var(--gray-900); font-weight: 600; }
             .lcb-quiet { color: var(--gray-400); font-weight: 400; }
+            /* s317: the tie tick. Green, because it is a PASS — the one mark on
+               this table that means "checked, and it agrees". Sized to the money
+               beside it so a column of ticks reads as a column, not as debris. */
+            .lcb-tick { color: var(--green, #16a34a); font-weight: 700; font-size: 13px; }
             /* s315: a stale input, named. Amber, never red — it is a statement
                about our read time, not an accusation about the loan. */
             .lcb-stale { display: inline-block; margin-left: 5px; font-size: 10.5px; font-weight: 600;
@@ -21922,7 +21926,20 @@
         // row can tie exactly and still carry a stale anchor; the Action column
         // has always returned nothing for a tie, so showing an ask here produced a
         // request with no button under it. One verdict per row.
-        : ties ? ''
+        // ── s317: A TIE IS A RESULT, AND IT NOW SHOWS ONE (David) ──────────
+        // "Show green check mark on those with no variances." Printing nothing
+        // was right while ties were folded away — the fold itself was the
+        // statement. With every loan on screen (see the body build below), an
+        // empty cell is ambiguous in the one way this column cannot afford: it
+        // reads the same as a row nobody checked. A ✓ says CHECKED AND AGREES,
+        // and it is the only mark that means that.
+        //
+        // ⚠️ ONLY ON A REAL TIE. `ties` is `band === 'tie'`, which is taken on a
+        // measured variance — so a circular row ("by construction"), a stale
+        // anchor and an unmeasured row all fall through to their own branches
+        // below and keep saying what they actually are. A green tick on a check
+        // that never ran is the exact lie §246 exists to prevent.
+        : ties ? '<span class="lcb-tick" title="Xero and the lender agree on this loan to the cent.">\u2713</span>'
         : r.staleAnchor && r.band !== 'material'
         ? `<span class="lcb-quiet">needs ${esc(_cvMonthShort(r.staleAnchor.monthEnd.slice(0, 7)))} statement</span>`
         : _bkVarianceShown(r) == null
@@ -22034,7 +22051,27 @@
       // `data-status` are UNCHANGED on every row including the quiet ones: the
       // verdict in full is still on the hover, still in the CSV export and still
       // what ~40 assertions read. ce17 exactly — cut the pixels, keep the claim.
-      const markQuiet = markCls !== 'lcb-mark-bad';
+      // ══════════════════════════════════════════════════════════════════
+      //  SESSION 317 — THE LENDER MARK LEAVES THE ISSUE COLUMN (David)
+      // ══════════════════════════════════════════════════════════════════
+      // David: "do we still need the ISSUE column since the variance is named?"
+      //
+      // Two thirds of it, yes. One third, no — and it is this mark. It is the
+      // verdict ON THE VARIANCE, and since s315 the Variance column prints that
+      // verdict as a figure a reader can check. Rapid's left-hand ✗ said nothing
+      // the red −457.14 beside it did not. §279: once per screen.
+      //
+      // What stays is what Variance CANNOT say: the LEDGER mark (Xero against
+      // our own records — a posting question, and BayFirst SBA 2 has tied its
+      // lender for months while $858.66 moved in Xero with nothing behind it),
+      // and BOOKED (a split not yet posted, which is not a dollar difference at
+      // all).
+      //
+      // ⚠️ THE VERDICT IS NOT DELETED, ONLY UNDRAWN. `markVerdict` still rides on
+      // `data-status`, still reaches the CSV, and is still the thing the roster
+      // and the gates read. This is s311's move on the staging dot: stop drawing
+      // a claim that is already made one cell over, without dropping the claim.
+      const markQuiet = true;
       const booked = `<span class="lcb-mark lcb-chk ${markCls}${markQuiet ? ' lcb-mark-quiet' : ''}" data-col="status" data-status="${esc(markVerdict)}" title="Lender: ${esc(markVerdict)}">${markQuiet ? '' : markGlyph}</span>`;
       // ── LEDGER: A SECOND, DIFFERENT VERDICT, SO IT GETS ITS OWN MARK ────────
       // Status above answers "does this loan tie to the lender." This answers
@@ -22410,17 +22447,27 @@
     // happened is a claim about nothing.
     // Built first, partitioned second: `quietIds` is only true once every row
     // has rendered — the same ordering rule `placedIds` below depends on.
+    // ══════════════════════════════════════════════════════════════════════
+    //  SESSION 317 — EVERY LOAN IS ON SCREEN; THE WORK IS ON TOP (David)
+    // ══════════════════════════════════════════════════════════════════════
+    // David: "Go back to showing all loans but place those with variances on
+    // the top. Show green check mark on those with no variances."
+    //
+    // The fold is gone. It was the right answer when a tying row still carried
+    // buttons and marks — hiding it removed noise. s316 removed the noise at
+    // source: a row that reconciles now shows a figure, a ✓, and nothing else.
+    // At that point the fold was hiding the EVIDENCE that the book is clean,
+    // which is half of what a bookkeeper is looking at this table to find out.
+    // "9 loans tie" is a claim about nine rows nobody can see; nine rows each
+    // ending in a green ✓ is the same claim, checkable.
+    //
+    // ⚠️ THE PARTITION SURVIVES AS AN ORDER, NOT AS A CUT. `quietIds` is the same
+    // set it always was and is still computed the same way — it just decides
+    // WHERE a row goes instead of WHETHER it is drawn. Order is stable within
+    // each half, so the band's own sort still decides what leads.
     const built = rf.rows.map(r => ({ id: r.a.id, html: row(r) }));
-    const quietRows = built.filter(b => quietIds.has(b.id));
-    const workRows = built.filter(b => !quietIds.has(b.id));
-    const foldRow = quietRows.length
-      ? `<tr class="lcb-foldrow" data-fold="${quietRows.length}" onclick="_bkToggleQuiet(event)"><td colspan="11">
-           <span class="lcb-foldcaret">▸</span> ${quietRows.length} loan${quietRows.length === 1 ? '' : 's'} ${quietRows.length === 1 ? 'ties' : 'tie'} and ${quietRows.length === 1 ? 'asks' : 'ask'} for nothing this month<span class="lcb-quiet"> · show</span>
-         </td></tr>`
-      : '';
-    const bodyHtml = workRows.map(b => b.html).join('')
-      + foldRow
-      + quietRows.map(b => b.html.replace('<tr ', '<tr hidden ')).join('');
+    const bodyHtml = built.filter(b => !quietIds.has(b.id)).map(b => b.html).join('')
+      + built.filter(b => quietIds.has(b.id)).map(b => b.html).join('');
     const elsewhereHtml = _bkQueueElsewhereHtml(placedIds);
 
     // ══════════════════════════════════════════════════════════════════════

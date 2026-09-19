@@ -2147,19 +2147,59 @@ GROUPS.push({
     t.ok(seen.keyedBody.every(n => n === cols),
          'every body row keys all of its cells', `saw ${[...new Set(seen.keyedBody)].join('/')}`);
 
-    // ── s310: THE FOLD, AND WHY THIS IS A PAIR ──────────────────────────────
-    // The two assertions above now skip `.lcb-foldrow`. On its own that is a
-    // filter that would also hide a real row someone broke. So the separator is
-    // asserted to EXIST, to span the whole header, and to fold exactly the rows
-    // that are actually hidden — measured, never assumed. Together they say
-    // "one separator, N rows, all hidden"; either half alone says nothing.
-    t.eq(seen.foldRows.length, seen.quietRows ? 1 : 0,
-         'one fold separator when any row is quiet, none when none is', JSON.stringify(seen.foldRows));
-    if (seen.foldRows.length) {
-      t.eq(seen.foldRows[0].cells, 1, 'the separator is a single cell');
-      t.eq(seen.foldRows[0].span, cols, 'and it spans every column of the header');
-      t.eq(seen.foldRows[0].folds, seen.quietRows, 'it counts exactly the quiet rows');
-      t.eq(seen.quietHidden, seen.quietRows, 'every quiet row starts hidden — folded, not deleted');
+    // ── s317: THE FOLD IS GONE, AND THE PAIR BECOMES A DIFFERENT PAIR ───────
+    // David: "Go back to showing all loans but place those with variances on the
+    // top." The separator and the `hidden` attribute go with it. What the old
+    // pair protected — that quiet rows are FOLDED, not deleted — is now a
+    // stronger claim and is asserted as such: every quiet row is on screen, and
+    // every one of them sits BELOW every row that is not quiet. Order is the
+    // whole feature now, so order is what gets measured.
+    t.eq(seen.foldRows.length, 0,
+         's317: no fold separator — every loan is on the table', JSON.stringify(seen.foldRows));
+    t.eq(seen.quietHidden, 0,
+         's317: ...and not one row is hidden', String(seen.quietHidden));
+    {
+      const order = await p.evaluate(() =>
+        [...document.querySelectorAll('#lcb-table tbody tr')]
+          .map(tr => tr.getAttribute('data-quiet') === '1'));
+      const firstQuiet = order.indexOf(true);
+      const lastLoud = order.lastIndexOf(false);
+      t.eq(order.length, seen.rows.length,
+           's317: every row on screen is a loan row', `${order.length} vs ${seen.rows.length}`);
+      // PAIR, half one: the two groups do not interleave. Stated as "no loud row
+      // appears after a quiet one" rather than by rebuilding the sort here, which
+      // would be a second copy of the rule to keep true.
+      t.ok(firstQuiet === -1 || lastLoud < firstQuiet,
+           's317: ⭐ every row with a variance sits above every row without one (David)',
+           JSON.stringify(order.map(q => (q ? 'quiet' : 'work'))));
+      // PAIR, half two: there really are both kinds, or the half above is
+      // satisfied by a table that is all one thing.
+      t.ok(firstQuiet > 0 && lastLoud >= 0,
+           's317: ...and the book supplies both kinds, so that ordering was tested',
+           `firstQuiet=${firstQuiet} lastLoud=${lastLoud}`);
+    }
+
+    // ── s317: A ROW THAT RECONCILES SAYS SO ────────────────────────────────
+    // David: "Show green check mark on those with no variances." With the fold
+    // gone, an empty Variance cell would read the same as a row nobody checked —
+    // the one ambiguity this column cannot afford. Asserted as a PAIR, because
+    // "every tie has a tick" alone is satisfied by ticking all fourteen rows,
+    // and a tick on a check that never ran is the §246 lie in green.
+    {
+      const ticks = await p.evaluate(() =>
+        [...document.querySelectorAll('#lcb-table tbody tr')].map(tr => {
+          const v = tr.querySelector('[data-col="variance"]');
+          return { loan: tr.getAttribute('data-loan'),
+                   band: v ? v.getAttribute('data-band') : null,
+                   tick: !!(v && v.querySelector('.lcb-tick')) };
+        }));
+      const tied = ticks.filter(r => r.band === 'tie');
+      t.ok(tied.length > 0 && tied.every(r => r.tick),
+           's317: ⭐ every row whose Xero and lender agree prints a green tick (David)',
+           JSON.stringify(tied.filter(r => !r.tick)));
+      t.ok(ticks.filter(r => r.tick).every(r => r.band === 'tie'),
+           's317: ...and NOTHING else does — a tick on an unchecked row would be the §246 lie in green',
+           JSON.stringify(ticks.filter(r => r.tick && r.band !== 'tie')));
     }
 
     // Expectation rebuilt from the fixture, not typed in.
@@ -13695,12 +13735,27 @@ GROUPS.push({
         const cells = [...document.querySelectorAll('#lcb-table tbody tr')]
           .map(tr => tr.querySelector('[data-col="status"]'));
         return { si2: cells.filter(Boolean).length, hdr2,
-          glyphs: cells.map(el => el ? (el.textContent || '').trim() : '').filter(g => g !== '') };
+          glyphs: cells.map(el => el ? (el.textContent || '').trim() : '').filter(g => g !== ''),
+          // s317: the verdict moved off the glyph and onto the attribute — see
+          // the assertion below for why that is not a weakening.
+          verdicts: cells.filter(Boolean).map(el => el.getAttribute('data-status') || '') };
       });
       t.ok(marks.si2 > 0, 's280: ⭐ Status DOES still exist on the Closing table — it carries the unposted claim too',
            JSON.stringify(marks));
-      t.ok(marks.glyphs.length > 0 && marks.glyphs.every(g => ['✓', '✗', '·'].includes(g)),
-           's280: ...and every mark there is one of the three, not prose',
+      // ── s317: THE MARK IS NO LONGER DRAWN, AND THAT IS THE POINT ──────
+      // David: "do we still need the ISSUE column since the variance is named?"
+      // This mark was the verdict ON the variance, which the Variance column now
+      // prints as a checkable figure — Rapid's ✗ said nothing its red −457.14
+      // did not. So it stops being drawn. It does NOT stop being made: the span
+      // is still there and still carries `data-status`, which the roster, the
+      // gates and the CSV all read. The pair below says exactly that — the claim
+      // survives, the pixel does not — which is a stronger statement than "the
+      // glyph is one of three" ever was.
+      t.eq(marks.glyphs.length, 0,
+           's317: ⭐ the lender mark draws nothing — Variance already states that verdict (David)',
+           JSON.stringify(marks.glyphs));
+      t.ok(marks.verdicts.length > 0 && marks.verdicts.every(v => v && v.length > 2),
+           's317: ...and every row still CARRIES the verdict, in data-status, for the roster and the export',
            JSON.stringify(marks.glyphs));
       await p.close();
     }

@@ -1,5 +1,60 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 317 — Sep 19, 2026: every loan on screen, the work on top, a tick for the rest
+
+### THE FOLD IS GONE
+
+David: *"Go back to showing all loans but place those with variances on the top. Show green check
+mark on those with no variances."*
+
+The fold was the right answer when a tying row still carried buttons and marks — hiding it removed
+noise. **s316 removed the noise at source**: a row that reconciles now shows a figure, a ✓, and
+nothing else. At that point the fold was hiding the EVIDENCE that the book is clean, which is half
+of what a bookkeeper opens this table to find out. *"9 loans tie"* is a claim about nine rows nobody
+can see; nine rows each ending in a green ✓ is the same claim, checkable.
+
+**⚠️ THE PARTITION SURVIVES AS AN ORDER, NOT AS A CUT.** `quietIds` is the same set, computed the
+same way — it decides WHERE a row goes rather than WHETHER it is drawn. Stable within each half, so
+the band's own sort still decides what leads.
+
+### THE GREEN TICK
+
+A tie used to print nothing, which was fine while ties were folded away — the fold itself was the
+statement. With every loan on screen, an empty cell is ambiguous in the one way this column cannot
+afford: **it reads the same as a row nobody checked.** A ✓ means CHECKED AND AGREES, and it is the
+only mark that means that.
+
+**⚠️ ONLY ON A REAL TIE.** `ties` is `band === 'tie'`, taken on a measured variance — so a circular
+row ("by construction"), a stale anchor and an unmeasured row all fall through to their own branches
+and keep saying what they are. **A green tick on a check that never ran is the exact lie §246 exists
+to prevent**, and the assertion is a PAIR for that reason: every tie has a tick, and nothing else
+does.
+
+### THE LENDER MARK LEAVES THE ISSUE COLUMN
+
+David: *"Do we still need the ISSUE column since the variance is named?"* — Two thirds of it, yes.
+
+The mark that goes is the verdict ON THE VARIANCE, and since s315 the Variance column prints that
+verdict as a figure a reader can check. **Rapid's left-hand ✗ said nothing the red −457.14 beside it
+did not.** §279.
+
+What stays is what Variance CANNOT say:
+- **LEDGER** — Xero against our own records, a posting question. BayFirst SBA 2 has tied its lender
+  for months while $858.66 moved in Xero with nothing behind it.
+- **BOOKED** — a split not yet posted. Not a dollar difference at all.
+
+**⚠️ UNDRAWN, NOT DELETED.** `markVerdict` still rides on `data-status`, still reaches the CSV, and
+is still what the roster and the gates read. Same move as s311 made on the staging dot.
+
+### THE SUITE
+
+- The fold pair (`one separator, N rows, all hidden`) became an ORDER pair: no separator, nothing
+  hidden, and no row with a variance appears below one without — plus the half that says the book
+  supplies both kinds, so the ordering was actually tested.
+- s280's `every mark is one of ✓ ✗ ·` became a pair on the split: the glyph draws nothing, and every
+  row still CARRIES its verdict in `data-status`. Stronger than the assertion it replaces.
+
+
 ## Session 316 — Sep 18, 2026: no variance, nothing in Action — and the legend goes
 
 Three cuts, all David's, all on the close band.
