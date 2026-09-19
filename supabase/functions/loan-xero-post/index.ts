@@ -6,6 +6,7 @@ import { effectiveCloseDate, isPeriodClosed } from '../_shared/close-date.ts'
 import { chooseAutoCandidate, AUTO_PICK_MAX_DAYS } from './pick-candidate.ts'
 import { scheduleGoesStale, mayPrestage, prestageRefusal } from '../_shared/schedule-provenance.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
+import { journalDateWarning } from '../_shared/journal-period.ts'
 
 // Role check: 'cpa' accounts may dry-run (preview) but never post/write.
 // admin/manager may do both. Anything else is rejected outright.
@@ -1935,10 +1936,13 @@ async function handleRequest(req: Request): Promise<Response> {
           'this split still reads pending_review with no journal id, so Approving it again would post a SECOND identical journal. Repair the record, or void the journal in Xero, before retrying.')
       }
       const flagAutoResolve2 = await maybeAutoResolveFlag(supa, loanAcct)
+      const dateWarning2 = journalDateWarning(split.period_label, journal)
+      if (dateWarning2) console.warn('journal date mismatch', journal?.ManualJournalID, dateWarning2)
       return new Response(JSON.stringify({
         ok: true,
         original_bank_transaction: null,
         manual_journal: { id: journal?.ManualJournalID, lines: withAccountNames(journal?.JournalLines, acctMap) },
+        journal_date_warning: dateWarning2,
         attachment: reclassAttachment,
         flag_auto_resolve: flagAutoResolve2,
       }, null, 2), { headers: { 'Content-Type': 'application/json' } })
@@ -2569,12 +2573,19 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     const flagAutoResolve3 = await maybeAutoResolveFlag(supa, loanAcct)
+    // s318: this journal ECHOES the matched bank transaction's own date rather than
+    // originating one, so it is not the shape that bit Rapid — but the check costs
+    // nothing and a silent shift here would be just as invisible. Compared against
+    // what was actually sent, not against the split's period.
+    const dateWarning3 = journalDateWarning(candidate.DateString?.slice(0, 10), journal)
+    if (dateWarning3) console.warn('journal date mismatch', journal?.ManualJournalID, dateWarning3)
     return new Response(JSON.stringify({
       ok: true,
       original_bank_transaction: { id: candidate.BankTransactionID, note: 'left untouched, not edited' },
       picked_date_warning: pickedDateWarning,
       direct_split_skipped: directSplitSkipped,
       manual_journal: { id: journal?.ManualJournalID, lines: withAccountNames(journal?.JournalLines, acctMap) },
+      journal_date_warning: dateWarning3,
       attachment: attachmentResult,
       flag_auto_resolve: flagAutoResolve3,
     }, null, 2), { headers: { 'Content-Type': 'application/json' } })

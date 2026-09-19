@@ -21,6 +21,9 @@ import { INTEREST_CODE, money, checkDoubleReallocation, type Finding } from './d
 // and a predicate that can only be exercised by booting an edge function against
 // live Xero is a predicate nobody exercises. See tests/voided-since.test.mts.
 import { checkVoidedSinceLastRun, stampMs } from './voided-since.ts'
+// s318: shared with loan-xero-post so the two halves of this check cannot drift
+// on what counts as the wrong month. See _shared/journal-period.ts.
+import { checkJournalPeriodMismatch } from '../_shared/journal-period.ts'
 // The carrying-basis detector is a PURE module in _shared so that the same
 // judgement runs here (on a schedule) and inside loan-bundle (when documents
 // arrive). Session 242's lesson, learned twice in one day: a guard is only as
@@ -2338,6 +2341,10 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
       // today. A policy with nothing behind it is grade C and must still report.
       findings.push(...checkStaleAnchor(loan, anchors, today, futureOnlyAnchor, schedAnchors.length > 0))
       findings.push(...checkNonLiveCounted(loan, allEntries.filter((r: any) => r.date >= windowFrom), mySplits))
+      // s318: our own journal, sitting in a month we did not send it to. NOT windowed:
+      // the split that produced it can be older than the window while the journal Xero
+      // holds is inside it, and it is exactly the old ones nobody re-reads by eye.
+      findings.push(...checkJournalPeriodMismatch(loan, allEntries, mySplits))
       // Deliberately NOT windowed the way the line above is. A void is news about
       // TODAY whatever the entry is dated, and the pull is already bounded, so
       // narrowing it again would only hide the older-dated ones -- which are the

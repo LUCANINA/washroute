@@ -1,5 +1,76 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 318 — Sep 19, 2026: the one field we author was the one field nobody checked
+
+### 🔴 RAPID'S $457.14 WAS A DATE, NOT A DIFFERENCE
+
+David: *"If the fix is a simple journal, why not offer to stage the journal entry?"*
+
+It is not a journal — it is a **date**. Split `45ee2abd`, period `2026-08-31`, principal **−457.14** /
+interest **+457.14**, total **$0.00**: a reallocation that pushes the balance back UP by that amount.
+We posted it as journal `71ed82b2` with `Date: 2026-08-31`. **Xero stored it as 2026-09-01.**
+
+`51,071.88 + 457.14 = 51,529.02` — Xero's Trial Balance at 31 Aug plus the missing entry equals the
+lender's figure to the cent. Everything about the journal is right except one field.
+
+**⚠️ `Date: split.period_label` (loan-xero-post:1929) IS THE ONLY PLACE THIS PRODUCT ORIGINATES A
+JOURNAL DATE** rather than echoing a Xero `DateString` back. Every POST response carries
+`ManualJournals[0].Date`, and it was read for its ID and discarded. The one field we author was the
+one field nobody checked.
+
+### WHY THE FIX IS NOT A STAGED JOURNAL
+
+Staging one would mean posting a SECOND journal to undo a typo in the first — a reversal in
+September, a re-post in August, three entries in the audit trail for one wrong field, and a
+September reversal someone has to explain at that close. The honest fix is a **re-date of
+`71ed82b2`**, which is a human edit in Xero today. That capability may come later; it needs the
+closed-period check hard-wired, because a re-date that crosses the close date must refuse.
+
+### WHAT SHIPPED: THE DETECTION, IN TWO PLACES, FROM ONE RULE
+
+`_shared/journal-period.ts` — **one rule, one place**, because two callers ask the same question
+from opposite ends of the same event and written twice they would drift on the only thing that
+matters: what counts as the wrong month.
+
+- **`checkJournalPeriodMismatch`** (reconciliation-run) joins `loan_splits.xero_manual_journal_id`
+  against the ManualJournals the engine **already pulls** — `allEntries` carries `srcId` and the date
+  Xero holds, so **no extra Xero calls**. It catches the ones already in the books, Rapid's included,
+  and it **self-resolves**: the fingerprint stops being raised the moment the date is corrected, so
+  "clears automatically once a check confirms it's fixed" stays true.
+- **`journalDateWarning`** (loan-xero-post, both journal POST sites) compares what came back to what
+  was sent, at the moment of posting.
+
+**⚠️ IT WARNS, IT DOES NOT FAIL.** By the time we see the response the journal EXISTS. Returning an
+error would leave a real journal behind an error message — the exact shape `xeroAheadOfUs()` exists
+to stop people walking into.
+
+**⚠️ AND POST TIME DOES NOT WRITE A FINDING.** The engine owns that claim. A second writer would be
+one claim from two sources, and the post-time one could never clear itself. **One writer per claim.**
+
+**⚠️ ONLY A MONTH BOUNDARY IS A FINDING.** This module closes MONTHS. A journal a day out inside its
+own month moves no month-end balance; reporting it would be a nag on a correct book, and nags are
+what people learn to skip (s262). A `YYYY-MM` label names no day, so for those the month comparison
+is the only one available — the same answer for a different reason.
+
+### TESTS — 26 ASSERTIONS, AND THEY GO RED
+
+`tests/journal-period.test.mts`. Three mutations run and each turned the suite red:
+- compare days instead of months → 2 failures (the nag arrives)
+- drop the uuid lowercasing → `⭐ case does not decide the answer` fails (Postgres lowercases, Xero
+  returns mixed-case GUIDs — the silent-false this module has been bitten by)
+- warn on every difference → `an exact match is silent` fails
+
+Pairs throughout: the finding is raised AND vanishes when the journal is re-dated; the warning fires
+AND is silent on a match; a missing journal is never called misdated (§247).
+
+### ⚠️ STILL OPEN
+
+- **Rapid itself is not fixed.** Re-date `71ed82b2` to 2026-08-31 in Xero and the row ties.
+- **The find-the-difference modal cannot see any of this.** It reasons over statement spans and never
+  looks at journal dates — which is why it reports $27.79 on a Jul 31 → Aug 16 span and "one for your
+  CPA" while the actual $457.14 cause sits outside its field of view.
+
+
 ## Session 317 — Sep 19, 2026: every loan on screen, the work on top, a tick for the rest
 
 ### THE FOLD IS GONE

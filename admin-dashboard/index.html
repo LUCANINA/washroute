@@ -23472,6 +23472,11 @@
     split_collision:              'date',
     derived_drift:                'date',
     unexplained_ledger_adjustment:'date',
+    // s318: the date XERO holds, which is the whole point of the finding — so the
+    // Action button's month suffix names the month the journal actually landed in,
+    // not the one we meant. Allowlisted like every other entry here: a check_key
+    // with no mapping names no month rather than guessing at one.
+    journal_period_mismatch:     'date',
     adjustment_pattern_candidate: 'date',
     balance_vs_lender:            'anchor_date',
     schedule_vs_statement:        'statement_date',
