@@ -54,6 +54,22 @@ and only when it is the figure already one cell to the left. **`data-ledger-figu
 the claim is still true, the CSV still carries it, and gating the attribute would have deleted
 evidence to fix a layout problem.
 
+### 4. THE "+N" CHIP IS GONE (s316b, David)
+
+*"Those '+1', '+2' buttons don't seem to show anything actionable. Let's do without."*
+
+Right, and the reason is worth recording rather than just deleting: **+N opened the loan detail
+modal, which shows the LOAN — not the N items.** The chip promised a list and delivered a page —
+s277's rule (what was asked for and what the button does must agree) broken by a chip instead of a
+button. It also sat beside a real action and competed with it for the same click.
+
+**Nothing disappears.** The items it counted are no longer answered by the row, so they fall into
+the "N not on a row above" line, which names each one with a working link. Strictly more useful than
+a count: "+2" cannot tell you whether the two are worth opening.
+
+The inline `+N` INSIDE a named queued button on the month-in-flight table stays — it qualifies an
+action ("Review · July +1") rather than standing alone asking to be guessed at.
+
 ### THE SUITE
 
 - **s288e was doing its job** and caught the tier-3 stranding the moment the info line went. Scoped

@@ -20907,7 +20907,10 @@
     // The list is already severity-ordered, so the leading item is the one worth
     // naming. It gets the same verb and the same month suffix a single item gets,
     // and the rest become `+N` — the pattern this column already uses for a row
-    // that has its own action (`moreCell`). The full list stays on the hover.
+    // that has its own action. The full list stays on the hover. (s316b deleted
+    // the close band's standalone "+N" chip; this inline one rides INSIDE a
+    // named button on the month-in-flight table, where it qualifies an action
+    // rather than standing on its own asking to be guessed at.)
     const t = items.map(i => `${i.name} — ${i.reason || ''}`).join(' · ');
     const lead = items[0];
     return `<button type="button" class="lcb-do lcb-queued" onclick="event.stopPropagation();openLoanDetailModal('${esc(lead.loanId)}')" title="${esc(t)}">${esc(lead.action || 'Review')}${per(lead)}<span class="lcb-more lcb-more-n">+${items.length - 1}</span></button>`;
@@ -21778,9 +21781,23 @@
       // they are unaffected by the gate below.
       const showsVariance = _bkVarianceShown(r) != null;
       const queuedCell = (action.cell || !showsVariance) ? '' : _bkQueueCellHtml(queued, month);
-      const moreCell = (action.cell && queued.length)
-        ? `<button type="button" class="lcb-do lcb-queued lcb-more" onclick="event.stopPropagation();openLoanDetailModal('${esc(a.id)}')" title="${esc(`Also waiting on this loan, outside ${name}: ${queued.map(i => `${i.name} — ${i.reason || ''}`).join(' · ')}`)}">+${queued.length}</button>`
-        : '';
+      // ── s316b: THE "+N" CHIP IS GONE (David) ─────────────────────────────
+      // David: "those '+1', '+2' buttons don't seem to show anything
+      // actionable. Let's do without."
+      //
+      // He is right, and the reason is worth writing down rather than just
+      // deleting: +N opened the loan detail modal, which shows the LOAN — not
+      // the N items. So the chip promised a list and delivered a page, which is
+      // s277's own rule (what was asked for and what the button does must agree)
+      // broken by a chip rather than by a button. It also sat beside a real
+      // action, so the two competed for the same click on a row that already
+      // told the reader what to do.
+      //
+      // ⚠️ NOTHING DISAPPEARS. The items it counted are no longer answered by the
+      // row, so they fall into the "N not on a row above" line beneath the table
+      // — which names them, one by one, with a working link each. That line is
+      // strictly more useful than the count was: a chip reading "+2" cannot tell
+      // you whether the two are worth opening.
       // The keys this ROW answers -- including the one its own "Review & post"
       // answers, which is the item deduped out of `queued` above. Reachability is
       // about whether a person can get to the work, not about which button they
@@ -21792,9 +21809,9 @@
       // the assertion would pass while the work was invisible, which is worse
       // than the work being unplaced. A suppressed row answers nothing, and
       // says nothing.
-      const answeredKeys = ((queuedCell || moreCell) ? queued.map(i => i.key) : [])
+      const answeredKeys = (queuedCell ? queued.map(i => i.key) : [])
         .concat(action.kind === 'post' ? [...unpostedKeys] : []);
-      if (queuedCell || moreCell || (action.kind === 'post' && unpostedKeys.size)) placedIds.add(a.id);
+      if (queuedCell || (action.kind === 'post' && unpostedKeys.size)) placedIds.add(a.id);
       const openCell = r.opening
         ? bare(r.opening.amount)
         : '<span class="lcb-none">no opening balance</span>';
@@ -22225,7 +22242,7 @@
 
       // session 310: does this row ask for anything? Decided HERE, where every
       // input already exists, so nothing is re-derived and the two cannot drift.
-      const quiet = !action.cell && !queuedCell && !moreCell
+      const quiet = !action.cell && !queuedCell
         && (r.circular || ties) && r.unexplainedBand !== 'material';
       if (quiet) quietIds.add(a.id);
       return `<tr onclick="_bkOpenLoanFromRow(event,'${esc(a.id)}')" style="cursor:pointer"${quiet ? ' data-quiet="1"' : ''} data-loan-id="${esc(a.id)}" data-grade="${esc(r.grade)}"${r.circular ? ' data-circular="1"' : ''}${r.openingFromBooks ? ' data-opening-books="1"' : ''}${r.undated.length ? ` data-undated="${r.undated.length}"` : ''} data-drawn-measured="${r.movement.measured ? '1' : '0'}"${r.movement.mixedSign > 0 ? ` data-mixed-sign="${r.movement.mixedSign}"` : ''}${r.originationGap ? ` data-origination-gap="${r.originationGap.difference}"` : ''} data-loan="${esc(a.xero_account_name || a.lender_account_number || '')}" data-lender="${esc(a.lender || '')}" data-hint="${esc(hint)}">
@@ -22239,7 +22256,7 @@
         <td class="lcb-n" data-col="lender" data-amount="${r.perLender ? r.perLender.amount : ''}" data-grade="${esc(r.grade)}" data-derivation="${esc(r.anchor.derivation)}"${r.anchor.note ? ` data-note="${esc(r.anchor.note)}"` : ''} data-closing-date="${esc((r.perLender && r.perLender.asOf) ? short(r.perLender.asOf) : '')}" data-closing-date-iso="${esc((r.perLender && r.perLender.asOf) || '')}" data-closing-source="${esc((r.perLender && r.perLender.source) || '')}" data-closing-source-label="${esc(r.perLender ? _closeClosingSourceLabel(r.grade) : '')}"${r.perLender && !r.perLender.authoritative ? ' data-closing-soft="1"' : ''}${why}>${lenderCell}</td>
         <td class="lcb-n" data-col="variance"${ties ? ' data-tie="1"' : ''}${r.circular ? ' data-circular="1"' : ''}${r.staleAnchor ? ` data-stale-anchor="${esc(r.staleAnchor.asOf)}" data-stale-raw="${r.staleAnchor.rawVariance}" data-stale-late-principal="${r.staleAnchor.principal}" data-stale-residual="${r.staleAnchor.residual}"` : ''}${r.unbooked ? ` data-unbooked="${r.unbooked.principal}"` : ''} data-band="${r.band == null ? '' : r.band}" data-variance="${r.variance == null ? '' : r.variance}" data-variance-residual="${r.varianceResidual == null ? '' : r.varianceResidual}" data-variance-explained="${esc(unbookedWhy)}" data-unexplained="${r.unexplained == null ? '' : r.unexplained}" data-unexplained-band="${r.unexplainedBand || ''}" data-unexplained-state="${r.ledgerStale ? 'stale' : r.unexplained == null ? 'unmeasured' : 'measured'}" data-unattributed="${r.unattributed == null ? '' : r.unattributed}" data-ledger-note="${esc(ledgerNote)}" data-xero-read-at="${esc((r.bookClose && r.bookClose.computedAt) || '')}" data-xero-stale="${r.ledgerStale ? '1' : '0'}">${varCell}</td>
         <td class="lcb-checks" data-col="checks">${booked}${ledgerCell}<span class="lcb-chk" data-col="booked" data-booked="${esc(bookedWord)}" title="${esc(bookedWord)}">${bookedCell}</span></td>
-        <td class="lcb-action" data-col="action" data-action="${esc(queuedCell ? 'queued' : action.kind)}" data-fix="${esc(fx.shape)}"${fx.title ? ` data-fix-title="${esc(fx.title)}"` : ''}${queued.length ? ` data-queued="${queued.length}"` : ''}${answeredKeys.length ? ` data-queued-keys="${esc(answeredKeys.join(' '))}"` : ''}>${action.cell || queuedCell}${moreCell}${queuedCell ? '' : _bkFixLineHtml(fx)}</td>
+        <td class="lcb-action" data-col="action" data-action="${esc(queuedCell ? 'queued' : action.kind)}" data-fix="${esc(fx.shape)}"${fx.title ? ` data-fix-title="${esc(fx.title)}"` : ''}${queued.length ? ` data-queued="${queued.length}"` : ''}${answeredKeys.length ? ` data-queued-keys="${esc(answeredKeys.join(' '))}"` : ''}>${action.cell || queuedCell}${queuedCell ? '' : _bkFixLineHtml(fx)}</td>
       </tr>`;
     };
 
