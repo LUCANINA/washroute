@@ -15090,6 +15090,57 @@ GROUPS.push({
            JSON.stringify(closing));
 
       await p.evaluate(() => switchLoansPeriod('inflight'));
+
+      // ══ s320: THE SAME VERDICT SITS IN THE SAME HALF (David) ═════════════
+      // David, on the live table: Dexter Loan 2 and Verdant Capital Loan both
+      // read "per schedule" — same verdict, same words — and sat on OPPOSITE
+      // sides of the tick block. s319's sort partition read `v.state` while the
+      // Variance CELL reads `st.group`, and a per-schedule row carries whichever
+      // state it had, so the sort and the screen classified one row two ways.
+      //
+      // ⚠️ THIS IS ASSERTED ON THE FUNCTION, AND THE FIRST VERSION WAS NOT — it
+      // inferred the boundary from the Action column and went green under a
+      // mutation that put the bug straight back, because the Action gate had
+      // already been fixed and only the SORT was broken. A test that infers the
+      // thing under test from a neighbouring one measures the neighbour. The
+      // claim is about a classification, so the classification is what is called.
+      const cls = await p.evaluate(() => {
+        const at = (group, state) => ({ st: { group }, v: { state } });
+        return {
+          // Both of these print the words "per schedule" — the cell tests
+          // `st.group === 'byschedule'` FIRST and never reaches `v.state`. So the
+          // sort must treat them identically, whatever state they happen to hold.
+          schedTied:     _bkInflightSettled(at('byschedule', 'ties')),
+          schedExplained:_bkInflightSettled(at('byschedule', 'explained')),
+          // ...and neither prints a TICK, however tied it claims to be.
+          tickSchedTied: _bkInflightTies(at('byschedule', 'ties')),
+          // A real tie does, and is settled.
+          tickPlain:     _bkInflightTies(at('reconciled', 'ties')),
+          settledPlain:  _bkInflightSettled(at('reconciled', 'ties')),
+          // A figure on screen is never settled, whatever `v.state` says — the
+          // cell reaches `immaterial`/`variance` before it reaches the tick.
+          immaterial:    _bkInflightSettled(at('immaterial', 'ties')),
+          variance:      _bkInflightSettled(at('variance', 'ties')),
+          // And the genuinely unresolved states stay in the work half.
+          unverified:    _bkInflightSettled(at('reconciled', 'unverified')),
+          na:            _bkInflightSettled(at('reconciled', 'na')),
+        };
+      });
+      t.eq(cls.schedTied, cls.schedExplained,
+           's320: ⭐ two rows printing "per schedule" are classified the same, whatever state they carry (David)',
+           JSON.stringify(cls));
+      t.eq(cls.schedTied, true, 's320: ...and both are settled — a per-schedule row asks for nothing', JSON.stringify(cls));
+      t.eq(cls.tickSchedTied, false,
+           's320: ...while neither prints a TICK — the cell says "per schedule" and the tick would be a second verdict',
+           JSON.stringify(cls));
+      t.eq(cls.tickPlain, true, 's320: a real tie does print the tick', JSON.stringify(cls));
+      t.eq(cls.settledPlain, true, 's320: ...and is settled', JSON.stringify(cls));
+      // THE PAIR, so "settled" cannot quietly become "everything": a row showing
+      // a FIGURE is never settled, however its state reads.
+      t.ok(!cls.immaterial && !cls.variance && !cls.unverified && !cls.na,
+           's320: ⭐ ...and a row that prints a figure, an ask or "n/a" is never settled — the sort cannot swallow work',
+           JSON.stringify(cls));
+
       const seen = await p.evaluate(new Function(IN_FLIGHT_READ + `
         const month = (typeof _bkInFlightMonth === 'function') ? _bkInFlightMonth() : null;
         const mine = (typeof _cvMonthShort === 'function' && month) ? _cvMonthShort(month) : null;

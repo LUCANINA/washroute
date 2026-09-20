@@ -11090,6 +11090,45 @@
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  //  SESSION 320 — ONE PREDICATE FOR THE MONTH-IN-FLIGHT VERDICT (David)
+  // ══════════════════════════════════════════════════════════════════════
+  // David, looking at the live table: Dexter Loan 2 and Verdant Capital Loan
+  // both read "per schedule" — the same verdict, the same words — and sat on
+  // OPPOSITE SIDES of the tick block.
+  //
+  // THE CAUSE, AND IT IS THE ONE THIS MODULE KEEPS RE-LEARNING. s319's sort
+  // partition read `v.state`; the Variance cell reads `st.group`. A per-schedule
+  // row is built by spreading `...v` (see the `group: 'byschedule'` return), so
+  // it CARRIES whatever state it had — 'ties' on Verdant, something else on
+  // Dexter — while the cell prints the same sentence for both. The sort and the
+  // screen were reading two different classifications of one row.
+  //
+  // The close band does not have this bug because `_bkVarianceShown` below is
+  // the ONE predicate its cell and its footer both read. These are that, for the
+  // other table: the cell, the sort and the Action gate now ask the same
+  // function, so they cannot disagree again.
+  //
+  // ⚠️ THE BRANCH ORDER IS THE DEFINITION. byschedule / immaterial / variance
+  // are tested FIRST in the cell, so a row reaching the tick has already been
+  // refused by all three. Re-stating that order here rather than re-deriving it
+  // is what keeps this honest: if the cell's chain is reordered, this moves with
+  // it or the pair in the suite goes red.
+  function _bkInflightTies(r) {
+    const st = r && r.st, v = r && r.v;
+    if (!st || !v) return false;
+    if (st.group === 'byschedule' || st.group === 'immaterial' || st.group === 'variance') return false;
+    return v.state === 'ties';
+  }
+  // Nothing to resolve on this row: it ties outright, or it is closed on the
+  // contractual schedule. The close band's equivalent is `circular` — a row that
+  // agrees with the document it was built from, which is likewise quiet and
+  // likewise gets no action. Both halves of THAT pair have always been treated
+  // together; this is the same pairing, here.
+  function _bkInflightSettled(r) {
+    return _bkInflightTies(r) || !!(r && r.st && r.st.group === 'byschedule');
+  }
+
   function _bkVarianceShown(r) {
     if (!r || r.circular) return null;              // agrees by construction — not a check
     if (r.band === 'tie') return null;              // a tie prints nothing
@@ -23917,9 +23956,22 @@
   // the "top" on a descending click reads as broken, not helpful.
   let _loansSortCol = 'lender';
   let _loansSortDir = 'asc';
+  // ⚠️ s320: HAS THE READER ACTUALLY CHOSEN A SORT? s319 put the settled rows
+  // below the work ones as a partition running BEFORE the sort — which is right
+  // for the DEFAULT order David asked for, and wrong the moment somebody clicks
+  // a header. The suite caught it immediately: `staging-column` asserts that
+  // clicking Staging puts the flagged loan first, and it could not, because the
+  // flagged loan was settled and the partition held it down. A sort that visibly
+  // does nothing is the exact defect the note on `case 'staging'` below was
+  // written about.
+  //
+  // So the partition is the default ARRANGEMENT, not a rule that outranks the
+  // reader. Click a column and your sort wins outright.
+  let _loansSortPicked = false;
   function _loansSetSort(col) {
     if (_loansSortCol === col) { _loansSortDir = _loansSortDir === 'asc' ? 'desc' : 'asc'; }
     else { _loansSortCol = col; _loansSortDir = 'asc'; }
+    _loansSortPicked = true;
     renderLoansTable();
   }
   // The value each column sorts by -- kept in one place so the header click and
@@ -24136,12 +24188,16 @@
     // me these in lender order", not "bury the row that does not reconcile
     // between two that do", and the close band answers it the same way.
     //
-    // ⚠️ A TICKED ROW IS THE ONLY QUIET ONE. Exactly the set the Action column
-    // goes quiet for, computed from the same `v.state`, so the two can never
-    // disagree about which rows are finished. Everything else — a variance, an
-    // immaterial difference, a month with no statement yet, an unchecked row —
+    // ⚠️ A SETTLED ROW IS THE ONLY QUIET ONE — a tick, or "per schedule". Exactly
+    // the set the Action column goes quiet for, read from the SAME function
+    // (`_bkInflightSettled`), so the two can never disagree about which rows are
+    // finished. They did disagree, in s319, and David saw it: the sort read
+    // `v.state` while the cell read `st.group`, so two rows printing the same
+    // words landed either side of the tick block. Everything else — a variance,
+    // an immaterial difference, a month with no statement yet, an unchecked row —
     // stays in the top half, because none of those is settled.
-    const restQuiet = (r) => (r.v && r.v.state === 'ties') ? 1 : 0;
+    // s320: only while nobody has clicked a header — see `_loansSortPicked`.
+    const restQuiet = (r) => (_loansSortPicked ? 0 : (_bkInflightSettled(r) ? 1 : 0));
     const sorted = filtered.slice().sort((x, y) => {
       const q = restQuiet(x) - restQuiet(y);
       if (q) return q;
@@ -24322,10 +24378,16 @@
       // table was still doing it (E-Transit 4140 and E5-4751, both 0.00, both
       // offering Review) one tab away.
       //
-      // ⚠️ SCOPED TO A GENUINE TIE, and no wider. 'unverified' (no statement yet),
+      // ⚠️ SCOPED TO A SETTLED ROW, and no wider. 'unverified' (no statement yet),
       // 'na', 'variance' and 'immaterial' all keep their actions: each of those
       // is a row where something is unresolved, and the in-flight month is WHERE
-      // unresolved things are supposed to live. Only the ticked rows go quiet.
+      // unresolved things are supposed to live.
+      //
+      // s320: "settled" is a tick OR a per-schedule row — `_bkInflightSettled`,
+      // the same function the sort and the cell read. It used to be `v.state ===
+      // 'ties'` here and in the sort while the CELL read `st.group`, which put
+      // Dexter and Verdant — both printing "per schedule" — on opposite sides of
+      // the table. One predicate, three readers.
       //
       // ⚠️ NOTHING DISAPPEARS. A suppressed item never reaches `placedIds`, so it
       // falls into the "N not on a row above" line under this table — the same
@@ -24338,7 +24400,7 @@
       // That is s273's rule, "unposted beats a tie", which the close band honours
       // through its own `post` branch; this table had no equivalent, so it is
       // stated here. A tie silences NOTES, never work.
-      const ticks = v.state === 'ties' && !queued.some(i => String(i.key || '').startsWith('appr-split-'))
+      const ticks = _bkInflightSettled(r) && !queued.some(i => String(i.key || '').startsWith('appr-split-'))
       const queuedCell = ticks ? '' : _bkQueueCellHtml(queued, _bkInFlightMonth());
       if (queuedCell) placedIds.add(a.id);
       // David's ask: Lender moved to the far left; "Last statement" (the pulled
@@ -24444,7 +24506,7 @@
         const d2 = st.difference;
         const dir = d2 > 0 ? `Xero is ABOVE ${againstWord}` : `Xero is BELOW ${againstWord}`;
         varianceCell = `<span class="td-mono lit-off" title="${esc(dir)} as of ${esc(v.asOf || '')} — this one blocks the close">${d2 > 0 ? '+' : ''}${bare2(d2)}</span>`;
-      } else if (v.state === 'ties') {
+      } else if (_bkInflightTies(r)) {
         // ── s319: THE SAME TICK THE CLOSE BAND PRINTS (David) ──────────────
         // "0.00" is a figure, and a column of figures is a column a reader has
         // to READ. The close band answered this in s317: a row that reconciles

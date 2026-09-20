@@ -1,5 +1,52 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 320 — Sep 19, 2026: one predicate, three readers — and two bugs the suite caught
+
+David, on the live in-flight table: **Dexter Loan 2 and Verdant Capital Loan both read "per
+schedule" — the same verdict, the same words — and sat on OPPOSITE SIDES of the tick block.**
+
+### THE CAUSE, AND IT IS THE ONE THIS MODULE KEEPS RE-LEARNING
+
+s319's sort partition read `v.state`. The Variance CELL reads `st.group`. A per-schedule row is built
+by spreading `...v` (see the `group: 'byschedule'` return), so it **carries whatever state it had** —
+`ties` on Verdant, `explained` on Dexter — while the cell prints the same sentence for both. **The
+sort and the screen were classifying one row two different ways.**
+
+The close band does not have this bug because `_bkVarianceShown` is the ONE predicate its cell and
+its footer both read. `_bkInflightTies` / `_bkInflightSettled` are that, for the other table: the
+cell, the sort and the Action gate now ask the same function.
+
+**⚠️ THE BRANCH ORDER IS THE DEFINITION.** `byschedule` / `immaterial` / `variance` are tested FIRST
+in the cell, so a row reaching the tick has already been refused by all three. The predicate
+re-states that order rather than re-deriving it — if the chain is reordered, this moves with it or
+the suite goes red.
+
+**⚠️ AND "SETTLED" IS A TICK *OR* A PER-SCHEDULE ROW.** The close band's equivalent is `circular` — a
+row that agrees with the document it was built from, likewise quiet and likewise given no action.
+Both halves of that pair have always been treated together; this is the same pairing.
+
+### 🔴 THE FIRST TEST I WROTE FOR THIS WAS WORTHLESS, AND THE MUTATION PROVED IT
+
+It inferred the half-boundary from the **Action column** and went green under a mutation that put the
+bug straight back — because the Action gate had already been fixed and only the SORT was broken.
+**A test that infers the thing under test from a neighbouring one measures the neighbour.**
+
+Rewritten to call the classification directly. Two mutations, both red:
+- `_bkInflightSettled` back to `v.state === 'ties'` → the per-schedule pair and the "never swallow
+  work" pair both fail
+- drop `byschedule` from the tick's refusal list → the "neither prints a TICK" assertion fails
+
+### 🔴 AND THE PARTITION WAS OVERRIDING THE READER — `staging-column` CAUGHT IT
+
+s319 ran the partition BEFORE the sort, unconditionally. `staging-column` asserts that clicking
+Staging puts the flagged loan first; it could not, because that loan was settled and the partition
+held it down. **A sort that visibly does nothing is the exact defect the note on `case 'staging'` was
+written about** — the same lesson, re-arrived at from the other side.
+
+The partition is now the **default arrangement**, not a rule that outranks the reader
+(`_loansSortPicked`). Click a header and your sort wins outright.
+
+
 ## ⚠️ OPEN — read this first (updated Sep 19, 2026, after the s318 deploy)
 
 **✅ s318 IS DEPLOYED, AND IT CAUGHT RAPID ON THE FIRST SCHEDULED RUN.**
