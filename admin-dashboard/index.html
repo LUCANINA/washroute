@@ -35445,7 +35445,9 @@ ${oneCopy}
   // ── getOrCreateConversation ──
   async function getOrCreateConversation(customerId, phone, channel = 'sms') {
     // Try to find existing — use limit(1) so multiple rows don't cause maybeSingle() to silently return null
-    let q = db.from('conversations').select('*').eq('channel', channel).limit(1);
+    // Newest row first: legacy duplicates exist, and the newest is the one the inbox reads.
+    let q = db.from('conversations').select('*').eq('channel', channel)
+      .order('updated_at', { ascending: false, nullsFirst: false }).limit(1);
     if (customerId) q = q.eq('customer_id', customerId);
     else            q = q.eq('phone', phone).is('customer_id', null);
     const { data: rows, error: selErr } = await q;
@@ -35477,11 +35479,29 @@ ${oneCopy}
       return;
     }
 
-    // Load SMS conversation status rows
-    const { data: convRows } = await db.from('conversations').select('*').eq('channel', 'sms');
+    // Load SMS conversation status rows — ONLY for the customers/phones in view.
+    // An unfiltered select was silently capped at 1,000 rows by the API, so most
+    // conversations never found their status row: Archive then inserted a NEW row
+    // every time, and the next reload couldn't see it either (thread bounced back
+    // to Needs Reply). Batched 100 at a time; ascending updated_at so the newest
+    // row per customer/phone wins.
+    const _custIds = [...new Set((msgs || []).map(m => m.customer_id).filter(Boolean))];
+    const _phones  = [...new Set((msgs || []).filter(m => !m.customer_id)
+      .map(m => m.direction === 'inbound' ? m.from_number : m.to_number).filter(Boolean))];
+    const convRows = [];
+    const _fetchConv = async (col, vals) => {
+      for (let i = 0; i < vals.length; i += 100) {
+        let q = db.from('conversations').select('*').eq('channel', 'sms').in(col, vals.slice(i, i + 100));
+        if (col === 'phone') q = q.is('customer_id', null);
+        const { data, error: cErr } = await q.order('updated_at', { ascending: true, nullsFirst: true });
+        if (cErr) { console.warn('[inbox] conversations load failed', cErr); continue; }
+        convRows.push(...(data || []));
+      }
+    };
+    await Promise.all([_fetchConv('customer_id', _custIds), _fetchConv('phone', _phones)]);
     const convByCustomer = {};
     const convByPhone    = {};
-    (convRows || []).forEach(c => {
+    convRows.forEach(c => {
       if (c.customer_id) convByCustomer[c.customer_id] = c;
       else if (c.phone)  convByPhone[c.phone] = c;
     });
@@ -36039,7 +36059,20 @@ ${oneCopy}
       return convId;
     }
 
-    // No row yet — INSERT directly with the target status
+    // No id cached — reuse an existing row if there is one (never stack duplicates)
+    {
+      let q = db.from('conversations').select('id').eq('channel', 'sms')
+        .order('updated_at', { ascending: false, nullsFirst: false }).limit(1);
+      q = customerId ? q.eq('customer_id', customerId) : q.eq('phone', phone).is('customer_id', null);
+      const { data: found } = await q;
+      if (found?.[0]?.id) {
+        const { error } = await db.from('conversations').update(patch).eq('id', found[0].id);
+        if (error) { showToast('DB error: ' + error.message, 'error'); return null; }
+        return found[0].id;
+      }
+    }
+
+    // Truly no row yet — INSERT directly with the target status
     const ins = { channel: 'sms', ...patch };
     if (customerId) ins.customer_id = customerId;
     else            ins.phone = phone;
