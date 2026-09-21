@@ -314,17 +314,41 @@ function ratingEmailHtml(text: string, rateLink: string): string {
     `<div style="padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">${paras}</div></div>`;
 }
 
+// Supabase caps how many times one function may call another within a single
+// run (~30 a minute). The morning run sends one email per rater through
+// send-email, so a busy morning hit that cap: 2026-09-21, 22 of 52 rating emails
+// failed with "RateLimitError ... Retry after Nms". When that happens, wait the
+// time Supabase asks for and try the same email again (up to 2 retries). The
+// cap is on calls, not recipients, so nobody can get a second copy: a
+// rate-limited call never reaches send-email.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const EMAIL_RATE_LIMIT_RETRIES = 2;
+const EMAIL_RATE_LIMIT_MAX_WAIT_MS = 65_000;
+
 async function sendEmail(customerId: string, toEmail: string, subject: string, html: string): Promise<boolean> {
-  try {
-    const r = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` },
-      body: JSON.stringify({ customer_id: customerId, to_email: toEmail, subject, body: html }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j?.ok) { console.warn('rating email failed', r.status, j?.error); return false; }
-    return true;
-  } catch (e) { console.warn('rating email error', String(e)); return false; }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` },
+        body: JSON.stringify({ customer_id: customerId, to_email: toEmail, subject, body: html }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) { console.warn('rating email failed', r.status, j?.error); return false; }
+      return true;
+    } catch (e) {
+      const msg = String(e);
+      const wait = msg.match(/RateLimitError[\s\S]*?Retry after (\d+)\s*ms/i);
+      if (wait && attempt < EMAIL_RATE_LIMIT_RETRIES) {
+        const ms = Math.min(Number(wait[1]) + 1_000, EMAIL_RATE_LIMIT_MAX_WAIT_MS);
+        console.warn(`rating email rate-limited, retrying in ${ms}ms (attempt ${attempt + 1})`);
+        await sleep(ms);
+        continue;
+      }
+      console.warn('rating email error', msg);
+      return false;
+    }
+  }
 }
 
 async function runReviewRequest(): Promise<number> {
