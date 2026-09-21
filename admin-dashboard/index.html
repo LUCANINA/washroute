@@ -50627,7 +50627,7 @@ ${oneCopy}
     procAddonServices = {};
     relevantAddons.forEach(svc => {
       // qty only applies to per_item services (e.g. Shirt Service)
-      procAddonServices[svc.id] = { selected: false, service: svc, qty: 1 };
+      procAddonServices[svc.id] = { selected: false, service: svc, qty: null }; // null = default (1 item / follow bags)
     });
 
     // Re-render now that add-ons are resolved — and only NOW allow saving (session 175)
@@ -50690,16 +50690,16 @@ ${oneCopy}
               const chipPrice  = isPerItem ? parseFloat(linkedSvc.base_price || 0) : (activeOpt.price_mod || 0);
               const unitLabel  = isPerItem ? '/item' : '/bag';
               const priceLabel = chipPrice > 0 ? `+${fmtMoney(chipPrice)}${unitLabel}` : '';
-              const prefQty    = procAddonPrefQty[g.id] || 1;
-              const qtyRow     = (sel && isPerItem) ? `
+              const prefQty    = _addonUnits(linkedSvc?.pricing_type, procAddonPrefQty[g.id], procBags);
+              const qtyRow     = (sel && linkedSvc) ? `
                 <div style="display:flex;align-items:center;justify-content:center;gap:8px;width:120px">
                   <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="event.stopPropagation();setProcAddonPrefQty('${g.id}',-1)">−</button>
                   <span style="font-size:14px;font-weight:700;min-width:20px;text-align:center">${prefQty}</span>
                   <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="event.stopPropagation();setProcAddonPrefQty('${g.id}',1)">+</button>
                 </div>` : '';
-              return `<div style="display:flex;flex-direction:column;gap:6px;${isPerItem ? 'width:120px' : ''}">
+              return `<div style="display:flex;flex-direction:column;gap:6px;${linkedSvc ? 'width:120px' : ''}">
                 <button class="proc-addon-btn${sel?' selected':''}"
-                  ${isPerItem ? 'style="width:100%"' : ''}
+                  ${linkedSvc ? 'style="width:100%"' : ''}
                   onclick="selectProcAddon('${g.id}','${activeOpt.id}','${(activeOpt.label||'').replace(/'/g,"\\'")}',${activeOpt.price_mod||0},'${(g.options.find(o=>o.is_default)?.id||'')}','${(g.options.find(o=>o.is_default)?.label||'').replace(/'/g,"\\'")}')">
                   <span class="proc-addon-btn-name">${g.name}</span>
                   ${priceLabel ? `<span class="proc-addon-btn-price">${priceLabel}</span>` : ''}
@@ -50719,10 +50719,11 @@ ${oneCopy}
               const priceLabel = isPerItem
                 ? `+${fmtMoney(service.base_price)}/item`
                 : `+${fmtMoney(service.base_price)}/bag`;
-              const qtyRow = (selected && isPerItem) ? `
+              const svcQty = _addonUnits(service.pricing_type, qty, procBags);
+              const qtyRow = selected ? `
                 <div style="display:flex;align-items:center;justify-content:center;gap:8px;width:120px">
                   <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="setAddonServiceQty('${service.id}',-1)">−</button>
-                  <span style="font-size:14px;font-weight:700;min-width:20px;text-align:center">${qty}</span>
+                  <span style="font-size:14px;font-weight:700;min-width:20px;text-align:center">${svcQty}</span>
                   <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="setAddonServiceQty('${service.id}',1)">+</button>
                 </div>` : '';
               return `<div style="display:flex;flex-direction:column;gap:6px;width:120px">
@@ -50820,7 +50821,7 @@ ${oneCopy}
         if (svcPricelist && svcPricelist !== (isPerLb ? 'Commercial' : 'Delivery') && svcPricelist !== 'Both') return;
         const price   = parseFloat(linkedSvc.base_price) || 0;
         const isItem  = linkedSvc.pricing_type === 'per_item';
-        const units   = isItem ? (procAddonPrefQty[g.id] || 1) : bd.bags;
+        const units   = _addonUnits(linkedSvc.pricing_type, procAddonPrefQty[g.id], bd.bags);
         const unit    = isItem ? 'item' : 'bag';
         const lineAmt = price * units;
         rows.push(`<div class="proc-breakdown-row"><span>${linkedSvc.name} × ${units} ${unit}${units!==1?'s':''}</span><span class="amount">+${fmtMoney(lineAmt)}</span></div>`);
@@ -50830,7 +50831,7 @@ ${oneCopy}
     Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
       const price  = parseFloat(a.service.base_price) || 0;
       const isItem = a.service.pricing_type === 'per_item';
-      const units  = isItem ? (a.qty || 1) : bd.bags;
+      const units  = _addonUnits(a.service.pricing_type, a.qty, bd.bags);
       const unit   = isItem ? 'item' : 'bag';
       const lineAmt = price * units;
       rows.push(`<div class="proc-breakdown-row"><span>${a.service.name} × ${units} ${unit}${units!==1?'s':''}</span><span class="amount">+${fmtMoney(lineAmt)}</span></div>`);
@@ -50912,7 +50913,7 @@ ${oneCopy}
       .filter(a => a.selected)
       .reduce((s, a) => {
         const price = parseFloat(a.service.base_price) || 0;
-        const units = a.service.pricing_type === 'per_item' ? (a.qty || 1) : bags;
+        const units = _addonUnits(a.service.pricing_type, a.qty, bags);
         return s + price * units;
       }, 0);
     // Preference-linked services (Vinegar, Oxi, Shirt Service, Air Dry): auto-charged when chip = non-default (Yes)
@@ -50930,7 +50931,7 @@ ${oneCopy}
       if (!linkedSvc) return sum;
       if (linkedSvc.pricelist && linkedSvc.pricelist !== currentPricelist && linkedSvc.pricelist !== 'Both') return sum;
       const price = parseFloat(linkedSvc.base_price) || 0;
-      const units = linkedSvc.pricing_type === 'per_item' ? (procAddonPrefQty[g.id] || 1) : bags;
+      const units = _addonUnits(linkedSvc.pricing_type, procAddonPrefQty[g.id], bags);
       return sum + price * units;
     }, 0);
     const { deliveryFee, sameDaySurcharge, deliveryTotal } = getDeliveryFees();
@@ -50964,9 +50965,10 @@ ${oneCopy}
 
   function setProcBags(delta) {
     procBags = Math.max(1, procBags + delta);
-    const el = document.getElementById('proc-bags-val');
-    if (el) el.textContent = procBags;
-    refreshProcCalc();
+    // Per-bag add-on steppers that haven't been changed by hand follow the bag count,
+    // so re-render the panel (not just the breakdown) to keep their numbers in step.
+    procWeight = document.getElementById('proc-weight-inp')?.value || procWeight;
+    renderIntakePanel();
   }
 
   function updateProcWeight(val) {
@@ -50975,9 +50977,20 @@ ${oneCopy}
     updateIntakeSaveBtn();
   }
 
-  // setProcAddonPrefQty: adjust per-item quantity for a preference-linked service (Shirt Service, Air Dry)
+  // _addonUnits: ONE rule for how many units an add-on bills, used by the chip stepper,
+  // the breakdown preview, calcProcTotal (the charge) and _buildIntakeLineItems (the record).
+  // per_item → the stepper qty (default 1). Everything else (per_bag: Vinegar, Oxi, Double
+  // Wash…) → the stepper qty if the team changed it, otherwise follows the bag count.
+  function _addonUnits(pricingType, qty, bags) {
+    const q = parseInt(qty, 10);
+    if (pricingType === 'per_item') return q > 0 ? q : 1;
+    return q > 0 ? q : bags;
+  }
+
+  // setProcAddonPrefQty: adjust billed quantity for a preference-linked add-on (any pricing type)
   function setProcAddonPrefQty(groupId, delta) {
-    const cur = procAddonPrefQty[groupId] || 1;
+    const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === groupId);
+    const cur = _addonUnits(linkedSvc?.pricing_type, procAddonPrefQty[groupId], procBags);
     procAddonPrefQty[groupId] = Math.max(1, cur + delta);
     const savedWeight = document.getElementById('proc-weight-inp')?.value || procWeight;
     procWeight = savedWeight;
@@ -51016,7 +51029,7 @@ ${oneCopy}
   function setAddonServiceQty(serviceId, delta) {
     const entry = procAddonServices[serviceId];
     if (!entry) return;
-    entry.qty = Math.max(1, (entry.qty || 1) + delta);
+    entry.qty = Math.max(1, _addonUnits(entry.service.pricing_type, entry.qty, procBags) + delta);
     const savedWeight = document.getElementById('proc-weight-inp')?.value || procWeight;
     procWeight = savedWeight;
     renderIntakePanel();
@@ -51103,7 +51116,7 @@ ${oneCopy}
         if (linkedSvc.pricelist && linkedSvc.pricelist !== _currentPricelist && linkedSvc.pricelist !== 'Both') return;
         const price   = parseFloat(linkedSvc.base_price) || 0;
         const isItem  = linkedSvc.pricing_type === 'per_item';
-        const units   = isItem ? (procAddonPrefQty[g.id] || 1) : bd.bags;
+        const units   = _addonUnits(linkedSvc.pricing_type, procAddonPrefQty[g.id], bd.bags);
         const unit    = isItem ? 'item' : 'bag';
         const lineAmt = price * units;
         lineItems.push({ type:'pref_service', service_id: linkedSvc.id,
@@ -51119,7 +51132,7 @@ ${oneCopy}
     Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
       const price   = parseFloat(a.service.base_price) || 0;
       const isItem  = a.service.pricing_type === 'per_item';
-      const units   = isItem ? (a.qty || 1) : bd.bags;
+      const units   = _addonUnits(a.service.pricing_type, a.qty, bd.bags);
       const unit    = isItem ? 'item' : 'bag';
       const lineAmt = price * units;
       lineItems.push({ type:'addon_service', service_id: a.service.id,
