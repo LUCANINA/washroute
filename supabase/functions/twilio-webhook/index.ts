@@ -59,6 +59,41 @@ function fmtDatePT(iso: string): string {
   });
 }
 
+// ── Skip-request classifier (2026-09-21) ──
+// "Skip pick up today thanks" used to fall through to the staff inbox because
+// only a handful of exact phrasings counted. Now: the text must contain SKIP
+// and EVERY other word must come from a small filler list. Any
+// other word — a name, "don't", "not", "next", "and", a question about
+// something else — means a human reads it. Returns null when it isn't a skip.
+// `when` is the day the customer named, checked against the order in handleSkip.
+export type SkipWhen = 'today' | 'tomorrow' | 'week' | null;
+const SKIP_FILLER = new Set([
+  'PLEASE','PLS','PLZ','CAN','COULD','WOULD','YOU','WE','I','HI','HELLO','HEY','OK','OKAY',
+  'PICK','UP','PICKUP','PICKUPS','MY','THE','OUR','ORDER','LAUNDRY','ME','US','IT','FOR',
+  'NEED','WANT','TO','JUST','TIME','SORRY',
+  'TODAY','TODAYS','TONIGHT','TONITE','TOMORROW','TOMORROWS','TMRW','THIS','WEEK','WEEKS',
+  'THANKS','THANK','THX','TY','TNX',
+]);
+export function classifySkip(body: string): { when: SkipWhen } | null {
+  const words = (body || '').toUpperCase().replace(/[^A-Z]+/g, ' ').trim().split(' ').filter(Boolean);
+  if (!words.includes('SKIP')) return null;
+  if (!words.every(w => w === 'SKIP' || SKIP_FILLER.has(w))) return null;
+  const has = (...ws: string[]) => ws.some(w => words.includes(w));
+  const namesToday = has('TODAY', 'TODAYS', 'TONIGHT', 'TONITE');
+  const namesTomorrow = has('TOMORROW', 'TOMORROWS', 'TMRW');
+  if (namesToday && namesTomorrow) return null;           // contradictory — let a human decide
+  if (namesToday) return { when: 'today' };
+  if (namesTomorrow) return { when: 'tomorrow' };
+  if (has('WEEK', 'WEEKS')) return { when: 'week' };
+  return { when: null };
+}
+
+// YYYY-MM-DD in Pacific time, `addDays` from now (or from `iso` when given).
+function ptDateKey(iso?: string, addDays = 0): string {
+  const d = iso ? new Date(iso) : new Date(Date.now() + addDays * 86400000);
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+}
+
 function interpolate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '').trim();
 }
@@ -288,7 +323,7 @@ async function handleStart(customerId: string | null, from: string, to: string):
   return twimlMessage(reply);
 }
 
-async function handleSkip(customerId: string, from: string, to: string): Promise<string> {
+async function handleSkip(customerId: string, from: string, to: string, when: SkipWhen = null): Promise<string | null> {
   // session 137: also fetch recurring_interval so we know whether to use the
   // recurring or one-time skip-confirmation template. The two templates differ
   // in their tail copy: recurring says "see you on your next pickup"
@@ -304,6 +339,20 @@ async function handleSkip(customerId: string, from: string, to: string): Promise
     return twimlMessage(
       "We don't see an upcoming pickup scheduled for your number. Reply or visit app.familylaundry.com for help."
     );
+  }
+
+  // The customer named a day: only act if the next pickup is actually on it.
+  // Otherwise (e.g. "skip tomorrow" while today's pickup is next) a human
+  // decides — return null and the caller routes the text to the staff inbox.
+  if (when) {
+    const pickupDay = order.pickup_window_start ? ptDateKey(order.pickup_window_start) : '';
+    const ok = when === 'today'    ? pickupDay === ptDateKey()
+             : when === 'tomorrow' ? pickupDay === ptDateKey(undefined, 1)
+             : /* week */            !!pickupDay && pickupDay >= ptDateKey() && pickupDay <= ptDateKey(undefined, 7);
+    if (!ok) {
+      console.log(`Skip request names "${when}" but next pickup is ${pickupDay || 'undated'} — routed to staff inbox`);
+      return null;
+    }
   }
 
   await dbPatch(`orders?id=eq.${order.id}`, { status: 'skipped', cancelled_by: 'customer' });
@@ -625,7 +674,6 @@ Deno.serve(async (req: Request) => {
     // merely mentions a pickup still goes to the staff inbox.
     const letters = keyword.replace(/[^A-Z]/g, '');
     const PICKUP_WORDS = new Set(['PICKUP', 'PICKUPPLEASE', 'PLEASEPICKUP', 'PICKUPPLS', 'PICKUPTHANKS', 'PICKUPTHANKYOU']);
-    const SKIP_WORDS   = new Set(['SKIP', 'SKIPPLEASE', 'PLEASESKIP', 'SKIPPLS', 'SKIPTHANKS', 'SKIPTHANKYOU']);
     const noAccount = (msg: string) => new Response(twimlMessage(msg), { headers: TWIML_HDRS });
 
     if (keyword === 'STOP') {
@@ -634,9 +682,12 @@ Deno.serve(async (req: Request) => {
     if (keyword === 'START' || keyword === 'UNSTOP') {
       return new Response(await handleStart(customerId, from, to), { headers: TWIML_HDRS });
     }
-    if (SKIP_WORDS.has(letters)) {
+    const skipReq = classifySkip(body || '');
+    if (skipReq) {
       if (!customerId) return noAccount("We couldn't find your account. Visit app.familylaundry.com for help.");
-      return new Response(await handleSkip(customerId, from, to), { headers: TWIML_HDRS });
+      const skipReply = await handleSkip(customerId, from, to, skipReq.when);
+      if (skipReply !== null) return new Response(skipReply, { headers: TWIML_HDRS });
+      return new Response(TWIML_EMPTY, { headers: TWIML_HDRS });   // day mismatch → staff inbox
     }
     if (PICKUP_WORDS.has(letters)) {
       if (!customerId) return noAccount(`We couldn't find an account for your number. Please sign up at app.familylaundry.com.`);
