@@ -51,6 +51,24 @@ the update only applies if usage is still what the staff member saw, else the lo
 `overage_amount_due` write. `laundry_tech` can update subscriptions (is_admin) but not write the log
 (admin/manager only), so a tech now gets an error instead of a silent change — intended.
 Proven in a rolled-back transaction: `adjustment` rejected, `manual_adjustment` accepted, guarded update matches.
+**Live** (admin build 20260922215211, commit d36167d) — verified by fetching the served page.
+**Liz stays at 25 lbs — David's decision, 2026-09-22.** The 30 lbs from #14382 are forgiven outright. Do NOT
+"fix" her back to 55; check 9 will not flag her (the correction is logged as `manual_adjustment`).
+
+**Lessons banked — read before touching billing data:**
+1. **A number with no history behind it is a question, not an error.** Before "correcting" usage, credits,
+   totals or any money field, find WHO changed it and WHY: the usage log, `order_events`, `customer_transactions`,
+   `sms_messages`, and the edge logs (`query_logs`, source `edge_logs`, 24 h windows — the Sep 8 PATCH and the
+   400 were still there two weeks later). Liz's "double count" was a staff goodwill decision; I reversed it on
+   an assumption. A refund near a usage change is the tell.
+2. **Every audit/ledger insert checks its error — and fails the whole action if it fails.** supabase-js does
+   not throw; `await db.from(x).insert(...)` with the result ignored is a silent no-op on any rejection.
+   Write the log FIRST; change the data only if the log landed.
+3. **An app-side enum value must exist in the table's CHECK constraint.** `'adjustment'` vs `'manual_adjustment'`
+   hid every staff adjustment for months. When adding a value in app code, run:
+   `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='<table>'::regclass AND contype='c';`
+4. **Silent 4xx writes are findable.** Group `POST|PATCH | 4xx` on `/rest/v1/` in `edge_logs` — any recurring
+   one is a feature that has been quietly failing.
 
 **Audit file.** `audits/subscription-audit.sql` checks 8–10: invoices above plan price vs refunds, usage
 drift vs order events, and cancelled-with-overage customers who may have leftover Stripe items.

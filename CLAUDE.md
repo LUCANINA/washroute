@@ -89,6 +89,13 @@ fixes the problem, and prefer one shared helper over N parallel edits.
 - **Every credit change goes through a ledger-writing RPC** (`adjust_customer_credits` etc.). A direct
   `customers.credits` write is invisible in Billing History — the stripe-webhook $20 "migration credit" did
   exactly that for 253 customers (session 296).
+- **Every log/ledger write checks its error, and the action stops if it fails.** supabase-js never throws —
+  an unchecked `.insert()` is a silent no-op. The admin "Adjust usage" button wrote event_type `'adjustment'`
+  (not in the CHECK constraint) and ignored the 400, so every staff usage change went unlogged (session 309).
+  Log first, then change the data. New enum value in app code → confirm it's in the table's CHECK constraint.
+- **Don't "correct" billing data you can't explain.** Find who changed it and why first (usage log,
+  `order_events`, `customer_transactions`, SMS, edge logs). Session 309 reversed a staff goodwill adjustment
+  on Liz Morris's account by assuming it was a bug.
 - **Never ask only happy customers for public reviews** (Google/FTC "review gating"). The Google link is shown
   to every rater; never ask for Yelp reviews; never reward reviews.
 - **CANCEL, STOP, END, QUIT, UNSUBSCRIBE are carrier opt-out words** — Twilio unsubscribes the texter before our
