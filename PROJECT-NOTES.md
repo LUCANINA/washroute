@@ -1,5 +1,24 @@
 # WashRoute — Project Notes
 
+## Session 314 — Sep 22, 2026: Referrals report shows the whole funnel
+
+David sent an SMS invite and the report showed nothing. Cause: "Send Invite" only opens the customer's
+own Messages app (`shareReferral`) and wrote nothing; the report listed `referrals` rows only (a friend
+claiming a code). Zero codes claimed since the program started Sep 14 (311 customers have codes).
+The /r/CODE link itself works.
+
+- **DB** (migration `session_314_referral_events`, reviewed + role-tested): `referral_events`
+  (`invite_sent` | `link_opened`, surface account/home/post_delivery, method share_sheet/sms_app).
+  Staff-read RLS, no direct writes. `log_referral_invite` (owner or staff, 30/day cap) and
+  `log_referral_link_open` (anon on purpose — the friend isn't signed in; active code only, 50/code/day cap).
+- **Customer app**: invite logged when `navigator.share` resolves (cancel = not counted); SMS fallback logs
+  the tap (can't see send). Home strip → Rewards remembers `home` for 10 min. `captureReferralFromUrl`
+  logs the link open. Logging never blocks sharing.
+- **Admin** Reports → Customers → Referrals: 4 tiles (Invites sent → Link opened → Signed up → Completed
+  first order, each with % of prior step), "By customer" table, then the existing list ("Friends who signed up").
+- Not tracked: code copied and pasted by hand. Invites before today were never recorded.
+- `git push` from the session VM has no GitHub credentials — David pushes from his Terminal.
+
 ## Session 309 — Sep 22, 2026: subscription audit — a second double-overage path
 
 **Found.** Session 280 fixed renewal invoices double-billing overage, but missed the CANCELLATION path in
