@@ -248,20 +248,51 @@ function decodeXmlEntities(s: string): string {
 
 // ─── Edge Function Handler ───
 
+// ── Printer identification (audit 2026-09-22) ────────────────────────────────
+// This endpoint had no authentication of any kind: anyone who knew the URL could
+// GET the next pending job (customer name + address on every receipt/bag tag) and
+// mark it claimed, so the store's printer never printed it. verify_jwt is false and
+// must stay false — a Star printer cannot present a JWT.
+//
+// Printers identify themselves by MAC: measured over 24h of real traffic, every
+// GET-for-content and DELETE carries ?mac=, while Star's POST poll carries
+// printerMAC in the JSON body instead. So GET/DELETE (the paths that leak or
+// consume a job) now REQUIRE a MAC belonging to a known printer. The POST poll
+// only reveals a jobReady boolean; it resolves the MAC from the body when present
+// and logs the body shape when it can't, so the same check can be turned on there
+// once the field name is confirmed in the logs.
+async function isKnownPrinter(db: any, mac: string): Promise<boolean> {
+  if (!mac) return false;
+  const { data: dev } = await db.from('pos_devices')
+    .select('id').ilike('printer_token', mac).limit(1).maybeSingle();
+  if (dev) return true;
+  const { data: st } = await db.from('settings').select('printer_token').eq('id', 1).maybeSingle();
+  return !!(st?.printer_token && String(st.printer_token).toLowerCase() === mac.toLowerCase());
+}
+
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-  // session 140: every print_job has a printer_token; each polling printer
-  // identifies itself via ?mac=XX:XX:XX:XX:XX:XX. Filter by MAC so jobs are
-  // routed to the correct printer when more than one printer is on the system.
-  // Match is case-insensitive (DB tokens are uppercase, printers usually send
-  // lowercase in the query string). If `mac` is missing (legacy callers,
-  // browser tests), fall back to "any pending job" to preserve old behaviour.
-  const mac = (url.searchParams.get('mac') || '').trim();
+  let mac = (url.searchParams.get('mac') || '').trim();
+  if (!mac && req.method === 'POST') {
+    try {
+      const body = await req.json();
+      mac = String(body?.printerMAC || body?.printerMac || body?.mac || '').trim();
+      if (!mac) console.log('[CP] POST poll without MAC; body keys: ' + Object.keys(body || {}).join(','));
+    } catch (e) {
+      console.log('[CP] POST poll body unreadable: ' + ((e as Error).message || e));
+    }
+  }
+  const known = await isKnownPrinter(db, mac);
   const applyMacFilter = (q: any) => mac ? q.ilike('printer_token', mac) : q;
 
-  // ── Job completion (DELETE or GET with ?delete) ──
+  // Job content and job completion are printer-only. No known MAC, no job.
+  if ((req.method === 'GET' || req.method === 'DELETE') && !known) {
+    console.log(`[CP] refused ${req.method} — unknown printer (mac='${mac}')`);
+    return new Response('Unknown printer', { status: 401 });
+  }
+
   if (req.method === 'DELETE' || (req.method === 'GET' && url.searchParams.has('delete'))) {
     const { data: job } = await applyMacFilter(
       db.from('print_jobs').select('id')
@@ -276,7 +307,6 @@ Deno.serve(async (req: Request) => {
     return new Response('', { status: 200 });
   }
 
-  // ── Poll: does a job exist? ──
   if (req.method === 'GET') {
     const mediaType = url.searchParams.get('type') || url.searchParams.get('mediaType') || '';
 
@@ -293,7 +323,6 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // ── Serve the job content as Star Line Mode binary ──
     const { data: job } = await applyMacFilter(
       db.from('print_jobs').select('id, content')
         .eq('status', 'pending')
@@ -305,14 +334,13 @@ Deno.serve(async (req: Request) => {
     await db.from('print_jobs').update({ status: 'claimed', claimed_at: new Date().toISOString() }).eq('id', job.id);
 
     const starBytes = markupToStarLineMode(job.content);
-    console.log(`[CP] Serving job ${job.id} to mac=${mac} — ${starBytes.length} bytes Star Line Mode`);
+    console.log(`[CP] Serving job ${job.id} to mac=${mac} - ${starBytes.length} bytes Star Line Mode`);
 
     return new Response(starBytes, {
       headers: { 'Content-Type': CONTENT_TYPE }
     });
   }
 
-  // ── POST: some printers poll via POST ──
   if (req.method === 'POST') {
     const { data: job } = await applyMacFilter(
       db.from('print_jobs').select('id')

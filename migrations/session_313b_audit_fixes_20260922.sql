@@ -1,0 +1,22 @@
+-- Security audit 2026-09-22 — applied via MCP. Two migrations, recorded here.
+--
+-- 1) notify_customer_registered_internal_header
+--    on-customer-created had no caller check (verify_jwt false), so anyone could
+--    send the welcome SMS from our Twilio number to any phone with their own text
+--    inside it. The trigger now sends the x-wr-internal shared secret (session 227h
+--    pattern) and the edge function requires it. Trigger updated BEFORE the function
+--    so no welcome text was missed. Rollback def:
+--    _archive._fn_notify_customer_registered_20260922
+--
+-- 2) settings_printer_token_not_public (+ _v2)
+--    settings.printer_token (receipt printer MAC) was readable with the public anon
+--    key. cloudprnt identifies printers by MAC, so the MAC must not be public.
+--    v1 (column REVOKE) was INEFFECTIVE — a table-level SELECT grant to anon
+--    overrides a column-level REVOKE. v2 replaces anon's table-wide SELECT on
+--    public.settings with per-column SELECT on every column except printer_token.
+--    Verified after apply: anon select=printer_token -> 42501, select=sales_tax_rate -> ok.
+--    NOTE: no client selects '*' from settings with the anon key (customer-app reads
+--    sales_tax_rate only; POS/admin read it signed in). If a future client needs a
+--    new settings column with the anon key, it is covered automatically only if the
+--    column existed at migration time — otherwise re-run the v2 GRANT.
+--    Rollback: GRANT SELECT ON public.settings TO anon;

@@ -35962,7 +35962,7 @@ ${oneCopy}
         <div>
           <label class="form-label">Title</label>
           <input type="text" id="issue-title" class="form-input" style="margin-bottom:10px"
-            value="${msgs?.slice().reverse().find(m=>m.direction==='inbound')?.body?.slice(0,80) || ''}"
+            value="${esc(msgs?.slice().reverse().find(m=>m.direction==='inbound')?.body?.slice(0,80) || '')}"
             placeholder="Describe the issue…" />
         </div>
         <div class="issue-form-row">
@@ -53711,7 +53711,7 @@ async function _dvIframeLoaded() {
             ${isAdmin ? 'Family Laundry Team' : adminDriverName(drv)}
           </div>
           <div style="background:${isAdmin ? 'var(--accent)' : 'white'};color:${isAdmin ? 'white' : 'var(--gray-800)'};border-radius:${isAdmin ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};padding:10px 14px;font-size:14px;font-weight:500;line-height:1.45;box-shadow:0 1px 3px rgba(0,0,0,.07);word-break:break-word">
-            ${m.body.replace(/\n/g, '<br>')}
+            ${esc(m.body || '').replace(/\n/g, '<br>')}
           </div>
           <div style="font-size:11px;color:var(--gray-400);margin-top:4px;padding:0 4px">${timeStr}</div>
         </div>
@@ -58037,9 +58037,13 @@ ${orderSections}
       const htmlBody = '<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#333">' +
         bodyText.replace(/\n/g, '<br>') + '</div>';
 
+      // Audit 2026-09-22: send-invoice now requires a staff login (it was an open
+      // relay that could send mail as info@familylaundry.com), so pass the session.
+      const { data: { session: _invSess } } = await db.auth.getSession();
       const res = await fetch(SUPA_URL + '/functions/v1/send-invoice', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY,
+                   'Authorization': `Bearer ${_invSess?.access_token || ''}` },
         body: JSON.stringify({
           to, cc, subject, body: htmlBody, attachments,
           billing_group_id: _invoiceGroupId || null,
