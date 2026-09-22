@@ -1961,6 +1961,7 @@
           </div>
           <div class="cart-totals">
             <div class="total-row"><span data-i18n>Subtotal</span><span id="subtotal">$0.00</span></div>
+            <div class="total-row" id="discountRow" style="display:none;color:var(--green);"><span id="discountLabel">Discount</span><span id="discountAmt">-$0.00</span></div>
             <div class="total-row"><span id="taxLabel">Tax</span><span id="tax">$0.00</span></div>
             <div class="total-row grand"><span data-i18n>Total</span><span id="grand">$0.00</span></div>
             <button class="charge-btn" id="chargeBtn" disabled onclick="chargeBtnTap()">
@@ -3441,7 +3442,12 @@
   // pt 3: addons can have their own taxable flag independent of the
   // parent line, so we walk parent + addons and decide each independently.
   function cartTaxableSubtotal() {
-    return cart.reduce((sum, line) => {
+    // Sept 2026: the customer discount's share of taxable service lines
+    // comes off the tax base (normally 0 — laundry services are tax-exempt).
+    return Math.max(0, _linesTaxable(cart) - cartDiscount().taxableCut);
+  }
+  function _linesTaxable(lines) {
+    return lines.reduce((sum, line) => {
       let lineTaxable = 0;
       // Parent contribution: lineTotal includes addons, so when the
       // parent is taxable we start from lineTotal and back out any
@@ -3580,6 +3586,49 @@
     return line.price * line.qty;
   }
 
+  // ── Retail cart discount (Sept 2026) ─────────────────────────────────
+  // A customer's standing discount (SENIORS, NON PROFIT, EMPLOYEE, ...) set on
+  // their admin profile used to apply only to delivery orders — the POS cart
+  // never looked at it, so a senior walking in paid full price.
+  // Scope mirrors _posDiscountLine / admin policy (session 146): laundry
+  // SERVICE lines (+ their add-ons) only, never merchandise (drinks, detergent).
+  // Keyed by customer id so a discount can never outlive the attached customer.
+  let _posCartDiscount = null;   // { customerId, id, name, type, value }
+  function _isServiceLine(l) { return l.type === 'per_lb' || l.service === true; }
+  function cartDiscount() {
+    const none = { amount: 0, taxableCut: 0, row: null, id: null };
+    const d = _posCartDiscount;
+    if (!d || !hasAttachedCustomer() || d.customerId !== currentCustomer.id) return none;
+    const svc = cart.filter(_isServiceLine);
+    const discountable = svc.reduce((s, l) => s + lineTotal(l), 0);
+    if (!(discountable > 0)) return none;
+    const amt = d.type === 'percent'
+      ? Math.round(discountable * (parseFloat(d.value) / 100) * 100) / 100
+      : Math.min(parseFloat(d.value) || 0, discountable);
+    if (!(amt > 0)) return none;
+    const label = d.type === 'percent' ? `${d.name} (${d.value}% off)` : d.name;
+    const taxableCut = Math.round(amt * (_linesTaxable(svc) / discountable) * 100) / 100;
+    return { amount: amt, taxableCut, id: d.id,
+             row: { type: 'discount', kind: 'discount', label, name: label, amount: -amt, taxable: false, discount_id: d.id } };
+  }
+  async function _loadCartDiscount(customerId) {
+    _posCartDiscount = null;
+    if (!customerId) return;
+    try {
+      const { data: c } = await db.from('customers').select('discount_id').eq('id', customerId).maybeSingle();
+      if (!c || !c.discount_id) return;
+      const { data: d } = await db.from('discounts')
+        .select('id, name, type, value, active, deleted_at').eq('id', c.discount_id).maybeSingle();
+      if (!d || !d.active || d.deleted_at) return;
+      // Customer may have been swapped while we were fetching.
+      if (!currentCustomer || currentCustomer.id !== customerId) return;
+      _posCartDiscount = { customerId, id: d.id, name: d.name, type: d.type, value: d.value };
+      updateTotals();
+    } catch (e) {
+      console.warn('[POS] discount load failed:', e && e.message);
+    }
+  }
+
   function renderCart() {
     const wrap = document.getElementById('cartItems');
     const empty = document.getElementById('cartEmpty');
@@ -3654,10 +3703,19 @@
     // session 140: tax only the merchandise portion of the cart. Laundry
     // services (per_lb + Retail service tiles) are exempt under CA rules.
     const subtotal   = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const disc       = cartDiscount();   // Sept 2026
     const taxableSub = cartTaxableSubtotal();
     const tax        = _taxOn(taxableSub);
-    const grand      = subtotal + tax;
+    const grand      = subtotal - disc.amount + tax;
     document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
+    const discRowEl = document.getElementById('discountRow');
+    if (discRowEl) {
+      discRowEl.style.display = disc.amount > 0 ? '' : 'none';
+      if (disc.amount > 0) {
+        document.getElementById('discountLabel').textContent = disc.row.label;
+        document.getElementById('discountAmt').textContent = '-$' + disc.amount.toFixed(2);
+      }
+    }
     document.getElementById('tax').textContent = '$' + tax.toFixed(2);
     document.getElementById('grand').textContent = '$' + grand.toFixed(2);
 
@@ -3721,7 +3779,8 @@
   const TIP_PRESETS = [0.15, 0.18, 0.20]; // 15% / 18% / 20%
 
   function _cartSubtotal() {
-    return cart.reduce((a, l) => a + lineTotal(l), 0);
+    // Sept 2026: net of the customer discount — this is what's actually billed.
+    return cart.reduce((a, l) => a + lineTotal(l), 0) - cartDiscount().amount;
   }
 
   function openTipModal() {
@@ -4148,6 +4207,8 @@
     };
     // Session 168: reprice laundry to this customer's pricelist (Commercial etc.)
     applyCustomerPricelist(currentCustomer.pricelist);
+    // Sept 2026: standing discount (SENIORS, EMPLOYEE...) — async, re-totals when loaded.
+    _loadCartDiscount(currentCustomer.id);
     const chip = document.getElementById('customerChip');
     chip.classList.add('attached');
     const clearBtn = document.getElementById('customerClearBtn');
@@ -5551,7 +5612,7 @@
   function payWithCash() {
     // Calculate the total due right now (includes tip from session 132 flow)
     // session 140: tax only the merchandise portion (services exempt).
-    const subtotal   = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const subtotal   = _cartSubtotal();   // Sept 2026: net of discount
     const taxableSub = cartTaxableSubtotal();
     const tax        = _taxOn(taxableSub);
     cashDueTotal = subtotal + tax + (_currentTip || 0);
@@ -5652,7 +5713,7 @@
 
     // Show terminal modal with amount (includes tip from session 132 flow)
     // session 140: tax applies only to merchandise — services are exempt.
-    const subtotal   = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const subtotal   = _cartSubtotal();   // Sept 2026: net of discount
     const taxableSub = cartTaxableSubtotal();
     const tax        = _taxOn(taxableSub);
     const grand      = subtotal + tax + (_currentTip || 0);
@@ -7000,7 +7061,7 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
 
     // --- Build totals from the current cart ---
     // session 140: tax applies only to merchandise (CA: services exempt).
-    const subtotal   = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const subtotal   = _cartSubtotal();   // Sept 2026: net of discount
     const taxableSub = cartTaxableSubtotal();
     const tax        = _taxOn(taxableSub);
     const total      = subtotal + tax;
@@ -7085,6 +7146,11 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
       }
     });
 
+    // Sept 2026: customer discount as a negative 'discount' row — same shape
+    // send-receipt, the printed receipt and the Xero payout pipelines already read.
+    const _disc = cartDiscount();
+    if (_disc.row) lineItems.push(_disc.row);
+
     // --- Derive order-level aggregates ---
     // total_bags = count of distinct per-lb service lines (rough "bag count" proxy)
     const totalBags = cart.filter(l => l.type === 'per_lb').length || 1;
@@ -7133,6 +7199,7 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
       // revenue reporting already handles this case via _tipToDollars().
       tip_amount:            Number((_currentTip || 0).toFixed(2)),
       line_items:            lineItems,
+      discount_id:           _disc.id || null,   // Sept 2026
       special_instructions:  null,
       // session 111: Stamp the site explicitly; trigger respects explicit values
       site_id:               currentSiteId,
