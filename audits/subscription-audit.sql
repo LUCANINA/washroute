@@ -181,3 +181,30 @@ JOIN customers c ON c.id = r.customer_id
 WHERE r.status = 'cancelled'
   AND NOT EXISTS (SELECT 1 FROM subscription_usage_log l
                    WHERE l.subscription_id = r.id AND l.event_type = 'final_overage_invoiced');
+
+-- 11. UNLOGGED usage changes in CLOSED periods. At each period_reset the trigger logs
+--     -OLD.usage; that must equal everything logged since the previous reset. A gap
+--     means usage changed with no log row. Root cause found 2026-09-22: the admin
+--     "Adjust usage" button inserted event_type 'adjustment' (not allowed by the CHECK
+--     constraint) and ignored the error, so every staff adjustment was invisible.
+--     Fixed in admin-dashboard the same day. At the time of writing: only Jenn
+--     Holloway, 1 lb, 2026-07-06 (first period — pre-dates the log). Liz Morris's
+--     Sep 8 adjustment was still in an OPEN period and is caught by check 9 instead.
+WITH l AS (
+  SELECT ul.*, sum(CASE WHEN ul.event_type = 'period_reset' THEN 1 ELSE 0 END)
+           OVER (PARTITION BY ul.subscription_id ORDER BY ul.created_at, ul.id
+                 ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) seg
+  FROM subscription_usage_log ul
+)
+SELECT c.first_name_cache||' '||COALESCE(c.last_name_cache,'') cust, r.created_at::date reset_at,
+       -r.weight_delta usage_at_reset,
+       (SELECT COALESCE(sum(x.weight_delta),0) FROM l x WHERE x.subscription_id = r.subscription_id
+         AND COALESCE(x.seg,0) = COALESCE(r.seg,0) AND x.event_type <> 'period_reset') logged
+FROM l r
+JOIN subscriptions s ON s.id = r.subscription_id
+JOIN customers c ON c.id = s.customer_id
+WHERE r.event_type = 'period_reset'
+  AND abs(-r.weight_delta - (SELECT COALESCE(sum(x.weight_delta),0) FROM l x
+        WHERE x.subscription_id = r.subscription_id AND COALESCE(x.seg,0) = COALESCE(r.seg,0)
+          AND x.event_type <> 'period_reset')) > 0.5
+ORDER BY r.created_at;

@@ -12,6 +12,8 @@ already paid on the order was charged again:
   (Came AFTER the session-280 fix — the fix never touched this path.)
 - Possibly still sitting in Stripe as pending items: **Ren Leduo $19.25, Lenore Anderson $242, Danielle Creer $192.50**
   (cancelled under old code, overage on the books, no `final_overage_invoiced` log). Check Stripe; delete any found.
+  **Closed 2026-09-22:** David checked all three in Stripe — no pending items, no paid final-overage invoices.
+  Sturges + DeLuca refunded same day ($41.25 / $49.50); check 8 now returns zero unrefunded.
   Note a standalone final-overage invoice has no `subscription`, so a PAID one is never written to
   `customer_transactions` — invisible to WashRoute.
 
@@ -27,9 +29,28 @@ invoice id, same PI idempotency. Shows in Billing History as a refundable "Subsc
 reports count it under Subscription, not Overage (acceptable — rare). Needs its own deploy (same command).
 Not backfilled: any PAST paid final-overage invoice is only findable in Stripe.
 
-**Data fix.** Liz Morris usage 55 → 25 lbs, pickups 2 → 1: #14382 (30 lbs) was counted in the Aug–Sep
-period (overage billed there) AND this one. Logged as a `manual_adjustment` row. Root cause of the extra 30
-not found — no log row added it; one-off (check 9 finds no other drift).
+**Data fix — and it was WRONG; root cause found the same day.** Liz Morris showed 55 lbs vs 25 logged.
+I set her to 25, assuming a double count. The drill-down proved otherwise:
+- Sep 7 22:30 UTC: #14382 (30 lbs) weighed in on the LAST evening of her Aug–Sep period, $82.50 overage
+  charged. Sep 8 03:26 the period rolled; 04:27 the $275 renewal charged.
+- Sep 8 04:52–04:53 UTC (Sep 7, 9:52pm PT), Safari: a manager opened Liz's panel, clicked **✎ Adjust usage**,
+  PATCHed the subscription (204) — then the usage-log POST failed **400** — then 19 s later **Lili Guevara**
+  fully refunded #14382 ($87.50). Edge logs show the exact sequence.
+- So it was a deliberate goodwill move: refund the overage, count the 30 lbs in the new period instead.
+  My "correction" undid it; Liz now has those 30 lbs free (the customer's favour, ≤ $82.50 to us).
+
+**The bug:** `adminAdjustUsage` inserted `event_type: 'adjustment'`, which the CHECK constraint does not allow
+(`manual_adjustment` is). The insert has ALWAYS failed, and its error was never read, so every staff
+adjustment ever made changed usage with no trace. It also wrote `overage_amount_due` directly (session 280
+forbids that). Only other writers of usage are the two triggers, which always log.
+**Blast radius:** check 11 (usage at each period reset vs everything logged that period) across all history:
+Liz is the only material case; Jenn Holloway 1 lb on Jul 6 (her first period). Edge logs, last 24 h: no other
+silently failing writes. Not a wave.
+**Fix (admin-dashboard):** log first with `manual_adjustment` + staff name; if the log fails nothing changes;
+the update only applies if usage is still what the staff member saw, else the log row is removed; no more
+`overage_amount_due` write. `laundry_tech` can update subscriptions (is_admin) but not write the log
+(admin/manager only), so a tech now gets an error instead of a silent change — intended.
+Proven in a rolled-back transaction: `adjustment` rejected, `manual_adjustment` accepted, guarded update matches.
 
 **Audit file.** `audits/subscription-audit.sql` checks 8–10: invoices above plan price vs refunds, usage
 drift vs order events, and cancelled-with-overage customers who may have leftover Stripe items.

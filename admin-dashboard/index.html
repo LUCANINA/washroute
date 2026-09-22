@@ -34642,33 +34642,43 @@ ${oneCopy}
     const reason = prompt('Reason for adjustment? (Saved to usage log)', '');
     if (reason === null) return;
     try {
-      // Get plan limits to recompute overage
-      const { data: sub2 } = await db.from('subscriptions')
-        .select('*, subscription_plans(weight_limit_lbs, overage_price_per_lb)')
-        .eq('id', subscriptionId).single();
-      const plan = sub2?.subscription_plans || {};
-      const overage = (plan.weight_limit_lbs && newLbs > plan.weight_limit_lbs)
-        ? Math.round((newLbs - plan.weight_limit_lbs) * (Number(plan.overage_price_per_lb) || 0) * 100) / 100
-        : 0;
+      // Session 309: this used to (1) insert event_type 'adjustment' — NOT an allowed
+      // value, so the log insert ALWAYS failed with a 400, silently, because its error
+      // was never checked; and (2) write overage_amount_due directly, which session 280
+      // forbids (that column is measured from the orders). Result: every staff
+      // adjustment changed a customer's usage with no trace. Liz Morris, Sep 8: +30 lbs
+      // moved into her new period, invisible until the Sep 22 audit.
+      // Now: log first with the allowed type and the staff member's name; if the log
+      // can't be written, NOTHING changes. Overage is left to the measured path.
       const deltaLbs     = newLbs - (Number(sub.usage_lbs_this_period) || 0);
       const deltaPickups = newPickups - (sub.pickups_this_period || 0);
-      const { error: updErr } = await db.from('subscriptions')
+      if (deltaLbs === 0 && deltaPickups === 0) { showToast('No change', ''); return; }
+      const actor = currentUserDisplayName || currentUserFirstName || 'Admin';
+      const { data: logRow, error: logErr } = await db.from('subscription_usage_log').insert({
+        subscription_id: subscriptionId,
+        order_id: null,
+        event_type: 'manual_adjustment',
+        weight_delta: deltaLbs,
+        pickups_delta: deltaPickups,
+        note: `Admin adjust by ${actor}: ` + (reason || '(no reason given)'),
+      }).select('id').single();
+      if (logErr) throw logErr;
+      let updQ = db.from('subscriptions')
         .update({
           usage_lbs_this_period: newLbs,
           pickups_this_period:   newPickups,
-          overage_amount_due:    overage,
           updated_at:            new Date().toISOString(),
         })
         .eq('id', subscriptionId);
-      if (updErr) throw updErr;
-      await db.from('subscription_usage_log').insert({
-        subscription_id: subscriptionId,
-        order_id: null,
-        event_type: 'adjustment',
-        weight_delta: deltaLbs,
-        pickups_delta: deltaPickups,
-        note: 'Admin adjust: ' + (reason || '(no reason given)'),
-      });
+      // Only apply if nobody changed usage since we read it — otherwise the logged
+      // delta would not match what actually happened. (NULL needs .is, not .eq.)
+      updQ = sub.usage_lbs_this_period == null ? updQ.is('usage_lbs_this_period', null) : updQ.eq('usage_lbs_this_period', sub.usage_lbs_this_period);
+      updQ = sub.pickups_this_period == null ? updQ.is('pickups_this_period', null) : updQ.eq('pickups_this_period', sub.pickups_this_period);
+      const { data: updRows, error: updErr } = await updQ.select('id');
+      if (updErr || !updRows || updRows.length === 0) {
+        await db.from('subscription_usage_log').delete().eq('id', logRow.id);
+        throw updErr || new Error('Usage changed while you were editing — reopen and try again');
+      }
       showToast('Usage adjusted', 'success');
       if (panelCustomerId) renderCpSubscription(panelCustomerId);
       if (typeof renderSubscriptionsTab === 'function' && currentPage === 'reports') renderSubscriptionsTab();
