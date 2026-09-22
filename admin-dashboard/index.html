@@ -42280,6 +42280,8 @@ ${oneCopy}
         countTxt = '—'; valueTxt = '—'; dateTxt = '—';
       } else {
         countTxt = `${u.count} order${u.count === 1 ? '' : 's'}`;
+        // Sept 2026: click through to the order list (who got it, who applied it at POS).
+        if (!opts?.muted) countTxt = `<a href="#" style="color:var(--accent);text-decoration:underline" onclick="event.preventDefault();toggleDiscountUsage('${d.id}')">${countTxt}</a>`;
         valueTxt = fmtMoney(u.dollars);
         dateTxt  = fmtDate(u.last);
       }
@@ -42754,6 +42756,44 @@ ${oneCopy}
     loadReferralPairs();
   }
 
+  // Sept 2026: per-discount order list — date, order, customer, $ off, and for
+  // POS "Employee discount" taps, the attendant who applied it.
+  async function toggleDiscountUsage(discountId) {
+    const el = document.getElementById('disc-usage-' + discountId);
+    if (!el) return;
+    if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+    el.style.display = '';
+    el.innerHTML = '<div style="font-size:12.5px;color:var(--gray-400);padding:8px 0">Loading…</div>';
+    const { data, error } = await db.from('orders')
+      .select('id, order_number, created_at, status, source, line_items, customers(first_name_cache, last_name_cache)')
+      .eq('discount_id', discountId)
+      .not('status', 'in', '(cancelled,skipped)')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) { el.innerHTML = `<div style="color:var(--red);font-size:12.5px">${esc(error.message)}</div>`; return; }
+    if (!data || !data.length) { el.innerHTML = '<div style="font-size:12.5px;color:var(--gray-400);padding:8px 0">No orders yet.</div>'; return; }
+    const rows = data.map(o => {
+      const li = (o.line_items || []).find(x => x && x.type === 'discount') || {};
+      const off = Math.abs(Number(li.amount) || 0);
+      const cust = o.customers ? `${o.customers.first_name_cache || ''} ${o.customers.last_name_cache || ''}`.trim() : '—';
+      const how = li.applied_at_pos
+        ? `POS button · ${esc(li.applied_by_name || 'attendant')}`
+        : (o.source === 'walk_in' ? 'POS · customer profile' : 'Customer profile');
+      return `<tr>
+        <td style="padding:5px 8px 5px 0">${fmtDate(o.created_at)}</td>
+        <td style="padding:5px 8px">#${esc(String(o.order_number || ''))}</td>
+        <td style="padding:5px 8px">${esc(cust || '—')}</td>
+        <td style="padding:5px 8px;text-align:right">${fmtMoney(off)}</td>
+        <td style="padding:5px 0 5px 8px;color:var(--gray-500)">${how}</td></tr>`;
+    }).join('');
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12.5px;color:var(--gray-700);background:var(--gray-50);border-radius:8px">
+      <thead><tr style="color:var(--gray-500);font-size:11px;font-weight:700;text-align:left">
+        <th style="padding:6px 8px 4px 0">Date</th><th style="padding:6px 8px 4px">Order</th><th style="padding:6px 8px 4px">Customer</th>
+        <th style="padding:6px 8px 4px;text-align:right">Off</th><th style="padding:6px 0 4px 8px">Applied by</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      ${data.length === 100 ? '<div style="font-size:11.5px;color:var(--gray-400);margin-top:4px">Showing the latest 100.</div>' : ''}`;
+  }
+
   function renderDiscounts() {
     const el = document.getElementById('discounts-list');
     if (!el) return;
@@ -42773,7 +42813,7 @@ ${oneCopy}
       ? allDiscounts.map(d => `
           <div style="display:flex;align-items:center;padding:12px 16px;border-top:1px solid var(--gray-100);gap:12px">
             <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:13.5px;color:var(--gray-900)">${esc(d.name)}</div>
+              <div style="font-weight:600;font-size:13.5px;color:var(--gray-900)">${esc(d.name)}${d.admin_only ? ' <span style="font-size:10.5px;font-weight:700;color:var(--gray-500);background:var(--gray-100);border-radius:6px;padding:1px 6px;margin-left:4px" title="Can only be given by staff (profile or POS button) — customers cannot type it as a promo code">Staff only</span>' : ''}</div>
               <div style="font-size:12px;color:var(--gray-500);margin-top:2px">
                 ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'} · ${d.type === 'percent' ? 'Percentage' : 'Fixed amount'}
               </div>
@@ -42781,7 +42821,8 @@ ${oneCopy}
             <div style="width:110px;text-align:right;font-size:12.5px;color:var(--gray-700)">${d.created_at ? fmtDate(d.created_at) : '—'}</div>
             ${_redemptionCells(d)}
             <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--red);width:72px" onclick="archiveDiscount('${d.id}')">Archive</button>
-          </div>`).join('')
+          </div>
+          <div id="disc-usage-${d.id}" style="display:none;padding:0 16px 12px"></div>`).join('')
       : '<div style="color:var(--gray-400);font-size:13px;padding:16px">No discounts yet. Create one above.</div>';
 
     const archivedHtml = archivedDiscounts.length

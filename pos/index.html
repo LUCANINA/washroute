@@ -996,6 +996,13 @@
     border-top: 1px solid var(--gray-150);
     flex-shrink: 0;
   }
+  /* Employee discount toggle (Sept 2026) — attendant-applied, logged on the order. */
+  .emp-disc-btn {
+    width: 100%; margin: 2px 0 8px; padding: 8px 10px;
+    border: 1px dashed var(--gray-300); border-radius: 10px; background: transparent;
+    font-size: 13px; font-weight: 600; color: var(--gray-600); cursor: pointer;
+  }
+  .emp-disc-btn.on { border-style: solid; border-color: var(--green); color: var(--green); background: var(--green-light); }
   .total-row {
     display: flex;
     justify-content: space-between;
@@ -1962,6 +1969,7 @@
           <div class="cart-totals">
             <div class="total-row"><span data-i18n>Subtotal</span><span id="subtotal">$0.00</span></div>
             <div class="total-row" id="discountRow" style="display:none;color:var(--green);"><span id="discountLabel">Discount</span><span id="discountAmt">-$0.00</span></div>
+            <button type="button" class="emp-disc-btn" id="empDiscBtn" style="display:none;" onclick="toggleEmployeeDiscount()"></button>
             <div class="total-row"><span id="taxLabel">Tax</span><span id="tax">$0.00</span></div>
             <div class="total-row grand"><span data-i18n>Total</span><span id="grand">$0.00</span></div>
             <button class="charge-btn" id="chargeBtn" disabled onclick="chargeBtnTap()">
@@ -2832,6 +2840,9 @@
     'Refresh now': 'Actualizar ahora',
     'Laundry Services': 'Servicios de lavandería',
     'Tap products to add to cart': 'Toca productos para agregar al carrito',
+    'Employee discount': 'Descuento de empleado',
+    'tap to remove': 'toca para quitar',
+    'Employee discount not set up — ask a manager': 'Descuento de empleado no configurado — consulte a un gerente',
     'Clear all': 'Vaciar todo',
     'Tax': 'Impuesto',
     'Tap to charge': 'Toca para cobrar',
@@ -3166,7 +3177,7 @@
     }
     shift = null;
     device = null;
-    cart = []; currentCustomer = null;
+    cart = []; currentCustomer = null; _posCartDiscount = null;
     await db.auth.signOut({ scope: 'local' });
     showAuthScreen('screen-login');
     const em = document.getElementById('login-email'); if (em) em.focus();
@@ -3244,7 +3255,7 @@
 
   db.auth.onAuthStateChange((_evt, session) => {
     if (!session) {
-      shift = null; device = null; cart = []; currentCustomer = null;
+      shift = null; device = null; cart = []; currentCustomer = null; _posCartDiscount = null;
       showAuthScreen('screen-login');
     }
   });
@@ -3577,6 +3588,7 @@
 
   function clearCart() {
     cart = [];
+    _posCartDiscount = null;
     renderCart();
   }
 
@@ -3596,22 +3608,90 @@
   let _posCartDiscount = null;   // { customerId, id, name, type, value }
   function _isServiceLine(l) { return l.type === 'per_lb' || l.service === true; }
   function cartDiscount() {
-    const none = { amount: 0, taxableCut: 0, row: null, id: null };
+    const none = { amount: 0, taxableCut: 0, rows: [], label: '', id: null };
     const d = _posCartDiscount;
-    if (!d || !hasAttachedCustomer() || d.customerId !== currentCustomer.id) return none;
-    const svc = cart.filter(_isServiceLine);
-    const discountable = svc.reduce((s, l) => s + lineTotal(l), 0);
-    if (!(discountable > 0)) return none;
-    const amt = d.type === 'percent'
-      ? Math.round(discountable * (parseFloat(d.value) / 100) * 100) / 100
-      : Math.min(parseFloat(d.value) || 0, discountable);
-    if (!(amt > 0)) return none;
+    if (!d || !cart.length) return none;
+    // A customer's standing discount belongs to that customer. The POS
+    // "Employee discount" (manual) belongs to the sale — works with no customer.
+    if (!d.manual && (!hasAttachedCustomer() || d.customerId !== currentCustomer.id)) return none;
+    // Standing discounts: laundry services only. Employee discount: everything,
+    // snacks and drinks included.
+    const groups = [{ kind: 'service', tag: 'laundry', lines: cart.filter(_isServiceLine) }];
+    if (d.manual) groups.push({ kind: 'merchandise', tag: 'snacks & supplies', lines: cart.filter(l => !_isServiceLine(l)) });
+    groups.forEach(g => { g.base = g.lines.reduce((s, l) => s + lineTotal(l), 0); });
+    const live = groups.filter(g => g.base > 0);
+    if (!live.length) return none;
+    let fixedLeft = parseFloat(d.value) || 0;
+    live.forEach(g => {
+      g.amt = d.type === 'percent'
+        ? Math.round(g.base * (parseFloat(d.value) / 100) * 100) / 100
+        : Math.min(fixedLeft, g.base);
+      if (d.type !== 'percent') fixedLeft -= g.amt;
+    });
     const label = d.type === 'percent' ? `${d.name} (${d.value}% off)` : d.name;
-    const taxableCut = Math.round(amt * (_linesTaxable(svc) / discountable) * 100) / 100;
-    return { amount: amt, taxableCut, id: d.id,
-             row: { type: 'discount', kind: 'discount', label, name: label, amount: -amt, taxable: false, discount_id: d.id } };
+    let amount = 0, taxableCut = 0;
+    const rows = [];
+    live.filter(g => g.amt > 0).forEach(g => {
+      amount += g.amt;
+      taxableCut += g.amt * (_linesTaxable(g.lines) / g.base);
+      // kind = the revenue category this discount reduces, so the Xero payout
+      // split and the monthly cash reclass (both key on li.kind) book NET sales.
+      const lbl = live.length > 1 ? `${label} · ${g.tag}` : label;
+      const row = { type: 'discount', kind: g.kind, label: lbl, name: lbl, amount: -g.amt, qty: 0, taxable: false, discount_id: d.id };
+      if (d.manual) {
+        // Attendant-applied at the register: record who, for the Discounts-page review.
+        row.applied_at_pos = true;
+        row.applied_by_name = d.appliedByName || null;
+        row.applied_by_profile_id = d.appliedById || null;
+      }
+      rows.push(row);
+    });
+    if (!(amount > 0)) return none;
+    amount = Math.round(amount * 100) / 100;
+    taxableCut = Math.round(taxableCut * 100) / 100;
+    return { amount, taxableCut, rows, label, id: d.id };
   }
+  // "Employee discount" button: any attendant can apply EMPLOYEE to the attached
+  // customer for this sale. No approval — every use is stamped on the order with
+  // the attendant's name (see cartDiscount) and listed on admin's Discounts page.
+  // Tapping again removes it and restores the customer's own standing discount.
+  let _employeeDiscRow = null;
+  async function toggleEmployeeDiscount() {
+    if (!cart.length) return;
+    if (_posCartDiscount && _posCartDiscount.manual) {
+      // Remove: fall back to the attached customer's own discount, if any.
+      _posCartDiscount = null;
+      if (hasAttachedCustomer()) await _loadCartDiscount(currentCustomer.id);
+      updateTotals();
+      return;
+    }
+    if (!_employeeDiscRow) {
+      const { data } = await db.from('discounts')
+        .select('id, name, type, value, active, deleted_at')
+        .eq('name', 'EMPLOYEE').eq('active', true).is('deleted_at', null).maybeSingle();
+      _employeeDiscRow = data || null;
+    }
+    if (!_employeeDiscRow) { showToast(t('Employee discount not set up — ask a manager'), 'error'); return; }
+    const d = _employeeDiscRow;
+    _posCartDiscount = {
+      customerId: null, id: d.id, name: d.name, type: d.type, value: d.value, manual: true,
+      appliedByName: shift ? `${shift.cashier_first_name || ''} ${shift.cashier_last_name || ''}`.trim() : null,
+      appliedById:   shift ? (shift.cashier_profile_id || null) : null,
+    };
+    updateTotals();
+  }
+  function _renderEmpDiscBtn() {
+    const btn = document.getElementById('empDiscBtn');
+    if (!btn) return;
+    if (!cart.length) { btn.style.display = 'none'; return; }
+    const on = !!(_posCartDiscount && _posCartDiscount.manual);
+    btn.style.display = '';
+    btn.classList.toggle('on', on);
+    btn.textContent = on ? `✓ ${t('Employee discount')} · ${t('tap to remove')}` : `+ ${t('Employee discount')}`;
+  }
+
   async function _loadCartDiscount(customerId) {
+    if (_posCartDiscount && _posCartDiscount.manual) return;   // employee discount wins for this sale
     _posCartDiscount = null;
     if (!customerId) return;
     try {
@@ -3622,6 +3702,8 @@
       if (!d || !d.active || d.deleted_at) return;
       // Customer may have been swapped while we were fetching.
       if (!currentCustomer || currentCustomer.id !== customerId) return;
+      // Attendant already tapped "Employee discount" for this customer — keep it.
+      if (_posCartDiscount && _posCartDiscount.manual) return;
       _posCartDiscount = { customerId, id: d.id, name: d.name, type: d.type, value: d.value };
       updateTotals();
     } catch (e) {
@@ -3708,11 +3790,12 @@
     const tax        = _taxOn(taxableSub);
     const grand      = subtotal - disc.amount + tax;
     document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
+    _renderEmpDiscBtn();
     const discRowEl = document.getElementById('discountRow');
     if (discRowEl) {
       discRowEl.style.display = disc.amount > 0 ? '' : 'none';
       if (disc.amount > 0) {
-        document.getElementById('discountLabel').textContent = disc.row.label;
+        document.getElementById('discountLabel').textContent = disc.label;
         document.getElementById('discountAmt').textContent = '-$' + disc.amount.toFixed(2);
       }
     }
@@ -4634,7 +4717,7 @@
       : '';
 
     // Build a short service summary from line_items
-    const items = (order.line_items || []).filter(li => li.kind === 'service' || li.kind === 'merchandise');
+    const items = (order.line_items || []).filter(li => li.type !== 'discount' && (li.kind === 'service' || li.kind === 'merchandise'));
     let detail = '';
     const svcItems = items.filter(li => li.kind === 'service');
     const merchItems = items.filter(li => li.kind === 'merchandise');
@@ -6308,6 +6391,7 @@
     stopSuccessAutoAdvance();
     closeAll();
     cart = [];
+    _posCartDiscount = null;   // employee discount is per sale
     lastPosOrder = null;
     setWalkIn();
     renderCart();
@@ -7149,7 +7233,7 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
     // Sept 2026: customer discount as a negative 'discount' row — same shape
     // send-receipt, the printed receipt and the Xero payout pipelines already read.
     const _disc = cartDiscount();
-    if (_disc.row) lineItems.push(_disc.row);
+    _disc.rows.forEach(r => lineItems.push(r));
 
     // --- Derive order-level aggregates ---
     // total_bags = count of distinct per-lb service lines (rough "bag count" proxy)
