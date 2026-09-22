@@ -1,5 +1,35 @@
 # WashRoute — Project Notes
 
+## Session 309 — Sep 22, 2026: subscription audit — a second double-overage path
+
+**Found.** Session 280 fixed renewal invoices double-billing overage, but missed the CANCELLATION path in
+`stripe-webhook` (`customer.subscription.deleted`). It created the "Final overage" item as a loose pending
+item on the Stripe customer, then attached it. When a later step threw, the catch released the DB claim but
+left the item in Stripe, and Stripe swept it into the customer's NEXT invoice — their re-signup. Overage
+already paid on the order was charged again:
+- **Lisa Sturges** — Jul 23 re-signup invoice $316.25 (+$41.25, already paid on #9357). **Not refunded yet.**
+- **Joshua DeLuca MacKay** — Sep 13 re-signup invoice $324.50 (+$49.50, already paid on #11606). **Not refunded yet.**
+  (Came AFTER the session-280 fix — the fix never touched this path.)
+- Possibly still sitting in Stripe as pending items: **Ren Leduo $19.25, Lenore Anderson $242, Danielle Creer $192.50**
+  (cancelled under old code, overage on the books, no `final_overage_invoiced` log). Check Stripe; delete any found.
+  Note a standalone final-overage invoice has no `subscription`, so a PAID one is never written to
+  `customer_transactions` — invisible to WashRoute.
+
+**Fixed — deployed as stripe-webhook v68, verified booted (unsigned POST → 400 "Invalid signature", verify_jwt still false).** Final-overage invoice is created first; the item is created already
+attached to it; on any failure the item and the draft invoice are deleted. Deploy (stripe-webhook is
+`verify_jwt: false`, measured 2026-09-22 via list_edge_functions, v67):
+`npx -y supabase@latest functions deploy stripe-webhook --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
+
+**Data fix.** Liz Morris usage 55 → 25 lbs, pickups 2 → 1: #14382 (30 lbs) was counted in the Aug–Sep
+period (overage billed there) AND this one. Logged as a `manual_adjustment` row. Root cause of the extra 30
+not found — no log row added it; one-off (check 9 finds no other drift).
+
+**Audit file.** `audits/subscription-audit.sql` checks 8–10: invoices above plan price vs refunds, usage
+drift vs order events, and cancelled-with-overage customers who may have leftover Stripe items.
+
+**Clean:** 98 active, all on Subscription pricelist, all with cards, no duplicates, no failed charges 90d,
+overage = (lbs − 100) × $2.75 to the cent for every subscriber, no unlinked orders during active plans.
+
 ## Sessions 305–308 — Sep 17, 2026: the Bookkeeping redesign, built and then reversed
 
 **Status:** Committed and reverted. **Net effect on the app: none.** `admin-dashboard/index.html` is byte-identical

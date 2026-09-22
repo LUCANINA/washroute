@@ -121,3 +121,63 @@ SELECT
  count(*) FILTER (WHERE days_since >= 45) had_45d_to_return,
  count(*) FILTER (WHERE days_since >= 45 AND orders_after > 0) returned_of_those
 FROM post;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- Added 2026-09-22 (subscription audit). Three checks that would have caught
+-- what session 280's sweep missed. All three returned rows on the day they
+-- were written — see the notes against each.
+
+-- 8. Subscription invoices above the plan price where the extra was ALREADY
+--    paid on an order. Any subscription invoice > plan price is suspicious:
+--    since session 280 overage belongs on the ORDER. The invoice path is only a
+--    safety net for an order whose own charge failed, so extra on an invoice
+--    alongside a PAID lb_overage order = double charge.
+--    Found 2026-09-22: Lisa Sturges (Jul 23, +$41.25) and Joshua DeLuca MacKay
+--    (Sep 13, +$49.50) — both RE-SIGNUP invoices that swept up a leftover
+--    "Final overage" item from their previous cancelled plan.
+SELECT c.first_name_cache||' '||COALESCE(c.last_name_cache,'') cust,
+       t.created_at::date, t.amount, t.description,
+       t.amount - p.price_monthly extra,
+       (SELECT COALESCE(sum(r.amount),0) FROM customer_transactions r
+         WHERE r.customer_id = t.customer_id AND r.type = 'refund'
+           AND r.description ILIKE '%' || t.description || '%') refunded
+FROM customer_transactions t
+JOIN customers c ON c.id = t.customer_id
+JOIN subscriptions s ON s.customer_id = t.customer_id
+JOIN subscription_plans p ON p.id = s.plan_id
+WHERE t.type = 'subscription_invoice' AND t.amount > p.price_monthly
+GROUP BY c.id, t.id, p.price_monthly
+ORDER BY t.created_at DESC;
+
+-- 9. Usage drift — usage_lbs_this_period must equal what the usage log says
+--    ORDERS added since the period started (order events only — resets and
+--    manual_adjustment rows are bookkeeping, not pounds). Drift means an order's pounds were
+--    counted twice (or dropped), which moves the point where overage starts.
+--    Found 2026-09-22: Liz Morris, 55 vs 25 (order #14382 counted in two
+--    periods). Corrected with a 'manual_adjustment' log row.
+SELECT c.first_name_cache||' '||COALESCE(c.last_name_cache,'') cust,
+       s.usage_lbs_this_period,
+       (SELECT COALESCE(sum(ul.weight_delta),0) FROM subscription_usage_log ul
+         WHERE ul.subscription_id = s.id AND ul.created_at >= s.current_period_start
+           AND ul.event_type IN ('order_ready','order_delivered')) logged
+FROM subscriptions s JOIN customers c ON c.id = s.customer_id
+WHERE s.status = 'active'
+  AND abs(s.usage_lbs_this_period - (SELECT COALESCE(sum(ul.weight_delta),0)
+        FROM subscription_usage_log ul WHERE ul.subscription_id = s.id
+         AND ul.created_at >= s.current_period_start AND ul.event_type IN ('order_ready','order_delivered'))) > 0.5;
+
+-- 10. Cancelled under the OLD webhook with overage on the books and no
+--     'final_overage_invoiced' log = a "Final overage" item MAY still be sitting
+--     in Stripe, waiting for their next invoice. Check each in Stripe (pending
+--     invoice items) and delete any you find. Fixed in stripe-webhook on
+--     2026-09-22 so no new ones are made.
+SELECT c.first_name_cache||' '||COALESCE(c.last_name_cache,'') cust,
+       r.old_overage_amount_due, s.cancelled_at::date,
+       EXISTS (SELECT 1 FROM subscriptions s2 WHERE s2.customer_id = r.customer_id
+                AND s2.created_at > s.cancelled_at) resubscribed
+FROM _resync_subscription_overage_20260908 r
+JOIN subscriptions s ON s.id = r.id
+JOIN customers c ON c.id = r.customer_id
+WHERE r.status = 'cancelled'
+  AND NOT EXISTS (SELECT 1 FROM subscription_usage_log l
+                   WHERE l.subscription_id = r.id AND l.event_type = 'final_overage_invoiced');

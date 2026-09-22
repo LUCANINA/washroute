@@ -486,22 +486,15 @@ Deno.serve(async (req) => {
 
         if (overageAmount > 0) {
           const overageCents = Math.round(overageAmount * 100)
+          // Session 309 (audit 2026-09-22): the item used to be created FIRST as a loose
+          // pending item on the Stripe customer, then attached. When a later step threw,
+          // the catch released the DB claim but left the item pending, and Stripe swept it
+          // into the customer's NEXT invoice — a re-signup months later. That double-billed
+          // Lisa Sturges ($41.25) and Joshua DeLuca MacKay ($49.50). Now: invoice first, item
+          // created already attached to it, and any item that exists on failure is deleted.
+          let invoiceItemId: string | null = null
+          let finalInvoiceId: string | null = null
           try {
-            // Create an invoice item on the customer (not attached to a specific invoice)
-            const invoiceItem = await stripe.invoiceItems.create({
-              customer: stripeCustomerId,
-              amount: overageCents,
-              currency: 'usd',
-              description: `Final overage: $${overageAmount.toFixed(2)} (subscription cancelled)`,
-              metadata: {
-                washroute_overage: 'true',
-                washroute_subscription_id: localSub.id,
-                washroute_final_overage: 'true',
-              },
-            }, {
-              idempotencyKey: `final-overage-${localSub.id}-${sub.id}`,
-            })
-
             // v32: Create invoice with only THIS item to avoid sweeping other pending items,
             // and add idempotency key to prevent duplicate invoices on retries.
             const finalInvoice = await stripe.invoices.create({
@@ -518,11 +511,24 @@ Deno.serve(async (req) => {
               idempotencyKey: `final-overage-inv-${localSub.id}-${sub.id}`,
             })
 
-            // Manually attach the invoice item to the invoice
-            // (since we excluded pending items from auto-sweep)
-            await stripe.invoiceItems.update(invoiceItem.id, {
-              invoice: finalInvoice.id,
-            })
+            finalInvoiceId = finalInvoice.id
+
+            // Create the item directly ON the final invoice
+            invoiceItemId = (await stripe.invoiceItems.create({
+              customer: stripeCustomerId,
+              invoice: finalInvoice.id,  // attached at birth — never a loose pending item
+              amount: overageCents,
+              currency: 'usd',
+              description: `Final overage: $${overageAmount.toFixed(2)} (subscription cancelled)`,
+              metadata: {
+                washroute_overage: 'true',
+                washroute_subscription_id: localSub.id,
+                washroute_final_overage: 'true',
+              },
+            }, {
+              idempotencyKey: `final-overage-${localSub.id}-${sub.id}`,
+            })).id
+
 
             await db.from('subscription_usage_log').insert({
               subscription_id: localSub.id,
@@ -533,6 +539,16 @@ Deno.serve(async (req) => {
             console.log('Final overage invoice created:', finalInvoice.id, 'amount:', overageAmount, 'sub:', localSub.id)
           } catch (e: any) {
             console.error('Failed to create final overage invoice:', e.message)
+            // Never leave money behind in Stripe. A leftover item would be swept into the
+            // customer's next invoice; a leftover draft could auto-finalize and charge.
+            if (invoiceItemId) {
+              try { await stripe.invoiceItems.del(invoiceItemId) }
+              catch (delErr: any) { console.error('CRITICAL: orphaned final-overage invoice item', invoiceItemId, delErr.message) }
+            }
+            if (finalInvoiceId) {
+              try { await stripe.invoices.del(finalInvoiceId) }
+              catch (delErr: any) { console.error('Could not delete draft final-overage invoice', finalInvoiceId, delErr.message) }
+            }
             // Release the claim so Audit Check #15 can catch it and a retry can
             // bill it. Un-stamping is the ONLY way an order becomes billable
             // again — never write overage_amount_due directly.
