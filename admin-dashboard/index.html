@@ -2912,15 +2912,40 @@
                entered Xero as revenue — there is nothing to reverse. This is a
                record, not a journal. -->
           <div id="rpttab-referrals" style="display:none">
+            <!-- Session 314: the funnel. Invites and link opens come from referral_events
+                 (written by the customer app); sign-ups and first orders from referrals. -->
+            <div class="stats-grid" id="ref-funnel" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-top:16px">
+              <div class="stat-card"><div class="stat-label">Invites sent</div><div class="stat-value" id="ref-f-sent">—</div><div class="stat-sub" id="ref-f-sent-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Link opened by friend</div><div class="stat-value" id="ref-f-open">—</div><div class="stat-sub" id="ref-f-open-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Friend signed up</div><div class="stat-value" id="ref-f-signup">—</div><div class="stat-sub" id="ref-f-signup-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Completed — first order</div><div class="stat-value" id="ref-f-done">—</div><div class="stat-sub" id="ref-f-done-sub"></div></div>
+            </div>
+            <div style="font-size:12px;color:var(--gray-500);line-height:1.5;margin:-8px 2px 0">
+              Each step counts what happened in the selected dates. Invites are counted from Sept 22, 2026 — earlier ones were never recorded.
+              An invite counts when the customer shares from the app; we can't see the text itself.
+            </div>
+
             <div class="card" style="margin-top:16px">
               <div class="card-header">
                 <div>
-                  <div class="card-title">Referrals</div>
+                  <div class="card-title">By customer</div>
+                  <div class="card-sub">Who is inviting, and how far their friends get.</div>
+                </div>
+              </div>
+              <div id="referral-by-customer-body">
+                <div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:16px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Friends who signed up</div>
                   <div class="card-sub" id="referral-summary">&nbsp;</div>
                 </div>
               </div>
               <div style="padding:0 24px 12px;font-size:12px;color:var(--gray-500);line-height:1.5">
-                Referrals claimed in the selected dates. Terms and held referrals are in Settings → Referrals.
+                Codes claimed in the selected dates. Terms and held referrals are in Settings → Referrals.
               </div>
               <div id="referral-list-body">
                 <div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>
@@ -42695,6 +42720,8 @@ ${oneCopy}
     const issued    = qualified.reduce((t, r) => t + Number(r.referrer_credit_amount || 0) + Number(r.referred_credit_amount || 0), 0);
     if (sumEl) sumEl.textContent = `${all.length} total · ${qualified.length} qualified · ${fmtMoney(issued)} of credit issued`;
 
+    if (forReport) await renderReferralFunnel(all);
+
     const held = all.filter(r => r.status === 'flagged' || r.status === 'awaiting_release');
     if (queueEl) queueEl.innerHTML = held.length === 0
       ? '<div style="padding:16px;color:var(--gray-500);font-size:13px">Nothing waiting.</div>'
@@ -42738,6 +42765,93 @@ ${oneCopy}
              <td style="font-size:12px;color:var(--gray-500)">${esc(String(r.claimed_at || '').slice(0, 10))}</td>
              <td style="text-align:right">${fmtMoney(r.referred_credit_amount)}</td>
              <td style="text-align:right">${r.status === 'qualified' ? fmtMoney(r.referrer_credit_amount) : '—'}</td>
+           </tr>`).join('')}</tbody></table>`;
+  }
+
+  // Session 314 — Invites sent → link opened → signed up → first order, for the report dates.
+  // `claimed` = referrals claimed in the range (already loaded by the caller).
+  async function renderReferralFunnel(claimed) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const byEl = document.getElementById('referral-by-customer-body');
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl?.value || !toEl?.value) return;
+    const fromIso = pacificDayStart(fromEl.value).toISOString();
+    const toIso   = pacificDayEnd(toEl.value).toISOString();
+
+    // Events: page through 1000 at a time so a busy month is never silently cut off.
+    const events = [];
+    for (let off = 0; ; off += 1000) {
+      const { data, error } = await db.from('referral_events')
+        .select('referrer_customer_id, event_type, surface, method, created_at')
+        .gte('created_at', fromIso).lte('created_at', toIso)
+        .order('created_at', { ascending: true })
+        .range(off, off + 999);
+      if (error) {
+        if (byEl) byEl.innerHTML = `<div style="padding:16px;color:var(--red)">Could not load invites: ${esc(error.message)}</div>`;
+        ['ref-f-sent','ref-f-open'].forEach(id => set(id, '?'));
+        return;
+      }
+      events.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+
+    // First orders completed in the range (the friend may have signed up earlier).
+    const { data: doneRows, error: doneErr } = await db.from('referrals')
+      .select('referrer_customer_id, referrer_credit_amount')
+      .eq('status', 'qualified')
+      .gte('qualified_at', fromIso).lte('qualified_at', toIso)
+      .limit(1000);
+    if (doneErr) set('ref-f-done-sub', 'Could not load: ' + doneErr.message);
+    const done = doneRows || [];
+
+    const sent   = events.filter(e => e.event_type === 'invite_sent');
+    const opened = events.filter(e => e.event_type === 'link_opened');
+    const signed = claimed.filter(r => r.status !== 'void');
+
+    set('ref-f-sent',   sent.length);
+    set('ref-f-open',   opened.length);
+    set('ref-f-signup', signed.length);
+    set('ref-f-done',   doneErr ? '?' : done.length);
+
+    const where = { account: 'Rewards page', post_delivery: 'after delivery', home: 'Home strip' };
+    const bySurface = {};
+    sent.forEach(e => { const k = where[e.surface] || 'other'; bySurface[k] = (bySurface[k] || 0) + 1; });
+    set('ref-f-sent-sub', Object.entries(bySurface).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(' · '));
+    set('ref-f-open-sub',   sent.length ? `${Math.round(100 * opened.length / sent.length)}% of invites` : '');
+    set('ref-f-signup-sub', opened.length ? `${Math.round(100 * signed.length / opened.length)}% of opens` : '');
+    if (!doneErr) set('ref-f-done-sub', signed.length ? `${Math.round(100 * done.length / signed.length)}% of sign-ups` : '');
+
+    // Per referrer
+    const rows = {};
+    const row = id => rows[id] || (rows[id] = { id, sent: 0, opened: 0, signed: 0, done: 0, earned: 0 });
+    sent.forEach(e => row(e.referrer_customer_id).sent++);
+    opened.forEach(e => row(e.referrer_customer_id).opened++);
+    signed.forEach(r => row(r.referrer_customer_id).signed++);
+    done.forEach(r => { const x = row(r.referrer_customer_id); x.done++; x.earned += Number(r.referrer_credit_amount || 0); });
+    const list = Object.values(rows).sort((a, b) => b.done - a.done || b.signed - a.signed || b.sent - a.sent);
+
+    const ids = list.map(r => r.id).filter(Boolean);
+    const names = {};
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data: cs } = await db.from('customers')
+        .select('id, first_name_cache, last_name_cache').in('id', ids.slice(i, i + 100));
+      (cs || []).forEach(c => { names[c.id] = [c.first_name_cache, c.last_name_cache].filter(Boolean).join(' ') || '(no name)'; });
+    }
+
+    if (byEl) byEl.innerHTML = list.length === 0
+      ? '<div style="padding:16px;color:var(--gray-500);font-size:13px">No invites in these dates.</div>'
+      : `<table><thead><tr>
+           <th>Customer</th><th style="text-align:right">Invites</th><th style="text-align:right">Opened</th>
+           <th style="text-align:right">Signed up</th><th style="text-align:right">Completed</th><th style="text-align:right">Credit earned</th>
+         </tr></thead><tbody>${list.map(r => `
+           <tr>
+             <td class="td-name"><a href="#" style="color:inherit;text-decoration:none" onclick="openCustomerPanel('${r.id}');return false">${esc(names[r.id] || '—')}</a></td>
+             <td style="text-align:right">${r.sent}</td>
+             <td style="text-align:right">${r.opened}</td>
+             <td style="text-align:right">${r.signed}</td>
+             <td style="text-align:right">${r.done}</td>
+             <td style="text-align:right">${r.done ? fmtMoney(r.earned) : '—'}</td>
            </tr>`).join('')}</tbody></table>`;
   }
 

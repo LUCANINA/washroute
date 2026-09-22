@@ -9073,6 +9073,11 @@ async function captureReferralFromUrl() {
   try { localStorage.setItem('wr_pending_referral', code); } catch (_) {}
   history.replaceState({}, '', '/');
 
+  // Count the open for the admin Referrals report. The URL is cleared above, so a
+  // reload doesn't count twice. Analytics only — never blocks the page.
+  db.rpc('log_referral_link_open', { p_code: code })
+    .then(({ error }) => { if (error) console.warn('log_referral_link_open:', error.message); }, () => {});
+
   try {
     const { data } = await db.rpc('referral_code_preview', { p_code: code });
     if (!data?.valid) return;
@@ -9200,6 +9205,7 @@ function dismissHomeReferralStrip() {
 }
 
 function openRewardsInvite() {
+  _refInviteFrom = { surface: 'home', at: Date.now() };   // so the report can tell which prompt worked
   goTo('account');
   setTimeout(() => { setRewardsTab('invite'); openSubPanel('sub-rewards'); }, 200);
 }
@@ -9241,7 +9247,7 @@ function dismissReferralAsk(orderId) {
 
 function shareReferralFrom(orderId) {
   markReferralAskDone(orderId);
-  shareReferral();
+  shareReferral('post_delivery');
 }
 
 async function renderPostDeliveryAsk(order) {
@@ -9314,7 +9320,7 @@ async function loadReferralCard() {
         <div class="rw-code" onclick="copyReferralCode()" title="Tap to copy">${escHtml(data.code)}</div>
         <div class="rw-copyhint">Tap code to copy</div>
         <p class="rw-pitch">${pitch}</p>
-        <button class="rw-send" onclick="shareReferral()">Send Invite</button>
+        <button class="rw-send" onclick="shareReferral(refInviteSurface())">Send Invite</button>
         <div class="rw-status">${escHtml(status)}</div>
       </div>`;
     // Program is on → show the tab bar and land on Invite.
@@ -9330,16 +9336,43 @@ function copyReferralCode() {
     .catch(() => showToast('Could not copy — the code is ' + _referral.code, 'error'));
 }
 
+/* Which prompt led here: the Home strip opens Rewards, so remember that for 10 minutes. */
+let _refInviteFrom = null;
+function refInviteSurface() {
+  const f = _refInviteFrom;
+  return f && Date.now() - f.at < 10 * 60 * 1000 ? f.surface : 'account';
+}
+
+/** Records one invite for the admin Referrals report (session 314). Analytics only:
+ *  a failure is logged to the console but never stops the customer from sharing. */
+async function logReferralInvite(surface, method) {
+  try {
+    if (!currentCustomer?.id) return;
+    const { data, error } = await db.rpc('log_referral_invite', {
+      p_customer_id: currentCustomer.id, p_surface: surface, p_method: method
+    });
+    if (error || data?.ok === false) console.warn('log_referral_invite:', error?.message || data?.message);
+  } catch (e) { console.warn('log_referral_invite:', e); }
+}
+
 /** Opens the customer's OWN messaging app. We never text their friend for them. */
-function shareReferral() {
+function shareReferral(surface) {
   const msg = _referral?.share_message;
   if (!msg) return;
+  surface = surface || 'account';
+  _refInviteFrom = null;
   if (navigator.share) {
-    navigator.share({ text: msg }).catch(() => {});
+    // Resolves only when they actually share; cancelling rejects and is not counted.
+    navigator.share({ text: msg })
+      .then(() => logReferralInvite(surface, 'share_sheet'))
+      .catch(() => {});
     return;
   }
+  // No share sheet: we open Messages with the text filled in. We can't see whether
+  // they press send, so this counts the tap. Log first (max ~1.5s), then open.
   const isIos = /iP(hone|ad|od)/.test(navigator.userAgent);
-  window.location.href = 'sms:' + (isIos ? '&' : '?') + 'body=' + encodeURIComponent(msg);
+  const go = () => { window.location.href = 'sms:' + (isIos ? '&' : '?') + 'body=' + encodeURIComponent(msg); };
+  Promise.race([logReferralInvite(surface, 'sms_app'), new Promise(r => setTimeout(r, 1500))]).then(go, go);
 }
 
 if (document.readyState === 'loading') {
