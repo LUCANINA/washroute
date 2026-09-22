@@ -1,5 +1,53 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 321 — Sep 22, 2026: the amortization read crossed the cap, and the alarm was the only thing that noticed
+
+The daily bug check found `reconciliation-run` logging s246's own alarm on the 6am cron:
+
+> `loan_amortization_rows returned 1000 rows — at or above the PostgREST cap. The schedule
+> choice and every schedule anchor this run may be made from a PARTIAL set.`
+
+Measured the same morning: **1,081 anchor rows** (`row_type in ('payment','initial')`, balance not
+null) against a 1,000-row cap. So for at least a week every nightly run chose which schedule wins,
+and which balance answers a date, from a set with ~81 rows missing — and not one finding said so.
+
+**s246 PREDICTED THIS EXACTLY AND STILL DID NOT PREVENT IT.** Its comment gave the read 886 rows of
+1,000, called forty rows "not a margin", named paging as the fix, and left a `console.error` instead.
+A count check is a smoke alarm: it fires into a log nobody reads at 6am. The lesson is not that the
+alarm was wrong — it fired, correctly, for days — it is that **an alarm whose only reader is a log is
+not a control.** (It reached a human only because the daily check greps the logs.)
+
+### THE FIX — `_shared/paged-select.ts`
+
+`fetchAllPaged(label, makeQuery)` requests a page at a time until a short page proves the end. Two
+properties carry it, and both are the point:
+
+- **The query must carry a TOTAL order.** `.range()` pages over whatever order the server chose, so
+  ties can repeat one row and skip another. Every caller ends its `.order()` chain with `id`. The
+  module cannot check that for you — it is the one thing to get right at the call site.
+- **A failed page is never a shorter answer.** It throws. 1,000 good rows plus an error is not a
+  1,000-row answer, it is no answer, and returning the good half is the precise silent-truncation
+  failure the file exists to end. The run fails loudly and says why.
+
+Three reads in `reconciliation-run` now page: `loan_amortization_rows` (1,081 — over),
+`loan_statements` (930 — near), `loan_splits` (678 — grows by one per loan per month forever; paged
+before it crosses rather than after, because the failure it would hit is the silent one). The
+`row_type` filter stays: it is still the invariant that excludes totals and rate-change rows, it is
+just no longer load-bearing for COMPLETENESS. The old `>= 1000` alarm is gone — with paging it would
+cry wolf nightly — replaced by a refusal if either read comes back with no data at all.
+
+### THE TEST — `tests/paged-select.test.mts`, 15 assertions
+
+`node --experimental-strip-types tests/paged-select.test.mts`. The stub IS the cap: it never returns
+more than 1,000 rows for one request, exactly as the server does. It pins the live shape (one request
+returns 1,000 of 1,081, silently; paged returns 1,081, each row once, in two requests), the exact
+multiple (2,000 costs a third, empty read to prove it), the mid-walk error (throws, names the read and
+the rows already held), the runaway guard, and **the inverse of the fix**: a first-page-only version
+stops at 1,000, which is what makes the 1,081 assertion worth having.
+
+### NOT DEPLOYED — see the OPEN block
+
+
 ## Session 320 — Sep 19, 2026: one predicate, three readers — and two bugs the suite caught
 
 David, on the live in-flight table: **Dexter Loan 2 and Verdant Capital Loan both read "per
@@ -47,7 +95,21 @@ The partition is now the **default arrangement**, not a rule that outranks the r
 (`_loansSortPicked`). Click a header and your sort wins outright.
 
 
-## ⚠️ OPEN — read this first (updated Sep 19, 2026, after the s318 deploy)
+## ⚠️ OPEN — read this first (updated Sep 22, 2026, before the s321 deploy)
+
+**⏳ s321 IS WRITTEN AND COMMITTED, NOT DEPLOYED.** The paged reads are in the repo and the suite is
+green; `reconciliation-run` in Supabase is still v86, which is the version that truncates. **Until
+David runs the deploy below, every nightly run is still choosing a schedule from ~81 missing rows.**
+Checked by list, not assumed — re-check rather than trusting this line, and prove the new version
+RUNS (a POST with no `Authorization` header should get the function's own 403, not a 503 preflight).
+The flag is the one below: `reconciliation-run` is `verify_jwt: false`, measured, not inherited.
+
+```
+npx -y supabase@latest functions deploy reconciliation-run --project-ref umjpbuxrdydwejqtensq --no-verify-jwt
+```
+
+**The proof it worked is in the LOG, and it is an absence:** the
+`loan_amortization_rows returned 1000 rows` line must stop appearing on the 6am run.
 
 **✅ s318 IS DEPLOYED, AND IT CAUGHT RAPID ON THE FIRST SCHEDULED RUN.**
 `reconciliation-run` v86 and `loan-xero-post` v75, both still `verify_jwt: false` — the flag survived

@@ -24,6 +24,10 @@ import { checkVoidedSinceLastRun, stampMs } from './voided-since.ts'
 // s318: shared with loan-xero-post so the two halves of this check cannot drift
 // on what counts as the wrong month. See _shared/journal-period.ts.
 import { checkJournalPeriodMismatch } from '../_shared/journal-period.ts'
+// s321: PostgREST caps every select at 1,000 rows and does not say when it
+// truncated. The amortization read crossed that cap for real (1,081 anchor rows
+// on 2026-09-22), so the reads whose completeness a close depends on now page.
+import { fetchAllPaged } from '../_shared/paged-select.ts'
 // The carrying-basis detector is a PURE module in _shared so that the same
 // judgement runs here (on a schedule) and inside loan-bundle (when documents
 // arrive). Session 242's lesson, learned twice in one day: a guard is only as
@@ -1897,8 +1901,17 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
   try {
     const [{ data: loans }, { data: rawStatements }, { data: splits }, { data: amortRows }, { data: contractTerms }, { data: bookBalanceRows }] = await Promise.all([
       supa.from('loan_accounts').select('*'),
-      supa.from('loan_statements').select('*').order('statement_date', { ascending: false }),
-      supa.from('loan_splits').select('*'),
+      // 930 rows and rising against the same 1,000 cap. Paged for the same
+      // reason as the amortization read below; `id` last makes the order total,
+      // which is what keeps pages from repeating or skipping a row.
+      fetchAllPaged('loan_statements', (from, to) => supa.from('loan_statements').select('*')
+        .order('statement_date', { ascending: false }).order('id', { ascending: true }).range(from, to))
+        .then(data => ({ data })),
+      // 678 rows today, and it grows by one per loan per month forever. Paged
+      // before it reaches the cap rather than after, because the failure it would
+      // hit is the silent one above, not a loud one.
+      fetchAllPaged('loan_splits', (from, to) => supa.from('loan_splits').select('*')
+        .order('id', { ascending: true }).range(from, to)).then(data => ({ data })),
       // An amortization schedule IS a lender document. Several loans here (Dexter 2,
       // PCV, Verdant, PayPal 2) are reconciled against a schedule rather than a
       // monthly statement, and the first live version of this check told David they
@@ -1912,17 +1925,22 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
       // point of use: server-side it buys headroom under PostgREST's row cap, and
       // client-side it keeps the invariant visible at the line that depends on it.
       //
-      // THE HEADROOM IS THIN AND SHOULD NOT BE MISTAKEN FOR SAFETY. Measured
-      // 2026-08-28: loan_amortization_rows holds 926 rows against a 1,000 cap, and
-      // this filter takes the read to 886 — forty rows, not a margin. One more
-      // Verdant-sized schedule crosses it, and a silently truncated read here would
-      // decide which schedule wins and which balance answers a date, with no error
-      // anywhere. That is why the count is checked below rather than assumed; raising
-      // the cap is the real fix and is A9's open item.
-      supa.from('loan_amortization_rows')
+      // THE HEADROOM RAN OUT, EXACTLY AS s246 SAID IT WOULD (s321). That note gave
+      // the filtered read 886 rows against a 1,000 cap and called forty rows "not a
+      // margin". On 2026-09-22 it measured 1,081, and the alarm s246 left behind had
+      // been firing on the 6am cron for days: every run since was choosing a schedule
+      // and anchoring balances from a set with ~81 rows missing, with nothing on any
+      // finding to say so. The row_type filter above is kept — it is still the
+      // invariant that excludes totals and rate-change rows — but it is no longer
+      // load-bearing for COMPLETENESS. This read pages, so there is no cap left to
+      // cross; see _shared/paged-select.ts for why the `.order('id')` is what makes
+      // paging safe rather than merely longer.
+      fetchAllPaged('loan_amortization_rows', (from, to) => supa.from('loan_amortization_rows')
         .select('row_date, row_type, balance, interest, principal, schedule_id, loan_amortization_schedules!inner(id, loan_account_id, balance_basis, schedule_generated_date, created_at)')
         .in('row_type', SCHEDULE_ANCHOR_ROW_TYPES)
-        .not('balance', 'is', null),
+        .not('balance', 'is', null)
+        .order('id', { ascending: true })
+        .range(from, to)).then(data => ({ data })),
       // Terms as the LENDER stated them (session 242). Only live rows: a superseded
       // term is history, and predicting a balance from a superseded agreement would
       // report drift that is really just an old contract.
@@ -1942,12 +1960,16 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
     if (!contractTerms) console.error('reconciliation-run: loan_contract_terms read returned no data; the carrying-basis check will stay silent this run')
     // A truncated amortization read is not a smaller answer, it is a DIFFERENT one:
     // the schedule chosen below and the balance answering a date both come from these
-    // rows, and PostgREST truncates at its cap without an error. Never let that decide
-    // a closing balance silently. 1,000 is the project's configured cap; anything at
-    // or above it means the pick was made from a partial set.
-    if ((amortRows?.length ?? 0) >= 1000) {
-      console.error(`reconciliation-run: loan_amortization_rows returned ${amortRows!.length} rows — at or above the PostgREST cap. The schedule choice and every schedule anchor this run may be made from a PARTIAL set. Raise the cap or page this read before trusting a close.`)
-    }
+    // rows, and PostgREST truncates at its cap without an error. That reasoning is
+    // unchanged; what changed is the remedy.
+    // s321: the read is PAGED now, so a count at or above the cap is an ordinary
+    // full answer rather than a truncation, and the old alarm would cry wolf every
+    // night. What still has to be true is that the walk COMPLETED — fetchAllPaged
+    // throws rather than returning a short array, so a null here means the read
+    // itself came back empty-handed and nothing below may be trusted to choose a
+    // schedule or answer a date.
+    if (!amortRows) throw new Error('reconciliation-run: the amortization read returned no data; refusing to choose a schedule or anchor a balance from nothing')
+    if (!rawStatements) throw new Error('reconciliation-run: the loan_statements read returned no data; refusing to close against an unknown set of lender documents')
     const active = (loans || []).filter(l => l.xero_account_code)
     const codes = active.map(l => l.xero_account_code)
 
