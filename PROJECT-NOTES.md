@@ -20,6 +20,13 @@ attached to it; on any failure the item and the draft invoice are deleted. Deplo
 `verify_jwt: false`, measured 2026-09-22 via list_edge_functions, v67):
 `npx -y supabase@latest functions deploy stripe-webhook --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
 
+**Follow-up — paid final-overage invoices now recorded.** They carry no `subscription`, so
+`invoice.payment_succeeded` skipped them: money in Stripe, nothing in Billing History / LTV / reports.
+New block records them as `subscription_invoice`, description "Final overage · Mon YYYY", note = Stripe
+invoice id, same PI idempotency. Shows in Billing History as a refundable "Subscription charge"; revenue
+reports count it under Subscription, not Overage (acceptable — rare). Needs its own deploy (same command).
+Not backfilled: any PAST paid final-overage invoice is only findable in Stripe.
+
 **Data fix.** Liz Morris usage 55 → 25 lbs, pickups 2 → 1: #14382 (30 lbs) was counted in the Aug–Sep
 period (overage billed there) AND this one. Logged as a `manual_adjustment` row. Root cause of the extra 30
 not found — no log row added it; one-off (check 9 finds no other drift).

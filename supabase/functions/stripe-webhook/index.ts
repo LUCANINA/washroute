@@ -783,6 +783,59 @@ Deno.serve(async (req) => {
           }
         }
       }
+
+      // Session 309: a paid FINAL-OVERAGE invoice (created on cancellation) has no
+      // `subscription`, so the block above never recorded it — the money reached Stripe
+      // but never Billing History, LTV or the revenue reports. Record it here, same row
+      // shape as a subscription invoice so refund-charge and the reports both see it.
+      if (!subscriptionId && (invoice.metadata as any)?.washroute_final_overage === 'true') {
+        const amountPaid = (invoice.amount_paid || 0) / 100
+        const paymentIntentId = typeof invoice.payment_intent === 'string'
+          ? invoice.payment_intent
+          : (invoice.payment_intent as any)?.id || null
+        const invStripeCustId = typeof invoice.customer === 'string'
+          ? invoice.customer
+          : (invoice.customer as any)?.id
+        const { data: foCust } = invStripeCustId
+          ? await db.from('customers').select('id, card_brand, card_last4, lifetime_value')
+              .eq('stripe_customer_id', invStripeCustId).maybeSingle()
+          : { data: null }
+
+        if (!foCust) {
+          console.error('Final overage paid but no WashRoute customer for Stripe customer', invStripeCustId, 'invoice', invoice.id)
+        } else if (amountPaid > 0) {
+          let alreadyRecorded = false
+          if (paymentIntentId) {
+            const { data: existing } = await db.from('customer_transactions')
+              .select('id').eq('stripe_payment_intent_id', paymentIntentId).maybeSingle()
+            alreadyRecorded = !!existing
+          }
+          if (alreadyRecorded) {
+            console.log('Final overage already recorded (idempotency hit):', paymentIntentId)
+          } else {
+            const paidMonth = new Date(((invoice.status_transitions as any)?.paid_at || invoice.created) * 1000)
+              .toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+            const { error: foErr } = await db.from('customer_transactions').insert({
+              customer_id: foCust.id,
+              type: 'subscription_invoice',
+              amount: amountPaid,
+              description: `Final overage · ${paidMonth}`,
+              stripe_payment_intent_id: paymentIntentId,
+              payment_method: 'credit_card',
+              card_brand: foCust.card_brand || null,
+              card_last4: foCust.card_last4 || null,
+              note: `Stripe invoice ${invoice.id} (subscription cancelled)`,
+            })
+            if (foErr) {
+              console.error('Final overage customer_transactions insert error:', foErr.message)
+            } else {
+              const newLtv = parseFloat(foCust.lifetime_value || '0') + amountPaid
+              await db.from('customers').update({ lifetime_value: newLtv }).eq('id', foCust.id)
+              console.log(`Recorded final overage $${amountPaid} for customer ${foCust.id}, new LTV $${newLtv}`)
+            }
+          }
+        }
+      }
     }
 
     // v29+v33: -- invoice.payment_failed -- set past_due + dunning notifications + grace period
