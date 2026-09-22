@@ -31,7 +31,28 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// --- Staging kill-switch (Track A3, Aug 2026) ---------------------------
+// Fail-closed: if we can't PROVE this project is production, refuse to
+// create a real Stripe subscription (charges the saved card immediately
+// unless trialing). Never rely on client-side env detection — see
+// WashRoute-Staging-Config-Scope.md and the Billing Boundary Rule in
+// washroute-preflight: any plan/price that COULD charge WILL be charged
+// unless blocked server-side.
+async function assertProductionOrRefuse(db: any): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const { data, error } = await db.from('settings').select('wr_environment').eq('id', 1).single();
+    if (error) return { ok: false, reason: 'wr_environment check failed (fail-closed)' };
+    if (data?.wr_environment !== 'production') {
+      return { ok: false, reason: `Blocked by staging kill-switch: wr_environment='${data?.wr_environment ?? 'unset'}', not 'production'` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: `wr_environment check errored (fail-closed): ${String(e)}` };
+  }
+}
+// --------------------------------------------------------------------------
+
+// ─────────────────────────────────────────────────────────────────────────
 // Session 168 — SERVER-SIDE SOFT-LAUNCH ALLOWLIST (mirrors customer-app
 // SUBSCRIPTIONS_ALLOWLIST). The customer-app allowlist only hides the UI; per
 // the session-157 lesson, a UI flag is NOT a billing boundary. While this list
@@ -51,7 +72,48 @@ function emailAllowed(email: string | null | undefined): boolean {
   if (SUBSCRIPTION_ALLOWLIST.length === 0) return true  // launch mode: open to all
   return !!email && SUBSCRIPTION_ALLOWLIST.includes(String(email).toLowerCase())
 }
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+
+// Session 190 (Feature 2 — scheduled start date). Customers/staff may pick a future
+// start date up to 30 days out instead of always "charge now, start now" (the gap
+// that led to the Olivia Rosaldo-Pratt charge-then-refund-then-redo situation, Jul
+// 2026). No new schema for this — Stripe's own trial mechanism does the work:
+// create the subscription today with `trial_end` set to the chosen date, so nothing
+// is charged until then. While trialing, `subscriptions.current_period_end` (already
+// populated by the webhook from Stripe's period fields) IS the scheduled start date —
+// no separate column needed. See TIMEZONE RULES in the project skill: all date math
+// here is Pacific-anchored, matching admin-dashboard's pacificOffsetStr convention.
+const BIZ_TZ = 'America/Los_Angeles'
+const MAX_START_DAYS_AHEAD = 30
+
+function pacificOffsetStr(iso: string): string {
+  const noonUtc = new Date(`${iso}T12:00:00Z`)
+  const ptHour = parseInt(noonUtc.toLocaleString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', hour12: false }))
+  const offset = 12 - ptHour
+  return (offset >= 0 ? '-' : '+') + String(Math.abs(offset)).padStart(2, '0') + ':00'
+}
+
+function pacificTodayIso(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ })
+}
+
+// Validates a caller-supplied YYYY-MM-DD start date and converts it to a Unix
+// timestamp (seconds) at Pacific midnight, suitable for Stripe's `trial_end`.
+// Returns null for "today" or no date supplied (immediate start — same behavior as
+// before this feature existed). Throws on anything outside [today, today+30].
+function resolveTrialEndEpoch(startDate: string | undefined | null): number | null {
+  if (!startDate) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) throw new Error('Invalid start date format')
+  const todayIso = pacificTodayIso()
+  if (startDate <= todayIso) return null
+  const [y, m, d] = todayIso.split('-').map(Number)
+  const maxUtc = new Date(Date.UTC(y, m - 1, d))
+  maxUtc.setUTCDate(maxUtc.getUTCDate() + MAX_START_DAYS_AHEAD)
+  const maxIso = maxUtc.getUTCFullYear() + '-' + String(maxUtc.getUTCMonth() + 1).padStart(2, '0') + '-' + String(maxUtc.getUTCDate()).padStart(2, '0')
+  if (startDate > maxIso) throw new Error(`Start date can't be more than ${MAX_START_DAYS_AHEAD} days out`)
+  const epochMs = new Date(`${startDate}T00:00:00${pacificOffsetStr(startDate)}`).getTime()
+  return Math.floor(epochMs / 1000)
+}
 
 async function requireOwnership(req: Request, customerId: string): Promise<{ ok: true; userEmail: string | null; isStaff: boolean } | { ok: false; status: number; reason: string }> {
   const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || ''
@@ -88,14 +150,25 @@ Deno.serve(async (req) => {
 
   try {
     const db = createClient(supabaseUrl, supabaseKey)
-    const { planId, customerId } = await req.json()
+    const { planId, customerId, startDate } = await req.json()
 
     if (!planId) throw new Error('planId is required')
     if (!customerId) throw new Error('customerId is required')
 
+    // Throws (400, caught below) if startDate is malformed or out of the allowed range.
+    const trialEndEpoch = resolveTrialEndEpoch(startDate)
+
     const auth = await requireOwnership(req, customerId)
     if (!auth.ok) {
       return new Response(JSON.stringify({ error: auth.reason }), { status: auth.status, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+
+    const envCheck = await assertProductionOrRefuse(db)
+    if (!envCheck.ok) {
+      console.warn('create-subscription blocked by staging kill-switch:', envCheck.reason)
+      return new Response(JSON.stringify({ error: envCheck.reason }), {
+        status: 403, headers: { ...cors, 'Content-Type': 'application/json' },
+      })
     }
 
     // Plan: must exist + be active (Session 157 server-side gate)
@@ -139,10 +212,12 @@ Deno.serve(async (req) => {
     }
 
     // Already subscribed? Don't create a duplicate Stripe subscription.
+    // 'trialing' included (session 190) so a customer with an already-scheduled
+    // future-start subscription can't stack a second one on top of it.
     const { data: existingSub } = await db.from('subscriptions')
       .select('id, status, stripe_subscription_id')
       .eq('customer_id', customerId)
-      .in('status', ['active', 'past_due', 'paused', 'incomplete'])
+      .in('status', ['active', 'past_due', 'paused', 'incomplete', 'trialing'])
       .maybeSingle()
     if (existingSub) {
       return new Response(JSON.stringify({ error: `Already subscribed (${existingSub.status}).`, code: 'already_subscribed' }), {
@@ -176,17 +251,19 @@ Deno.serve(async (req) => {
 
     // Create the subscription. Idempotency key keyed on customer+plan so a double-tap
     // returns the same Stripe subscription instead of creating a duplicate.
-    const idempotencyKey = `sub-create-${customer.id}-${plan.id}`
+    const idempotencyKey = `sub-create-${customer.id}-${plan.id}-${trialEndEpoch || 'now'}`
     const subscription = await stripe.subscriptions.create({
       customer: customer.stripe_customer_id,
       items: [{ price: priceId }],
       default_payment_method: customer.stripe_default_payment_method_id,
       payment_behavior: 'error_if_incomplete',  // surface payment failures immediately instead of leaving sub in 'incomplete'
       expand: ['latest_invoice.payment_intent'],
+      ...(trialEndEpoch ? { trial_end: trialEndEpoch } : {}),
       metadata: {
         supabase_plan_id: plan.id,
         supabase_customer_id: customer.id,
         source: 'in_app_saved_card',
+        ...(trialEndEpoch ? { scheduled_start_date: startDate } : {}),
       },
     }, { idempotencyKey })
 
@@ -216,6 +293,7 @@ Deno.serve(async (req) => {
       card_last4: customer.card_last4,
       plan_name: plan.name,
       price_monthly: plan.price_monthly,
+      scheduled_start_date: trialEndEpoch ? startDate : null,
     }), { headers: { ...cors, 'Content-Type': 'application/json' } })
 
   } catch (error: any) {

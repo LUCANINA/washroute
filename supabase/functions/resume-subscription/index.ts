@@ -16,6 +16,26 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// --- Staging kill-switch (Track A3, Aug 2026) ---------------------------
+// Fail-closed: if we can't PROVE this project is production, refuse to
+// mutate a real Stripe subscription. Never rely on client-side env
+// detection — see WashRoute-Staging-Config-Scope.md and the Billing
+// Boundary Rule in washroute-preflight: any plan/price that COULD charge
+// WILL be charged unless blocked server-side.
+async function assertProductionOrRefuse(db: any): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const { data, error } = await db.from('settings').select('wr_environment').eq('id', 1).single();
+    if (error) return { ok: false, reason: 'wr_environment check failed (fail-closed)' };
+    if (data?.wr_environment !== 'production') {
+      return { ok: false, reason: `Blocked by staging kill-switch: wr_environment='${data?.wr_environment ?? 'unset'}', not 'production'` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: `wr_environment check errored (fail-closed): ${String(e)}` };
+  }
+}
+// --------------------------------------------------------------------------
+
 async function assertOwnership(req: Request, subCustomerId: string): Promise<{ ok: true } | { ok: false, status: number, msg: string }> {
   const tok = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
   if (!tok) return { ok: false, status: 401, msg: 'Unauthorized' };
@@ -53,6 +73,15 @@ Deno.serve(async (req) => {
 
     const auth = await assertOwnership(req, sub.customer_id);
     if (!auth.ok) return new Response(JSON.stringify({ error: auth.msg }), { status: auth.status, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+    const envCheck = await assertProductionOrRefuse(db)
+    if (!envCheck.ok) {
+      console.warn('resume-subscription blocked by staging kill-switch:', envCheck.reason)
+      return new Response(JSON.stringify({ error: envCheck.reason }), {
+        status: 403,
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
+    }
 
     // Session 167 phase 7: resume-subscription now handles BOTH:
     //   (a) Unpause (clear pause_collection) — original use case

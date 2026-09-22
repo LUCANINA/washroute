@@ -15,7 +15,28 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// --- Staging kill-switch (Track A3, Aug 2026) ---------------------------
+// Fail-closed: if we can't PROVE this project is production, refuse to
+// create a real Stripe Checkout session (order/subscription/setup — all
+// three can lead to a real charge). Never rely on client-side env
+// detection — see WashRoute-Staging-Config-Scope.md and the Billing
+// Boundary Rule in washroute-preflight: any plan/price that COULD charge
+// WILL be charged unless blocked server-side.
+async function assertProductionOrRefuse(db: any): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const { data, error } = await db.from('settings').select('wr_environment').eq('id', 1).single();
+    if (error) return { ok: false, reason: 'wr_environment check failed (fail-closed)' };
+    if (data?.wr_environment !== 'production') {
+      return { ok: false, reason: `Blocked by staging kill-switch: wr_environment='${data?.wr_environment ?? 'unset'}', not 'production'` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: `wr_environment check errored (fail-closed): ${String(e)}` };
+  }
+}
+// --------------------------------------------------------------------------
+
+// ─────────────────────────────────────────────────────────────────────────
 // Session 168 — SERVER-SIDE SOFT-LAUNCH ALLOWLIST (mirrors customer-app
 // SUBSCRIPTIONS_ALLOWLIST + create-subscription). The UI flag is NOT a billing
 // boundary (session-157 lesson). While this list is NON-EMPTY, a SUBSCRIPTION
@@ -35,14 +56,60 @@ function emailAllowed(email: string | null | undefined): boolean {
   if (SUBSCRIPTION_ALLOWLIST.length === 0) return true  // launch mode: open to all
   return !!email && SUBSCRIPTION_ALLOWLIST.includes(String(email).toLowerCase())
 }
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+
+// Session 190 (Feature 2 — scheduled start date). Mirrors the same helper in
+// create-subscription — see that file for the full rationale. This is the
+// Stripe-hosted-Checkout fallback path (admin "Start Checkout" button for a
+// customer with no saved card), so it needs the same start-date support.
+const BIZ_TZ = 'America/Los_Angeles'
+const MAX_START_DAYS_AHEAD = 30
+
+function pacificOffsetStr(iso: string): string {
+  const noonUtc = new Date(`${iso}T12:00:00Z`)
+  const ptHour = parseInt(noonUtc.toLocaleString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', hour12: false }))
+  const offset = 12 - ptHour
+  return (offset >= 0 ? '-' : '+') + String(Math.abs(offset)).padStart(2, '0') + ':00'
+}
+
+function pacificTodayIso(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ })
+}
+
+function resolveTrialEndEpoch(startDate: string | undefined | null): number | null {
+  if (!startDate) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) throw new Error('Invalid start date format')
+  const todayIso = pacificTodayIso()
+  if (startDate <= todayIso) return null
+  const [y, m, d] = todayIso.split('-').map(Number)
+  const maxUtc = new Date(Date.UTC(y, m - 1, d))
+  maxUtc.setUTCDate(maxUtc.getUTCDate() + MAX_START_DAYS_AHEAD)
+  const maxIso = maxUtc.getUTCFullYear() + '-' + String(maxUtc.getUTCMonth() + 1).padStart(2, '0') + '-' + String(maxUtc.getUTCDate()).padStart(2, '0')
+  if (startDate > maxIso) throw new Error(`Start date can't be more than ${MAX_START_DAYS_AHEAD} days out`)
+  const epochMs = new Date(`${startDate}T00:00:00${pacificOffsetStr(startDate)}`).getTime()
+  return Math.floor(epochMs / 1000)
+}
+// ─────────────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
   try {
     const db = createClient(supabaseUrl, supabaseServiceKey)
-    const { type, orderId, planId, userId, customerId, successUrl, cancelUrl } = await req.json()
+
+    const envCheck = await assertProductionOrRefuse(db)
+    if (!envCheck.ok) {
+      console.warn('create-checkout blocked by staging kill-switch:', envCheck.reason)
+      return new Response(JSON.stringify({ error: envCheck.reason }), {
+        status: 403,
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const { type, orderId, planId, userId, customerId, successUrl, cancelUrl, startDate } = await req.json()
+
+    // Throws (500, caught below) if startDate is malformed or out of the allowed range.
+    const trialEndEpoch = resolveTrialEndEpoch(startDate)
 
     // Support two lookup modes:
     // 1. customerId (admin flow) — look up customer directly by customers.id
@@ -161,6 +228,9 @@ Deno.serve(async (req) => {
         metadata: { type: 'subscription', plan_id: planId, customer_id: customer.id },
         success_url: `${successUrl}?payment=success&plan=${planId}`,
         cancel_url: cancelUrl,
+        // Session 190 (Feature 2) — scheduled start date, hosted-checkout path.
+        // Nothing is charged until trial_end; the customer still enters their card today.
+        ...(trialEndEpoch ? { subscription_data: { trial_end: trialEndEpoch } } : {}),
       })
 
     } else if (type === 'setup') {

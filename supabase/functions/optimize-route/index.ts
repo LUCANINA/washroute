@@ -10,7 +10,21 @@ const corsHeaders = {
 const DONE_STATUSES = ['complete', 'failed', 'skipped'];
 const SERVICE_TIME_SEC = 240; // 4 minutes per stop (park, walk, handoff, return)
 
-// ─── Haversine fallback (km) ───
+// Session 178: order statuses whose stops the driver will NOT visit, even though
+// the route_stops row is still 'pending'. reconcile_order_stops returns early for
+// these (v_leg_eligible = false) so the stop lingers on the route. The admin RCC
+// and the driver app both already hide them; optimize-route used to route to them
+// anyway, inflating every downstream ETA with drive time to a stop nobody makes.
+//
+// Live case 2026-07-25 Berkeley PM: Leif Martinson and Gadise Reg were both
+// on_hold, one of them 8 miles north in El Cerrito. The detour added ~26 minutes
+// to the ETA of every stop after them.
+const INACTIVE_ORDER_STATUSES = ['on_hold', 'cancelled', 'skipped'];
+
+// Session 178: how old a driver GPS fix may be before we stop trusting it.
+const GPS_MAX_AGE_MS = 20 * 60 * 1000; // 20 minutes
+
+// --- Haversine fallback (km) ---
 function haversine(a: {lat:number;lng:number}, b: {lat:number;lng:number}): number {
   const R = 6371;
   const dLat = (b.lat - a.lat) * Math.PI / 180;
@@ -20,7 +34,40 @@ function haversine(a: {lat:number;lng:number}, b: {lat:number;lng:number}): numb
   return 2 * R * Math.asin(Math.sqrt(x));
 }
 
-// ─── Determine which time-window slot a stop belongs to ───
+// --- The stop's ACTUAL booked window start, in minutes-from-midnight PT ---
+// Session 178: the ETA clock floor used to be the template-snapped slot start
+// rather than what the customer was actually promised. Those agree while every
+// window is grid-aligned, but the booked value is the honest one to hold an ETA
+// against -- and it is what the customer was texted.
+function getStopBookedStartMins(stop: any): number | null {
+  const ts = stop.stop_type === 'delivery'
+    ? (stop._order?.delivery_window_start || stop._order?.pickup_window_start)
+    : (stop._order?.pickup_window_start || stop._order?.delivery_window_start);
+  if (!ts) return null;
+
+  const d = new Date(ts);
+  const pacificStr = d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
+  // Format: "M/D/YYYY, HH:MM:SS"
+  const timePart = pacificStr.split(', ')[1] || '00:00:00';
+  const [h, m] = timePart.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// --- The stop's booked window END, in minutes-from-midnight PT ---
+function getStopBookedEndMins(stop: any): number | null {
+  const ts = stop.stop_type === 'delivery'
+    ? (stop._order?.delivery_window_end || stop._order?.pickup_window_end)
+    : (stop._order?.pickup_window_end || stop._order?.delivery_window_end);
+  if (!ts) return null;
+
+  const d = new Date(ts);
+  const pacificStr = d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
+  const timePart = pacificStr.split(', ')[1] || '00:00:00';
+  const [h, m] = timePart.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// --- Determine which time-window slot a stop belongs to ---
 // Returns the slot start time in minutes-from-midnight (local),
 // e.g. 1080 for 6 PM, 1200 for 8 PM.
 // Clamped to valid template range so reassigned stops from other routes
@@ -31,19 +78,8 @@ function getStopWindowStart(
   tmplEndM: number,
   slotDurM: number,
 ): number {
-  // Use the order's booked window to determine the slot
-  const ts = stop.stop_type === 'delivery'
-    ? (stop._order?.delivery_window_start || stop._order?.pickup_window_start)
-    : (stop._order?.pickup_window_start || stop._order?.delivery_window_start);
-  if (!ts) return tmplStartM; // fallback to first window
-
-  // Convert to Pacific time hours/minutes
-  const d = new Date(ts);
-  const pacificStr = d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
-  // Format: "M/D/YYYY, HH:MM:SS"
-  const timePart = pacificStr.split(', ')[1] || '00:00:00';
-  const [h, m] = timePart.split(':').map(Number);
-  const localMins = h * 60 + m;
+  const localMins = getStopBookedStartMins(stop);
+  if (localMins === null) return tmplStartM; // fallback to first window
 
   // Snap to slot boundary, clamped to valid template range
   if (slotDurM <= 0) return tmplStartM;
@@ -53,7 +89,7 @@ function getStopWindowStart(
   return tmplStartM + clampedIdx * slotDurM;
 }
 
-// ─── Call Google Directions API with optimize:true ───
+// --- Call Google Directions API with optimize:true ---
 async function callGoogleOptimize(
   apiKey: string,
   originStr: string,
@@ -61,7 +97,7 @@ async function callGoogleOptimize(
   waypointStops: any[],
 ): Promise<{ waypointOrder: number[]; legs: any[]; distM: number; durSec: number } | null> {
   if (waypointStops.length === 0) {
-    // Direct route: origin → destination, no waypoints
+    // Direct route: origin -> destination, no waypoints
     const url = new URL('https://maps.googleapis.com/maps/api/directions/json');
     url.searchParams.set('origin', originStr);
     url.searchParams.set('destination', destStr);
@@ -102,7 +138,7 @@ async function callGoogleOptimize(
   return { waypointOrder, legs, distM, durSec };
 }
 
-// ─── Optimize a group of stops (single time window) ───
+// --- Optimize a group of stops (single time window) ---
 // Returns: ordered stops with _legDurSec (drive time to reach this stop from previous)
 async function optimizeWindow(
   apiKey: string,
@@ -139,7 +175,7 @@ async function optimizeWindow(
   }
   ordered.push(dest); // destination is last
 
-  // Attach leg durations — legs[0] is origin→first stop, legs[1] is first→second, etc.
+  // Attach leg durations -- legs[0] is origin->first stop, legs[1] is first->second, etc.
   for (let i = 0; i < ordered.length; i++) {
     const leg = result.legs[i];
     ordered[i]._legDurSec = leg?.duration_in_traffic?.value || leg?.duration?.value || 0;
@@ -173,7 +209,7 @@ Deno.serve(async (req: Request) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const db = createClient(supabaseUrl, supabaseKey);
 
-    // ── 1. Fetch route + template ──
+    // -- 1. Fetch route + template --
     const { data: route } = await db.from('routes')
       .select('id, template_id, run_date, driver_id')
       .eq('id', route_id)
@@ -199,10 +235,13 @@ Deno.serve(async (req: Request) => {
     const arrivalHrs = template?.arrival_window_hours || 2;
     const slotDurM = arrivalHrs * 60;
 
-    // ── 2. Fetch all stops with order + address data ──
+    // -- 2. Fetch all stops with order + address data --
+    // Session 178: also pull orders.status (to drop stops the driver will never
+    // make) and route_stops.completed_at (to anchor the ETA clock on the last
+    // stop the driver actually finished when GPS is missing or stale).
     const { data: stops, error: stopsErr } = await db.from('route_stops')
-      .select(`id, stop_number, stop_type, status, address_id,
-               orders!inner(id, customer_id, pickup_address_id, delivery_address_id,
+      .select(`id, stop_number, stop_type, status, address_id, completed_at,
+               orders!inner(id, customer_id, status, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end)`)
       .eq('route_id', route_id)
       .order('stop_number');
@@ -214,8 +253,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ── 3. Resolve addresses ──
-    // Collect all address IDs (stop-level, order-level pickup/delivery, and customer fallbacks)
+    // -- 3. Resolve addresses --
     const explicitAddrIds = stops.flatMap((s: any) => {
       return [s.address_id, s.orders?.pickup_address_id, s.orders?.delivery_address_id].filter(Boolean);
     });
@@ -249,17 +287,77 @@ Deno.serve(async (req: Request) => {
       };
     });
 
-    // ── 4. Separate done vs pending ──
+    // -- 4. Separate done vs pending --
     const done = enriched.filter((s: any) => DONE_STATUSES.includes(s.status));
-    const pending = enriched.filter((s: any) => !DONE_STATUSES.includes(s.status));
+
+    // Session 178: a stop whose ORDER is on hold / cancelled / skipped is not
+    // going to be visited, even though its route_stops row still reads 'pending'.
+    // Leave its stop_number and estimated_arrival untouched and keep it out of
+    // both the geographic optimization and the ETA chain.
+    const allPending = enriched.filter((s: any) => !DONE_STATUSES.includes(s.status));
+    const inactive = allPending.filter((s: any) => INACTIVE_ORDER_STATUSES.includes(s._order?.status));
+    const pending = allPending.filter((s: any) => !INACTIVE_ORDER_STATUSES.includes(s._order?.status));
+
+    if (inactive.length > 0) {
+      console.log(`[optimize-route] Excluding ${inactive.length} stop(s) whose order is ` +
+        `${INACTIVE_ORDER_STATUSES.join('/')}: ` +
+        inactive.map((s: any) => `${s.id.slice(0,8)}(${s._order?.status})`).join(', '));
+    }
+
     const pendingWithAddr = pending.filter((s: any) => s.lat && s.lng);
     const pendingNoAddr = pending.filter((s: any) => !s.lat || !s.lng);
 
+    // -- 4b. Decide where the driver actually is --
+    // Session 178: previously, with no driver GPS the origin fell back to the
+    // NORTHERNMOST pending stop, and that stop then got a zero-minute drive leg --
+    // i.e. the model teleported the van to a stop it had not reached yet. On
+    // 2026-07-25 the driver's phone last reported at 6:54 PM; the 9:19 PM recompute
+    // anchored the whole chain in El Cerrito, 8 miles from where he was.
+    //
+    // Preference order:
+    //   1. driver GPS passed in by the caller (assumed fresh)
+    //   2. the last stop the driver actually completed on this route
+    //   3. driver row's last known location, if recent enough
+    //   4. northernmost pending stop (legacy last resort)
+    const lastCompleted = done
+      .filter((s: any) => s.completed_at && s.lat && s.lng)
+      .sort((a: any, b: any) =>
+        new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())[0] || null;
+
+    let staleDriverFix: { lat: number; lng: number } | null = null;
+    if ((!driver_lat || !driver_lng) && !lastCompleted && route.driver_id) {
+      const { data: drv } = await db.from('drivers')
+        .select('current_lat, current_lng, last_location_update')
+        .eq('id', route.driver_id)
+        .maybeSingle();
+      if (drv?.current_lat && drv?.current_lng && drv?.last_location_update) {
+        const age = Date.now() - new Date(drv.last_location_update).getTime();
+        if (age <= GPS_MAX_AGE_MS) {
+          staleDriverFix = { lat: Number(drv.current_lat), lng: Number(drv.current_lng) };
+        } else {
+          console.log(`[optimize-route] Ignoring driver GPS fix ${Math.round(age/60000)}min old`);
+        }
+      }
+    }
+
+    let originSource = 'northernmost_stop';
+    let resolvedOrigin: { lat: number; lng: number } | null = null;
+    if (driver_lat && driver_lng) {
+      resolvedOrigin = { lat: Number(driver_lat), lng: Number(driver_lng) };
+      originSource = 'driver_gps';
+    } else if (lastCompleted) {
+      resolvedOrigin = { lat: Number(lastCompleted.lat), lng: Number(lastCompleted.lng) };
+      originSource = 'last_completed_stop';
+    } else if (staleDriverFix) {
+      resolvedOrigin = staleDriverFix;
+      originSource = 'driver_row_recent';
+    }
+
     if (pendingWithAddr.length < 2) {
-      // Nothing meaningful to optimize — just compute ETA for single stop
-      if (pendingWithAddr.length === 1 && driver_lat && driver_lng) {
+      // Nothing meaningful to optimize -- just compute ETA for single stop
+      if (pendingWithAddr.length === 1 && resolvedOrigin) {
         const s = pendingWithAddr[0];
-        const dist = haversine({ lat: driver_lat, lng: driver_lng }, s);
+        const dist = haversine(resolvedOrigin, s);
         const durSec = Math.round(dist / 40 * 3600);
         const eta = new Date(Date.now() + durSec * 1000);
         await db.from('route_stops').update({ estimated_arrival: eta.toISOString() }).eq('id', s.id);
@@ -267,12 +365,14 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({
         success: true, stops_optimized: pendingWithAddr.length,
         message: 'Too few stops to optimize', at_risk: [],
+        excluded_inactive: inactive.length,
+        origin_source: originSource,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    // ── 5. Group pending stops by time window ──
+    // -- 5. Group pending stops by time window --
     const windowGroups: Record<number, any[]> = {};
     pendingWithAddr.forEach(s => {
       const winStart = getStopWindowStart(s, tmplStartM, tmplEndM, slotDurM);
@@ -284,12 +384,7 @@ Deno.serve(async (req: Request) => {
     const windowKeys = Object.keys(windowGroups).map(Number).sort((a, b) => a - b);
     console.log(`[optimize-route] ${pendingWithAddr.length} stops in ${windowKeys.length} window(s): ${windowKeys.map(k => `${Math.floor(k/60)}:${String(k%60).padStart(2,'0')}(${windowGroups[k].length})`).join(', ')}`);
 
-    // ── 5b. Single-pass optimization for routes within Google waypoint limit ──
-    // Google Directions API supports up to 25 waypoints. When we have ≤23 pending
-    // stops (+ origin + destination = 25), optimize everything in one pass for the
-    // best geographic clustering. This is especially important for reassigned stops
-    // from other routes — they need to be interleaved geographically with existing
-    // stops, not isolated in separate window groups.
+    // -- 5b. Single-pass optimization for routes within Google waypoint limit --
     const GOOGLE_MAX_WAYPOINTS = 23; // +origin +dest = 25 total
     // Single-pass optimization is only safe when all stops share one booked window.
     // When multiple windows are present (e.g. a PM route covering both 6-8 PM and
@@ -300,18 +395,20 @@ Deno.serve(async (req: Request) => {
       console.log(`[optimize-route] Single-pass mode: ${pendingWithAddr.length} stops in 1 window`);
     }
 
-    // ── 6. Determine starting position ──
+    // -- 6. Determine starting position --
     let currentOrigin: { lat: number; lng: number };
-    if (driver_lat && driver_lng) {
-      currentOrigin = { lat: Number(driver_lat), lng: Number(driver_lng) };
+    if (resolvedOrigin) {
+      currentOrigin = resolvedOrigin;
     } else {
-      // No driver GPS — use northernmost stop as starting point
+      // No GPS and nothing completed yet -- use northernmost stop as starting point
       const firstGroup = windowGroups[windowKeys[0]];
       const byLat = [...firstGroup].sort((a, b) => b.lat - a.lat);
       currentOrigin = { lat: byLat[0].lat, lng: byLat[0].lng }; // northernmost
+      originSource = 'northernmost_stop';
     }
+    console.log(`[optimize-route] Origin source: ${originSource} (${currentOrigin.lat.toFixed(5)}, ${currentOrigin.lng.toFixed(5)})`);
 
-    // ── 7. Optimize each window sequentially ──
+    // -- 7. Optimize each window sequentially --
     const finalOrder: any[] = [];
     let totalDriveSec = 0;
     let googleCallCount = 0;
@@ -328,7 +425,7 @@ Deno.serve(async (req: Request) => {
         const last = result.ordered[result.ordered.length - 1];
         currentOrigin = { lat: last.lat, lng: last.lng };
       } else {
-        // Google failed — add stops in original order
+        // Google failed -- add stops in original order
         finalOrder.push(...group);
         if (group.length > 0) {
           const last = group[group.length - 1];
@@ -340,13 +437,12 @@ Deno.serve(async (req: Request) => {
     // Add stops without addresses at the end (rare edge case)
     finalOrder.push(...pendingNoAddr);
 
-    // ── 8. Compute ETAs ──
+    // -- 8. Compute ETAs --
     const now = new Date();
     let clock = now.getTime(); // milliseconds
     const atRisk: any[] = [];
 
     // Helper: convert minutes-from-midnight PT on run_date to a UTC timestamp (ms).
-    // Used for both the initial clock (no driver GPS) and the per-stop window floor.
     const runDate = route.run_date || now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
     const winStartMsCache = new Map<number, number>();
     const ptMinsToUtcMs = (mins: number): number => {
@@ -372,6 +468,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Session 178: never rewind the clock behind the last stop the driver finished.
+    if (lastCompleted?.completed_at) {
+      const doneMs = new Date(lastCompleted.completed_at).getTime();
+      if (doneMs > clock) clock = doneMs;
+    }
+
     for (const stop of finalOrder) {
       // Add drive time to this stop
       const driveSec = stop._legDurSec || 0;
@@ -380,15 +482,27 @@ Deno.serve(async (req: Request) => {
       // Clock floor: a stop's ETA can never be earlier than its booked window's start.
       // Without this, a driver running ahead of schedule would be told to arrive at
       // an 8-10 PM customer at 6:08 PM. If we arrive early, the clock waits.
-      const winStart = getStopWindowStart(stop, tmplStartM, tmplEndM, slotDurM);
-      const winStartMs = ptMinsToUtcMs(winStart);
+      //
+      // Session 178: hold the ETA against the window the customer was actually
+      // promised, not the template-snapped slot. These agree whenever the window is
+      // grid-aligned; the booked value is the one that was texted to the customer.
+      const slotStart = getStopWindowStart(stop, tmplStartM, tmplEndM, slotDurM);
+      const bookedStart = getStopBookedStartMins(stop);
+      const floorMins = (bookedStart !== null && bookedStart >= tmplStartM && bookedStart < tmplEndM)
+        ? bookedStart
+        : slotStart;
+      const winStartMs = ptMinsToUtcMs(floorMins);
       if (clock < winStartMs) clock = winStartMs;
 
       const eta = new Date(clock);
       stop._eta = eta;
 
-      // Check if at-risk (ETA past this stop's window deadline)
-      const winEnd = winStart + slotDurM; // e.g., 1080 + 120 = 1200 (8 PM)
+      // Check if at-risk (ETA past this stop's window deadline).
+      // Session 178: measure against the booked window end where we have one.
+      const bookedEnd = getStopBookedEndMins(stop);
+      const winEnd = (bookedEnd !== null && bookedEnd > floorMins)
+        ? bookedEnd
+        : slotStart + slotDurM; // e.g., 1080 + 120 = 1200 (8 PM)
       const etaPacific = eta.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
       const etaTimePart = etaPacific.split(', ')[1] || '00:00:00';
       const [eh, em] = etaTimePart.split(':').map(Number);
@@ -411,9 +525,12 @@ Deno.serve(async (req: Request) => {
       clock += SERVICE_TIME_SEC * 1000;
     }
 
-    // ── 9. Write updated stop_number + estimated_arrival to DB ──
-    const maxDone = done.length > 0
-      ? Math.max(...done.map((s: any) => s.stop_number || 0))
+    // -- 9. Write updated stop_number + estimated_arrival to DB --
+    // Session 178: renumber above BOTH the done stops and any inactive stops we
+    // skipped, so an excluded on-hold stop never collides with an active one.
+    const numbered = [...done, ...inactive];
+    const maxDone = numbered.length > 0
+      ? Math.max(...numbered.map((s: any) => s.stop_number || 0))
       : 0;
 
     const updates = finalOrder.map((s: any, i: number) =>
@@ -424,12 +541,13 @@ Deno.serve(async (req: Request) => {
     );
     await Promise.all(updates);
 
-    // ── 10. Log & return summary ──
+    // -- 10. Log & return summary --
     const totalDriveMin = Math.round(totalDriveSec / 60);
     console.log(
       `[optimize-route] Done: ${finalOrder.length} stops, ` +
       `${totalDriveMin}min drive, ${atRisk.length} at-risk, ` +
-      `${googleCallCount} Google calls, driver_gps=${!!driver_lat}`
+      `${googleCallCount} Google calls, origin=${originSource}, ` +
+      `excluded_inactive=${inactive.length}`
     );
 
     return new Response(JSON.stringify({
@@ -439,6 +557,9 @@ Deno.serve(async (req: Request) => {
       at_risk: atRisk,
       google_calls: googleCallCount,
       driver_origin_used: !!(driver_lat && driver_lng),
+      origin_source: originSource,
+      excluded_inactive: inactive.length,
+      excluded_inactive_stop_ids: inactive.map((s: any) => s.id),
       windows: windowKeys.map(k => ({
         start_mins: k,
         label: `${Math.floor(k/60) % 12 || 12}:${String(k%60).padStart(2,'0')} ${k >= 720 ? 'PM' : 'AM'}`,
