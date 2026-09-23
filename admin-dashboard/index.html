@@ -1165,6 +1165,21 @@
     .slide-over.open { transform:translateX(0);visibility:visible;transition:transform .22s ease, visibility 0s; }
     .slide-over-header { padding:18px 24px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-shrink:0; }
     .slide-over-body { flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px; }
+    /* ── Ask Claude (session 318) ── */
+    .ac-card-row { display:flex; gap:8px; padding:12px 16px; align-items:center; }
+    .ac-card-row .form-input { flex:1; }
+    .ac-chips { display:flex; gap:6px; flex-wrap:wrap; padding:0 16px 12px; }
+    .ac-chip { font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid var(--gray-200); background:white; color:var(--gray-600); cursor:pointer; font-family:inherit; }
+    .ac-chip:hover { background:var(--accent-light); border-color:var(--accent); color:var(--gray-900); }
+    #slideover-ask-claude { width:520px; max-width:100vw; }
+    .ac-msg { max-width:92%; padding:10px 14px; border-radius:12px; font-size:13.5px; line-height:1.5; overflow-wrap:anywhere; }
+    .ac-msg p { margin:0 0 8px; } .ac-msg p:last-child { margin-bottom:0; }
+    .ac-msg ul { margin:4px 0 8px; padding-left:18px; } .ac-msg li { margin:2px 0; }
+    .ac-user { align-self:flex-end; background:var(--accent); color:white; border-bottom-right-radius:4px; white-space:pre-wrap; }
+    .ac-bot  { align-self:flex-start; background:#f9fafb; border:1px solid var(--gray-200); color:var(--gray-900); border-bottom-left-radius:4px; }
+    .ac-err  { align-self:flex-start; background:var(--red-light); color:var(--red); }
+    .ac-tools { font-size:11px; color:var(--gray-400); margin-top:6px; }
+    .ac-thinking { align-self:flex-start; font-size:12.5px; color:var(--gray-500); display:flex; gap:8px; align-items:center; }
     .slide-over-footer { padding:14px 24px;border-top:1px solid var(--gray-200);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0; }
     .day-chips { display:flex;gap:6px; }
     .day-chip { width:36px;height:36px;border-radius:50%;border:1px solid var(--gray-200);background:white;font-size:11px;font-weight:700;color:var(--gray-500);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s; }
@@ -1935,6 +1950,26 @@
 
         <!-- ── OVERVIEW ── -->
         <div class="page active" id="page-overview">
+
+          <!-- Ask Claude (session 318, Phase 1 read-only; admin + manager only — see _acApplyVisibility) -->
+          <div class="card" id="ask-claude-card" style="display:none">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Ask Claude</div>
+                <div class="card-sub">Look up any order, customer, price or route. Read-only for now: it can't change anything.</div>
+              </div>
+            </div>
+            <div class="ac-card-row">
+              <input class="form-input" id="ac-card-input" placeholder="e.g. Why did order #15542 go from $77 to $87?" onkeydown="if(event.key==='Enter'){event.preventDefault();askClaudeFromCard();}">
+              <button class="btn btn-primary" style="font-size:12px;padding:7px 14px" onclick="askClaudeFromCard()">Ask</button>
+            </div>
+            <div class="ac-chips">
+              <button class="ac-chip" onclick="askClaudeOpen('Why did the price change on order #')">Why did a price change?</button>
+              <button class="ac-chip" onclick="askClaudeOpen('Look up customer ')">Look up a customer</button>
+              <button class="ac-chip" onclick="askClaudeOpen('Summarize the routes for today', true)">Today's routes</button>
+              <button class="ac-chip" onclick="askClaudeOpen('What happened to order #')">What happened to an order?</button>
+            </div>
+          </div>
 
           <!-- Open Issues -->
           <div class="card issues-panel">
@@ -6087,6 +6122,25 @@
 
 <!-- ── TEAM MEMBER EDIT SLIDE-OVER ── -->
 <div class="slide-backdrop" id="team-member-backdrop" onclick="closeTeamMemberEditor()"></div>
+<!-- Ask Claude conversation (session 318) -->
+<div class="slide-over" id="slideover-ask-claude">
+  <div class="slide-over-header">
+    <button onclick="askClaudeClose()" title="Close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);display:flex;align-items:center;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+    </button>
+    <div style="flex:1">
+      <div style="font-size:16px;font-weight:700;color:var(--gray-900)">Ask Claude</div>
+      <div style="font-size:12px;color:var(--gray-400);margin-top:2px">Read-only · answers are logged · double-check before telling a customer</div>
+    </div>
+    <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="askClaudeReset()" title="Start a new conversation">New chat</button>
+  </div>
+  <div class="slide-over-body" id="ac-thread" style="gap:10px"></div>
+  <div class="slide-over-footer" style="gap:8px">
+    <textarea class="form-input" id="ac-input" rows="2" style="flex:1;resize:none;font-family:inherit" placeholder="Ask about an order, customer, price, route…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askClaudeSend();}"></textarea>
+    <button class="btn btn-primary" id="ac-send-btn" onclick="askClaudeSend()">Send</button>
+  </div>
+</div>
+
 <div class="slide-over" id="slideover-team-member">
   <div class="slide-over-header">
     <button onclick="closeTeamMemberEditor()" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);display:flex;align-items:center;">
@@ -28859,7 +28913,107 @@ ${noActivityNote}
     }
   }
 
+  // ── Ask Claude (session 318) — Phase 1, READ-ONLY ────────────────────────
+  // UI for the admin-assistant edge function. The browser only sends plain-text
+  // turns; the function checks the caller is admin/manager, runs the lookups, and
+  // logs every question to assistant_log. Nothing here writes business data.
+  const AC_ROLES = ['admin', 'manager'];
+  let _acTurns = [];            // [{role:'user'|'assistant', content:string}]
+  let _acConversationId = null;
+  let _acBusy = false;
+  const AC_TOOL_LABELS = {
+    find_customers: 'searched customers', get_customer: 'opened a customer', get_order: 'opened an order',
+    list_orders: 'listed orders', get_billing_history: 'read billing history', get_sms_history: 'read texts',
+    get_pricing: 'checked pricing', list_issues: 'checked issues', get_routes_for_day: 'checked routes',
+  };
+  function _acApplyVisibility() {
+    const card = document.getElementById('ask-claude-card');
+    if (card) card.style.display = AC_ROLES.includes(currentUserRole) ? '' : 'none';
+  }
+  // Tiny, safe markdown: escape everything first, then **bold**, `code`, and "- " bullets.
+  function _acRender(md) {
+    const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
+    const out = []; let list = null;
+    String(md || '').split('\n').forEach(line => {
+      const m = line.match(/^\s*[-*•]\s+(.*)$/);
+      if (m) { if (!list) { list = []; } list.push('<li>' + inline(m[1]) + '</li>'); return; }
+      if (list) { out.push('<ul>' + list.join('') + '</ul>'); list = null; }
+      if (line.trim()) out.push('<p>' + inline(line.replace(/^#+\s*/, '')) + '</p>');
+    });
+    if (list) out.push('<ul>' + list.join('') + '</ul>');
+    return out.join('');
+  }
+  function _acDraw(thinking) {
+    const el = document.getElementById('ac-thread');
+    if (!el) return;
+    if (!_acTurns.length && !thinking) {
+      el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;line-height:1.6">Ask a question in plain English. Examples:<br>• Why is order #15542 $87?<br>• Find Joyce Lee and show her last orders<br>• What did we text customer 510-926-5142 this week?<br>• How many stops are on today\'s routes?</div>';
+      return;
+    }
+    el.innerHTML = _acTurns.map(t => {
+      if (t.role === 'user') return '<div class="ac-msg ac-user">' + esc(t.content) + '</div>';
+      if (t.error) return '<div class="ac-msg ac-err">' + esc(t.content) + '</div>';
+      const tools = (t.tools || []).map(x => AC_TOOL_LABELS[x.name] || x.name);
+      const toolLine = tools.length ? '<div class="ac-tools">Looked up: ' + esc([...new Set(tools)].join(', ')) + '</div>' : '';
+      return '<div class="ac-msg ac-bot">' + _acRender(t.content) + toolLine + '</div>';
+    }).join('') + (thinking ? '<div class="ac-thinking"><div class="spinner" style="width:14px;height:14px"></div> Looking into it… (can take up to a minute)</div>' : '');
+    el.scrollTop = el.scrollHeight;
+  }
+  function askClaudeOpen(prefill, sendNow) {
+    if (!AC_ROLES.includes(currentUserRole)) { showToast('Ask Claude is only available to admins and managers for now', 'error'); return; }
+    document.getElementById('slideover-ask-claude')?.classList.add('open');
+    _acDraw(_acBusy);
+    const inp = document.getElementById('ac-input');
+    if (inp && prefill) inp.value = prefill;
+    if (sendNow) { askClaudeSend(); return; }
+    if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+  }
+  function askClaudeFromCard() {
+    const c = document.getElementById('ac-card-input');
+    const q = (c?.value || '').trim();
+    if (!q) { askClaudeOpen(''); return; }
+    c.value = '';
+    askClaudeOpen(q, true);
+  }
+  function askClaudeClose() { document.getElementById('slideover-ask-claude')?.classList.remove('open'); }
+  function askClaudeReset() {
+    if (_acBusy) return;
+    _acTurns = []; _acConversationId = null; _acDraw(false);
+    document.getElementById('ac-input')?.focus();
+  }
+  async function askClaudeSend() {
+    if (_acBusy) return;
+    const inp = document.getElementById('ac-input');
+    const q = (inp?.value || '').trim();
+    if (!q) return;
+    inp.value = '';
+    _acTurns.push({ role: 'user', content: q });
+    _acBusy = true;
+    const btn = document.getElementById('ac-send-btn'); if (btn) btn.disabled = true;
+    _acDraw(true);
+    try {
+      const payload = { conversation_id: _acConversationId, messages: _acTurns.filter(t => !t.error).map(t => ({ role: t.role, content: t.content })) };
+      const { data, error } = await db.functions.invoke('admin-assistant', { body: payload });
+      if (error) {
+        let msg = error.message || 'Request failed';
+        try { const b = await error.context?.json?.(); if (b?.error) msg = b.error; } catch (_) {}
+        throw new Error(msg);
+      }
+      if (!data?.answer) throw new Error(data?.error || 'No answer came back');
+      _acConversationId = data.conversation_id || _acConversationId;
+      _acTurns.push({ role: 'assistant', content: data.answer, tools: data.tools_used || [] });
+    } catch (e) {
+      _acTurns.push({ role: 'assistant', content: 'Sorry, that didn\'t work: ' + (e?.message || e), error: true });
+    } finally {
+      _acBusy = false;
+      if (btn) btn.disabled = false;
+      _acDraw(false);
+      inp?.focus();
+    }
+  }
+
   async function loadOverview() {
+    _acApplyVisibility();
     loadOverviewIssues();
     loadRescheduleOrders();
     loadBagCheckIssues();
