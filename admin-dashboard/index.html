@@ -3816,7 +3816,7 @@
             <!-- Add form (hidden by default) -->
             <div id="discount-add-form" style="display:none;padding:16px;background:var(--gray-50);border-top:1px solid var(--gray-100)">
               <div style="font-size:12px;font-weight:700;letter-spacing:0;color:var(--gray-600);margin-bottom:12px">New Discount</div>
-              <div style="display:grid;grid-template-columns:1fr 140px 120px auto;gap:10px;align-items:end">
+              <div style="display:grid;grid-template-columns:1fr 140px 120px 160px auto;gap:10px;align-items:end">
                 <div>
                   <div style="font-size:11.5px;font-weight:600;color:var(--gray-500);margin-bottom:4px">Name</div>
                   <input class="form-input" id="disc-new-name" placeholder="e.g. VIP 20% Off" style="height:34px;font-size:13px">
@@ -3831,6 +3831,19 @@
                 <div>
                   <div style="font-size:11.5px;font-weight:600;color:var(--gray-500);margin-bottom:4px">Value</div>
                   <input class="form-input" id="disc-new-value" type="number" min="0" step="0.01" placeholder="0" style="height:34px;font-size:13px">
+                </div>
+                <div>
+                  <!-- Session 315: how many orders a % code applies to, per customer. -->
+                  <div style="font-size:11.5px;font-weight:600;color:var(--gray-500);margin-bottom:4px">Applies to</div>
+                  <select class="form-input" id="disc-new-uses" style="height:34px;font-size:13px">
+                    <option value="">Every order</option>
+                    <option value="1">One order</option>
+                    <option value="2">First 2 orders</option>
+                    <option value="3">First 3 orders</option>
+                    <option value="4">First 4 orders</option>
+                    <option value="6">First 6 orders</option>
+                    <option value="12">First 12 orders</option>
+                  </select>
                 </div>
                 <div style="display:flex;gap:8px;padding-bottom:1px">
                   <button class="btn btn-primary" style="padding:6px 14px;font-size:13px;height:34px" onclick="saveNewDiscount()">Save</button>
@@ -43100,6 +43113,7 @@ ${oneCopy}
               <div style="font-weight:600;font-size:13.5px;color:var(--gray-900)">${esc(d.name)}${d.admin_only ? ' <span style="font-size:10.5px;font-weight:700;color:var(--gray-500);background:var(--gray-100);border-radius:6px;padding:1px 6px;margin-left:4px" title="Can only be given by staff (profile or POS button) — customers cannot type it as a promo code">Staff only</span>' : ''}</div>
               <div style="font-size:12px;color:var(--gray-500);margin-top:2px">
                 ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'} · ${d.type === 'percent' ? 'Percentage' : 'Fixed amount'}
+                ${d.type === 'percent' ? ` · <select title="How many orders per customer this code applies to" onchange="updateDiscountLimit('${d.id}', this.value)" style="font-size:12px;color:var(--gray-700);border:1px solid var(--gray-200);border-radius:6px;padding:1px 4px;background:#fff">${_discountUseOptions(d.max_orders_per_customer)}</select>` : ''}
               </div>
             </div>
             <div style="width:110px;text-align:right;font-size:12.5px;color:var(--gray-700)">${d.created_at ? fmtDate(d.created_at) : '—'}</div>
@@ -43140,6 +43154,30 @@ ${oneCopy}
     document.getElementById('discount-add-form').style.display = 'none';
     document.getElementById('disc-new-name').value = '';
     document.getElementById('disc-new-value').value = '';
+    const uses = document.getElementById('disc-new-uses'); if (uses) uses.value = '';
+  }
+
+  // Session 315: per-customer order limit for % codes. '' / null = every order.
+  // Fixed ($) codes are single-use gift codes (redeem_discount_code allows ONE redemption
+  // in total), so the limit does not apply to them.
+  function _discountUseOptions(current) {
+    const cur = current == null ? '' : String(current);
+    const presets = [['', 'Every order'], ['1', 'One order'], ['2', 'First 2 orders'], ['3', 'First 3 orders'],
+                     ['4', 'First 4 orders'], ['6', 'First 6 orders'], ['12', 'First 12 orders']];
+    if (cur && !presets.some(p => p[0] === cur)) presets.push([cur, 'First ' + cur + ' orders']);
+    return presets.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('');
+  }
+
+  async function updateDiscountLimit(id, value) {
+    const max = value === '' ? null : parseInt(value, 10);
+    if (max !== null && !(max >= 1)) { showToast('Invalid limit', 'error'); return; }
+    const { data, error } = await db.from('discounts')
+      .update({ max_orders_per_customer: max }).eq('id', id).select().single();
+    if (error) { showToast('Error: ' + error.message, 'error'); renderDiscounts(); return; }
+    const i = allDiscounts.findIndex(d => d.id === id);
+    if (i >= 0) allDiscounts[i] = { ...allDiscounts[i], ...data };
+    renderDiscounts();
+    showToast(max ? `${data.name} now applies to ${max === 1 ? 'one order' : 'the first ' + max + ' orders'} per customer ✓` : `${data.name} now applies to every order ✓`, 'success');
   }
 
   async function saveNewDiscount() {
@@ -43148,7 +43186,9 @@ ${oneCopy}
     const value = parseFloat(document.getElementById('disc-new-value').value) || 0;
     if (!name) { showToast('Please enter a name', 'error'); return; }
     if (value <= 0) { showToast('Please enter a value greater than 0', 'error'); return; }
-    const { data, error } = await db.from('discounts').insert({ name, type, value, active: true }).select().single();
+    const usesRaw = document.getElementById('disc-new-uses')?.value || '';
+    const max_orders_per_customer = (type === 'percent' && usesRaw) ? parseInt(usesRaw, 10) : null;
+    const { data, error } = await db.from('discounts').insert({ name, type, value, active: true, max_orders_per_customer }).select().single();
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     allDiscounts.push(data);
     allDiscounts.sort((a,b) => a.name.localeCompare(b.name));
@@ -50768,7 +50808,7 @@ ${oneCopy}
     const { data: freshOrder } = await db.from('orders')
       .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, subscription_id, created_at,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
-               pickup_address_id, delivery_address_id, total_amount, line_items, tip_amount, tip_type,
+               pickup_address_id, delivery_address_id, total_amount, line_items, tip_amount, tip_type, discount_id,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
@@ -50882,6 +50922,13 @@ ${oneCopy}
           ? (allDiscounts.find(d => d.id === fresh.discount_id) || null)
           : null;
       }
+    }
+    // Session 315: a limited-use code (max_orders_per_customer) is taken off the customer
+    // the moment an order uses it (trg_enforce_discount_use_limit). Re-opening intake on
+    // THAT order must keep its discount, so fall back to the order's own limited code.
+    if (!procCustomerDiscount && order.discount_id) {
+      const od = allDiscounts.find(d => d.id === order.discount_id);
+      if (od && od.max_orders_per_customer) procCustomerDiscount = od;
     }
 
     // Detect same-day: compare local calendar dates in BIZ_TZ (not UTC strings, which

@@ -9892,10 +9892,10 @@ function renderPaymentSection() {
       <div class="rw-disc-ic">%</div>
       <div style="flex:1;min-width:0">
         <div class="rw-k2">Your discount</div>
-        <div class="rw-disc-main">${Number(disc.value)}% off every order</div>
+        <div class="rw-disc-main">${Number(disc.value)}% off ${_discountScope(disc)}</div>
         <div class="rw-disc-sub">${escHtml(disc.name)}</div>
       </div>
-      <span class="mi-badge good">Ongoing</span>
+      <span class="mi-badge good">${disc.max_orders_per_customer ? 'Active' : 'Ongoing'}</span>
     </div>` : '';
   // Balance card is hidden when there's no credit but there is a discount.
   const creditsHtml = (hasCredits || !disc ? balanceHtml : '') + discountHtml;
@@ -10029,13 +10029,21 @@ async function loadPromoCodeData() {
   // Fetch active % discount details (only when a discount_id is set)
   if (currentCustomer.discount_id) {
     const { data: d } = await db.from('discounts')
-      .select('id, name, type, value, active')
+      .select('id, name, type, value, active, max_orders_per_customer')
       .eq('id', currentCustomer.discount_id)
       .maybeSingle();
     currentCustomerDiscount = (d && d.active && d.type === 'percent') ? d : null;
   } else {
     currentCustomerDiscount = null;
   }
+}
+
+// Session 315: a % code can be limited to N orders (discounts.max_orders_per_customer).
+// null = every order. Once used up it is removed from the account automatically.
+function _discountScope(d) {
+  const n = d?.max_orders_per_customer;
+  if (!n) return 'every order';
+  return n === 1 ? 'your next order' : `your next ${n} orders`;
 }
 
 // Shared apply helper. opts.orderId is optional (passed from booking flow).
@@ -10085,7 +10093,10 @@ async function applyPromoCode(code, opts = {}) {
     .select('*').eq('id', currentCustomer.id).maybeSingle();
   if (fresh) currentCustomer = fresh;
   await loadPromoCodeData();
-  showToast(data.message, 'success');
+  const _limited = data.kind === 'percent' && currentCustomerDiscount?.max_orders_per_customer;
+  showToast(_limited
+    ? `${currentCustomerDiscount.name}: ${Number(currentCustomerDiscount.value)}% off ${_discountScope(currentCustomerDiscount)}.`
+    : data.message, 'success');
   return { ok: true, response: data };
 }
 

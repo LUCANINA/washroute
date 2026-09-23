@@ -5036,6 +5036,18 @@
         }
       }
     }
+    // Session 315: a limited-use code (discounts.max_orders_per_customer) comes off the
+    // customer as soon as an order uses it. Re-opening intake on THAT order must keep the
+    // discount, so fall back to the order's own code — only when it is a limited one.
+    if (!_posIntakeDiscount && order.id) {
+      const { data: ordRow } = await db.from('orders').select('discount_id').eq('id', order.id).maybeSingle();
+      if (ordRow?.discount_id) {
+        const { data: od } = await db.from('discounts')
+          .select('id, name, type, value, active, max_orders_per_customer')
+          .eq('id', ordRow.discount_id).maybeSingle();
+        if (od && od.active && od.max_orders_per_customer) _posIntakeDiscount = od;
+      }
+    }
     await loadPosServiceFees();
 
     // Session 196: subscription customers are NOT priced per bag. Their plan includes a
