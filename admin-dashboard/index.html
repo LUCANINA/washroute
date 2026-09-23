@@ -6397,7 +6397,7 @@
 
 <!-- Record Payment Modal (On Account) -->
 <div id="oa-payment-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1055;align-items:center;justify-content:center;">
-  <div class="modal" style="max-width:680px;width:96%;max-height:92vh;display:flex;flex-direction:column">
+  <div class="modal" style="max-width:880px;width:96%;max-height:94vh;display:flex;flex-direction:column">
     <div class="modal-header">
       <div class="modal-title">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="vertical-align:-2px;margin-right:6px"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
@@ -6418,11 +6418,17 @@
           <label class="form-label">To</label>
           <input type="date" id="oap-to" class="form-input" style="max-width:160px" onchange="oaPaymentLoadOrders()">
         </div>
+        <div id="oap-loc-wrap" style="display:none">
+          <label class="form-label">Location</label>
+          <select id="oap-loc" class="form-input" style="max-width:260px" onchange="oaPaymentSetLocation(this.value)"></select>
+        </div>
         <div style="font-size:11.5px;color:var(--gray-400);padding-bottom:9px">Unpaid orders in this date range</div>
       </div>
 
       <!-- Orders checklist -->
-      <div style="border:1px solid var(--gray-200);border-radius:8px;overflow:hidden">
+      <!-- flex-shrink:0 matters: without it the flex column squeezes this box and
+           overflow:hidden clips the bottom of the list (only 17 of 26 orders reachable). -->
+      <div style="border:1px solid var(--gray-200);border-radius:8px;overflow:hidden;flex-shrink:0">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">
           <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer">
             <input type="checkbox" id="oap-select-all" checked onchange="oaPaymentToggleAll(this.checked)">
@@ -6430,7 +6436,7 @@
           </label>
           <span style="font-size:12.5px;color:var(--gray-500)">Outstanding: <strong id="oap-outstanding">$0.00</strong></span>
         </div>
-        <div id="oap-orders-list" style="min-height:200px;max-height:400px;overflow-y:auto"></div>
+        <div id="oap-orders-list" style="min-height:120px;max-height:52vh;overflow-y:auto"></div>
       </div>
 
       <!-- Check details -->
@@ -57310,7 +57316,7 @@ async function _dvIframeLoaded() {
     if (!checked.length) { showToast('Select an account first', 'error'); return; }
     if (checked.length > 1) { showToast('Select one account to record a payment', 'error'); return; }
     const cb = checked[0];
-    _oapState = { type: cb.dataset.type, id: cb.dataset.id, name: cb.dataset.name, orders: [] };
+    _oapState = { type: cb.dataset.type, id: cb.dataset.id, name: cb.dataset.name, orders: [], loc: '' };
     document.getElementById('oap-account-label').textContent = cb.dataset.name;
     document.getElementById('oap-from').value = document.getElementById('rpt-from').value || '';
     document.getElementById('oap-to').value = document.getElementById('rpt-to').value || '';
@@ -57364,18 +57370,56 @@ async function _dvIframeLoaded() {
     const { data, error } = await q;
     if (error) { listEl.innerHTML = '<div style="padding:16px;color:var(--red);font-size:13px">Error loading orders: ' + esc(error.message) + '</div>'; return; }
     st.orders = (data || []).map(o => ({ ...o, _amt: orderChargedTotal(o) }));
+    oaPaymentBuildLocFilter();
     oaPaymentRenderOrders();
   }
   window.oaPaymentLoadOrders = oaPaymentLoadOrders;
+
+  // Location (member customer) of an order, for group accounts like HCEB where one
+  // check often pays for a single location only.
+  function oaPaymentLocName(o) {
+    return ((o.customers?.first_name_cache || '') + ' ' + (o.customers?.last_name_cache || '')).trim() || '—';
+  }
+
+  // Location filter: only the chosen location's orders are listed (and ticked);
+  // the others are dropped from the list so they can't be paid by accident.
+  function oaPaymentBuildLocFilter() {
+    const st = _oapState; if (!st) return;
+    const wrap = document.getElementById('oap-loc-wrap');
+    const sel  = document.getElementById('oap-loc');
+    const counts = {};
+    st.orders.forEach(o => { const n = oaPaymentLocName(o); counts[n] = (counts[n] || 0) + 1; });
+    const names = Object.keys(counts).sort((a, b) => a.localeCompare(b));
+    if (st.type !== 'group' || names.length < 2) {
+      wrap.style.display = 'none';
+      if (st.loc && !counts[st.loc]) st.loc = '';
+      if (st.type !== 'group') st.loc = '';
+      return;
+    }
+    if (st.loc && !counts[st.loc]) st.loc = '';
+    wrap.style.display = '';
+    sel.innerHTML = `<option value="">All locations (${st.orders.length})</option>` +
+      names.map(n => `<option value="${esc(n)}">${esc(n)} (${counts[n]})</option>`).join('');
+    sel.value = st.loc;
+  }
+
+  function oaPaymentSetLocation(loc) {
+    const st = _oapState; if (!st) return;
+    st.loc = loc || '';
+    oaPaymentRenderOrders();
+  }
+  window.oaPaymentSetLocation = oaPaymentSetLocation;
 
   function oaPaymentRenderOrders() {
     const st = _oapState; if (!st) return;
     const listEl = document.getElementById('oap-orders-list');
     const isGroup = st.type === 'group';
-    if (!st.orders.length) {
+    const shown = st.loc ? st.orders.filter(o => oaPaymentLocName(o) === st.loc) : st.orders;
+    listEl.scrollTop = 0;
+    if (!shown.length) {
       listEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No unpaid orders in this date range</div>';
     } else {
-      listEl.innerHTML = st.orders.map(o => {
+      listEl.innerHTML = shown.map(o => {
         const nm = ((o.customers?.first_name_cache || '') + ' ' + (o.customers?.last_name_cache || '')).trim();
         return `<label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;font-size:13px">
           <input type="checkbox" class="oap-order-cb" data-id="${esc(o.id)}" data-amt="${o._amt}" checked onchange="oaPaymentRecalc()">
@@ -57388,10 +57432,10 @@ async function _dvIframeLoaded() {
         </label>`;
       }).join('');
     }
-    const outstanding = st.orders.reduce((s, o) => s + o._amt, 0);
+    const outstanding = shown.reduce((s, o) => s + o._amt, 0);
     document.getElementById('oap-outstanding').textContent = fmtMoney(outstanding);
-    document.getElementById('oap-orders-count').textContent = st.orders.length + ' order' + (st.orders.length === 1 ? '' : 's');
-    document.getElementById('oap-select-all').checked = st.orders.length > 0;
+    document.getElementById('oap-orders-count').textContent = shown.length + ' order' + (shown.length === 1 ? '' : 's');
+    document.getElementById('oap-select-all').checked = shown.length > 0;
     const amtEl = document.getElementById('oap-amount');
     amtEl.value = outstanding ? outstanding.toFixed(2) : '';
     oaPaymentRecalc();
