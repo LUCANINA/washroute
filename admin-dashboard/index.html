@@ -57651,6 +57651,10 @@ async function _dvIframeLoaded() {
 
     // Build per-order detail sections
     let grandSubtotal = 0, grandDeliveryFees = 0, grandTips = 0, grandTotal = 0;
+    // Session 318: the invoice lists every order in the period, but Amount Due is
+    // only what is still unpaid — same rule as the On Account dashboard. Before this
+    // the PDF billed Soul Sanctuary $20,406.05 when $9,631.15 of it was already paid.
+    let grandPaid = 0, grandSettledOther = 0, paidCount = 0;
     // Session 291m: credits (negative) and surcharges (positive) attached to this
     // invoice. They sit below the order detail and before Total Due, so the customer
     // sees what they were billed for AND what was put right.
@@ -57687,6 +57691,14 @@ async function _dvIframeLoaded() {
       grandDeliveryFees += deliveryFee;
       grandTips += tipDollars;
       grandTotal += orderTotal;
+      const _bs = o.billing_status;
+      if (_bs === 'paid') { grandPaid += orderTotal; paidCount++; }
+      else if (_bs === 'refunded' || _bs === 'written_off') grandSettledOther += orderTotal;
+      const _badge = _bs === 'paid'
+        ? '<div style="font-size:12px;font-weight:700;color:#15803d;background:#dcfce7;padding:2px 8px;border-radius:4px">PAID</div>'
+        : (_bs === 'refunded' || _bs === 'written_off')
+          ? `<div style="font-size:12px;font-weight:700;color:#6b7280">${_bs === 'refunded' ? 'REFUNDED' : 'WRITTEN OFF'}</div>`
+          : '<div style="font-size:12px;font-weight:700;color:#374151">DUE</div>';
 
       // Build line item rows
       const liRows = serviceItems.map(li =>
@@ -57705,7 +57717,7 @@ async function _dvIframeLoaded() {
       <div style="margin-bottom:24px;${idx > 0 ? 'border-top:1px solid #e5e7eb;padding-top:16px;' : ''}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
           <div style="font-size:14px;font-weight:700">Order #${o.order_number}</div>
-          <div style="font-size:13px;font-weight:600;color:#374151">INVOICE</div>
+          ${_badge}
         </div>
         <div style="font-size:13px;color:#6b7280;margin-bottom:8px">${custName} &nbsp;•&nbsp; ${orderDate}</div>
         <table style="width:100%;border-collapse:collapse">
@@ -57730,6 +57742,9 @@ async function _dvIframeLoaded() {
         </table>
       </div>`;
     }).join('');
+
+    const _amountDue = Math.round((grandTotal - grandPaid - grandSettledOther + _adjTotal) * 100) / 100;
+    const _hasPayments = grandPaid > 0.005 || grandSettledOther > 0.005;
 
     return `<!DOCTYPE html>
 <html><head><title>${invoiceNumber ? 'Invoice ' + invoiceNumber : 'Invoice'} — ${title}</title>
@@ -57771,8 +57786,8 @@ async function _dvIframeLoaded() {
   </div>
   <div style="text-align:right">
     <div style="font-size:11px;color:#6b7280;">Amount Due</div>
-    <div style="font-size:20px;font-weight:700;margin-top:2px">$${invAmt(grandTotal + _adjTotal)}</div>
-    <div style="font-size:11px;color:#6b7280">${orders.length} order${orders.length !== 1 ? 's' : ''}</div>
+    <div style="font-size:20px;font-weight:700;margin-top:2px">$${invAmt(_amountDue)}</div>
+    <div style="font-size:11px;color:#6b7280">${orders.length} order${orders.length !== 1 ? 's' : ''}${paidCount ? ' · ' + paidCount + ' already paid' : ''}</div>
   </div>
 </div>
 
@@ -57796,9 +57811,21 @@ ${orderSections}
     <td style="padding:5px 0;font-size:12px">${a.label || 'Adjustment'}</td>
     <td style="padding:5px 0;text-align:right;font-size:12px">${Number(a.amount) < 0 ? '−' : ''}$${invAmt(Math.abs(Number(a.amount || 0)))}</td>
   </tr>`).join('')}
+  ${_hasPayments ? `<tr style="border-top:1px solid #d1d5db">
+    <td style="padding:5px 0;font-size:12px;font-weight:600">Total billed</td>
+    <td style="padding:5px 0;text-align:right;font-size:12px;font-weight:600">$${invAmt(grandTotal + _adjTotal)}</td>
+  </tr>
+  ${grandPaid > 0.005 ? `<tr>
+    <td style="padding:5px 0;font-size:12px;color:#15803d">Payments received (${paidCount} order${paidCount !== 1 ? 's' : ''})</td>
+    <td style="padding:5px 0;text-align:right;font-size:12px;color:#15803d">−$${invAmt(grandPaid)}</td>
+  </tr>` : ''}
+  ${grandSettledOther > 0.005 ? `<tr>
+    <td style="padding:5px 0;font-size:12px">Refunded / written off</td>
+    <td style="padding:5px 0;text-align:right;font-size:12px">−$${invAmt(grandSettledOther)}</td>
+  </tr>` : ''}` : ''}
   <tr style="border-top:1px solid #d1d5db">
     <td style="padding:7px 0;font-size:14px;font-weight:700">Total Due</td>
-    <td style="padding:7px 0;text-align:right;font-size:14px;font-weight:700">$${invAmt(grandTotal + _adjTotal)}</td>
+    <td style="padding:7px 0;text-align:right;font-size:14px;font-weight:700">$${invAmt(_amountDue)}</td>
   </tr>
 </table>
 
@@ -57908,6 +57935,8 @@ ${orderSections}
     // (subtotal + tip) so the upper-right header amount and bottom Total Due
     // both match what was/will be billed.
     let grandSub = 0, grandDel = 0, grandTip = 0, grandTotal = 0;
+    // Session 318: Amount Due = unpaid orders only (see generateInvoiceHTML).
+    let grandPaid = 0, grandSettledOther = 0, paidCount = 0;
     orders.forEach(o => {
       const items = Array.isArray(o.line_items) ? o.line_items : [];
       const delFee = items.filter(li => li.type === 'delivery_fee').reduce((s, li) => s + Number(li.amount||0), 0);
@@ -57917,17 +57946,21 @@ ${orderSections}
       const _tipDol = !_tipRaw ? 0
         : (o.tip_type === 'pct' ? Math.round(_preTip * _tipRaw)/100 : Math.round(_tipRaw*100)/100);
       grandSub += sub; grandDel += delFee; grandTip += _tipDol;
-      grandTotal += Math.round((_preTip + _tipDol) * 100) / 100;
+      const _ot = Math.round((_preTip + _tipDol) * 100) / 100;
+      grandTotal += _ot;
+      if (o.billing_status === 'paid') { grandPaid += _ot; paidCount++; }
+      else if (o.billing_status === 'refunded' || o.billing_status === 'written_off') grandSettledOther += _ot;
     });
+    const _amountDue = Math.round((grandTotal - grandPaid - grandSettledOther + _adjTotal) * 100) / 100;
     doc.setFontSize(14);
-    rText('$' + invAmt(grandTotal + _adjTotal), y);
+    rText('$' + invAmt(_amountDue), y);
     y += 5;
     if (groupName && groupName !== title) {
       doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(107,114,128);
       doc.text(groupName, ml, y);
     }
     doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(107,114,128);
-    rText(orders.length + ' order' + (orders.length !== 1 ? 's' : ''), y);
+    rText(orders.length + ' order' + (orders.length !== 1 ? 's' : '') + (paidCount ? '  -  ' + paidCount + ' already paid' : ''), y);
     y += 8;
     hLine(y, [17,17,17]); y += 5;
 
@@ -57961,8 +57994,11 @@ ${orderSections}
       // Order header
       doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(17,17,17);
       doc.text('Order #' + o.order_number, ml, y);
-      doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(55,65,81);
-      rText('INVOICE', y);
+      doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+      if (o.billing_status === 'paid') { doc.setTextColor(21,128,61); rText('PAID', y); }
+      else if (o.billing_status === 'refunded') { doc.setTextColor(107,114,128); rText('REFUNDED', y); }
+      else if (o.billing_status === 'written_off') { doc.setTextColor(107,114,128); rText('WRITTEN OFF', y); }
+      else { doc.setTextColor(55,65,81); rText('DUE', y); }
       y += 4;
       doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(107,114,128);
       doc.text(custName + '  •  ' + orderDate, ml, y);
@@ -58024,9 +58060,25 @@ ${orderSections}
       rText((amt < 0 ? '-' : '') + '$' + invAmt(Math.abs(amt)), y);
       y += 4.5;
     });
+    if (grandPaid > 0.005 || grandSettledOther > 0.005) {
+      needPage(15);
+      hLine(y - 1, [209,213,219]); y += 2;
+      doc.setFont('helvetica', 'bold');
+      doc.text('Total billed', ml, y); rText('$' + invAmt(grandTotal + _adjTotal), y); y += 4.5;
+      doc.setFont('helvetica', 'normal');
+      if (grandPaid > 0.005) {
+        doc.setTextColor(21,128,61);
+        doc.text('Payments received (' + paidCount + ' order' + (paidCount !== 1 ? 's' : '') + ')', ml, y);
+        rText('-$' + invAmt(grandPaid), y); y += 4.5;
+        doc.setTextColor(17,17,17);
+      }
+      if (grandSettledOther > 0.005) {
+        doc.text('Refunded / written off', ml, y); rText('-$' + invAmt(grandSettledOther), y); y += 4.5;
+      }
+    }
     hLine(y - 1, [209,213,219]); y += 2;
     doc.setFontSize(11); doc.setFont('helvetica', 'bold');
-    doc.text('Total Due', ml, y); rText('$' + invAmt(grandTotal + _adjTotal), y); y += 10;
+    doc.text('Total Due', ml, y); rText('$' + invAmt(_amountDue), y); y += 10;
 
     // ── FOOTER ──
     doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(156,163,175);
