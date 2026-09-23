@@ -3173,6 +3173,10 @@ async function handleSignup(e) {
 // fail the signup UI. Only called when the customer explicitly opted into
 // email marketing via the s-email-consent checkbox.
 function subscribeKlaviyoWelcome({ email, first_name, last_name, phone }) {
+  // Session 315: RETIRED. The welcome series is now sent by WashRoute itself (edge function
+  // welcome-emails, every 15 min, from email_marketing_consent_at). Subscribing here too would
+  // send a second welcome from Klaviyo. Kept as a no-op so the four call sites stay untouched.
+  return;
   if (!email) return;
   try {
     fetch(`${SUPA_URL}/functions/v1/klaviyo-subscribe`, {
@@ -3938,6 +3942,7 @@ async function loadHome() {
   renderHomeReferralStrip();   // fire-and-forget; never blocks the order list
   if (currentCustomer?.id) maybeOpenPendingAddCard();
   if (currentCustomer?.id) maybeOpenPendingRating();
+  if (currentCustomer?.id) maybeHandleEmailLinks();
 
   if (!currentCustomer) { renderNoActive(); return; }
   try {
@@ -9390,6 +9395,46 @@ if (document.readyState === 'loading') {
    The public review link (settings.review_link) is offered to EVERY rater,
    whatever the score — Google forbids asking only happy customers. The text
    link is https://app.familylaundry.com/?rate=<order id>. */
+// ── Email deep links (session 315) ──
+// ?page=pricing        → open Account › Pricing
+// ?promo=LOVELAUNDRY   → apply that code once the customer is signed in
+// Captured at load (survives the sign-in step), acted on from renderHome once signed in.
+const LINK_KEY = 'wr_email_link';
+(function captureEmailLinks() {
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    const page = qs.get('page'), promo = qs.get('promo');
+    const intent = {};
+    if (page === 'pricing') intent.page = 'pricing';
+    if (promo && /^[A-Za-z0-9_-]{2,30}$/.test(promo)) intent.promo = promo.toUpperCase();
+    if (!intent.page && !intent.promo) return;
+    localStorage.setItem(LINK_KEY, JSON.stringify({ ...intent, until: Date.now() + 7 * 24 * 60 * 60 * 1000 }));
+    qs.delete('page'); qs.delete('promo');
+    const rest = qs.toString();
+    history.replaceState({}, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+  } catch (_) {}
+})();
+
+function maybeHandleEmailLinks() {
+  let pending = null;
+  try { pending = JSON.parse(localStorage.getItem(LINK_KEY) || 'null'); } catch (_) {}
+  if (!pending) return;
+  try { localStorage.removeItem(LINK_KEY); } catch (_) {}
+  if (!pending.until || pending.until < Date.now()) return;
+  setTimeout(async () => {
+    if (pending.promo) {
+      // Skip quietly if this exact code is already on the account.
+      if (!(currentCustomerDiscount && String(currentCustomerDiscount.name).toUpperCase() === pending.promo)) {
+        await applyPromoCode(pending.promo);
+      }
+    }
+    if (pending.page === 'pricing') {
+      goTo('account');
+      setTimeout(() => openPricingPanel(), 300);
+    }
+  }, 400);
+}
+
 const RATE_KEY = 'wr_open_rating';
 const RATE_WORDS = ['', 'Poor', 'Not great', 'Okay', 'Good', 'Great'];
 let _rateOrderId = null, _rateStars = 0;
