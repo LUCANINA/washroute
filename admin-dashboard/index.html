@@ -1180,6 +1180,16 @@
     .ac-err  { align-self:flex-start; background:var(--red-light); color:var(--red); }
     .ac-tools { font-size:11px; color:var(--gray-400); margin-top:6px; }
     .ac-thinking { align-self:flex-start; font-size:12.5px; color:var(--gray-500); display:flex; gap:8px; align-items:center; }
+    .ac-prop { align-self:stretch; border:1px solid var(--accent); border-radius:10px; background:white; padding:12px 14px; font-size:13px; box-shadow:var(--shadow-sm); }
+    .ac-prop.done { border-color:var(--green); } .ac-prop.failed { border-color:var(--red); } .ac-prop.cancelled { border-color:var(--gray-200); opacity:.7; }
+    .ac-prop-title { font-weight:600; color:var(--gray-900); margin-bottom:8px; }
+    .ac-prop-row { display:grid; grid-template-columns:110px 1fr; gap:8px; padding:3px 0; color:var(--gray-600); }
+    .ac-prop-row .ac-after { color:var(--gray-900); font-weight:500; }
+    .ac-prop-row .ac-before { text-decoration:line-through; color:var(--gray-400); margin-right:6px; }
+    .ac-prop-warn { margin-top:8px; padding:6px 10px; border-radius:6px; background:var(--amber-light); color:#92400e; font-size:12px; }
+    .ac-prop-notify { display:flex; gap:8px; align-items:center; margin-top:10px; font-size:12.5px; color:var(--gray-700,#374151); cursor:pointer; }
+    .ac-prop-actions { display:flex; gap:8px; margin-top:12px; align-items:center; }
+    .ac-prop-status { margin-top:10px; font-size:12.5px; font-weight:500; }
     .slide-over-footer { padding:14px 24px;border-top:1px solid var(--gray-200);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0; }
     .day-chips { display:flex;gap:6px; }
     .day-chip { width:36px;height:36px;border-radius:50%;border:1px solid var(--gray-200);background:white;font-size:11px;font-weight:700;color:var(--gray-500);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s; }
@@ -1956,7 +1966,7 @@
             <div class="card-header">
               <div>
                 <div class="card-title">Ask Claude</div>
-                <div class="card-sub">Look up any order, customer, price or route. Read-only for now: it can't change anything.</div>
+                <div class="card-sub">Look up any order, customer, price or route, or ask it to make a change. Nothing changes until you click Confirm.</div>
               </div>
             </div>
             <div class="ac-card-row">
@@ -6143,7 +6153,7 @@
     </button>
     <div style="flex:1">
       <div style="font-size:16px;font-weight:700;color:var(--gray-900)">Ask Claude</div>
-      <div style="font-size:12px;color:var(--gray-400);margin-top:2px">Read-only · answers are logged · double-check before telling a customer</div>
+      <div style="font-size:12px;color:var(--gray-400);margin-top:2px">Changes need your Confirm · everything is logged · double-check before telling a customer</div>
     </div>
     <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="askClaudeReset()" title="Start a new conversation">New chat</button>
   </div>
@@ -28926,10 +28936,12 @@ ${noActivityNote}
     }
   }
 
-  // ── Ask Claude (session 318) — Phase 1, READ-ONLY ────────────────────────
+  // ── Ask Claude (session 318) ─────────────────────────────────────────────
   // UI for the admin-assistant edge function. The browser only sends plain-text
   // turns; the function checks the caller is admin/manager, runs the lookups, and
-  // logs every question to assistant_log. Nothing here writes business data.
+  // logs every question to assistant_log. Phase 2 (318b): Claude can PROPOSE a
+  // change; it shows here as a card and only runs when staff click Confirm
+  // (mode 'confirm' → the same RPCs the admin buttons use, as this staff member).
   const AC_ROLES = ['admin', 'manager'];
   let _acTurns = [];            // [{role:'user'|'assistant', content:string}]
   let _acConversationId = null;
@@ -28938,7 +28950,55 @@ ${noActivityNote}
     find_customers: 'searched customers', get_customer: 'opened a customer', get_order: 'opened an order',
     list_orders: 'listed orders', get_billing_history: 'read billing history', get_sms_history: 'read texts',
     get_pricing: 'checked pricing', list_issues: 'checked issues', get_routes_for_day: 'checked routes',
+    propose_reschedule: 'prepared a reschedule', propose_skip_or_cancel: 'prepared a skip/cancel',
+    propose_credit: 'prepared a credit change', propose_instructions_update: 'prepared an instructions change',
+    propose_issue: 'prepared an issue', propose_issue_comment: 'prepared an issue comment',
   };
+  function _acPropCard(pr) {
+    const id = esc(pr.id);
+    const rows = (pr.preview?.lines || []).map(l =>
+      '<div class="ac-prop-row"><div>' + esc(l.label) + '</div><div>' +
+      (l.before != null && l.before !== '' ? '<span class="ac-before">' + esc(l.before) + '</span>' : '') +
+      '<span class="ac-after">' + esc(l.after) + '</span></div></div>').join('');
+    const warns = (pr.preview?.warnings || []).map(w => '<div class="ac-prop-warn">' + esc(w) + '</div>').join('');
+    let foot = '';
+    if (pr.state === 'pending' || !pr.state) {
+      foot = (pr.can_notify ? '<label class="ac-prop-notify"><input type="checkbox" ' + (pr.notify ? 'checked' : '') + ' onchange="_acSetNotify(\'' + id + '\', this.checked)"> Text the customer about this change</label>' : '') +
+        '<div class="ac-prop-actions"><button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="askClaudeDecide(\'' + id + '\', true)">Confirm</button>' +
+        '<button class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="askClaudeDecide(\'' + id + '\', false)">Cancel</button></div>';
+    } else if (pr.state === 'working') {
+      foot = '<div class="ac-prop-status" style="color:var(--gray-500)">Working…</div>';
+    } else {
+      const col = pr.state === 'done' ? 'var(--green)' : pr.state === 'failed' ? 'var(--red)' : 'var(--gray-500)';
+      foot = '<div class="ac-prop-status" style="color:' + col + '">' + esc(pr.msg || pr.state) + '</div>';
+    }
+    return '<div class="ac-prop ' + esc(pr.state || 'pending') + '"><div class="ac-prop-title">' + esc(pr.summary) + '</div>' + rows + warns + foot + '</div>';
+  }
+  function _acFindProp(id) {
+    for (const t of _acTurns) for (const pr of (t.proposals || [])) if (pr.id === id) return pr;
+    return null;
+  }
+  function _acSetNotify(id, on) { const pr = _acFindProp(id); if (pr) pr.notify = !!on; }
+  async function askClaudeDecide(id, confirmIt) {
+    const pr = _acFindProp(id);
+    if (!pr || (pr.state && pr.state !== 'pending')) return;
+    pr.state = 'working'; _acDraw(_acBusy);
+    try {
+      const { data, error } = await db.functions.invoke('admin-assistant', {
+        body: { mode: confirmIt ? 'confirm' : 'cancel', action_id: id, notify: !!pr.notify, conversation_id: _acConversationId },
+      });
+      let body = data;
+      if (error) { try { body = await error.context?.json?.(); } catch (_) { body = null; } }
+      if (!body?.ok) throw new Error(body?.error || error?.message || 'Request failed');
+      pr.state = confirmIt ? 'done' : 'cancelled';
+      pr.msg = body.message || (confirmIt ? 'Done' : 'Cancelled');
+      if (confirmIt) showToast('✓ ' + pr.msg, 'success');
+    } catch (e) {
+      pr.state = 'failed';
+      pr.msg = 'Not done: ' + (e?.message || e);
+    }
+    _acDraw(_acBusy);
+  }
   function _acApplyVisibility() {
     const card = document.getElementById('ask-claude-card');
     if (card) card.style.display = AC_ROLES.includes(currentUserRole) ? '' : 'none';
@@ -28960,7 +29020,7 @@ ${noActivityNote}
     const el = document.getElementById('ac-thread');
     if (!el) return;
     if (!_acTurns.length && !thinking) {
-      el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;line-height:1.6">Ask a question in plain English. Examples:<br>• Why is order #15542 $87?<br>• Find Joyce Lee and show her last orders<br>• What did we text customer 510-926-5142 this week?<br>• How many stops are on today\'s routes?</div>';
+      el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;line-height:1.6">Ask a question in plain English. Examples:<br>• Why is order #15542 $87?<br>• Find Joyce Lee and show her last orders<br>• What did we text customer 510-926-5142 this week?<br>• How many stops are on today\'s routes?<br>• Move order #14786\'s pickup to Friday PM<br>• Give Joyce Lee a $9.95 credit for the delivery-fee bug</div>';
       return;
     }
     el.innerHTML = _acTurns.map(t => {
@@ -28968,7 +29028,7 @@ ${noActivityNote}
       if (t.error) return '<div class="ac-msg ac-err">' + esc(t.content) + '</div>';
       const tools = (t.tools || []).map(x => AC_TOOL_LABELS[x.name] || x.name);
       const toolLine = tools.length ? '<div class="ac-tools">Looked up: ' + esc([...new Set(tools)].join(', ')) + '</div>' : '';
-      return '<div class="ac-msg ac-bot">' + _acRender(t.content) + toolLine + '</div>';
+      return '<div class="ac-msg ac-bot">' + _acRender(t.content) + toolLine + '</div>' + (t.proposals || []).map(_acPropCard).join('');
     }).join('') + (thinking ? '<div class="ac-thinking"><div class="spinner" style="width:14px;height:14px"></div> Looking into it… (can take up to a minute)</div>' : '');
     el.scrollTop = el.scrollHeight;
   }
@@ -29005,7 +29065,10 @@ ${noActivityNote}
     const btn = document.getElementById('ac-send-btn'); if (btn) btn.disabled = true;
     _acDraw(true);
     try {
-      const payload = { conversation_id: _acConversationId, messages: _acTurns.filter(t => !t.error).map(t => ({ role: t.role, content: t.content })) };
+      const _withStatus = t => (t.proposals || []).length
+        ? t.content + '\n\n' + t.proposals.map(p => `[Proposed change "${p.summary}": ${p.state === 'done' ? 'CONFIRMED by staff — ' + (p.msg || 'done') : p.state === 'cancelled' ? 'cancelled by staff' : p.state === 'failed' ? 'FAILED — ' + (p.msg || '') : 'not confirmed yet'}]`).join('\n')
+        : t.content;
+      const payload = { conversation_id: _acConversationId, messages: _acTurns.filter(t => !t.error).map(t => ({ role: t.role, content: _withStatus(t) })) };
       const { data, error } = await db.functions.invoke('admin-assistant', { body: payload });
       if (error) {
         let msg = error.message || 'Request failed';
@@ -29014,7 +29077,8 @@ ${noActivityNote}
       }
       if (!data?.answer) throw new Error(data?.error || 'No answer came back');
       _acConversationId = data.conversation_id || _acConversationId;
-      _acTurns.push({ role: 'assistant', content: data.answer, tools: data.tools_used || [] });
+      _acTurns.push({ role: 'assistant', content: data.answer, tools: data.tools_used || [],
+        proposals: (data.proposals || []).map(p => ({ ...p, state: 'pending', notify: false })) });
     } catch (e) {
       _acTurns.push({ role: 'assistant', content: 'Sorry, that didn\'t work: ' + (e?.message || e), error: true });
     } finally {

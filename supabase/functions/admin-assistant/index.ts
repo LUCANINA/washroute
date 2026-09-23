@@ -1,14 +1,16 @@
-// admin-assistant — "Ask Claude" for the admin dashboard (session 318, Phase 1: READ-ONLY).
+// admin-assistant — "Ask Claude" for the admin dashboard (session 318; Phase 2 = confirm-before-change).
 //
 // The admin Overview page sends the conversation so far; this function checks the
 // caller is an admin or manager, then runs a Claude tool loop where every tool is a
 // fixed, read-only query (no raw SQL, no writes to business tables). Each turn is
 // logged to public.assistant_log — log row first, answer filled in after.
 //
-// Phase 2 (order changes) and Phase 3 (B2B account setup) will add WRITE tools that
-// call the existing RPCs and require a staff "Confirm" click. None exist here.
+// Phase 2 (session 318b): propose_* tools in actions.ts. Claude only PROPOSES a change;
+// it runs when the staff member clicks Confirm (a separate request, mode 'confirm'),
+// through the existing RPCs, as that staff member. Phase 3 (B2B account setup) is next.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { ACTION_TOOLS, CREDIT_CAP, isActionTool, proposeAction, confirmAction, cancelAction, type Proposal } from "./actions.ts"
 
 const supabaseUrl        = Deno.env.get('SUPABASE_URL')!
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -33,7 +35,7 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 
 // ── Auth (pattern from charge-order; see supabase/functions/_shared_auth_note.md) ──
-type Caller = { id: string; name: string; role: string }
+type Caller = { id: string; name: string; role: string; jwt: string }
 async function authorize(req: Request): Promise<{ ok: true; caller: Caller } | { ok: false; status: number; reason: string }> {
   const m = (req.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i)
   if (!m) return { ok: false, status: 401, reason: 'Missing Authorization header' }
@@ -51,7 +53,7 @@ async function authorize(req: Request): Promise<{ ok: true; caller: Caller } | {
   if (!ASSISTANT_ROLES.has(profile.role)) return { ok: false, status: 403, reason: `Role '${profile.role}' cannot use the assistant yet` }
 
   const name = [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim() || 'Staff'
-  return { ok: true, caller: { id: user.id, name, role: profile.role } }
+  return { ok: true, caller: { id: user.id, name, role: profile.role, jwt } }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -204,7 +206,7 @@ async function runTool(db: Db, name: string, input: Record<string, unknown>): Pr
         ? check(await db.from('discounts').select('name, type, value, active').eq('id', cust.discount_id).maybeSingle(), 'discount')
         : null
       const billingGroup = cust.billing_group_id
-        ? check(await db.from('billing_groups').select('*').eq('id', cust.billing_group_id).maybeSingle(), 'billing group')
+        ? check(await db.from('billing_groups').select('id, name, invoice_style, contacts, notes').eq('id', cust.billing_group_id).maybeSingle(), 'billing group')
         : null
       return {
         customer: cust, addresses: check(addrs, 'addresses'), subscriptions: subRows, plans, discount,
@@ -241,7 +243,8 @@ async function runTool(db: Db, name: string, input: Record<string, unknown>): Pr
       let q = db.from('orders').select(ORDER_SUMMARY_COLS + ', customer_id')
       if (input.customer_id) q = q.eq('customer_id', mustUuid(input.customer_id, 'customer_id'))
       if (input.status) q = q.eq('status', clean(input.status))
-      // Pacific-day bounds; -07:00/-08:00 handled by letting Postgres parse the zone name.
+      // Pacific-day bounds, padded by an hour either side of DST (-08:00 start / -07:00 end).
+      for (const k of ['pickup_from', 'pickup_to']) if (input[k] && !/^\d{4}-\d{2}-\d{2}$/.test(String(input[k]))) throw new Error(`${k} must be YYYY-MM-DD`)
       if (input.pickup_from) q = q.gte('pickup_window_start', `${clean(input.pickup_from)}T00:00:00-08:00`)
       if (input.pickup_to) q = q.lte('pickup_window_start', `${clean(input.pickup_to)}T23:59:59-07:00`)
       if (!input.customer_id && !input.status && !input.pickup_from && !input.pickup_to) throw new Error('Give at least one filter (customer_id, status, or a date range).')
@@ -318,7 +321,15 @@ How pricing works (verify with get_pricing / get_order, don't assume amounts):
 - Order statuses: scheduled → picked_up → processing → folding → ready_for_delivery → out_for_delivery → delivered; also skipped, cancelled, pickup_failed, delivery_failed, on_hold.
 - Pricelists: Delivery (standard), Subscription, Commercial, HCEB. B2B accounts (e.g. Kidango sites) are commercial accounts, often grouped by billing group and invoiced.
 
-Your job: answer staff questions and investigate problems using your tools. You are READ-ONLY in this version: you cannot change orders, customers, credits, or send messages. If asked to change something, say what should be changed and where in the admin to do it, and mention that doing it for them is coming in a later version.
+Your job: answer staff questions, investigate problems, and — when staff ask — prepare changes for them.
+
+Making changes (propose_* tools):
+- You can PROPOSE: rescheduling a pickup/delivery, skipping/cancelling an order that hasn't been picked up, adding or removing account credit (up to $${CREDIT_CAP} per customer per 24 hours — if asked for more, don't propose a partial or split amount; say the whole credit must be done by hand), replacing an order's laundry instructions, opening a staff issue, and commenting on an issue.
+- A proposal does NOT change anything. It shows the staff member a card with the before → after and Confirm / Cancel buttons. Never say a change is done — say "I've prepared it — click Confirm on the card below." Only the staff member's Confirm makes it happen.
+- Only propose what the staff member asked for (or clearly agreed to). Look things up first so the proposal is right (right order, right customer, right date). One proposal per change.
+- If a tool refuses (wrong status, over the credit limit, no route that day), explain the refusal plainly and what they can do instead.
+- You cannot change bag counts, weights, prices or line items, charge or refund cards, or text/email customers yourself. For those, tell them where in the admin to do it (bag/price changes: open the order → Edit Order; refunds: the order's Payments section).
+- Reschedules: the card has a "Text the customer" checkbox (off by default). Mention it if the customer should hear about the change.
 
 How to work:
 - Always look things up before answering. Never guess an amount, date or status — cite what the data shows (order numbers, amounts, dates).
@@ -340,7 +351,7 @@ async function callClaude(system: string, messages: Msg[]) {
       model: MODEL,
       max_tokens: 2000,
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-      tools: TOOLS,
+      tools: [...TOOLS, ...ACTION_TOOLS],
       messages,
     }),
   })
@@ -358,10 +369,26 @@ Deno.serve(async (req) => {
   const caller = auth.caller
   if (!ANTHROPIC_KEY) return json({ error: 'ANTHROPIC_API_KEY secret not set' }, 500)
 
-  let body: { conversation_id?: string; messages?: { role: string; content: string }[] }
+  let body: { mode?: string; action_id?: string; notify?: boolean; conversation_id?: string; messages?: { role: string; content: string }[] }
   try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
 
   const conversationId = UUID.test(body.conversation_id || '') ? body.conversation_id! : crypto.randomUUID()
+  const db = createClient(supabaseUrl, supabaseServiceKey)
+  // The staff member's own session: every change runs through RPCs/RLS as THEM.
+  const userDb = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: `Bearer ${caller.jwt}` } } })
+  const ctx = { svc: db, user: userDb, caller, conversationId }
+
+  // ── Confirm / Cancel a proposed change (button on the card, not Claude) ──
+  if (body.mode === 'confirm' || body.mode === 'cancel') {
+    try {
+      const out = body.mode === 'confirm'
+        ? await confirmAction(ctx, String(body.action_id || ''), body.notify === true)
+        : await cancelAction(ctx, String(body.action_id || ''))
+      return json({ ok: true, ...out })
+    } catch (e) {
+      return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 409)
+    }
+  }
   // Client sends plain-text turns only; tool results never come from the browser.
   const turns = (Array.isArray(body.messages) ? body.messages : [])
     .filter(m => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
@@ -370,8 +397,6 @@ Deno.serve(async (req) => {
   while (turns.length && turns[0].role !== 'user') turns.shift()
   if (!turns.length || turns[turns.length - 1].role !== 'user') return json({ error: 'Last message must be from the user' }, 400)
   const question = turns[turns.length - 1].content
-
-  const db = createClient(supabaseUrl, supabaseServiceKey)
 
   // Log FIRST (house rule: a log write that fails stops the action).
   const { data: logRow, error: logErr } = await db.from('assistant_log').insert({
@@ -384,6 +409,8 @@ Deno.serve(async (req) => {
   }
 
   const toolsUsed: { name: string; input: unknown; error?: string }[] = []
+  const proposals: Proposal[] = []
+  const MAX_PROPOSALS = 5
   let inTok = 0, outTok = 0
   const messages: Msg[] = [...turns]
   let answer = ''
@@ -405,7 +432,16 @@ Deno.serve(async (req) => {
       messages.push({ role: 'assistant', content })
       const results = await Promise.all(toolCalls.map(async (tc: { id: string; name: string; input: Record<string, unknown> }) => {
         try {
-          const out = JSON.stringify(toPT(await runTool(db, tc.name, tc.input || {})))
+          let raw: unknown
+          if (isActionTool(tc.name)) {
+            if (proposals.length >= MAX_PROPOSALS) throw new Error(`Max ${MAX_PROPOSALS} proposed changes per message — ask the staff member to confirm these first.`)
+            const prop = await proposeAction(ctx, tc.name, tc.input || {})
+            proposals.push(prop)
+            raw = { proposal_id: prop.id, status: 'WAITING FOR STAFF TO CLICK CONFIRM — nothing has changed yet', summary: prop.summary, preview: prop.preview }
+          } else {
+            raw = await runTool(db, tc.name, tc.input || {})
+          }
+          const out = JSON.stringify(toPT(raw))
           toolsUsed.push({ name: tc.name, input: tc.input })
           return { type: 'tool_result', tool_use_id: tc.id, content: out.length > MAX_TOOL_CHARS ? out.slice(0, MAX_TOOL_CHARS) + '…(truncated — ask for less)' : out }
         } catch (e) {
@@ -423,10 +459,10 @@ Deno.serve(async (req) => {
   }
 
   const { error: updErr } = await db.from('assistant_log').update({
-    answer: failure ? null : answer, tools_used: toolsUsed, input_tokens: inTok, output_tokens: outTok, error: failure,
+    answer: failure ? null : answer, tools_used: [...toolsUsed, ...proposals.map(p => ({ name: 'proposal', input: { id: p.id, summary: p.summary } }))], input_tokens: inTok, output_tokens: outTok, error: failure,
   }).eq('id', logRow.id)
   if (updErr) console.error('[admin-assistant] log update failed:', updErr.message)
 
-  if (failure) return json({ error: 'The assistant ran into a problem: ' + failure, conversation_id: conversationId }, 502)
-  return json({ answer, conversation_id: conversationId, tools_used: toolsUsed.map(t => ({ name: t.name, input: t.input, error: t.error })) })
+  if (failure) return json({ error: 'The assistant ran into a problem: ' + failure, conversation_id: conversationId, proposals }, 502)
+  return json({ answer, conversation_id: conversationId, proposals, tools_used: toolsUsed.map(t => ({ name: t.name, input: t.input, error: t.error })) })
 })
