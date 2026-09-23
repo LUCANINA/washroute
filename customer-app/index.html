@@ -7369,10 +7369,13 @@ async function saveEditOrder() {
   const isPerLb        = svc?.pricing_type === 'per_lb';
   const estLbs         = isPerLb ? bags * (parseFloat(svc?.lbs_per_bag) || 25) : 0;
   const baseTotal      = isPerLb ? (estLbs * basePrice) : (bags * basePrice);
-  // Session 167: pricelist-aware
-  const editRouteFees  = getCustomerFees().filter(f => f.category === 'Delivery' || f.category === 'Pickup');
-  const editRouteFeeTotal = editRouteFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
-  const total          = Math.round((baseTotal + addonTotal + editRouteFeeTotal) * 100) / 100;
+  // Session 318 (Joyce Lee #15542): the delivery fee is already one of the
+  // existingAddons lines (type 'delivery_fee', written at booking — $0 for
+  // subscribers). Session 167 ALSO added the pricelist route fees here, so every
+  // customer edit (even a notes-only change) double-counted the $9.95 fee, and
+  // charged subscribers a fee they don't pay. An edit only changes the bag
+  // count, so the total is base + the order's own existing lines — never re-add fees.
+  const total          = Math.round((baseTotal + addonTotal) * 100) / 100;
   const editBaseLabel  = isPerLb
     ? `Est. ${estLbs} lbs × ${$m(basePrice)}/lb`
     : `${bags} bag${bags !== 1 ? 's' : ''} × ${$m(basePrice)}`;
