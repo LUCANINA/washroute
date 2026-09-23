@@ -57530,8 +57530,9 @@ async function _dvIframeLoaded() {
     btn.disabled = false; btn.textContent = 'Record Payment';
     if (error) { showToast('Failed to record payment: ' + error.message, 'error'); return; }
     showToast(`Payment recorded — ${data.settled_count} order(s) marked paid ✓`, 'success');
-    await oaPaymentLoadOrders();
-    await oaPaymentRenderHistory();
+    // Close once the payment is in — staying open reloaded the list with the
+    // remaining (other-location) orders all ticked, inviting a second payment.
+    closeOAPaymentModal();
     loadOnAccountReport();
   }
   window.submitOAPayment = submitOAPayment;
