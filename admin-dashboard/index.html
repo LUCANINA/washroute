@@ -1190,6 +1190,15 @@
     .ac-prop-notify { display:flex; gap:8px; align-items:center; margin-top:10px; font-size:12.5px; color:var(--gray-700,#374151); cursor:pointer; }
     .ac-prop-actions { display:flex; gap:8px; margin-top:12px; align-items:center; }
     .ac-prop-status { margin-top:10px; font-size:12.5px; font-weight:500; }
+    /* Session 318c: Undo + Recent changes */
+    .ac-prop.undo { border-style:dashed; }
+    .ac-undo-btn { font-size:12px; padding:4px 12px; margin-top:8px; }
+    .ac-chg-row { display:flex; gap:10px; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--gray-100); font-size:13px; }
+    .ac-chg-row:last-child { border-bottom:none; }
+    .ac-chg-main { flex:1; min-width:0; }
+    .ac-chg-sum { color:var(--gray-900); font-weight:500; overflow-wrap:anywhere; }
+    .ac-chg-meta { color:var(--gray-400); font-size:11.5px; margin-top:2px; }
+    .ac-chg-tag { display:inline-block; font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:999px; background:var(--gray-100); color:var(--gray-500); margin-left:6px; vertical-align:1px; }
     .slide-over-footer { padding:14px 24px;border-top:1px solid var(--gray-200);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0; }
     .day-chips { display:flex;gap:6px; }
     .day-chip { width:36px;height:36px;border-radius:50%;border:1px solid var(--gray-200);background:white;font-size:11px;font-weight:700;color:var(--gray-500);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s; }
@@ -1968,6 +1977,7 @@
                 <div class="card-title">Ask Claude</div>
                 <div class="card-sub">Look up any order, customer, price or route, or ask it to make a change. Nothing changes until you click Confirm.</div>
               </div>
+              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px;margin-left:auto;white-space:nowrap" onclick="askClaudeShowChanges()" title="Changes confirmed through Ask Claude — undo from here">Recent changes</button>
             </div>
             <div class="ac-card-row">
               <input class="form-input" id="ac-card-input" placeholder="e.g. Why did order #15542 go from $77 to $87?" onkeydown="if(event.key==='Enter'){event.preventDefault();askClaudeFromCard();}">
@@ -6157,6 +6167,7 @@
       <div style="font-size:16px;font-weight:700;color:var(--gray-900)">Ask Claude</div>
       <div style="font-size:12px;color:var(--gray-400);margin-top:2px">Changes need your Confirm · everything is logged · double-check before telling a customer</div>
     </div>
+    <button class="btn btn-ghost" id="ac-view-btn" style="font-size:12px;padding:5px 10px" onclick="askClaudeToggleView()" title="Changes confirmed through Ask Claude — undo from here">Recent changes</button>
     <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="askClaudeReset()" title="Start a new conversation">New chat</button>
   </div>
   <div class="slide-over-body" id="ac-thread" style="gap:10px"></div>
@@ -28950,6 +28961,13 @@ ${noActivityNote}
   let _acTurns = [];            // [{role:'user'|'assistant', content:string}]
   let _acConversationId = null;
   let _acBusy = false;
+  // Session 318c — Undo. Undo cards opened from "Recent changes" live here (they have
+  // no chat turn to hang off); ones opened from a chat card sit under that card.
+  const AC_UNDOABLE = ['reschedule', 'skip_or_cancel', 'adjust_credit', 'update_instructions'];
+  let _acView = 'chat';           // 'chat' | 'changes'
+  let _acListProps = [];
+  let _acChanges = null;          // rows from assistant_actions, or null while loading
+  let _acChangesErr = '';
   const AC_TOOL_LABELS = {
     find_customers: 'searched customers', get_customer: 'opened a customer', get_order: 'opened an order',
     list_orders: 'listed orders', get_billing_history: 'read billing history', get_sms_history: 'read texts',
@@ -28975,12 +28993,88 @@ ${noActivityNote}
     } else {
       const col = pr.state === 'done' ? 'var(--green)' : pr.state === 'failed' ? 'var(--red)' : 'var(--gray-500)';
       foot = '<div class="ac-prop-status" style="color:' + col + '">' + esc(pr.msg || pr.state) + '</div>';
+      if (pr.state === 'done' && pr.undone) {
+        foot += '<div class="ac-prop-status" style="color:var(--gray-500)">↩ Undone</div>';
+      } else if (pr.state === 'done' && AC_UNDOABLE.includes(pr.action_type)) {
+        foot += pr.undoBusy
+          ? '<div class="ac-prop-status" style="color:var(--gray-500)">Preparing undo…</div>'
+          : '<button class="btn btn-ghost ac-undo-btn" onclick="askClaudeUndo(\'' + id + '\')">↩ Undo</button>';
+      }
     }
-    return '<div class="ac-prop ' + esc(pr.state || 'pending') + '"><div class="ac-prop-title">' + esc(pr.summary) + '</div>' + rows + warns + foot + '</div>';
+    return '<div class="ac-prop ' + esc(pr.state || 'pending') + (pr.action_type === 'undo' ? ' undo' : '') + '"><div class="ac-prop-title">' + esc(pr.summary) + '</div>' + rows + warns + foot + '</div>';
   }
   function _acFindProp(id) {
     for (const t of _acTurns) for (const pr of (t.proposals || [])) if (pr.id === id) return pr;
+    for (const pr of _acListProps) if (pr.id === id) return pr;
     return null;
+  }
+  // Undo: ask the function to prepare a PENDING undo (with its own before → after
+  // preview); it then needs a Confirm click like any other change.
+  async function askClaudeUndo(id) {
+    const orig = _acFindProp(id);
+    if (orig) { if (orig.undoBusy) return; orig.undoBusy = true; _acDraw(_acBusy); }
+    try {
+      const { data, error } = await db.functions.invoke('admin-assistant', {
+        body: { mode: 'propose_undo', action_id: id, conversation_id: _acConversationId },
+      });
+      let body = data;
+      if (error) { try { body = await error.context?.json?.(); } catch (_) { body = null; } }
+      if (!body?.ok || !body.proposal) throw new Error(body?.error || error?.message || 'Request failed');
+      const card = { ...body.proposal, state: 'pending', notify: false, undoOf: id };
+      const turn = _acTurns.find(t => (t.proposals || []).some(p => p.id === id));
+      if (turn && _acView === 'chat') {
+        const i = turn.proposals.findIndex(p => p.id === id);
+        turn.proposals.splice(i + 1, 0, card);
+      } else {
+        _acListProps.unshift(card);
+      }
+    } catch (e) {
+      showToast('Can’t undo: ' + (e?.message || e), 'error');
+    } finally {
+      if (orig) orig.undoBusy = false;
+      _acDraw(_acBusy);
+    }
+  }
+  async function _acLoadChanges() {
+    _acChanges = null; _acChangesErr = '';
+    _acDraw(_acBusy);
+    const since = new Date(Date.now() - 7 * 86400000).toISOString();
+    const { data, error } = await db.from('assistant_actions')
+      .select('id, action_type, summary, status, decided_at, created_at, proposed_by_name, undone_at, notify')
+      .eq('status', 'done').gte('created_at', since)
+      .order('decided_at', { ascending: false }).limit(60);
+    if (error) { _acChangesErr = error.message; _acChanges = []; }
+    else _acChanges = data || [];
+    _acDraw(_acBusy);
+  }
+  function _acChangesHtml() {
+    const pending = _acListProps.map(_acPropCard).join('');
+    let list;
+    if (_acChanges === null) list = '<div class="ac-thinking"><div class="spinner" style="width:14px;height:14px"></div> Loading…</div>';
+    else if (_acChangesErr) list = '<div class="ac-msg ac-err">Could not load changes: ' + esc(_acChangesErr) + '</div>';
+    else if (!_acChanges.length) list = '<div style="color:var(--gray-400);font-size:13px">No changes have been confirmed through Ask Claude in the last 7 days.</div>';
+    else list = _acChanges.map(r => {
+      const when = r.decided_at ? new Date(r.decided_at).toLocaleString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      const tag = r.action_type === 'undo' ? '<span class="ac-chg-tag">undo</span>'
+        : r.undone_at ? '<span class="ac-chg-tag">undone</span>' : '';
+      const canUndo = AC_UNDOABLE.includes(r.action_type) && !r.undone_at;
+      const btn = canUndo ? '<button class="btn btn-ghost" style="font-size:12px;padding:4px 10px;white-space:nowrap" onclick="askClaudeUndo(\'' + esc(r.id) + '\')">↩ Undo</button>' : '';
+      return '<div class="ac-chg-row"><div class="ac-chg-main"><div class="ac-chg-sum">' + esc(r.summary) + tag + '</div>' +
+        '<div class="ac-chg-meta">' + esc((r.proposed_by_name || 'Staff') + ' · ' + when) + '</div></div>' + btn + '</div>';
+    }).join('');
+    return (pending ? '<div style="display:flex;flex-direction:column;gap:10px">' + pending + '</div>' : '') +
+      '<div style="font-size:12px;color:var(--gray-500);line-height:1.5">Changes confirmed through Ask Claude in the last 7 days. Undo prepares the reverse change — it still needs your Confirm, and it refuses if the order or balance was changed again since. Issues and comments can’t be undone.</div>' +
+      '<div>' + list + '</div>';
+  }
+  function askClaudeToggleView() {
+    _acView = _acView === 'chat' ? 'changes' : 'chat';
+    const b = document.getElementById('ac-view-btn');
+    if (b) b.textContent = _acView === 'chat' ? 'Recent changes' : 'Back to chat';
+    if (_acView === 'changes') _acLoadChanges(); else _acDraw(_acBusy);
+  }
+  function askClaudeShowChanges() {
+    askClaudeOpen('');
+    if (_acView !== 'changes') askClaudeToggleView();
   }
   function _acSetNotify(id, on) { const pr = _acFindProp(id); if (pr) pr.notify = !!on; }
   async function askClaudeDecide(id, confirmIt) {
@@ -28997,6 +29091,8 @@ ${noActivityNote}
       pr.state = confirmIt ? 'done' : 'cancelled';
       pr.msg = body.message || (confirmIt ? 'Done' : 'Cancelled');
       if (confirmIt) showToast('✓ ' + pr.msg, 'success');
+      if (confirmIt && body.undoes) { const o = _acFindProp(body.undoes); if (o) o.undone = true; }
+      if (_acView === 'changes') _acLoadChanges();
     } catch (e) {
       pr.state = 'failed';
       pr.msg = 'Not done: ' + (e?.message || e);
@@ -29023,6 +29119,7 @@ ${noActivityNote}
   function _acDraw(thinking) {
     const el = document.getElementById('ac-thread');
     if (!el) return;
+    if (_acView === 'changes') { el.innerHTML = _acChangesHtml(); return; }
     if (!_acTurns.length && !thinking) {
       el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;line-height:1.6">Ask a question in plain English. Examples:<br>• Why is order #15542 $87?<br>• Find Joyce Lee and show her last orders<br>• What did we text customer 510-926-5142 this week?<br>• How many stops are on today\'s routes?<br>• Move order #14786\'s pickup to Friday PM<br>• Give Joyce Lee a $9.95 credit for the delivery-fee bug</div>';
       return;
@@ -29064,13 +29161,14 @@ ${noActivityNote}
     const q = (inp?.value || '').trim();
     if (!q) return;
     inp.value = '';
+    if (_acView !== 'chat') askClaudeToggleView();
     _acTurns.push({ role: 'user', content: q });
     _acBusy = true;
     const btn = document.getElementById('ac-send-btn'); if (btn) btn.disabled = true;
     _acDraw(true);
     try {
       const _withStatus = t => (t.proposals || []).length
-        ? t.content + '\n\n' + t.proposals.map(p => `[Proposed change "${p.summary}": ${p.state === 'done' ? 'CONFIRMED by staff — ' + (p.msg || 'done') : p.state === 'cancelled' ? 'cancelled by staff' : p.state === 'failed' ? 'FAILED — ' + (p.msg || '') : 'not confirmed yet'}]`).join('\n')
+        ? t.content + '\n\n' + t.proposals.map(p => `[Proposed change "${p.summary}": ${p.state === 'done' ? 'CONFIRMED by staff — ' + (p.msg || 'done') + (p.undone ? ' — later UNDONE by staff' : '') : p.state === 'cancelled' ? 'cancelled by staff' : p.state === 'failed' ? 'FAILED — ' + (p.msg || '') : 'not confirmed yet'}]`).join('\n')
         : t.content;
       const payload = { conversation_id: _acConversationId, messages: _acTurns.filter(t => !t.error).map(t => ({ role: t.role, content: _withStatus(t) })) };
       const { data, error } = await db.functions.invoke('admin-assistant', { body: payload });

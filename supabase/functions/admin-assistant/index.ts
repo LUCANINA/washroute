@@ -10,7 +10,7 @@
 // through the existing RPCs, as that staff member. Phase 3 (B2B account setup) is next.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { ACTION_TOOLS, CREDIT_CAP, isActionTool, proposeAction, confirmAction, cancelAction, type Proposal } from "./actions.ts"
+import { ACTION_TOOLS, CREDIT_CAP, isActionTool, proposeAction, confirmAction, cancelAction, proposeUndo, type Proposal } from "./actions.ts"
 
 const supabaseUrl        = Deno.env.get('SUPABASE_URL')!
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -330,6 +330,7 @@ Making changes (propose_* tools):
 - If a tool refuses (wrong status, over the credit limit, no route that day), explain the refusal plainly and what they can do instead.
 - You cannot change bag counts, weights, prices or line items, charge or refund cards, or text/email customers yourself. For those, tell them where in the admin to do it (bag/price changes: open the order → Edit Order; refunds: the order's Payments section).
 - Reschedules: the card has a "Text the customer" checkbox (off by default). Mention it if the customer should hear about the change.
+- Undo: a confirmed reschedule, skip/cancel, credit or instructions change can be reversed for 7 days with the Undo button on its card, or under "Recent changes" at the top of this panel. You cannot undo things yourself — point staff to that button. Changes made by hand in the admin (not through you) have no Undo.
 
 How to work:
 - Always look things up before answering. Never guess an amount, date or status — cite what the data shows (order numbers, amounts, dates).
@@ -377,6 +378,16 @@ Deno.serve(async (req) => {
   // The staff member's own session: every change runs through RPCs/RLS as THEM.
   const userDb = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: `Bearer ${caller.jwt}` } } })
   const ctx = { svc: db, user: userDb, caller, conversationId }
+
+  // ── Undo: build a pending undo for a confirmed change (Undo button, not Claude) ──
+  if (body.mode === 'propose_undo') {
+    try {
+      const proposal = await proposeUndo(ctx, String(body.action_id || ''))
+      return json({ ok: true, proposal })
+    } catch (e) {
+      return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 409)
+    }
+  }
 
   // ── Confirm / Cancel a proposed change (button on the card, not Claude) ──
   if (body.mode === 'confirm' || body.mode === 'cancel') {

@@ -14,6 +14,11 @@
 //     for them and we pass p_notify_sms=false exactly like the admin Skip button).
 //   • Skip/cancel only while the order is still 'scheduled' (before pickup).
 //   • Bag-count / price edits are NOT offered — pricing logic lives in Edit Order.
+//
+// Session 318c — Undo: a confirmed reschedule / skip-cancel / credit / instructions
+// change can be reversed for 7 days. The undo is itself a pending action (type
+// 'undo') that needs its own Confirm, and it refuses if the thing was changed again
+// since (it never overwrites someone else's later edit).
 
 // deno-lint-ignore no-explicit-any
 type Db = any
@@ -46,7 +51,7 @@ function custName(c?: { first_name_cache?: string; last_name_cache?: string } | 
 }
 async function loadOrder(svc: Db, n: number) {
   const { data, error } = await svc.from('orders')
-    .select('id, order_number, customer_id, status, recurring_interval, special_instructions, pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end, customers(first_name_cache, last_name_cache)')
+    .select('id, order_number, customer_id, status, recurring_interval, special_instructions, pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end, pickup_run_id, delivery_run_id, customers(first_name_cache, last_name_cache)')
     .eq('order_number', n).maybeSingle()
   if (error) throw new Error('order lookup: ' + error.message)
   if (!data) throw new Error(`No order #${n}`)
@@ -156,7 +161,13 @@ export async function proposeAction(ctx: Ctx, tool: string, input: Record<string
       if (error) throw new Error(error.message)
       const before = leg === 'pickup' ? range(o.pickup_window_start, o.pickup_window_end) : range(o.delivery_window_start, o.delivery_window_end)
       const after = range(dry.new_window_start, dry.new_window_end)
-      params = { order_id: o.id, order_number: o.order_number, leg, new_date: newDate, window: win }
+      params = {
+        order_id: o.id, order_number: o.order_number, leg, new_date: newDate, window: win,
+        // 318c: what Undo puts back.
+        orig_run_id: leg === 'pickup' ? o.pickup_run_id : o.delivery_run_id,
+        orig_start:  leg === 'pickup' ? o.pickup_window_start : o.delivery_window_start,
+        orig_end:    leg === 'pickup' ? o.pickup_window_end : o.delivery_window_end,
+      }
       summary = `Move ${leg} for order #${o.order_number} (${custName(o.customers)}) to ${after}`
       lines.push({ label: `${leg === 'pickup' ? 'Pickup' : 'Delivery'} window`, before, after: `${after} · ${dry.new_route_name}` })
       if (leg === 'pickup' && o.delivery_window_start && new Date(dry.new_window_end) >= new Date(o.delivery_window_start)) {
@@ -194,6 +205,7 @@ export async function proposeAction(ctx: Ctx, tool: string, input: Record<string
         .eq('action_type', 'adjust_credit').in('status', ['pending', 'executing', 'done'])
         .gte('created_at', new Date(Date.now() - 24 * 3600 * 1000).toISOString())
         .eq('params->>customer_id', custId)
+        .is('undone_at', null)
       if (rErr) throw new Error('credit limit check: ' + rErr.message)
       const used = (recent || []).reduce((s: number, r: { params: { amount?: number } }) => s + Number(r.params?.amount || 0), 0)
       if (used + amount > CREDIT_CAP + 0.004) throw new Error(`That would take this customer past the $${CREDIT_CAP}-per-24h assistant limit (${money(used)} already proposed or done). Do the rest by hand in Customers → Credits.`)
@@ -290,7 +302,10 @@ export async function confirmAction(ctx: Ctx, actionId: string, notify: boolean)
     .update({ status: 'executing', decided_at: new Date().toISOString(), decided_by: caller.id, notify })
     .eq('id', actionId).eq('proposed_by', caller.id).eq('status', 'pending').gt('expires_at', new Date().toISOString())
     .select('*').maybeSingle()
-  if (claimErr) throw new Error('Could not start the change: ' + claimErr.message)
+  if (claimErr) {
+    if (claimErr.code === '23505') throw new Error('That change has already been undone.')
+    throw new Error('Could not start the change: ' + claimErr.message)
+  }
   if (!act) throw new Error('That change was already handled, has expired (30 min), or was proposed by someone else. Ask Claude again.')
 
   // deno-lint-ignore no-explicit-any
@@ -301,9 +316,17 @@ export async function confirmAction(ctx: Ctx, actionId: string, notify: boolean)
     // Order-level actions: write the attributed order-history entry FIRST (house rule:
     // log, then change). If the log write fails, nothing is changed.
     if (p.order_id && act.action_type !== 'create_issue') {
+      const isReschedule = act.action_type === 'reschedule' || (act.action_type === 'undo' && p.undo_type === 'reschedule')
+      // 318c: instruction changes keep the old and new text in the order history.
+      const oldNew = act.action_type === 'update_instructions'
+        ? { old_value: p.expected_current || null, new_value: p.new_instructions || null }
+        : (act.action_type === 'undo' && p.undo_type === 'update_instructions')
+          ? { old_value: p.expected_current || null, new_value: p.restore || null }
+          : {}
       const { error: evErr } = await user.from('order_events').insert({
         order_id: p.order_id, event_type: 'assistant_action', actor_name: actor(caller),
-        description: act.summary + (act.action_type === 'reschedule' ? (notify ? ' · customer texted' : ' · customer not texted') : ''),
+        description: act.summary + (isReschedule ? (notify ? ' · customer texted' : ' · customer not texted') : ''),
+        ...oldNew,
       })
       if (evErr) throw new Error('Could not write the order history entry, so nothing was changed: ' + evErr.message)
     }
@@ -315,7 +338,11 @@ export async function confirmAction(ctx: Ctx, actionId: string, notify: boolean)
           p_actor_name: actor(caller), p_dry_run: false, p_notify: !!notify,
         })
         if (error) throw new Error(error.message)
-        result = data
+        const { data: now } = await svc.from('orders')
+          .select('pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end').eq('id', p.order_id).single()
+        result = { ...data,
+          after_start: p.leg === 'pickup' ? now?.pickup_window_start : now?.delivery_window_start,
+          after_end:   p.leg === 'pickup' ? now?.pickup_window_end   : now?.delivery_window_end }
         message = `Done — order #${p.order_number} ${p.leg} moved to ${range(data?.new_window_start, data?.new_window_end)}${notify ? '; customer texted' : ''}.`
         break
       }
@@ -376,6 +403,12 @@ export async function confirmAction(ctx: Ctx, actionId: string, notify: boolean)
         message = `Done — comment added to issue #${p.issue_id}.`
         break
       }
+      case 'undo': {
+        const out = await runUndo(ctx, p, !!notify)
+        result = out.result
+        message = out.message
+        break
+      }
       default:
         throw new Error('Unknown action type ' + act.action_type)
     }
@@ -388,5 +421,179 @@ export async function confirmAction(ctx: Ctx, actionId: string, notify: boolean)
 
   const { error: dErr } = await svc.from('assistant_actions').update({ status: 'done', result }).eq('id', actionId)
   if (dErr) console.error('[admin-assistant] change ran but could not mark action done:', dErr.message)
-  return { message, result }
+  if (act.action_type === 'undo') {
+    const { error: uErr } = await svc.from('assistant_actions')
+      .update({ undone_at: new Date().toISOString(), undone_by_action_id: actionId }).eq('id', p.undoes)
+    if (uErr) console.error('[admin-assistant] undo ran but could not stamp the original:', uErr.message)
+  }
+  return { message, result, undoes: act.action_type === 'undo' ? p.undoes : null }
+}
+
+// ── Undo (session 318c) ──────────────────────────────────────────────────────
+export const UNDOABLE = new Set(['reschedule', 'skip_or_cancel', 'adjust_credit', 'update_instructions'])
+const UNDO_DAYS = 7
+const sameTime = (a?: string | null, b?: string | null) =>
+  (!a && !b) || (!!a && !!b && new Date(a).getTime() === new Date(b).getTime())
+
+// Builds the undo as a PENDING action with a before → after preview. Nothing changes
+// until the staff member clicks Confirm on it. Any admin/manager may undo any change.
+export async function proposeUndo(ctx: Ctx, originalId: string): Promise<Proposal> {
+  const { svc, caller } = ctx
+  if (!UUID.test(originalId)) throw new Error('bad action id')
+  const { data: a, error } = await svc.from('assistant_actions').select('*').eq('id', originalId).maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!a) throw new Error('No such change.')
+  if (a.status !== 'done') throw new Error('Only changes that actually went through can be undone.')
+  if (!UNDOABLE.has(a.action_type)) throw new Error('Issues and comments can’t be undone here — resolve the issue instead.')
+  if (a.undone_at) throw new Error('This change has already been undone.')
+  if (Date.now() - new Date(a.decided_at || a.created_at).getTime() > UNDO_DAYS * 86400000) {
+    throw new Error(`This change is more than ${UNDO_DAYS} days old — undo it by hand.`)
+  }
+  // deno-lint-ignore no-explicit-any
+  const p = a.params as Record<string, any>
+  // deno-lint-ignore no-explicit-any
+  const r = (a.result || {}) as Record<string, any>
+  let params: Record<string, unknown> = { undoes: a.id, undo_type: a.action_type }
+  let summary = ''
+  let canNotify = false
+  const lines: Proposal['preview']['lines'] = []
+  const warnings: string[] = []
+
+  switch (a.action_type) {
+    case 'reschedule': {
+      if (!p.orig_start || !p.orig_run_id) throw new Error('This reschedule was made before Undo existed (or had no route), so the original slot wasn’t recorded. Reschedule it by hand.')
+      const o = await loadOrder(svc, Number(p.order_number))
+      const leg = p.leg === 'delivery' ? 'delivery' : 'pickup'
+      const curStart = leg === 'pickup' ? o.pickup_window_start : o.delivery_window_start
+      const curEnd   = leg === 'pickup' ? o.pickup_window_end   : o.delivery_window_end
+      if (r.after_start && !sameTime(curStart, r.after_start)) throw new Error(`Order #${o.order_number}’s ${leg} has been moved again since — undoing would overwrite that. Reschedule it by hand.`)
+      if (new Date(p.orig_start).getTime() <= Date.now()) throw new Error(`The original ${leg} time (${range(p.orig_start, p.orig_end)}) has already passed — pick a new time instead.`)
+      const { data: route } = await svc.from('routes').select('id').eq('id', p.orig_run_id).maybeSingle()
+      if (!route) throw new Error('The original route no longer exists — reschedule it by hand.')
+      params = { ...params, order_id: o.id, order_number: o.order_number, leg,
+        orig_run_id: p.orig_run_id, orig_start: p.orig_start, orig_end: p.orig_end, expected_start: curStart }
+      summary = `Undo: move ${leg} for order #${o.order_number} (${custName(o.customers)}) back to ${range(p.orig_start, p.orig_end)}`
+      lines.push({ label: `${leg === 'pickup' ? 'Pickup' : 'Delivery'} window`, before: range(curStart, curEnd), after: range(p.orig_start, p.orig_end) })
+      if (a.notify) warnings.push('The customer was texted about the first change. Tick the box below to text them the restored time.')
+      canNotify = true
+      break
+    }
+
+    case 'skip_or_cancel': {
+      const o = await loadOrder(svc, Number(p.order_number))
+      if (o.status !== p.new_status) throw new Error(`Order #${o.order_number} is now '${o.status}' — it can’t be put back from here.`)
+      if (!o.pickup_window_start || new Date(o.pickup_window_start).getTime() <= Date.now()) {
+        throw new Error(`The pickup time for order #${o.order_number} has already passed — book a new pickup instead.`)
+      }
+      params = { ...params, order_id: o.id, order_number: o.order_number, from_status: o.status }
+      summary = `Undo: put order #${o.order_number} (${custName(o.customers)}) back on the schedule`
+      lines.push({ label: 'Status', before: o.status === 'skipped' ? 'Skipped' : 'Cancelled', after: 'Scheduled' })
+      lines.push({ label: 'Pickup', after: range(o.pickup_window_start, o.pickup_window_end) })
+      if (o.status === 'skipped' && o.recurring_interval) {
+        const { data: nxt } = await svc.from('orders').select('order_number, pickup_window_start')
+          .eq('customer_id', o.customer_id).eq('status', 'scheduled').not('recurring_interval', 'is', null)
+          .gt('pickup_window_start', o.pickup_window_start).gte('created_at', a.decided_at || a.created_at)
+          .order('pickup_window_start').limit(1).maybeSingle()
+        if (nxt) warnings.push(`The next recurring pickup (#${nxt.order_number}, ${range(nxt.pickup_window_start)}) was created when this was skipped. It stays booked too.`)
+      }
+      warnings.push('The customer is not texted — let them know their pickup is back on.')
+      break
+    }
+
+    case 'adjust_credit': {
+      const { data: c, error: cErr } = await svc.from('customers').select('id, first_name_cache, last_name_cache, credits').eq('id', p.customer_id).maybeSingle()
+      if (cErr) throw new Error(cErr.message)
+      if (!c) throw new Error('That customer no longer exists.')
+      const bal = Math.round(Number(c.credits || 0) * 100) / 100
+      const done = Math.round(Number(r.actual ?? p.amount) * 100) / 100
+      if (!(done > 0)) throw new Error('Nothing was actually moved by that change, so there is nothing to undo.')
+      let dir: 'add' | 'remove'
+      let amt: number
+      if (p.direction === 'add') {
+        if (bal <= 0) throw new Error(`${custName(c)} has already used that credit — there is nothing left to take back.`)
+        dir = 'remove'; amt = Math.min(done, bal)
+        if (amt < done) warnings.push(`They’ve already used some of it — only ${money(amt)} of the ${money(done)} can be taken back.`)
+      } else {
+        dir = 'add'; amt = done
+      }
+      params = { ...params, customer_id: c.id, direction: dir, amount: amt, expected_balance: bal, original_reason: p.reason }
+      summary = `Undo: ${dir === 'remove' ? 'take back' : 'give back'} ${money(amt)} credit ${dir === 'remove' ? 'from' : 'to'} ${custName(c)}`
+      lines.push({ label: 'Credit balance', before: money(bal), after: money(dir === 'add' ? bal + amt : bal - amt) })
+      break
+    }
+
+    case 'update_instructions': {
+      const o = await loadOrder(svc, Number(p.order_number))
+      const cur = (o.special_instructions || '').trim()
+      if (cur !== (p.new_instructions || '')) throw new Error(`The instructions on order #${o.order_number} were changed again since — undoing would overwrite that.`)
+      if (!['scheduled', 'picked_up'].includes(o.status)) throw new Error(`Order #${o.order_number} is now '${o.status}' — too late to change its instructions here.`)
+      params = { ...params, order_id: o.id, order_number: o.order_number, restore: p.expected_current || '', expected_current: cur }
+      summary = `Undo: restore the previous instructions on order #${o.order_number} (${custName(o.customers)})`
+      lines.push({ label: 'Instructions', before: cur || '(none)', after: p.expected_current || '(none)' })
+      break
+    }
+  }
+
+  const preview = { lines, warnings }
+  const { data: row, error: insErr } = await svc.from('assistant_actions').insert({
+    conversation_id: ctx.conversationId, proposed_by: caller.id, proposed_by_name: caller.name,
+    action_type: 'undo', params, summary, preview,
+  }).select('id').single()
+  if (insErr || !row) throw new Error('Could not save the undo: ' + (insErr?.message || 'unknown'))
+  return { id: row.id, action_type: 'undo', summary, preview, can_notify: canNotify }
+}
+
+// Runs a confirmed undo. Every branch re-checks that nothing moved since the preview.
+// deno-lint-ignore no-explicit-any
+async function runUndo(ctx: Ctx, p: Record<string, any>, notify: boolean): Promise<{ result: unknown; message: string }> {
+  const { svc, user, caller } = ctx
+  const { data: orig, error: oErr } = await svc.from('assistant_actions').select('id, status, undone_at').eq('id', p.undoes).maybeSingle()
+  if (oErr) throw new Error(oErr.message)
+  if (!orig || orig.status !== 'done' || orig.undone_at) throw new Error('That change has already been undone.')
+
+  switch (p.undo_type) {
+    case 'reschedule': {
+      const { data: o, error } = await svc.from('orders').select('pickup_window_start, delivery_window_start').eq('id', p.order_id).single()
+      if (error) throw new Error(error.message)
+      if (!sameTime(p.leg === 'pickup' ? o.pickup_window_start : o.delivery_window_start, p.expected_start)) {
+        throw new Error('The order was moved again since this undo was prepared. Nothing changed.')
+      }
+      const { data, error: rErr } = await user.rpc('reschedule_order_leg', {
+        p_order_id: p.order_id, p_leg: p.leg, p_new_route_id: p.orig_run_id,
+        p_new_window_start: p.orig_start, p_new_window_end: p.orig_end,
+        p_actor_name: actor(caller), p_notify: notify,
+      })
+      if (rErr) throw new Error(rErr.message)
+      return { result: data, message: `Undone — order #${p.order_number} ${p.leg} is back to ${range(p.orig_start, p.orig_end)}${notify ? '; customer texted' : ''}.` }
+    }
+    case 'skip_or_cancel': {
+      const { data, error } = await user.rpc('restore_order_to_scheduled', { p_order_id: p.order_id, p_actor_name: actor(caller) })
+      if (error) throw new Error(error.message)
+      return { result: data, message: `Undone — order #${p.order_number} is scheduled again.` }
+    }
+    case 'adjust_credit': {
+      const { data: c, error: cErr } = await svc.from('customers').select('credits').eq('id', p.customer_id).single()
+      if (cErr) throw new Error(cErr.message)
+      if (Math.abs(Number(c.credits || 0) - Number(p.expected_balance)) > 0.004) {
+        throw new Error(`Their balance changed since this undo was prepared (now ${money(Number(c.credits || 0))}). Nothing changed — try Undo again.`)
+      }
+      const { data, error } = await user.rpc('adjust_customer_credits', {
+        p_customer_id: p.customer_id, p_amount: p.amount, p_type: p.direction === 'add' ? 'credit_add' : 'credit_remove',
+        p_note: `Undo of: ${p.original_reason || 'earlier credit change'} — ${actor(caller)}`, p_actor_name: actor(caller),
+      })
+      if (error) throw new Error(error.message)
+      return { result: data, message: `Undone — ${p.direction === 'add' ? 'gave back' : 'took back'} ${money(Number(data?.actual ?? p.amount))}. New balance ${money(Number(data?.new_balance ?? 0))}.` }
+    }
+    case 'update_instructions': {
+      const { data: cur, error: curErr } = await svc.from('orders').select('special_instructions, status').eq('id', p.order_id).single()
+      if (curErr) throw new Error(curErr.message)
+      if ((cur.special_instructions || '').trim() !== p.expected_current) throw new Error('The instructions changed since this undo was prepared. Nothing changed.')
+      if (!['scheduled', 'picked_up'].includes(cur.status)) throw new Error(`The order is now '${cur.status}' — too late to change instructions here.`)
+      const { error } = await user.from('orders').update({ special_instructions: p.restore || null, updated_at: new Date().toISOString() }).eq('id', p.order_id)
+      if (error) throw new Error(error.message)
+      return { result: { updated: true }, message: `Undone — previous instructions restored on order #${p.order_number}.` }
+    }
+    default:
+      throw new Error('Unknown undo type ' + p.undo_type)
+  }
 }
