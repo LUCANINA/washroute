@@ -29981,6 +29981,7 @@ ${noActivityNote}
       const { data, error } = await db.from('customers')
           .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, last_delivered_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, default_tip, default_tip_type, frozen_at, cancelled_at, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
           .order('created_at', { ascending: false })
+          .order('id', { ascending: true })   // tiebreaker: ~half of customers share a created_at (imports), and without a unique sort Postgres can shuffle ties across pages — skipping some rows and duplicating others
           .range(from, from + PAGE - 1);
       if (error) {
         console.error('loadCustomers error:', error);
