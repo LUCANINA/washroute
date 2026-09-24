@@ -3272,6 +3272,8 @@
                 <div class="card-sub" id="oa-period-label" style="flex:1"></div>
                 <button class="rev-export-btn" id="oa-export-btn" style="display:none" onclick="exportOnAccountCSV()">Export CSV</button>
               </div>
+              <!-- Session 316: sent invoices whose orders no longer add up to what was sent. -->
+              <div id="oa-drift-banner" style="display:none;margin:0 16px 12px;font-size:12.5px;line-height:1.55;background:#fef3c7;border:1px solid #fcd34d;color:#92400e;border-radius:8px;padding:10px 12px"></div>
               <!-- oa-action-bar is now a floating bottom bar, placed outside this table -->
               <div class="rpt-table-wrap">
                 <table>
@@ -6419,6 +6421,8 @@
     </div>
     <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
       <div id="inv-group-label" style="font-size:13px;font-weight:600;color:var(--gray-700)"></div>
+      <!-- Session 316: orders on this invoice that are still at the booking estimate. -->
+      <div id="inv-unfinished-warning" style="display:none;font-size:12px;line-height:1.5;background:#fef3c7;border:1px solid #fcd34d;color:#92400e;border-radius:8px;padding:10px 12px"></div>
       <div>
         <label class="form-label">To</label>
         <input type="text" id="inv-to" class="form-input" placeholder="email@example.com" />
@@ -57110,6 +57114,112 @@ async function _dvIframeLoaded() {
   let _oaReportRows = [];
   let _oaBillingGroups = [];
 
+  // ── INVOICE ACCURACY (session 316) ──────────────────────────────────
+  // Root-caused on Charlotte Maxwell INV-2026-0004: the August statement went out
+  // on Sep 1 while #13679 was only Picked Up, so it billed the booking estimate
+  // (3 bags, $195.20). The floor counted 2 bags on Sep 2 and the order became
+  // $133.45 — the invoice said $1,017.30, Reports said $955.55.
+  //
+  // An order's price is final once the laundry floor has weighed and counted it
+  // (Processing onward). Before that it is an estimate.
+  const _INV_FINAL_STATUSES = ['processing', 'folding', 'ready_for_delivery', 'out_for_delivery', 'delivered'];
+  const _INV_STATUS_LABEL = { scheduled: 'Scheduled', picked_up: 'Picked up', pickup_failed: 'Pickup failed' };
+
+  function invoiceUnfinishedOrders(orders) {
+    return (orders || []).filter(o => !_INV_FINAL_STATUSES.includes(o.status));
+  }
+
+  function _invUnfinishedList(orders) {
+    return orders.map(o =>
+      `#${o.order_number} (${fmtDate(o.pickup_window_start || o.created_at)}, ` +
+      `${_INV_STATUS_LABEL[o.status] || String(o.status || '').replace(/_/g, ' ')}, ${fmtMoney(orderChargedTotal(o))})`
+    ).join(', ');
+  }
+
+  // Warning box inside the Send Invoice modal. Reads the same descriptors that
+  // Preview and Send use, so it describes exactly what is about to go out.
+  function renderInvoiceUnfinishedWarning() {
+    const el = document.getElementById('inv-unfinished-warning');
+    if (!el) return;
+    const orders = invoiceUnfinishedOrders(getSelectedInvoiceData().flatMap(d => d.orders || []));
+    if (!orders.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const n = orders.length;
+    el.innerHTML =
+      `<div style="font-weight:700;margin-bottom:2px">⚠ ${n} order${n !== 1 ? 's' : ''} not weighed and counted yet</div>` +
+      `<div>${esc(_invUnfinishedList(orders))}</div>` +
+      `<div style="margin-top:4px">${n !== 1 ? 'These are' : 'This is'} billed at the booking estimate. If the floor counts differently, ` +
+      `this invoice will not match Reports. Safer to wait until ${n !== 1 ? 'they are' : 'it is'} processed.</div>`;
+    el.style.display = '';
+  }
+
+  // Applied credits/surcharges per invoice. invoices.total_amount includes them;
+  // v_invoice_list.live_total (orders only) does not, so they are backed out before comparing.
+  async function loadInvoiceAppliedAdjustments() {
+    const { data, error } = await db.from('invoice_adjustments')
+      .select('invoice_id, amount').eq('status', 'applied');
+    if (error) { console.warn('loadInvoiceAppliedAdjustments:', error.message); return {}; }
+    const m = {};
+    (data || []).forEach(a => {
+      m[a.invoice_id] = Math.round(((m[a.invoice_id] || 0) + Number(a.amount || 0)) * 100) / 100;
+    });
+    return m;
+  }
+
+  // Null when a sent invoice still matches its orders. Otherwise what it was sent
+  // for, what the same orders (plus the same adjustments) add up to now, and the gap.
+  function invoiceDrift(r, adjByInvoice) {
+    if (!r || r.voided_at) return null;
+    const adj  = (adjByInvoice && adjByInvoice[r.id]) || 0;
+    const sent = Math.round(Number(r.total_amount || 0) * 100) / 100;
+    const now  = Math.round((Number(r.live_total || 0) + adj) * 100) / 100;
+    const diff = Math.round((now - sent) * 100) / 100;
+    return Math.abs(diff) < 0.01 ? null : { sent, now, diff };
+  }
+
+  let _oaInvoiceDrift = [];
+  async function loadInvoiceDrift() {
+    try {
+      const [res, adj] = await Promise.all([
+        db.from('v_invoice_list')
+          .select('id, invoice_number, customer_id, billing_group_id, bill_to_name, total_amount, live_total, voided_at, issued_at')
+          .is('voided_at', null),
+        loadInvoiceAppliedAdjustments(),
+      ]);
+      if (res.error) throw res.error;
+      return (res.data || [])
+        .map(r => { const d = invoiceDrift(r, adj); return d ? { ...r, ...d } : null; })
+        .filter(Boolean)
+        .sort((a, b) => new Date(b.issued_at) - new Date(a.issued_at));
+    } catch (e) {
+      console.warn('loadInvoiceDrift:', e.message || e);
+      return [];
+    }
+  }
+
+  const _fmtSigned = v => (v < 0 ? '−' : '+') + fmtMoney(Math.abs(v));
+
+  function oaDriftChip(match) {
+    const hits = _oaInvoiceDrift.filter(match);
+    if (!hits.length) return '';
+    const tip = hits.map(h => `${h.invoice_number} was sent for ${fmtMoney(h.sent)} — its orders now total ${fmtMoney(h.now)}`).join('\n');
+    const net = Math.round(hits.reduce((s, h) => s + h.diff, 0) * 100) / 100;
+    return `<span title="${esc(tip)}" style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:999px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;margin-left:6px;vertical-align:middle;white-space:nowrap">⚠ Invoice ${esc(_fmtSigned(net))}</span>`;
+  }
+
+  function renderOADriftBanner() {
+    const el = document.getElementById('oa-drift-banner');
+    if (!el) return;
+    if (!_oaInvoiceDrift.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const n = _oaInvoiceDrift.length;
+    el.innerHTML =
+      `<div style="font-weight:700;margin-bottom:3px">⚠ ${n} sent invoice${n !== 1 ? 's' : ''} no longer match${n !== 1 ? '' : 'es'} ${n !== 1 ? 'their' : 'its'} orders</div>` +
+      _oaInvoiceDrift.map(h =>
+        `<div><b>${esc(h.invoice_number)}</b> · ${esc(h.bill_to_name || '—')} — sent for ${fmtMoney(h.sent)}, orders now total ${fmtMoney(h.now)} (${esc(_fmtSigned(h.diff))})</div>`
+      ).join('') +
+      `<div style="margin-top:3px;color:#a16207">An order was changed after the invoice went out. Balances below use the current order amounts.</div>`;
+    el.style.display = '';
+  }
+
   // ── INVOICE ADJUSTMENTS (session 291m) ──────────────────────────────
   // A credit or surcharge that waits until the next invoice for its account and
   // then rides on it as a line. Built because the Kidango NON PROFIT discount was
@@ -57237,6 +57347,7 @@ async function _dvIframeLoaded() {
     const { data: groups } = await db.from('billing_groups').select('*').order('name');
     _oaBillingGroups = groups || [];
     await loadPendingAdjustments();
+    _oaInvoiceDrift = await loadInvoiceDrift();
 
     // Build query — fetch all delivered/ready orders for on_account customers.
     // Filter by pickup_window_start (actual service date) not created_at (import
@@ -57291,6 +57402,7 @@ async function _dvIframeLoaded() {
       : startVal ? `From ${fmtDate(startVal)}` : endVal ? `Through ${fmtDate(endVal)}` : 'All time';
     document.getElementById('oa-period-label').textContent = label;
 
+    renderOADriftBanner();
     renderOASummary();
   }
 
@@ -57380,7 +57492,7 @@ async function _dvIframeLoaded() {
       const nameLink = `<a href="#" onclick="event.preventDefault();event.stopPropagation();openCustomerPanel('${cid}','billing')" style="color:var(--gray-900);text-decoration:none;font-weight:${indent ? '500' : '700'}" onmouseover="this.style.color='var(--accent)';this.style.textDecoration='underline'" onmouseout="this.style.color='var(--gray-900)';this.style.textDecoration='none'">${esc(r.name)}</a>`;
       return `<tr ${memberClass}>
         ${cbCell}
-        <td style="${pad}">${nameLink}</td>
+        <td style="${pad}">${nameLink}${oaDriftChip(inv => inv.customer_id === cid)}</td>
         <td style="text-align:right">${r.orders}</td>
         <td style="text-align:right">${fmtMoney(r.invoiced)}</td>
         <td style="text-align:right">${fmtMoney(r.paid)}</td>
@@ -57422,6 +57534,7 @@ async function _dvIframeLoaded() {
           ${esc(g.name)}
           <span style="font-size:10px;font-weight:500;padding:2px 6px;border-radius:4px;border:1px solid var(--gray-300);color:var(--gray-600);margin-left:6px;vertical-align:middle">${badge}</span>
           <span style="font-size:11px;color:var(--gray-400);margin-left:4px">${members.length} account${members.length !== 1 ? 's' : ''}</span>
+          ${oaDriftChip(inv => inv.billing_group_id === gid)}
         </td>
         <td style="text-align:right;font-weight:700">${sub.orders}</td>
         <td style="text-align:right;font-weight:700">${fmtMoney(sub.invoiced)}</td>
@@ -57851,6 +57964,7 @@ async function _dvIframeLoaded() {
     hideAddAdjustmentRow();
     await loadPendingAdjustments();
     renderAdjustmentsPanel();
+    renderInvoiceUnfinishedWarning();
     document.getElementById('modal-send-invoice').style.display = 'flex';
   }
   window.openStandaloneInvoiceModal = openStandaloneInvoiceModal;
@@ -57891,6 +58005,7 @@ async function _dvIframeLoaded() {
     hideAddAdjustmentRow();
     await loadPendingAdjustments();
     renderAdjustmentsPanel();
+    renderInvoiceUnfinishedWarning();
     document.getElementById('modal-send-invoice').style.display = 'flex';
   }
   window.openInvoiceModal = openInvoiceModal;
@@ -58489,6 +58604,14 @@ ${orderSections}
       const invData = getSelectedInvoiceData();
       if (!invData.length) { showToast('No invoiceable orders in this period', 'error'); return; }
 
+      // Session 316: last check before anything is numbered or emailed.
+      const _unfinished = invoiceUnfinishedOrders(invData.flatMap(d => d.orders || []));
+      if (_unfinished.length && !confirm(
+        `${_unfinished.length} order${_unfinished.length !== 1 ? 's have' : ' has'} not been weighed and counted yet:\n` +
+        `${_invUnfinishedList(_unfinished)}\n\n` +
+        `${_unfinished.length !== 1 ? 'They are' : 'It is'} billed at the booking estimate, so this invoice may not match Reports later.\n\nSend anyway?`
+      )) return;
+
       // Session 258: lock the invoice number in BEFORE the PDF is built, so the
       // number printed on the attachment is exactly the one recorded in the
       // invoices table. Re-sending the same period reuses the same number.
@@ -58613,6 +58736,7 @@ ${orderSections}
   // or written off — so the status column is derived live rather than stored,
   // and can never drift away from the truth.
   let _invoiceListRows = [];
+  let _invoiceAdjByInvoice = {};
 
   // Mirrors the On Account query's shape so a rebuilt invoice is byte-identical
   // to the one that was sent. customers() rather than customers!inner() so an
@@ -58636,6 +58760,7 @@ ${orderSections}
       return;
     }
     _invoiceListRows = data || [];
+    _invoiceAdjByInvoice = await loadInvoiceAppliedAdjustments();
     document.getElementById('inv-period-label').textContent =
       (from && to) ? `${fmtDate(from)} — ${fmtDate(to)}` : 'All time';
     renderInvoicesTable();
@@ -58713,7 +58838,10 @@ ${orderSections}
         <td>${esc(r.bill_to_name || '—')}${sub ? `<div style="font-size:11px;color:var(--gray-400)">${esc(sub)}</div>` : ''}</td>
         <td style="white-space:nowrap;color:var(--gray-500)">${esc(r.period_label || '')}</td>
         <td style="text-align:right">${r.live_order_count}</td>
-        <td style="text-align:right;font-weight:600">${fmtMoney(r.live_total)}</td>
+        <td style="text-align:right;font-weight:600">${fmtMoney(r.live_total)}${(() => {
+          const d = invoiceDrift(r, _invoiceAdjByInvoice);
+          return d ? `<div title="An order changed after this invoice went out. The sent PDF shows ${esc(fmtMoney(d.sent))}; its orders now total ${esc(fmtMoney(d.now))}." style="font-size:11px;font-weight:600;color:#92400e;white-space:nowrap;margin-top:2px">⚠ sent as ${fmtMoney(d.sent)} (${esc(_fmtSigned(d.diff))})</div>` : '';
+        })()}</td>
         <td><span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;background:${st.bg};color:${st.fg}">${st.label}</span>
           ${voided && r.void_reason ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px">${esc(r.void_reason)}</div>` : ''}
           ${!voided && r.last_sent_at ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px">emailed ${fmtDate(r.last_sent_at)}</div>` : ''}
@@ -58877,6 +59005,7 @@ ${orderSections}
     document.getElementById('inv-body').value    = expand(body);
     document.getElementById('inv-attachment-list').innerHTML =
       `<div>📄 ${esc(descriptor.filename + ' ' + r.invoice_number)}.pdf</div>`;
+    renderInvoiceUnfinishedWarning();
     document.getElementById('modal-send-invoice').style.display = 'flex';
   }
 
