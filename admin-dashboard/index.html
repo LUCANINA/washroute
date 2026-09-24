@@ -3527,11 +3527,12 @@
                         <th>Canceled</th>
                         <th>Active (month-end)</th>
                         <th>Recurring Revenue</th>
-                        <th>Avg Rev / Sub</th>
+                        <th>Overage Revenue</th>
+                        <th title="(Recurring + Overage) ÷ Active at month-end">Avg Spend / Sub</th>
                       </tr>
                     </thead>
                     <tbody id="rpt-sub-monthly-tbody">
-                      <tr><td colspan="6" class="rpt-no-data">Loading…</td></tr>
+                      <tr><td colspan="7" class="rpt-no-data">Loading…</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -53777,17 +53778,38 @@ ${oneCopy}
   // month through the current month. Grows automatically as months pass.
   async function renderMonthlyTrends() {
     const tbody = document.getElementById('rpt-sub-monthly-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="rpt-no-data">Loading…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="rpt-no-data">Loading…</td></tr>';
 
-    const [subRes, invRes] = await Promise.all([
+    // Overage = lb_overage lines on PAID subscription orders, bucketed by billed_at
+    // (same "received only" rule as the Overage Revenue tile). Paged: PostgREST
+    // silently caps a select at 1000 rows.
+    const fetchPaidSubOrders = async () => {
+      const out = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await db.from('orders')
+          .select('id, billed_at, line_items')
+          .eq('is_subscription_order', true)
+          .eq('billing_status', 'paid')
+          .not('billed_at', 'is', null)
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        if (error) throw error;
+        out.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+      return out;
+    };
+
+    const [subRes, invRes, paidOrders] = await Promise.all([
       db.from('subscriptions').select('id, created_at, cancelled_at, status'),
       db.from('customer_transactions').select('amount, created_at').eq('type', 'subscription_invoice'),
+      fetchPaidSubOrders(),
     ]);
     const subs = subRes.data || [];
     const invoices = invRes.data || [];
 
     if (!subs.length) {
-      if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="rpt-no-data">No subscription history yet.</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="rpt-no-data">No subscription history yet.</td></tr>';
       ['sub-chart-active','sub-chart-revenue'].forEach(id => {
         if (_subCharts[id]) { _subCharts[id].destroy(); delete _subCharts[id]; }
       });
@@ -53812,6 +53834,14 @@ ${oneCopy}
       }
     }
 
+    const overageByYm = {};
+    paidOrders.forEach(o => {
+      const items = Array.isArray(o.line_items) ? o.line_items : [];
+      const amt = items.filter(li => li.type === 'lb_overage')
+        .reduce((sum, li) => sum + Number(li.amount || 0), 0);
+      if (amt) { const k = ymOf(o.billed_at); overageByYm[k] = (overageByYm[k] || 0) + amt; }
+    });
+
     const rows = months.map(ym => {
       const newCount = subs.filter(s => ymOf(s.created_at) === ym).length;
       const canceledCount = subs.filter(s => s.cancelled_at && ymOf(s.cancelled_at) === ym).length;
@@ -53820,8 +53850,9 @@ ${oneCopy}
         && (!s.cancelled_at || ymOf(s.cancelled_at) > ym)).length;
       const revenue = invoices.filter(i => ymOf(i.created_at) === ym)
         .reduce((sum, i) => sum + Number(i.amount || 0), 0);
-      const avgRev = activeEnd > 0 ? revenue / activeEnd : 0;
-      return { ym, newCount, canceledCount, activeEnd, revenue, avgRev };
+      const overage = overageByYm[ym] || 0;
+      const avgRev = activeEnd > 0 ? (revenue + overage) / activeEnd : 0;
+      return { ym, newCount, canceledCount, activeEnd, revenue, overage, avgRev };
     });
 
     const labelOf = ym => new Date(`${ym}-01T12:00:00`)
@@ -53839,7 +53870,8 @@ ${oneCopy}
           <td style="color:${r.canceledCount ? 'var(--red)' : 'var(--gray-400)'}">${r.canceledCount || '—'}</td>
           <td style="font-weight:600">${r.activeEnd}</td>
           <td>${fmtMoney(r.revenue)}</td>
-          <td style="color:var(--gray-600)">${r.activeEnd ? fmtMoney(r.avgRev) : '—'}</td>
+          <td style="color:${r.overage ? 'inherit' : 'var(--gray-400)'}">${r.overage ? fmtMoney(r.overage) : '—'}</td>
+          <td style="font-weight:600">${r.activeEnd ? fmtMoney(r.avgRev) : '—'}</td>
         </tr>`).join('');
     }
   }
