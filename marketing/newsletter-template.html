@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<title>Family Laundry</title>
+<style>
+  body { margin:0; padding:0; background:#fdf1f5; }
+  a { color:#1c3ebe; }
+  @media (max-width:620px) {
+    .container { width:100% !important; }
+    .pad { padding-left:24px !important; padding-right:24px !important; }
+    h1 { font-size:24px !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:#fdf1f5;">
+<!-- Preview text (shows next to the subject line in the inbox) -->
+<div style="display:none;max-height:0;overflow:hidden;">News from Family Laundry, Oakland.</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fdf1f5;">
+  <tr>
+    <td align="center" style="padding:24px 12px;">
+      <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;">
+
+        <!-- HEADER IMAGE -->
+        <tr>
+          <td style="padding:0;">
+            <a href="https://app.familylaundry.com/" target="_blank">
+              <img src="https://app.familylaundry.com/assets/newsletter-header.jpg" width="600" alt="Family Laundry van and laundry bag" style="display:block;width:100%;max-width:600px;height:auto;border:0;">
+            </a>
+          </td>
+        </tr>
+
+        <!-- BODY -->
+        <tr>
+          <td class="pad" style="padding:36px 48px 8px 48px;font-family:'DM Sans',Helvetica,Arial,sans-serif;color:#1f2433;font-size:16px;line-height:1.6;">
+            <h1 style="margin:0 0 18px 0;font-size:28px;line-height:1.25;color:#1c3ebe;font-weight:700;">Your headline goes here</h1>
+            <p style="margin:0 0 16px 0;">Hi {{insert first_name "default=there"}},</p>
+            <p style="margin:0 0 16px 0;">Write your first paragraph here. Keep it short and friendly, like a note from the shop.</p>
+            <p style="margin:0 0 16px 0;">Add a second paragraph if you need one. Two or three short paragraphs work best.</p>
+          </td>
+        </tr>
+
+        <!-- BUTTON (delete this block if you don't need it) -->
+        <tr>
+          <td class="pad" align="left" style="padding:8px 48px 28px 48px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="background:#ffcc33;border-radius:999px;">
+                  <a href="https://app.familylaundry.com/" target="_blank" style="display:inline-block;padding:14px 30px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;color:#1c3ebe;text-decoration:none;border-radius:999px;">Schedule a pickup</a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- SIGN-OFF -->
+        <tr>
+          <td class="pad" style="padding:0 48px 40px 48px;font-family:'DM Sans',Helvetica,Arial,sans-serif;color:#1f2433;font-size:16px;line-height:1.6;">
+            <p style="margin:0;">Thanks,<br>The Family Laundry team</p>
+          </td>
+        </tr>
+
+        <!-- FOOTER -->
+        <tr>
+          <td class="pad" align="center" style="padding:22px 48px 26px 48px;background:#fbe3ea;font-family:'DM Sans',Helvetica,Arial,sans-serif;color:#6b6f80;font-size:12px;line-height:1.6;">
+            Family Laundry &middot; 5215 Genoa St, Oakland, CA<br>
+            Questions? Just reply to this email.<br>
+            <a href="{{{unsubscribe}}}" style="color:#6b6f80;">Unsubscribe</a> &middot; <a href="{{{unsubscribe_preferences}}}" style="color:#6b6f80;">Email preferences</a>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>
