@@ -26,10 +26,11 @@
 //   - Step 4 refuses to delete more than DELETE_CAP contacts in one run.
 //   Pass {"allow_bulk": true} on a manual call to go past them after checking why.
 //
-// MODES:  verify  — API key scopes + lists + group, read-only
+// MODES:  verify  — API key scopes + group; creates the EMPTY list if missing (proves write access)
 //         dryrun  — everything fullsync would do, as counts + samples, read-only
 //         fullsync— does it (cron entry point)
 //         jobstatus {job_id} — status of a contacts import job
+//         lookup {emails:[...]} — read-only: what SendGrid holds for up to 20 contacts
 //
 // AUTH: x-wr-internal header (public.wr_internal_secret(), same as every pg_cron
 // HTTP job). verify_jwt must be FALSE — the cron sends no Authorization header.
@@ -234,7 +235,9 @@ Deno.serve(async (req) => {
       const scopes: string[] = s.ok ? (s.data?.scopes || []) : []
       const missing = REQUIRED_SCOPES.filter(x => !scopes.includes(x))
       let list: any = null, group: any = null
-      if (!missing.includes('marketing.read')) list = await findList(false).catch(e => ({ error: e.message }))
+      // Creating the (empty) list is harmless and is the real test of marketing write access —
+      // scope names alone have proved unreliable.
+      if (!missing.includes('marketing.read')) list = await findList(true).catch(e => ({ error: e.message }))
       const g = await sg('GET', `/v3/asm/groups/${UNSUB_GROUP_ID}`)
       group = g.ok ? { id: g.data?.id, name: g.data?.name, unsubscribes: g.data?.unsubscribes } : { error: g.status }
       // Scope names vary by account type, so also show every relevant scope the key has.
@@ -245,6 +248,20 @@ Deno.serve(async (req) => {
     if (mode === 'jobstatus') {
       const r = await sg('GET', `/v3/marketing/contacts/imports/${encodeURIComponent(body.job_id || '')}`)
       return json({ ok: r.ok, status: r.status, job: r.data })
+    }
+
+    if (mode === 'lookup') {
+      const emails: string[] = (Array.isArray(body.emails) ? body.emails : []).map((e: string) => norm(e)).filter((e: string) => EMAIL_RE.test(e)).slice(0, 20)
+      if (!emails.length) return json({ error: 'emails required' }, 400)
+      const r = await sg('POST', '/v3/marketing/contacts/search/emails', { emails })
+      if (r.status === 404) return json({ found: {} })
+      if (!r.ok) throw sgErr('search contacts', r)
+      const found: Record<string, unknown> = {}
+      for (const [email, v] of Object.entries(r.data?.result || {})) {
+        const c = (v as any)?.contact
+        found[norm(email)] = c ? { first_name: c.first_name ?? null, last_name: c.last_name ?? null, list_ids: c.list_ids || [], created_at: c.created_at, updated_at: c.updated_at } : (v as any)?.error || null
+      }
+      return json({ found })
     }
 
     if (mode !== 'dryrun' && mode !== 'fullsync') return json({ error: 'unknown mode' }, 400)
