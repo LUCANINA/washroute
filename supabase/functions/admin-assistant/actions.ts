@@ -59,6 +59,61 @@ async function loadOrder(svc: Db, n: number) {
 }
 const actor = (c: Caller) => `${c.name} (via Claude)`
 
+// ── New customer helpers (session 318d) ─────────────────────────────────────
+// Same choices as Customers → New Customer ("How did they find us?").
+const REFERRAL_SOURCES = ['nextdoor', 'yelp', 'google', 'friend_family', 'instagram', 'roots_soul', 'oakland_ballers', 'saw_van', 'other', 'ai', 'ambassador']
+const digits10 = (v: unknown) => { const d = String(v ?? '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : '' }
+const fmtPhone = (d: string) => d ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : ''
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// Other accounts already using this email or phone. Staff inserts skip the
+// duplicate-signup trigger, so this is the only check on this path.
+async function contactMatches(svc: Db, email: string, phone10: string) {
+  // deno-lint-ignore no-explicit-any
+  const hits: any[] = []
+  if (email) {
+    const { data, error } = await svc.from('customers').select('id, first_name_cache, last_name_cache, billing_group_id, email_cache, phone_cache')
+      .ilike('email_cache', email.replace(/[%_\\]/g, '\\$&')).limit(5)
+    if (error) throw new Error('email check: ' + error.message)
+    for (const c of data || []) if ((c.email_cache || '').trim().toLowerCase() === email) hits.push({ ...c, matched: 'email' })
+  }
+  if (phone10) {
+    const { data, error } = await svc.from('customers').select('id, first_name_cache, last_name_cache, billing_group_id, email_cache, phone_cache')
+      .ilike('phone_cache', `%${phone10.slice(-4)}%`).limit(300)
+    if (error) throw new Error('phone check: ' + error.message)
+    for (const c of data || []) if (digits10(c.phone_cache) === phone10 && !hits.some(h => h.id === c.id)) hits.push({ ...c, matched: 'phone' })
+  }
+  return hits
+}
+
+type Geo = { lat: number | null; lng: number | null; formatted: string; city: string; state: string; zip: string; verified: boolean; note?: string }
+async function geocode(line1: string, city: string, state: string, zip: string): Promise<Geo> {
+  const q = [line1, city, state, zip].filter(Boolean).join(', ')
+  const key = Deno.env.get('GOOGLE_MAPS_API_KEY') ?? ''
+  const fallback = (note: string): Geo => ({ lat: null, lng: null, formatted: q, city, state, zip, verified: false, note })
+  if (!key) return fallback('address lookup is not configured')
+  let j: { status?: string; results?: any[]; error_message?: string }  // deno-lint-ignore no-explicit-any
+  try {
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&components=country:US&key=${key}`)
+    j = await res.json()
+  } catch (e) { return fallback('Google could not be reached') }
+  if (j.status === 'ZERO_RESULTS') throw new Error(`Google can't find "${q}". Check the street and ZIP.`)
+  if (j.status !== 'OK' || !j.results?.length) return fallback(`Google lookup failed (${j.status})`)
+  const r0 = j.results[0]
+  // deno-lint-ignore no-explicit-any
+  const comp = (t: string, short = false) => (r0.address_components || []).find((c: any) => (c.types || []).includes(t))?.[short ? 'short_name' : 'long_name'] || ''
+  if (!comp('street_number')) throw new Error(`Google only found an area, not a street address, for "${q}". Check the house number.`)
+  return {
+    lat: r0.geometry?.location?.lat ?? null, lng: r0.geometry?.location?.lng ?? null,
+    formatted: r0.formatted_address || q,
+    city: comp('locality') || comp('sublocality') || comp('neighborhood') || city,
+    state: comp('administrative_area_level_1', true) || state,
+    zip: comp('postal_code') || zip,
+    verified: true,
+    note: r0.partial_match ? 'Google only partly matched this address — double-check it' : undefined,
+  }
+}
+
 // ── Tool definitions ─────────────────────────────────────────────────────────
 const NOTE = 'This only PROPOSES the change: it shows the staff member a card with Confirm / Cancel. Nothing happens until they click Confirm.'
 export const ACTION_TOOLS = [
@@ -110,6 +165,31 @@ export const ACTION_TOOLS = [
     },
   },
   {
+    name: 'propose_create_customer',
+    description: `Create a NEW customer account (residential or business). Before proposing, search with find_customers — if the person or business already has an account, use that one instead. The tool itself refuses when the email or phone is already on another account (unless that account is in the same billing group, e.g. another Kidango site), and it checks the address with Google. Required: first name (for a business, the business or site name), how they found us, and a full street address with ZIP. Ask the staff member for anything missing instead of guessing. Plans/subscriptions, cards and orders are NOT set up here. ${NOTE}`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        first_name: { type: 'string', description: 'First name — or the business / site name for a business account' },
+        last_name: { type: 'string' },
+        email: { type: 'string' },
+        phone: { type: 'string' },
+        address_line1: { type: 'string', description: 'Street address, e.g. "2050 20th Ave"' },
+        address_line2: { type: 'string', description: 'Apt / unit / suite' },
+        city: { type: 'string' }, state: { type: 'string', description: 'Default CA' }, zip: { type: 'string' },
+        access_instructions: { type: 'string', description: 'Gate codes, where to leave bags — what the DRIVER needs' },
+        pricelist: { type: 'string', enum: ['Delivery', 'Commercial', 'HCEB'], description: 'Default Delivery (residential). Commercial for businesses.' },
+        billing_type: { type: 'string', enum: ['automatic', 'on_account'], description: 'automatic = card on file (default); on_account = invoiced' },
+        billing_group: { type: 'string', description: 'Optional: billing group name, e.g. "Kidango Group"' },
+        discount: { type: 'string', description: 'Optional: discount name, e.g. "NON PROFIT"' },
+        referral_source: { type: 'string', enum: REFERRAL_SOURCES },
+        ambassador_code: { type: 'string', description: 'Only when referral_source is ambassador' },
+        notes: { type: 'string', description: 'Internal staff notes' },
+      },
+      required: ['first_name', 'referral_source', 'address_line1', 'zip'],
+    },
+  },
+  {
     name: 'propose_issue',
     description: `Open a staff issue (e.g. to report a suspected bug to David, or track a customer problem). ${NOTE}`,
     input_schema: {
@@ -132,6 +212,7 @@ export const ACTION_TOOLS = [
   },
 ]
 const TYPE_BY_TOOL: Record<string, string> = {
+  propose_create_customer: 'create_customer',
   propose_reschedule: 'reschedule', propose_skip_or_cancel: 'skip_or_cancel', propose_credit: 'adjust_credit',
   propose_instructions_update: 'update_instructions', propose_issue: 'create_issue', propose_issue_comment: 'add_issue_comment',
 }
@@ -234,6 +315,104 @@ export async function proposeAction(ctx: Ctx, tool: string, input: Record<string
       params = { order_id: o.id, order_number: o.order_number, new_instructions: next, expected_current: cur }
       summary = `Update instructions on order #${o.order_number} (${custName(o.customers)})`
       lines.push({ label: 'Instructions', before: cur || '(none)', after: next || '(none)' })
+      break
+    }
+
+    case 'propose_create_customer': {
+      const first = text(input.first_name, 80)
+      const last = text(input.last_name, 80)
+      const email = text(input.email, 160).toLowerCase()
+      const phoneRaw = text(input.phone, 40)
+      const phone10 = digits10(phoneRaw)
+      const line1 = text(input.address_line1, 160)
+      const line2 = text(input.address_line2, 60)
+      const cityIn = text(input.city, 60)
+      const stateIn = (text(input.state, 20) || 'CA').toUpperCase()
+      const zipIn = text(input.zip, 10)
+      const access = String(input.access_instructions ?? '').trim().slice(0, 1000)
+      const notes = String(input.notes ?? '').trim().slice(0, 2000)
+      const pricelist = ['Delivery', 'Commercial', 'HCEB'].includes(String(input.pricelist)) ? String(input.pricelist) : 'Delivery'
+      const billingType = input.billing_type === 'on_account' ? 'on_account' : 'automatic'
+      const source = String(input.referral_source ?? '')
+      const ambassador = source === 'ambassador' ? text(input.ambassador_code, 40).toUpperCase() : ''
+
+      if (!first) throw new Error('first_name is required (the business or site name for a business).')
+      if (!REFERRAL_SOURCES.includes(source)) throw new Error(`referral_source is required — one of: ${REFERRAL_SOURCES.join(', ')}. Ask the staff member how they found us.`)
+      if (source === 'ambassador' && !ambassador) throw new Error('ambassador_code is required when they came through an ambassador.')
+      if (email && !EMAIL_RE.test(email)) throw new Error(`"${email}" doesn't look like an email address.`)
+      if (phoneRaw && !phone10) throw new Error(`"${phoneRaw}" isn't a 10-digit phone number.`)
+      if (!line1 || !/^\d{5}$/.test(zipIn)) throw new Error('A street address and a 5-digit ZIP are required so pickups can be routed.')
+
+      // Billing group / discount by name (or id).
+      let group: { id: string; name: string } | null = null
+      if (text(input.billing_group, 120)) {
+        const g = text(input.billing_group, 120)
+        const q = UUID.test(g) ? svc.from('billing_groups').select('id, name').eq('id', g) : svc.from('billing_groups').select('id, name').ilike('name', `%${g.replace(/[%_]/g, ' ')}%`)
+        const { data, error } = await q.limit(3)
+        if (error) throw new Error(error.message)
+        if (!data?.length) throw new Error(`No billing group matches "${g}".`)
+        if (data.length > 1) throw new Error(`"${g}" matches several billing groups: ${data.map((x: { name: string }) => x.name).join(', ')}. Which one?`)
+        group = data[0]
+      }
+      let discount: { id: string; name: string; value: number; type: string } | null = null
+      if (text(input.discount, 80)) {
+        const dn = text(input.discount, 80)
+        const { data, error } = await svc.from('discounts').select('id, name, value, type')
+          .ilike('name', dn.replace(/[%_]/g, ' ')).eq('active', true).is('deleted_at', null).limit(2)
+        if (error) throw new Error(error.message)
+        if (!data?.length) throw new Error(`No active discount named "${dn}".`)
+        discount = data[0]
+      }
+
+      // David's rule (session 290): never create a second account for someone we
+      // already have — stop and show the match. Exception: a sibling site in the
+      // SAME billing group (Kidango sites share one contact email/phone).
+      const hits = await contactMatches(svc, email, phone10)
+      const blocking = hits.filter(h => !(group && h.billing_group_id === group.id))
+      if (blocking.length) {
+        throw new Error('Not created — this ' + [...new Set(blocking.map(h => h.matched))].join(' and ') + ' is already on file: ' +
+          blocking.map(h => `${custName(h)} (${h.matched === 'email' ? h.email_cache : h.phone_cache}, id ${h.id})`).join('; ') +
+          '. Use the existing account (get_customer), or ask the staff member whether this really is a different person.')
+      }
+      if (hits.length) warnings.push(`Shares its ${[...new Set(hits.map(h => h.matched))].join(' and ')} with ${hits.map(h => custName(h)).join(', ')} in ${group!.name} — OK for another site of the same organization.`)
+
+      const geo = await geocode(line1, cityIn, stateIn, zipIn)
+      if (!geo.city || !geo.state || !geo.zip) throw new Error('City, state and ZIP are needed — Google could not fill them in.')
+      if (!geo.verified) warnings.push(`Address not verified (${geo.note}). The stop won’t show on the route map until it’s fixed in the customer panel.`)
+      else if (geo.note) warnings.push(geo.note)
+      let zoneName = ''
+      if (geo.lat != null && geo.lng != null) {
+        const { data: zid } = await svc.rpc('get_zone_for_point', { lat: geo.lat, lng: geo.lng, p_city: geo.city })
+        if (zid) { const { data: z } = await svc.from('service_zones').select('name').eq('id', zid).maybeSingle(); zoneName = z?.name || '' }
+        if (!zoneName) warnings.push('This address is outside every service zone — pickups there can’t be routed.')
+      }
+      // Same address already on another account → probably the same household/business.
+      const { data: sameAddr } = await svc.from('addresses').select('customer_id, line2, customers(first_name_cache, last_name_cache)')
+        .ilike('line1', line1.replace(/[%_]/g, ' ')).eq('zip', geo.zip).limit(5)
+      const addrHits = (sameAddr || []).filter((a: { line2?: string }) => (a.line2 || '').trim().toLowerCase() === line2.toLowerCase())
+      if (addrHits.length) warnings.push(`This exact address is already on ${addrHits.map((a: { customers?: { first_name_cache?: string; last_name_cache?: string } }) => custName(a.customers)).join(', ')}'s account. Make sure this is a different person or business.`)
+
+      const addressText = geo.verified ? geo.formatted + (line2 ? ` (${line2})` : '') : `${line1}${line2 ? ' ' + line2 : ''}, ${geo.city}, ${geo.state} ${geo.zip}`
+      params = {
+        first, last, email, phone10, line1, line2, city: geo.city, state: geo.state, zip: geo.zip,
+        lat: geo.lat, lng: geo.lng, address_text: addressText, access, notes, pricelist, billing_type: billingType,
+        billing_group_id: group?.id || null, discount_id: discount?.id || null, referral_source: source, ambassador_code: ambassador || null,
+      }
+      const fullName = [first, last].filter(Boolean).join(' ')
+      summary = `Create customer ${fullName}`
+      lines.push({ label: 'Name', after: fullName })
+      if (email) lines.push({ label: 'Email', after: email })
+      if (phone10) lines.push({ label: 'Phone', after: fmtPhone(phone10) + ' · gets order texts' })
+      lines.push({ label: 'Address', after: addressText + (zoneName ? ` · zone ${zoneName}` : '') })
+      if (access) lines.push({ label: 'Driver notes', after: access })
+      lines.push({ label: 'Price list', after: pricelist })
+      lines.push({ label: 'Billing', after: billingType === 'on_account' ? 'On account (invoiced)' : 'Card on file' })
+      if (group) lines.push({ label: 'Billing group', after: group.name })
+      if (discount) lines.push({ label: 'Discount', after: `${discount.name}${discount.type === 'percent' ? ` (${discount.value}% off)` : ''}` })
+      lines.push({ label: 'Found us via', after: source + (ambassador ? ` · ${ambassador}` : '') })
+      if (notes) lines.push({ label: 'Staff notes', after: notes })
+      if (!email && !phone10) warnings.push('No email or phone — they won’t get any order updates.')
+      if (billingType === 'automatic') warnings.push('No card yet — they need to add one in the customer app before their first charge.')
       break
     }
 
@@ -384,6 +563,43 @@ export async function confirmAction(ctx: Ctx, actionId: string, notify: boolean)
         message = `Done — instructions updated on order #${p.order_number}.`
         break
       }
+      case 'create_customer': {
+        // Re-check duplicates at the moment of creation (someone may have signed up since).
+        const hits = await contactMatches(svc, p.email || '', p.phone10 || '')
+        const blocking = hits.filter(h => !(p.billing_group_id && h.billing_group_id === p.billing_group_id))
+        if (blocking.length) throw new Error(`Not created — ${custName(blocking[0])} now has this ${blocking[0].matched}. Use that account.`)
+        const nowIso = new Date().toISOString()
+        // The pricelist trigger turns anything but Delivery/Commercial into Delivery on
+        // INSERT, so HCEB is set with a follow-up update (the UPDATE path keeps it).
+        const insertPl = ['Delivery', 'Commercial'].includes(p.pricelist) ? p.pricelist : 'Delivery'
+        const { data: cust, error: cErr } = await user.from('customers').insert({
+          risk_status: 'active', notes: p.notes || null, referral_source: p.referral_source, ambassador_code: p.ambassador_code || null,
+          pricelist: insertPl, billing_type: p.billing_type, billing_group_id: p.billing_group_id || null, discount_id: p.discount_id || null,
+          first_name_cache: p.first, last_name_cache: p.last || null, email_cache: p.email || null,
+          phone_cache: p.phone10 ? fmtPhone(p.phone10) : null, address_cache: p.address_text,
+          access_instructions: p.access || null,
+          // Same as Customers → New Customer: staff adding a phone means order texts are on (David, 318d).
+          sms_consent_at: p.phone10 ? nowIso : null,
+        }).select('id').single()
+        if (cErr || !cust) throw new Error('Could not create the customer: ' + (cErr?.message || 'unknown'))
+        const rollback = async (why: string) => {
+          await svc.from('customers').delete().eq('id', cust.id)
+          throw new Error(why + ' — nothing was created.')
+        }
+        if (p.pricelist !== insertPl) {
+          const { error: plErr } = await user.from('customers').update({ pricelist: p.pricelist }).eq('id', cust.id)
+          if (plErr) await rollback('Could not set the price list: ' + plErr.message)
+        }
+        const { error: aErr } = await user.from('addresses').insert({
+          customer_id: cust.id, label: p.billing_type === 'on_account' ? 'Site' : 'Home',
+          line1: p.line1, line2: p.line2 || null, city: p.city, state: p.state, zip: p.zip,
+          lat: p.lat ?? null, lng: p.lng ?? null, delivery_instructions: p.access || null, is_default: true,
+        })
+        if (aErr) await rollback('Could not save the address: ' + aErr.message)
+        result = { customer_id: cust.id }
+        message = `Done — ${[p.first, p.last].filter(Boolean).join(' ')} created. Open Customers to add a plan, card or first order.`
+        break
+      }
       case 'create_issue': {
         const { data: iss, error } = await user.from('cs_issues').insert({
           title: p.title, priority: p.priority, category: p.category, customer_id: p.customer_id, order_id: p.order_id,
@@ -430,7 +646,24 @@ export async function confirmAction(ctx: Ctx, actionId: string, notify: boolean)
 }
 
 // ── Undo (session 318c) ──────────────────────────────────────────────────────
-export const UNDOABLE = new Set(['reschedule', 'skip_or_cancel', 'adjust_credit', 'update_instructions'])
+export const UNDOABLE = new Set(['reschedule', 'skip_or_cancel', 'adjust_credit', 'update_instructions', 'create_customer'])
+
+// A new account can be undone only while nothing has happened on it yet; undoing
+// deletes it (and its address). Anything attached → close it by hand instead.
+async function customerIsUntouched(svc: Db, id: string): Promise<string | null> {
+  const checks: [string, string][] = [['orders', 'orders'], ['customer_transactions', 'billing history'], ['subscriptions', 'a subscription'],
+    ['sms_messages', 'text messages'], ['payments', 'payments'], ['cs_issues', 'staff issues'], ['invoices', 'invoices'], ['customer_payment_methods', 'a saved card']]
+  for (const [tbl, label] of checks) {
+    const { count, error } = await svc.from(tbl).select('id', { count: 'exact', head: true }).eq('customer_id', id)
+    if (error) throw new Error(`${tbl} check: ${error.message}`)
+    if ((count || 0) > 0) return label
+  }
+  const { data: c } = await svc.from('customers').select('profile_id, credits').eq('id', id).maybeSingle()
+  if (!c) return 'it no longer exists'
+  if (c.profile_id) return 'a customer-app login'
+  if (Number(c.credits || 0) !== 0) return 'account credit'
+  return null
+}
 const UNDO_DAYS = 7
 const sameTime = (a?: string | null, b?: string | null) =>
   (!a && !b) || (!!a && !!b && new Date(a).getTime() === new Date(b).getTime())
@@ -522,6 +755,17 @@ export async function proposeUndo(ctx: Ctx, originalId: string): Promise<Proposa
       break
     }
 
+    case 'create_customer': {
+      const cid = String(r.customer_id || '')
+      if (!UUID.test(cid)) throw new Error('The new customer’s id wasn’t recorded — close the account by hand.')
+      const blocker = await customerIsUntouched(svc, cid)
+      if (blocker) throw new Error(`The account already has ${blocker}, so it can’t simply be removed. Close or merge it by hand in Customers.`)
+      params = { ...params, customer_id: cid, name: [p.first, p.last].filter(Boolean).join(' ') }
+      summary = `Undo: remove the new account for ${[p.first, p.last].filter(Boolean).join(' ')}`
+      lines.push({ label: 'Account', before: [p.first, p.last].filter(Boolean).join(' ') + ' · ' + p.address_text, after: 'Removed (it has no orders or history yet)' })
+      break
+    }
+
     case 'update_instructions': {
       const o = await loadOrder(svc, Number(p.order_number))
       const cur = (o.special_instructions || '').trim()
@@ -592,6 +836,14 @@ async function runUndo(ctx: Ctx, p: Record<string, any>, notify: boolean): Promi
       const { error } = await user.from('orders').update({ special_instructions: p.restore || null, updated_at: new Date().toISOString() }).eq('id', p.order_id)
       if (error) throw new Error(error.message)
       return { result: { updated: true }, message: `Undone — previous instructions restored on order #${p.order_number}.` }
+    }
+    case 'create_customer': {
+      const blocker = await customerIsUntouched(svc, p.customer_id)
+      if (blocker) throw new Error(`The account now has ${blocker} — nothing was removed. Close or merge it by hand.`)
+      // As the staff member: RLS (is_admin) decides. Addresses cascade.
+      const { error } = await user.from('customers').delete().eq('id', p.customer_id)
+      if (error) throw new Error(error.message)
+      return { result: { deleted: p.customer_id }, message: `Undone — the account for ${p.name} was removed.` }
     }
     default:
       throw new Error('Unknown undo type ' + p.undo_type)

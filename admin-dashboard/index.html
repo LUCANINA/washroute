@@ -1988,6 +1988,7 @@
               <button class="ac-chip" onclick="askClaudeOpen('Look up customer ')">Look up a customer</button>
               <button class="ac-chip" onclick="askClaudeOpen('Summarize the routes for today', true)">Today's routes</button>
               <button class="ac-chip" onclick="askClaudeOpen('What happened to order #')">What happened to an order?</button>
+              <button class="ac-chip" onclick="askClaudeOpen('Add a new customer: ')">Add a customer</button>
             </div>
           </div>
 
@@ -28963,7 +28964,7 @@ ${noActivityNote}
   let _acBusy = false;
   // Session 318c — Undo. Undo cards opened from "Recent changes" live here (they have
   // no chat turn to hang off); ones opened from a chat card sit under that card.
-  const AC_UNDOABLE = ['reschedule', 'skip_or_cancel', 'adjust_credit', 'update_instructions'];
+  const AC_UNDOABLE = ['reschedule', 'skip_or_cancel', 'adjust_credit', 'update_instructions', 'create_customer'];
   let _acView = 'chat';           // 'chat' | 'changes'
   let _acListProps = [];
   let _acChanges = null;          // rows from assistant_actions, or null while loading
@@ -28975,6 +28976,7 @@ ${noActivityNote}
     propose_reschedule: 'prepared a reschedule', propose_skip_or_cancel: 'prepared a skip/cancel',
     propose_credit: 'prepared a credit change', propose_instructions_update: 'prepared an instructions change',
     propose_issue: 'prepared an issue', propose_issue_comment: 'prepared an issue comment',
+    propose_create_customer: 'prepared a new customer',
   };
   function _acPropCard(pr) {
     const id = esc(pr.id);
@@ -29121,7 +29123,7 @@ ${noActivityNote}
     if (!el) return;
     if (_acView === 'changes') { el.innerHTML = _acChangesHtml(); return; }
     if (!_acTurns.length && !thinking) {
-      el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;line-height:1.6">Ask a question in plain English. Examples:<br>• Why is order #15542 $87?<br>• Find Joyce Lee and show her last orders<br>• What did we text customer 510-926-5142 this week?<br>• How many stops are on today\'s routes?<br>• Move order #14786\'s pickup to Friday PM<br>• Give Joyce Lee a $9.95 credit for the delivery-fee bug</div>';
+      el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;line-height:1.6">Ask a question in plain English. Examples:<br>• Why is order #15542 $87?<br>• Find Joyce Lee and show her last orders<br>• What did we text customer 510-926-5142 this week?<br>• How many stops are on today\'s routes?<br>• Move order #14786\'s pickup to Friday PM<br>• Give Joyce Lee a $9.95 credit for the delivery-fee bug<br>• Add a new customer: Maria Lopez, 510-555-0142, 123 Main St Oakland 94607, found us on Google</div>';
       return;
     }
     el.innerHTML = _acTurns.map(t => {
