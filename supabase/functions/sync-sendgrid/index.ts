@@ -31,6 +31,7 @@
 //         fullsync— does it (cron entry point)
 //         jobstatus {job_id} — status of a contacts import job
 //         lookup {emails:[...]} — read-only: what SendGrid holds for up to 20 contacts
+//         stats {date} — read-only: delivery stats for one day (global + by mailbox provider)
 //
 // AUTH: x-wr-internal header (public.wr_internal_secret(), same as every pg_cron
 // HTTP job). verify_jwt must be FALSE — the cron sends no Authorization header.
@@ -262,6 +263,19 @@ Deno.serve(async (req) => {
         found[norm(email)] = c ? { first_name: c.first_name ?? null, last_name: c.last_name ?? null, list_ids: c.list_ids || [], created_at: c.created_at, updated_at: c.updated_at } : (v as any)?.error || null
       }
       return json({ found })
+    }
+
+    if (mode === 'stats') {
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : new Date().toISOString().slice(0, 10)
+      const [g, mb] = await Promise.all([
+        sg('GET', `/v3/stats?start_date=${d}&end_date=${d}&aggregated_by=day`),
+        sg('GET', `/v3/mailbox_providers/stats?start_date=${d}&end_date=${d}&aggregated_by=day`),
+      ])
+      return json({
+        date: d,
+        global: g.ok ? g.data?.[0]?.stats?.[0]?.metrics ?? g.data : { error: g.status, detail: g.data },
+        by_provider: mb.ok ? (mb.data?.[0]?.stats || []).map((x: any) => ({ provider: x.name, ...x.metrics })) : { error: mb.status, detail: mb.data },
+      })
     }
 
     if (mode !== 'dryrun' && mode !== 'fullsync') return json({ error: 'unknown mode' }, 400)
