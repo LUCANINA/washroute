@@ -3649,7 +3649,7 @@
                 <div class="card-header">
                   <div>
                     <div class="card-title">Sign-ups by month</div>
-                    <div class="card-sub">Each row is one signup month. A figure appears once its window has fully passed. <span class="reg-flag reg-flag-up">▲</span> / <span class="reg-flag reg-flag-down">▼</span> = well above / below the average of the other months.</div>
+                    <div class="card-sub">Each row is one signup month. A figure appears once its window has fully passed. <span class="reg-flag reg-flag-up">▲</span> / <span class="reg-flag reg-flag-down">▼</span> = well above / below the average of the other months (the go-live month and months under 20 sign-ups are left out).</div>
                   </div>
                   <button class="rev-export-btn" id="reg-cohort-export-btn" style="display:none" onclick="exportCohortCSV()">Export CSV</button>
                 </div>
@@ -53129,6 +53129,11 @@ ${oneCopy}
       const win = (field, n) => (!regs || !_cohClosed(k, n)) ? null : { n: num(r[field]), rate: num(r[field]) / regs };
       return {
         monthKey: k, regs,
+        // Go-live month: existing Starchup customers re-registered in bulk (≈209
+        // sign-ups vs ≈140 normal, 2× the spend), and orders only start mid-month.
+        // Shown, but kept out of every average and flag so it can't make later
+        // months look bad.
+        isGoLive: !!d.go_live && k === d.go_live,
         m0: win('m0', 1), m1: win('m1', 2), m3: win('m3', 4), ret3: win('ret3', 4),
         spend3: (regs && _cohClosed(k, 4)) ? num(r.spend3) / regs : null,
         spend: num(r.spend),
@@ -53138,11 +53143,11 @@ ${oneCopy}
 
     // Weighted average of the months whose window has closed (sum n ÷ sum sign-ups).
     const avg = (field) => {
-      const rs = rows.filter(r => r[field]);
+      const rs = rows.filter(r => r[field] && !r.isGoLive);
       const regs = rs.reduce((s, r) => s + r.regs, 0);
       return regs ? rs.reduce((s, r) => s + r[field].n, 0) / regs : null;
     };
-    const spendRows = rows.filter(r => r.spend3 !== null);
+    const spendRows = rows.filter(r => r.spend3 !== null && !r.isGoLive);
     const spendRegs = spendRows.reduce((s, r) => s + r.regs, 0);
     const avgs = {
       m0: avg('m0'), m1: avg('m1'), m3: avg('m3'), ret3: avg('ret3'),
@@ -53156,7 +53161,7 @@ ${oneCopy}
       x.regs += num(r.regs); x.ever += num(r.ever); x.spend += num(r.spend);
     });
 
-    const active = months.map(k => ({ monthKey: k, customers: activeBy[k] || 0, partial: k === nowKey }));
+    const active = months.map(k => ({ monthKey: k, customers: activeBy[k] || 0, partial: k === nowKey || (!!d.go_live && k === d.go_live) }));
     return { ch, nowKey, startKey, goLive: d.go_live, rows, avgs, sources: Object.values(src), active };
   }
 
@@ -53173,6 +53178,10 @@ ${oneCopy}
   const _cohFlagHtml = f => f === 'up' ? '<span class="reg-flag reg-flag-up" title="Well above average">▲</span>'
                           : f === 'down' ? '<span class="reg-flag reg-flag-down" title="Well below average">▼</span>' : '';
   const _cohPct = x => Math.round(x * 100) + '%';
+  // A month with fewer sign-ups than this is too small to judge: it gets no
+  // ▲/▼ and is never used as the baseline another month is compared against.
+  const COH_MIN_SIGNUPS = 20;
+  const _cohJudgeable = r => !r.isGoLive && r.regs >= COH_MIN_SIGNUPS;
 
   function renderCohortAnalysis() {
     if (_cohortData === null) return;
@@ -53214,7 +53223,7 @@ ${oneCopy}
         : 'No full month yet');
 
     const rateTile = (id, field) => {
-      const closed = M.rows.filter(r => r[field]);
+      const closed = M.rows.filter(r => r[field] && _cohJudgeable(r));
       const latest = closed[closed.length - 1];
       if (!latest) { set(id, '—', 'Too early — no month has finished this window'); return; }
       const earlier = closed.slice(0, -1);
@@ -53225,7 +53234,7 @@ ${oneCopy}
     rateTile('coh-kpi-conv', 'm1');
     rateTile('coh-kpi-ret', 'ret3');
 
-    const sp = M.rows.filter(r => r.spend3 !== null);
+    const sp = M.rows.filter(r => r.spend3 !== null && _cohJudgeable(r));
     const lastSp = sp[sp.length - 1];
     if (!lastSp) set('coh-kpi-spend', '—', 'Too early — no month has had 3 months yet');
     else {
@@ -53243,7 +53252,7 @@ ${oneCopy}
     if (_cohortChart) { _cohortChart.destroy(); _cohortChart = null; }
     const full = M.active.filter(a => !a.partial && a.customers > 0);
     const avg = full.length ? full.reduce((s, a) => s + a.customers, 0) / full.length : null;
-    const labels = M.active.map(a => _monthKeyLabel(a.monthKey, true) + (a.partial ? ' (so far)' : ''));
+    const labels = M.active.map(a => _monthKeyLabel(a.monthKey, true) + (a.monthKey === M.nowKey ? ' (so far)' : a.partial ? ' (go-live)' : ''));
     const accent = '#3B82F6';
     _cohortChart = new Chart(canvas.getContext('2d'), {
       type: 'bar',
@@ -53259,7 +53268,7 @@ ${oneCopy}
         plugins: { legend: { display: false },
           tooltip: { callbacks: { label: c => c.datasetIndex === 1
             ? `Average of full months: ${c.parsed.y.toLocaleString()}`
-            : `${c.parsed.y.toLocaleString()} customers ordered` + (M.active[c.dataIndex].partial ? ' so far this month' : '') } } },
+            : `${c.parsed.y.toLocaleString()} customers ordered` + (M.active[c.dataIndex].monthKey === M.nowKey ? ' so far this month' : M.active[c.dataIndex].partial ? ' (WashRoute started mid-month)' : '') } } },
         scales: { y: { beginAtZero: true, grid: { color: '#f3f4f6' }, ticks: { precision: 0 } },
                   x: { grid: { display: false } } }
       }
@@ -53277,12 +53286,14 @@ ${oneCopy}
     }
     // Average of the OTHER closed months, so a month isn't compared with itself.
     const othersRate = (row, field) => {
-      const rs = M.rows.filter(r => r !== row && r[field]);
+      if (!_cohJudgeable(row)) return null;
+      const rs = M.rows.filter(r => r !== row && r[field] && _cohJudgeable(r));
       const regs = rs.reduce((s, r) => s + r.regs, 0);
       return regs ? rs.reduce((s, r) => s + r[field].n, 0) / regs : null;
     };
     const othersSpend = (row) => {
-      const rs = M.rows.filter(r => r !== row && r.spend3 !== null);
+      if (!_cohJudgeable(row)) return null;
+      const rs = M.rows.filter(r => r !== row && r.spend3 !== null && _cohJudgeable(r));
       const regs = rs.reduce((s, r) => s + r.regs, 0);
       return regs ? rs.reduce((s, r) => s + r.spend3 * r.regs, 0) / regs : null;
     };
@@ -53302,7 +53313,7 @@ ${oneCopy}
     };
     const newestFirst = [...M.rows].reverse();
     const body = newestFirst.map(r => `<tr>
-        <td style="font-weight:600;color:var(--gray-800);white-space:nowrap">${_monthKeyLabel(r.monthKey)}${r.monthKey === M.nowKey ? ' <span class="reg-cohort-sub">so far</span>' : ''}</td>
+        <td style="font-weight:600;color:var(--gray-800);white-space:nowrap">${_monthKeyLabel(r.monthKey)}${r.monthKey === M.nowKey ? ' <span class="reg-cohort-sub">so far</span>' : ''}${r.isGoLive ? ' <span class="reg-cohort-sub" title="Existing Starchup customers re-registered when WashRoute went live, so this month is not comparable — it is left out of the averages and flags.">go-live</span>' : ''}</td>
         <td ${td}><span class="reg-cohort-rate">${r.regs.toLocaleString()}</span></td>
         ${rateCell(r, 'm0')}${rateCell(r, 'm1')}${rateCell(r, 'm3')}${rateCell(r, 'ret3')}
         ${spendCell(r)}
@@ -53312,7 +53323,7 @@ ${oneCopy}
     const a = M.avgs;
     const avgCell = v => `<td ${td}>${v === null ? '<span class="reg-cohort-sub">—</span>' : `<b>${v}</b>`}</td>`;
     // Sign-ups per FULL month — the current month is still filling up.
-    const fullRows = M.rows.filter(r => r.monthKey !== M.nowKey);
+    const fullRows = M.rows.filter(r => r.monthKey !== M.nowKey && !r.isGoLive);
     const avgRegs = fullRows.length ? fullRows.reduce((s, r) => s + r.regs, 0) / fullRows.length : null;
     const avgRow = `<tr class="coh-avg">
         <td style="font-weight:700">Average</td>
