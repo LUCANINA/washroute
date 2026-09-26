@@ -9435,6 +9435,11 @@
             // to Scheduled rather than a filter with no button and no rows.
             currentOrderFilter = (hashSub === 'issues') ? 'scheduled' : hashSub;
           }
+          // Session 319: #reports/<report> — pick the report BEFORE showPage runs it, so a
+          // refresh reloads the report you were on (it used to fall back to Daily Revenue).
+          if (hashPage === 'reports' && hashSub && RPT_GROUPS.some(g => g.tabs.some(t => t[0] === hashSub))) {
+            rptTab = hashSub;
+          }
           showPage(hashPage, document.querySelector(`.nav-item[data-page="${hashPage}"]`));
           // Restore sub-tab state (showPage defaults each section to its first tab)
           if (hashSub) {
@@ -9458,6 +9463,9 @@
             } else if (hashPage === 'team') {
               const tmBtn = document.getElementById('team-tab-' + hashSub);
               if (tmBtn) setTeamTab(hashSub, tmBtn);
+            } else if (hashPage === 'reports') {
+              // #reports/registrations/cohort — the third segment is Registrations' view
+              if (hashSub === 'registrations' && hashParts[2] === 'cohort') setRegView('cohort');
             } else if (hashPage === 'bookkeeping') {
               // #bookkeeping/client/debt — the third segment is Client View's sub-tab
               switchBookkeepingView(hashSub, hashParts[2] || null);
@@ -10549,7 +10557,7 @@
     // showing the stale entry until a hard refresh.
     if (id === 'overview') loadOverview();
     if (id === 'notifications') loadNotifications();
-    if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
+    if (id === 'reports') { initRptDateDefaults(); setRptTab(rptTab, null); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
     if (id === 'smsdelivery') loadSmsDelivery();
     if (id === 'bookkeeping') { loadLoans(); loadPayroll(); loadReconciliation(); loadBookkeepingKpis(); switchBookkeepingView(_bookkeepingActiveTab || 'loans'); }
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
@@ -52437,6 +52445,11 @@ ${oneCopy}
 
   function setRptTab(tab, btn) {
     rptTab = tab;
+    // Persist across refresh, like #orders/<tab> and #bookkeeping/<view>.
+    if (currentPage === 'reports') {
+      const sub = (tab === 'registrations' && _regView === 'cohort') ? '/cohort' : '';
+      try { history.replaceState(null, '', '#reports/' + tab + sub); } catch(_) {}
+    }
     rptGroup = _rptGroupOf(tab);   // still tracked: the index highlights the current report
     renderRptTitle();
     // Derived from RPT_GROUPS, not a second hand-written list — a report added to the
@@ -53078,6 +53091,7 @@ ${oneCopy}
 
   function setRegView(view) {
     _regView = view;
+    try { history.replaceState(null, '', '#reports/registrations' + (view === 'cohort' ? '/cohort' : '')); } catch(_) {}
     ['overview', 'cohort'].forEach(v => document.getElementById('reg-view-tab-' + v)?.classList.toggle('active', v === view));
     document.getElementById('reg-view-overview').style.display = view === 'overview' ? '' : 'none';
     document.getElementById('reg-view-cohort').style.display   = view === 'cohort'   ? '' : 'none';
