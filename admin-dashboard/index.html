@@ -3548,14 +3548,21 @@
               .reg-subtab.active{color:#fff;background:var(--accent);border-color:var(--accent)}
               .reg-cohort-rate{font-weight:700;color:var(--gray-800)}
               .reg-cohort-sub{font-size:11px;color:var(--gray-400)}
+              .reg-flag{font-size:10px;font-weight:700;margin-left:3px}
+              .reg-flag-up{color:var(--green)}
+              .reg-flag-down{color:var(--red)}
+              .reg-cell-up .reg-cohort-rate{color:var(--green)}
+              .reg-cell-down .reg-cohort-rate{color:var(--red)}
+              #rpt-cohort-tbody tr.coh-avg td{border-top:2px solid var(--gray-200);background:var(--gray-50);color:var(--gray-600)}
+              .coh-link{background:none;border:none;padding:0;color:var(--accent);font:inherit;font-weight:600;cursor:pointer}
             </style>
             <div style="display:flex;gap:8px;margin-bottom:16px">
               <button class="reg-subtab active" onclick="setRegSubTab('delivery',this)">Delivery</button>
               <button class="reg-subtab" onclick="setRegSubTab('retail',this)">Retail</button>
             </div>
             <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:16px">
-              <button class="reg-subtab active" id="reg-view-tab-overview" onclick="setRegView('overview',this)">Overview</button>
-              <button class="reg-subtab" id="reg-view-tab-cohort" onclick="setRegView('cohort',this)">Cohort Analysis</button>
+              <button class="reg-subtab active" id="reg-view-tab-overview" onclick="setRegView('overview')">Overview</button>
+              <button class="reg-subtab" id="reg-view-tab-cohort" onclick="setRegView('cohort')">Cohort Analysis</button>
             </div>
 
             <!-- ═══ OVERVIEW VIEW (single period, existing) ═══ -->
@@ -3605,11 +3612,10 @@
               </div>
             </div>
 
-            <!-- ═══ COHORT ANALYSIS VIEW (session 315) ═══
-                 Independent of the shared rpt-from/rpt-to pickers — always shows the
-                 trailing N months so David can compare one signup month against
-                 another (e.g. did a marketing push in one month convert better than
-                 the next?). Channel filter (Delivery/Retail) above still applies. -->
+            <!-- ═══ COHORT ANALYSIS VIEW (session 319) ═══
+                 Data: registration_cohorts(p_months) RPC — one call, all math in SQL.
+                 Independent of the shared rpt-from/rpt-to pickers: always the trailing
+                 N months (never before WashRoute go-live). Delivery/Retail above applies. -->
             <div id="reg-view-cohort" style="display:none">
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
                 <div class="card-sub" style="margin:0">Show</div>
@@ -3621,11 +3627,29 @@
                 </select>
                 <div class="card-sub" style="margin:0" id="rpt-cohort-period-label"></div>
               </div>
-              <div class="card" style="margin-bottom:0">
+
+              <div class="rpt-kpi-grid" id="reg-cohort-kpis" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">
+                <div class="stat-card"><div class="stat-label">Active customers / month</div><div class="stat-value" id="coh-kpi-active">—</div><div class="stat-sub" id="coh-kpi-active-sub"></div></div>
+                <div class="stat-card"><div class="stat-label">Ordered within 1 month</div><div class="stat-value" id="coh-kpi-conv">—</div><div class="stat-sub" id="coh-kpi-conv-sub"></div></div>
+                <div class="stat-card"><div class="stat-label">Still ordering at 3 months</div><div class="stat-value" id="coh-kpi-ret">—</div><div class="stat-sub" id="coh-kpi-ret-sub"></div></div>
+                <div class="stat-card"><div class="stat-label">Spend per sign-up, first 3 months</div><div class="stat-value" id="coh-kpi-spend">—</div><div class="stat-sub" id="coh-kpi-spend-sub"></div></div>
+              </div>
+
+              <div class="card" style="margin-bottom:16px">
                 <div class="card-header">
                   <div>
-                    <div class="card-title">Registrations by Month</div>
-                    <div class="card-sub">Each row is one signup month. Conversion is measured from that month's own start, so a month can only be judged once enough time has passed — newer months show "Too early" until then.</div>
+                    <div class="card-title">Active customers per month</div>
+                    <div class="card-sub" id="coh-active-sub">Different customers who placed at least one order · dashed line = average of full months</div>
+                  </div>
+                </div>
+                <div class="chart-canvas-wrap" style="height:240px"><canvas id="coh-active-chart"></canvas></div>
+              </div>
+
+              <div class="card" style="margin-bottom:16px">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Sign-ups by month</div>
+                    <div class="card-sub">Each row is one signup month. A figure appears once its window has fully passed. <span class="reg-flag reg-flag-up">▲</span> / <span class="reg-flag reg-flag-down">▼</span> = well above / below the average of the other months.</div>
                   </div>
                   <button class="rev-export-btn" id="reg-cohort-export-btn" style="display:none" onclick="exportCohortCSV()">Export CSV</button>
                 </div>
@@ -3633,22 +3657,66 @@
                   <table class="rpt-drv-tbl">
                     <thead>
                       <tr>
-                        <th>Cohort Month</th>
-                        <th style="text-align:right">Registrations</th>
-                        <th style="text-align:right" title="Placed a first order in the same calendar month they signed up">Converted Within Month</th>
-                        <th style="text-align:right" title="Placed a first order by the end of the month after they signed up">Converted After 1 Month</th>
-                        <th style="text-align:right" title="Placed a first order within 3 months of signing up">Converted After 3 Months</th>
-                        <th style="text-align:right">Total Spend</th>
+                        <th>Month</th>
+                        <th style="text-align:right">Sign-ups</th>
+                        <th style="text-align:right" title="Placed a first order in the same calendar month they signed up">Ordered within month</th>
+                        <th style="text-align:right" title="Placed a first order by the end of the month after they signed up">Within 1 month</th>
+                        <th style="text-align:right" title="Placed a first order by the end of the 3rd month after they signed up">Within 3 months</th>
+                        <th style="text-align:right" title="Placed an order during the 3rd month after signing up — are they still a customer?">Still ordering at 3 mo</th>
+                        <th style="text-align:right" title="Paid spend in the signup month and the 3 months after, divided by sign-ups — same age for every month, so months compare fairly">Spend / sign-up (3 mo)</th>
+                        <th style="text-align:right" title="All paid spend from these customers so far">Total spend</th>
+                        <th style="text-align:right" title="Signed up, never placed an order">No order yet</th>
                       </tr>
                     </thead>
                     <tbody id="rpt-cohort-tbody">
-                      <tr><td colspan="6"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                      <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                     </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="card" id="coh-unconv-card" style="margin-bottom:16px;display:none">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title" id="coh-unconv-title">No order yet</div>
+                    <div class="card-sub">People who signed up but never ordered — the list to follow up with.</div>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button class="rev-export-btn" onclick="exportCohortUnconvertedCSV()">Export CSV</button>
+                    <button class="rev-export-btn" onclick="closeCohortUnconverted()">Close</button>
+                  </div>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>How they found us</th><th>Signed up</th></tr></thead>
+                    <tbody id="coh-unconv-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="card" style="margin-bottom:0">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Where sign-ups came from</div>
+                    <div class="card-sub" id="coh-src-sub">"How did you find us?" at signup, across the months shown</div>
+                  </div>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead><tr>
+                      <th>Source</th>
+                      <th style="text-align:right">Sign-ups</th>
+                      <th style="text-align:right">Share</th>
+                      <th style="text-align:right" title="Placed at least one order so far">Ordered</th>
+                      <th style="text-align:right" title="All paid spend so far ÷ sign-ups">Spend / sign-up</th>
+                    </tr></thead>
+                    <tbody id="coh-src-tbody"></tbody>
                   </table>
                 </div>
               </div>
             </div>
           </div>
+
 
           <!-- ── TAB: DELIVERY KPIs ── -->
           <!-- ── TAB: ON-TIME (session 295) ──
@@ -52764,7 +52832,7 @@ ${oneCopy}
   }
 
   // ── REGISTRATIONS REPORT ──
-  // Session 315: shared by Overview + Cohort Analysis. Earliest order per customer
+  // Session 319: shared by Overview + Cohort Analysis. Earliest order per customer
   // (→ "converted") and spend from PAID orders. Paged with .range() because
   // PostgREST silently caps a response at 1000 rows — a chunk of 200 customers
   // with regular weekly orders easily passes that, and the old single call would
@@ -52876,7 +52944,7 @@ ${oneCopy}
     document.querySelectorAll('.reg-subtab:not([id^="reg-view-tab-"])').forEach(b => b.classList.remove('active'));
     if (btnEl) btnEl.classList.add('active');
     _renderRegReport();
-    if (_regView === 'cohort') renderCohortTable();
+    if (_regView === 'cohort') { closeCohortUnconverted(); renderCohortAnalysis(); }
   }
 
   function renderRegistrationsTable() {
@@ -52972,15 +53040,16 @@ ${oneCopy}
     URL.revokeObjectURL(url);
   }
 
-  // ── REGISTRATIONS: COHORT ANALYSIS (session 315) ──
-  // Independent dataset from the Overview table above — spans the trailing N
-  // months regardless of the shared rpt-from/rpt-to pickers, so a signup month
-  // can be compared against neighboring months. Loaded lazily the first time
-  // the Cohort Analysis view is opened; the months-back selector re-fetches.
+  // ── REGISTRATIONS: COHORT ANALYSIS (session 319) ──
+  // All the math lives in the registration_cohorts(p_months) RPC (migrations
+  // session_319 / 319b) — one call, ~0.2 s, instead of paging every order into
+  // the browser. The page only picks the channel, decides which windows have
+  // closed, and flags months that beat or trail the average.
   let _regView = 'overview';       // 'overview' | 'cohort'
-  let _cohortCustomers = null;     // [{id, monthKey, isRetail, firstOrder, spend}] or null = not yet loaded
+  let _cohortData = null;          // RPC payload, or null = not loaded yet
   let _cohortMonthsBack = 12;
-  let _cohortGoLiveKey = null;     // "YYYY-MM" of the first WashRoute order — earlier cohorts have no order history (Starchup)
+  let _cohortChart = null;
+  let _cohortUnconv = { monthKey: null, rows: [] };
 
   // "YYYY-MM" for a timestamp, in business timezone.
   const _monthKeyOf = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: BIZ_TZ, year: 'numeric', month: '2-digit' }).slice(0, 7);
@@ -52990,19 +53059,31 @@ ${oneCopy}
     const total = (y * 12 + (m - 1)) + n;
     return Math.floor(total / 12) + '-' + String((total % 12) + 1).padStart(2, '0');
   };
-  const _monthKeyLabel = (key) => {
+  const _monthKeyLabel = (key, short) => {
     const [y, m] = key.split('-').map(Number);
-    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', year: 'numeric' });
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', year: short ? '2-digit' : 'numeric' });
+  };
+  // A window of N months from the start of the signup month has closed once
+  // the first day of month+N has begun (Pacific). 1 = same month, 2 = +1, 4 = +3.
+  const _cohClosed = (monthKey, n) => new Date() >= pacificDayStart(_monthKeyAdd(monthKey, n) + '-01');
+
+  // Same list and labels as the signup forms (customer app #s-source / #name-source,
+  // admin #cpe-source). 'unknown' and 'imported' come from the RPC's normalizer.
+  const COH_SOURCE_LABEL = {
+    google: 'Google search', friend_family: 'Friend / family', yelp: 'Yelp', nextdoor: 'Nextdoor',
+    instagram: 'Instagram', roots_soul: 'Roots & Soul', oakland_ballers: 'Oakland Ballers',
+    saw_van: 'Saw the van', other: 'Other', ai: 'ChatGPT / AI', ambassador: 'Ambassador / referral code',
+    imported: 'Imported (Starchup)', pos_walkin: 'Walk-in (POS)', unknown: 'Not recorded',
   };
 
-  function setRegView(view, btnEl) {
+  function setRegView(view) {
     _regView = view;
     ['overview', 'cohort'].forEach(v => document.getElementById('reg-view-tab-' + v)?.classList.toggle('active', v === view));
     document.getElementById('reg-view-overview').style.display = view === 'overview' ? '' : 'none';
     document.getElementById('reg-view-cohort').style.display   = view === 'cohort'   ? '' : 'none';
     if (view === 'cohort') {
-      if (_cohortCustomers === null) loadCohortAnalysis();
-      else renderCohortTable();
+      if (_cohortData === null) loadCohortAnalysis();
+      else renderCohortAnalysis();
     }
   }
   window.setRegView = setRegView;
@@ -53015,143 +53096,359 @@ ${oneCopy}
 
   async function loadCohortAnalysis() {
     const tbody = document.getElementById('rpt-cohort-tbody');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="6"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
-
-    // Orders only exist from the WashRoute go-live (Starchup history was never
-    // imported), so a cohort from before then would read as a false 0%. Clip the
-    // window to start at the go-live month, found from the data, not hardcoded.
-    if (_cohortGoLiveKey === null) {
-      const { data: first } = await db.from('orders').select('created_at').order('created_at', { ascending: true }).limit(1);
-      _cohortGoLiveKey = first?.[0]?.created_at ? _monthKeyOf(first[0].created_at) : '';
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
+    closeCohortUnconverted();
+    const { data, error } = await db.rpc('registration_cohorts', { p_months: _cohortMonthsBack });
+    if (error || !data) {
+      console.error('loadCohortAnalysis:', error);
+      if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="rpt-no-data">Couldn't load cohort data.</td></tr>`;
+      return;
     }
-    const { nowKey, startKey } = _cohortRange();
-    const fromISO  = pacificDayStart(startKey + '-01').toISOString();
+    _cohortData = data;
+    renderCohortAnalysis();
+  }
 
-    // Paged — 24 months of signups can pass PostgREST's 1000-row cap.
-    const rows = [];
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await db.from('customers')
-        .select('id, referral_source, created_at')
-        .gte('created_at', fromISO)
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-        .range(from, from + 999);
-      if (error) {
-        console.error('loadCohortAnalysis:', error);
-        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="rpt-no-data">Couldn't load cohort data.</td></tr>`;
-        return;
-      }
-      rows.push(...(data || []));
-      if (!data || data.length < 1000) break;
-    }
+  // Everything below is derived for the active channel (Delivery / Retail).
+  function _cohortModel() {
+    const d = _cohortData || {};
+    const ch = _regSubTab === 'retail' ? 'retail' : 'delivery';
+    const nowKey = _monthKeyOf(new Date().toISOString());
+    const startKey = d.start || nowKey;
+    const num = v => Number(v || 0);   // PostgREST sends numeric as strings
+    const byMonth = {};
+    (d.cohorts || []).filter(r => r.channel === ch).forEach(r => { byMonth[r.month] = r; });
+    const activeBy = {};
+    (d.active || []).filter(r => r.channel === ch).forEach(r => { activeBy[r.month] = num(r.customers); });
 
-    const { firstOrderByCust, spendByCust } = await _regFirstOrderAndSpend(rows.map(c => c.id));
+    const months = [];   // oldest → newest
+    for (let k = startKey; k <= nowKey; k = _monthKeyAdd(k, 1)) months.push(k);
 
-    _cohortCustomers = rows.map(c => ({
-      id: c.id,
-      monthKey: _monthKeyOf(c.created_at),
-      isRetail: c.referral_source === 'pos_walkin',
-      firstOrder: firstOrderByCust[c.id] || null,
-      spend: spendByCust[c.id] || 0,
-    }));
+    const rows = months.map(k => {
+      const r = byMonth[k] || {};
+      const regs = num(r.regs);
+      const win = (field, n) => (!regs || !_cohClosed(k, n)) ? null : { n: num(r[field]), rate: num(r[field]) / regs };
+      return {
+        monthKey: k, regs,
+        m0: win('m0', 1), m1: win('m1', 2), m3: win('m3', 4), ret3: win('ret3', 4),
+        spend3: (regs && _cohClosed(k, 4)) ? num(r.spend3) / regs : null,
+        spend: num(r.spend),
+        noOrder: regs - num(r.ever),
+      };
+    });
+
+    // Weighted average of the months whose window has closed (sum n ÷ sum sign-ups).
+    const avg = (field) => {
+      const rs = rows.filter(r => r[field]);
+      const regs = rs.reduce((s, r) => s + r.regs, 0);
+      return regs ? rs.reduce((s, r) => s + r[field].n, 0) / regs : null;
+    };
+    const spendRows = rows.filter(r => r.spend3 !== null);
+    const spendRegs = spendRows.reduce((s, r) => s + r.regs, 0);
+    const avgs = {
+      m0: avg('m0'), m1: avg('m1'), m3: avg('m3'), ret3: avg('ret3'),
+      spend3: spendRegs ? spendRows.reduce((s, r) => s + r.spend3 * r.regs, 0) / spendRegs : null,
+    };
+
+    // Sources: summed across the months shown.
+    const src = {};
+    (d.sources || []).filter(r => r.channel === ch).forEach(r => {
+      const x = src[r.source] || (src[r.source] = { source: r.source, regs: 0, ever: 0, spend: 0 });
+      x.regs += num(r.regs); x.ever += num(r.ever); x.spend += num(r.spend);
+    });
+
+    const active = months.map(k => ({ monthKey: k, customers: activeBy[k] || 0, partial: k === nowKey }));
+    return { ch, nowKey, startKey, goLive: d.go_live, rows, avgs, sources: Object.values(src), active };
+  }
+
+  // ▲ / ▼ when a month is clearly off the average of the OTHER closed months.
+  // 5 points for rates, 15% for money — small wiggles stay quiet.
+  function _cohFlag(value, others, isMoney) {
+    if (value === null || others === null || others === undefined) return '';
+    const diff = isMoney ? (others ? (value - others) / others : 0) : value - others;
+    const limit = isMoney ? 0.15 : 0.05;
+    if (diff >= limit)  return 'up';
+    if (diff <= -limit) return 'down';
+    return '';
+  }
+  const _cohFlagHtml = f => f === 'up' ? '<span class="reg-flag reg-flag-up" title="Well above average">▲</span>'
+                          : f === 'down' ? '<span class="reg-flag reg-flag-down" title="Well below average">▼</span>' : '';
+  const _cohPct = x => Math.round(x * 100) + '%';
+
+  function renderCohortAnalysis() {
+    if (_cohortData === null) return;
+    const M = _cohortModel();
 
     const label = document.getElementById('rpt-cohort-period-label');
     if (label) {
-      const clipped = _cohortGoLiveKey && startKey === _cohortGoLiveKey && _monthKeyAdd(nowKey, -(_cohortMonthsBack - 1)) < _cohortGoLiveKey;
-      label.textContent = `${_monthKeyLabel(startKey)} – ${_monthKeyLabel(nowKey)}`
-        + (clipped ? ` · order history starts ${_monthKeyLabel(_cohortGoLiveKey)} (WashRoute go-live)` : '');
+      const wanted = _monthKeyAdd(M.nowKey, -(_cohortMonthsBack - 1));
+      label.textContent = `${_monthKeyLabel(M.startKey)} – ${_monthKeyLabel(M.nowKey)}`
+        + (M.goLive && wanted < M.goLive ? ` · order history starts ${_monthKeyLabel(M.goLive)} (WashRoute go-live)` : '');
     }
-
-    renderCohortTable();
+    _renderCohortKpis(M);
+    _renderCohortChart(M);
+    _renderCohortTable(M);
+    _renderCohortSources(M);
   }
 
-  // One row per signup month, newest first, for the active channel. Shared by
-  // the table and the CSV so the two can never disagree.
-  //   Within month   → first order before the 1st of the next month
-  //   After 1 month  → first order before the 1st of signup month + 2
-  //   After 3 months → first order before the 1st of signup month + 4
-  // A window still open (its boundary not yet passed) is null = "Too early".
-  // Trailing N months ending this month, but never earlier than go-live.
-  function _cohortRange() {
-    const nowKey = _monthKeyOf(new Date().toISOString());
-    let startKey = _monthKeyAdd(nowKey, -(_cohortMonthsBack - 1));
-    if (_cohortGoLiveKey && startKey < _cohortGoLiveKey) startKey = _cohortGoLiveKey;
-    return { nowKey, startKey };
-  }
+  // Tile = the latest month whose window has closed, compared with the average
+  // of the months before it. Active customers = average of full months.
+  function _renderCohortKpis(M) {
+    const set = (id, v, sub) => {
+      const el = document.getElementById(id); if (el) el.textContent = v;
+      const s = document.getElementById(id + '-sub'); if (s) s.innerHTML = sub || '';
+    };
+    const trend = (latest, prior, isMoney, fmt) => {
+      if (prior === null) return '';
+      const f = _cohFlag(latest, prior, isMoney);
+      const word = f === 'up' ? '<span class="reg-flag-up">▲ above</span>' : f === 'down' ? '<span class="reg-flag-down">▼ below</span>' : 'in line with';
+      return ` · ${word} the earlier average (${fmt(prior)})`;
+    };
 
-  function _cohortSummary() {
-    const filtered = (_cohortCustomers || []).filter(c => _regSubTab === 'retail' ? c.isRetail : !c.isRetail);
-    const { nowKey, startKey } = _cohortRange();
-    const byMonth = {};
-    filtered.forEach(c => { (byMonth[c.monthKey] = byMonth[c.monthKey] || []).push(c); });
-    const now = new Date();
-    const out = [];
-    for (let k = nowKey; ; k = _monthKeyAdd(k, -1)) {
-      const rows = byMonth[k] || [];
-      const total = rows.length;
-      const win = (months) => {
-        const boundary = pacificDayStart(_monthKeyAdd(k, months) + '-01');
-        if (!total || now < boundary) return null;
-        const n = rows.filter(r => r.firstOrder && new Date(r.firstOrder) < boundary).length;
-        return { n, pct: Math.round((n / total) * 100) };
-      };
-      out.push({ monthKey: k, total, m0: win(1), m1: win(2), m3: win(4),
-                 spend: rows.reduce((s, r) => s + r.spend, 0) });
-      if (k === startKey) break;
+    // Active customers
+    const full = M.active.filter(a => !a.partial && a.customers > 0);
+    const avgActive = full.length ? full.reduce((s, a) => s + a.customers, 0) / full.length : null;
+    const lastFull = full[full.length - 1];
+    set('coh-kpi-active', avgActive === null ? '—' : Math.round(avgActive).toLocaleString(),
+      lastFull ? `Average of ${full.length} full month${full.length === 1 ? '' : 's'} · ${_monthKeyLabel(lastFull.monthKey, true)}: ${lastFull.customers.toLocaleString()}`
+        + (_cohFlag(lastFull.customers / avgActive, 1, true) === 'down' ? ' <span class="reg-flag-down">▼</span>' : _cohFlag(lastFull.customers / avgActive, 1, true) === 'up' ? ' <span class="reg-flag-up">▲</span>' : '')
+        : 'No full month yet');
+
+    const rateTile = (id, field) => {
+      const closed = M.rows.filter(r => r[field]);
+      const latest = closed[closed.length - 1];
+      if (!latest) { set(id, '—', 'Too early — no month has finished this window'); return; }
+      const earlier = closed.slice(0, -1);
+      const eRegs = earlier.reduce((s, r) => s + r.regs, 0);
+      const prior = eRegs ? earlier.reduce((s, r) => s + r[field].n, 0) / eRegs : null;
+      set(id, _cohPct(latest[field].rate), `${_monthKeyLabel(latest.monthKey, true)} sign-ups` + trend(latest[field].rate, prior, false, _cohPct));
+    };
+    rateTile('coh-kpi-conv', 'm1');
+    rateTile('coh-kpi-ret', 'ret3');
+
+    const sp = M.rows.filter(r => r.spend3 !== null);
+    const lastSp = sp[sp.length - 1];
+    if (!lastSp) set('coh-kpi-spend', '—', 'Too early — no month has had 3 months yet');
+    else {
+      const earlier = sp.slice(0, -1);
+      const eRegs = earlier.reduce((s, r) => s + r.regs, 0);
+      const prior = eRegs ? earlier.reduce((s, r) => s + r.spend3 * r.regs, 0) / eRegs : null;
+      set('coh-kpi-spend', fmtMoney(lastSp.spend3).replace(/\.\d\d$/, ''),
+        `${_monthKeyLabel(lastSp.monthKey, true)} sign-ups` + trend(lastSp.spend3, prior, true, v => fmtMoney(v).replace(/\.\d\d$/, '')));
     }
-    return { rows: out, count: filtered.length };
   }
 
-  function renderCohortTable() {
+  function _renderCohortChart(M) {
+    const canvas = document.getElementById('coh-active-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    if (_cohortChart) { _cohortChart.destroy(); _cohortChart = null; }
+    const full = M.active.filter(a => !a.partial && a.customers > 0);
+    const avg = full.length ? full.reduce((s, a) => s + a.customers, 0) / full.length : null;
+    const labels = M.active.map(a => _monthKeyLabel(a.monthKey, true) + (a.partial ? ' (so far)' : ''));
+    const accent = '#3B82F6';
+    _cohortChart = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: { labels, datasets: [
+        { type: 'bar', label: 'Active customers', data: M.active.map(a => a.customers),
+          backgroundColor: M.active.map(a => a.partial ? accent + '22' : accent + '55'),
+          borderColor: accent, borderWidth: M.active.map(a => a.partial ? 1 : 2), borderRadius: 4 },
+        { type: 'line', label: 'Average', data: M.active.map(() => avg === null ? null : Math.round(avg)),
+          borderColor: '#9CA3AF', borderDash: [6, 4], pointRadius: 0, fill: false },
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: c => c.datasetIndex === 1
+            ? `Average of full months: ${c.parsed.y.toLocaleString()}`
+            : `${c.parsed.y.toLocaleString()} customers ordered` + (M.active[c.dataIndex].partial ? ' so far this month' : '') } } },
+        scales: { y: { beginAtZero: true, grid: { color: '#f3f4f6' }, ticks: { precision: 0 } },
+                  x: { grid: { display: false } } }
+      }
+    });
+  }
+
+  function _renderCohortTable(M) {
     const tbody = document.getElementById('rpt-cohort-tbody');
-    if (!tbody || _cohortCustomers === null) return;
     const exportBtn = document.getElementById('reg-cohort-export-btn');
-    const { rows, count } = _cohortSummary();
-    if (!count) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--gray-400)">No ${_regSubTab === 'retail' ? 'retail' : 'delivery'} registrations in this window</td></tr>`;
+    if (!tbody) return;
+    if (!M.rows.some(r => r.regs)) {
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--gray-400)">No ${M.ch} sign-ups in these months</td></tr>`;
       if (exportBtn) exportBtn.style.display = 'none';
       return;
     }
-    const cell = (w, total) => {
-      if (!total) return '<span class="reg-cohort-sub">—</span>';
-      if (!w) return '<span class="reg-cohort-sub">Too early</span>';
-      return `<span class="reg-cohort-rate">${w.pct}%</span> <span class="reg-cohort-sub">${w.n.toLocaleString()} of ${total.toLocaleString()}</span>`;
+    // Average of the OTHER closed months, so a month isn't compared with itself.
+    const othersRate = (row, field) => {
+      const rs = M.rows.filter(r => r !== row && r[field]);
+      const regs = rs.reduce((s, r) => s + r.regs, 0);
+      return regs ? rs.reduce((s, r) => s + r[field].n, 0) / regs : null;
     };
-    tbody.innerHTML = rows.map(r => `<tr>
-        <td style="font-weight:600;color:var(--gray-800);white-space:nowrap">${_monthKeyLabel(r.monthKey)}</td>
-        <td style="text-align:right;font-weight:600;color:var(--gray-800);font-variant-numeric:tabular-nums">${r.total.toLocaleString()}</td>
-        <td style="text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${cell(r.m0, r.total)}</td>
-        <td style="text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${cell(r.m1, r.total)}</td>
-        <td style="text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${cell(r.m3, r.total)}</td>
-        <td style="text-align:right;font-weight:600;color:var(--gray-800);font-variant-numeric:tabular-nums">${fmtMoney(r.spend)}</td>
+    const othersSpend = (row) => {
+      const rs = M.rows.filter(r => r !== row && r.spend3 !== null);
+      const regs = rs.reduce((s, r) => s + r.regs, 0);
+      return regs ? rs.reduce((s, r) => s + r.spend3 * r.regs, 0) / regs : null;
+    };
+    const td = 'style="text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap"';
+    const rateCell = (row, field) => {
+      if (!row.regs) return `<td ${td}><span class="reg-cohort-sub">—</span></td>`;
+      const w = row[field];
+      if (!w) return `<td ${td}><span class="reg-cohort-sub">Too early</span></td>`;
+      const f = _cohFlag(w.rate, othersRate(row, field), false);
+      return `<td ${td} class="${f ? 'reg-cell-' + f : ''}"><span class="reg-cohort-rate">${_cohPct(w.rate)}</span>${_cohFlagHtml(f)} <span class="reg-cohort-sub">${w.n.toLocaleString()} of ${row.regs.toLocaleString()}</span></td>`;
+    };
+    const spendCell = (row) => {
+      if (!row.regs) return `<td ${td}><span class="reg-cohort-sub">—</span></td>`;
+      if (row.spend3 === null) return `<td ${td}><span class="reg-cohort-sub">Too early</span></td>`;
+      const f = _cohFlag(row.spend3, othersSpend(row), true);
+      return `<td ${td} class="${f ? 'reg-cell-' + f : ''}"><span class="reg-cohort-rate">${fmtMoney(row.spend3)}</span>${_cohFlagHtml(f)}</td>`;
+    };
+    const newestFirst = [...M.rows].reverse();
+    const body = newestFirst.map(r => `<tr>
+        <td style="font-weight:600;color:var(--gray-800);white-space:nowrap">${_monthKeyLabel(r.monthKey)}${r.monthKey === M.nowKey ? ' <span class="reg-cohort-sub">so far</span>' : ''}</td>
+        <td ${td}><span class="reg-cohort-rate">${r.regs.toLocaleString()}</span></td>
+        ${rateCell(r, 'm0')}${rateCell(r, 'm1')}${rateCell(r, 'm3')}${rateCell(r, 'ret3')}
+        ${spendCell(r)}
+        <td ${td}><span class="reg-cohort-rate">${fmtMoney(r.spend)}</span></td>
+        <td ${td}>${r.noOrder > 0 ? `<button class="coh-link" onclick="openCohortUnconverted('${r.monthKey}')" title="See who they are">${r.noOrder.toLocaleString()} →</button>` : '<span class="reg-cohort-sub">0</span>'}</td>
       </tr>`).join('');
+    const a = M.avgs;
+    const avgCell = v => `<td ${td}>${v === null ? '<span class="reg-cohort-sub">—</span>' : `<b>${v}</b>`}</td>`;
+    // Sign-ups per FULL month — the current month is still filling up.
+    const fullRows = M.rows.filter(r => r.monthKey !== M.nowKey);
+    const avgRegs = fullRows.length ? fullRows.reduce((s, r) => s + r.regs, 0) / fullRows.length : null;
+    const avgRow = `<tr class="coh-avg">
+        <td style="font-weight:700">Average</td>
+        <td ${td}>${avgRegs === null ? '<span class="reg-cohort-sub">—</span>' : `<b>${Math.round(avgRegs).toLocaleString()}</b> <span class="reg-cohort-sub">/ mo</span>`}</td>
+        ${avgCell(a.m0 === null ? null : _cohPct(a.m0))}${avgCell(a.m1 === null ? null : _cohPct(a.m1))}
+        ${avgCell(a.m3 === null ? null : _cohPct(a.m3))}${avgCell(a.ret3 === null ? null : _cohPct(a.ret3))}
+        ${avgCell(a.spend3 === null ? null : fmtMoney(a.spend3))}
+        <td ${td}></td><td ${td}></td>
+      </tr>`;
+    tbody.innerHTML = body + avgRow;
     if (exportBtn) exportBtn.style.display = '';
   }
 
-  function exportCohortCSV() {
-    if (_cohortCustomers === null) return;
-    const { rows, count } = _cohortSummary();
-    if (!count) return;
-    const pct = (w, total) => !total ? '' : (w ? `${w.pct}%` : 'too early');
-    const num = (w, total) => !total || !w ? '' : w.n;
-    const header = ['Cohort Month','Registrations',
-      'Converted Within Month %','Converted Within Month #',
-      'Converted After 1 Month %','Converted After 1 Month #',
-      'Converted After 3 Months %','Converted After 3 Months #','Total Spend'];
-    const out = rows.map(r => [r.monthKey, r.total,
-      pct(r.m0, r.total), num(r.m0, r.total),
-      pct(r.m1, r.total), num(r.m1, r.total),
-      pct(r.m3, r.total), num(r.m3, r.total), r.spend.toFixed(2)]);
-    const csv = [header, ...out].map(row => row.map(v => {
+  function _renderCohortSources(M) {
+    const tbody = document.getElementById('coh-src-tbody');
+    if (!tbody) return;
+    const total = M.sources.reduce((s, x) => s + x.regs, 0);
+    if (!total) { tbody.innerHTML = '<tr><td colspan="5" class="rpt-no-data">No sign-ups in these months.</td></tr>'; return; }
+    // Recorded sources by size; "Not recorded" always last so it never looks like a channel.
+    const rows = [...M.sources].sort((a, b) => (a.source === 'unknown') - (b.source === 'unknown') || b.regs - a.regs);
+    const unknown = M.sources.find(x => x.source === 'unknown');
+    const sub = document.getElementById('coh-src-sub');
+    if (sub) sub.innerHTML = unknown && unknown.regs / total > 0.2
+      ? `<span class="reg-flag-down">${_cohPct(unknown.regs / total)} not recorded</span> — phone sign-ups weren't asked until now. Read the rest as a sample; this should fill in from next month.`
+      : '"How did you find us?" at signup, across the months shown';
+    const td = 'style="text-align:right;font-variant-numeric:tabular-nums"';
+    tbody.innerHTML = rows.map(x => `<tr>
+        <td style="font-weight:600;color:${x.source === 'unknown' ? 'var(--gray-400)' : 'var(--gray-800)'}">${_escHtml(COH_SOURCE_LABEL[x.source] || x.source)}</td>
+        <td ${td}><b>${x.regs.toLocaleString()}</b></td>
+        <td ${td}>${_cohPct(x.regs / total)}</td>
+        <td ${td}>${_cohPct(x.ever / x.regs)} <span class="reg-cohort-sub">${x.ever.toLocaleString()} of ${x.regs.toLocaleString()}</span></td>
+        <td ${td}>${fmtMoney(x.spend / x.regs)}</td>
+      </tr>`).join('');
+  }
+
+  // ── "No order yet" list for one signup month (view only — never sends anything) ──
+  async function openCohortUnconverted(monthKey) {
+    const card = document.getElementById('coh-unconv-card');
+    const tbody = document.getElementById('coh-unconv-tbody');
+    const title = document.getElementById('coh-unconv-title');
+    if (!card || !tbody) return;
+    card.style.display = '';
+    title.textContent = `Signed up in ${_monthKeyLabel(monthKey)} — no order yet`;
+    tbody.innerHTML = `<tr><td colspan="5"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    const fromISO = pacificDayStart(monthKey + '-01').toISOString();
+    const toISO   = pacificDayStart(_monthKeyAdd(monthKey, 1) + '-01').toISOString();
+    const custs = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from('customers')
+        .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, referral_source, created_at')
+        .gte('created_at', fromISO).lt('created_at', toISO)
+        .order('created_at', { ascending: false }).order('id', { ascending: true })
+        .range(from, from + 999);
+      if (error) { console.error('openCohortUnconverted:', error); tbody.innerHTML = '<tr><td colspan="5" class="rpt-no-data">Couldn\'t load the list.</td></tr>'; return; }
+      custs.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    const wantRetail = _regSubTab === 'retail';
+    const inChannel = custs.filter(c => (c.referral_source === 'pos_walkin') === wantRetail);
+    const { firstOrderByCust } = await _regFirstOrderAndSpend(inChannel.map(c => c.id));
+    const rows = inChannel.filter(c => !firstOrderByCust[c.id]);
+    _cohortUnconv = { monthKey, rows };
+    title.textContent = `Signed up in ${_monthKeyLabel(monthKey)} — no order yet (${rows.length.toLocaleString()})`;
+    const fmtPhone = raw => { const d = String(raw || '').replace(/\D/g, '').slice(-10); return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : (raw || ''); };
+    const dash = '<span style="color:var(--gray-300)">—</span>';
+    tbody.innerHTML = rows.length ? rows.map(c => {
+      const name = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || '—';
+      return `<tr>
+        <td><a href="#" onclick="event.preventDefault();openCustomerPanel('${escJS(c.id)}')" style="color:var(--accent);text-decoration:none;font-weight:600">${_escHtml(name)}</a></td>
+        <td style="white-space:nowrap">${c.phone_cache ? _escHtml(fmtPhone(c.phone_cache)) : dash}</td>
+        <td>${_escHtml(c.email_cache || '') || dash}</td>
+        <td style="color:var(--gray-600)">${_escHtml(COH_SOURCE_LABEL[_cohNormSource(c.referral_source)] || c.referral_source || '') || dash}</td>
+        <td style="white-space:nowrap">${new Date(c.created_at).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' })}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="5" class="rpt-no-data">Everyone from this month has ordered.</td></tr>';
+  }
+  window.openCohortUnconverted = openCohortUnconverted;
+
+  function closeCohortUnconverted() {
+    const card = document.getElementById('coh-unconv-card');
+    if (card) card.style.display = 'none';
+  }
+  window.closeCohortUnconverted = closeCohortUnconverted;
+
+  // Mirror of the RPC's normalizer, for the one list that reads raw rows.
+  function _cohNormSource(raw) {
+    const v = String(raw || '').trim().toLowerCase();
+    if (!v) return 'unknown';
+    const letters = v.replace(/[^a-z]/g, '');
+    if (v === 'google' || v === 'google search') return 'google';
+    if (letters === 'friendfamily') return 'friend_family';
+    if (letters === 'sawvan' || letters === 'isawyourvan') return 'saw_van';
+    if (v === 'starchup_migration' || v === 'import') return 'imported';
+    return v;
+  }
+
+  function _downloadCSV(fname, header, rows) {
+    const csv = [header, ...rows].map(row => row.map(v => {
       const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     }).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a = document.createElement('a');
-    a.href = url; a.download = `registrations-cohorts-${_regSubTab}-${_cohortMonthsBack}mo.csv`; a.click();
+    a.href = url; a.download = fname; a.click();
     URL.revokeObjectURL(url);
   }
+
+  function exportCohortCSV() {
+    if (_cohortData === null) return;
+    const M = _cohortModel();
+    const pct = w => w ? Math.round(w.rate * 100) + '%' : 'too early';
+    const num = w => w ? w.n : '';
+    const rows = [...M.rows].reverse().filter(r => r.regs).map(r => [
+      r.monthKey, r.regs,
+      pct(r.m0), num(r.m0), pct(r.m1), num(r.m1), pct(r.m3), num(r.m3), pct(r.ret3), num(r.ret3),
+      r.spend3 === null ? 'too early' : r.spend3.toFixed(2), r.spend.toFixed(2), r.noOrder,
+      (M.active.find(a => a.monthKey === r.monthKey) || {}).customers || 0,
+    ]);
+    _downloadCSV(`registrations-cohorts-${M.ch}-${_cohortMonthsBack}mo.csv`,
+      ['Month', 'Sign-ups', 'Ordered within month %', '#', 'Within 1 month %', '#', 'Within 3 months %', '#',
+       'Still ordering at 3 mo %', '#', 'Spend per sign-up (3 mo)', 'Total spend', 'No order yet', 'Active customers that month'],
+      rows);
+  }
   window.exportCohortCSV = exportCohortCSV;
+
+  function exportCohortUnconvertedCSV() {
+    const { monthKey, rows } = _cohortUnconv;
+    if (!monthKey) return;
+    _downloadCSV(`no-order-yet-${_regSubTab}-${monthKey}.csv`,
+      ['Name', 'Phone', 'Email', 'How they found us', 'Signed up'],
+      rows.map(c => [`${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim(), c.phone_cache || '', c.email_cache || '',
+        COH_SOURCE_LABEL[_cohNormSource(c.referral_source)] || c.referral_source || '',
+        new Date(c.created_at).toLocaleDateString('en-CA', { timeZone: BIZ_TZ })]));
+  }
+  window.exportCohortUnconvertedCSV = exportCohortUnconvertedCSV;
 
   function rptDateRange(period) {
     // Anchor everything in Pacific dates — the previous browser-local approach
