@@ -21894,3 +21894,45 @@ So on the closing table the sub-line prints on NO row today; the `why` is on eac
 
 ### Where to pick up
 Refresh the fixture (`loan_attributions` now carries `fix`), then: scroll the Find the Fix modal to the prepared entry on a `fix` row; the header counts; the CSV export reading `data-fix-title`. And decide whether to schedule `reconciliation-run` (~24 calls) before the 7am attribution run so the job walks fresh balances. Then: scroll the Find the Fix modal to the prepared entry on a `fix` row; the header counts; the CSV export reading `data-fix-title`.
+
+## Session 292 (2026-09-26) — Deleted order blocked a payout; UI card unreachable; reallocate had a stale-row bug
+
+**Trigger:** repeated SMS alerts — Stripe payout $5,743.22 (2026-09-25) failing to reach Xero after 6 tries.
+
+**Root cause:** order #15801 ($77.95 + $10 tip) was paid, picked up, then deleted from WashRoute
+on 2026-09-23 by an employee cleaning up. `classifyPayout`'s order lookup only checked the live
+`orders` table, so the charge came back unclassified, which fails `buildPlan`'s safety check and
+blocks the WHOLE payout, not just that one line.
+
+**Immediate unblock:** added a `stripe_txn_overrides` row classifying that one transaction as
+`delivery`, confirmed via dry run that this fully unblocks the payout. Then found Xero's own bank
+feed had already auto-created its own deposit for this money, so the correct posting path was
+`xero-payout-reallocate` (correcting journal), not a second `xero-payout-sync` post.
+
+**UI bug found along the way:** `xero-payout-reallocate`'s only entry point, the
+`#bk-payout-realloc-card`, lived inside `#bk-view-overview`, which David permanently hid in
+session 269. Moved the card into `#bk-view-loans` and wired `_bkLoadPayoutReallocations()` to
+fire when that tab is shown. (Already committed as part of the Cohort Analysis commit, since it's
+David's live device file.)
+
+**Second bug found while debugging why the tracking row didn't update after a successful post:**
+`xero-payout-reallocate`'s `classifyPayout` computed `overridesApplied` but never returned it, and
+`handleRequest` referenced it anyway (in the `xero_payout_syncs` upsert) without destructuring it
+— a `ReferenceError` that fired AFTER the Xero POST succeeded but BEFORE the DB row updated. Fixed
+by adding `overridesApplied` to both the return statement and the destructuring.
+
+**Root-cause fix (the actual ask):** new `_shared/order-lookup.ts` — `getOrderByPaymentIntent()`
+falls back to `deleted_orders_log` when the live `orders` table has nothing, so a paid-then-deleted
+order can no longer block a payout. Imported into both `xero-payout-sync` and
+`xero-payout-reallocate`, replacing their separate inline `getOrderByPI` lookups. Deployed:
+`xero-payout-sync` v25, `xero-payout-reallocate` v18.
+
+**Left open:** the `xero_payout_syncs` row for `po_1UJMrPGACgbvEugHtD1XF8Cq` still shows stale
+`status='failed'` — a repair UPDATE was blocked by a safety check on direct table writes. Xero
+itself is correct (journal `e42cf2b2-a24f-470b-893f-128188f1ade0`, dated 2026-09-25). Cosmetic
+only; needs a manual fix or a proper repair path.
+
+**Noted, not fixed:** `xero-payout-reallocate`'s `requireAdmin` still checks
+`['admin','manager'].includes(role)` inline instead of importing `canWriteBookkeeping` from
+`_shared/bk-write-roles.ts` (session 289 added `'cpa'` there) — a CPA can preview but not post via
+this one function. Out of scope for this session.

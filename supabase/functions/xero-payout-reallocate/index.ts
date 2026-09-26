@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
+import { getOrderByPaymentIntent } from '../_shared/order-lookup.ts'
 
 // Retroactively fixes a Stripe payout that was already posted to Xero as a single
 // lumped line (e.g. every July 2026 payout, posted before the categorized
@@ -106,7 +107,15 @@ async function classifyPayout(payout: any) {
   const chargeCache = new Map<string, any>()
   async function getCharge(id: string) { if (chargeCache.has(id)) return chargeCache.get(id); const c = await stripe.charges.retrieve(id); chargeCache.set(id, c); return c }
   const orderCache = new Map<string, any>()
-  async function getOrderByPI(pi: string) { if (orderCache.has(pi)) return orderCache.get(pi); const { data } = await supabase.from('orders').select('id, order_number, source, line_items').eq('stripe_payment_intent_id', pi).maybeSingle(); orderCache.set(pi, data); return data }
+  // Falls back to deleted_orders_log when the live table has nothing -- see
+  // _shared/order-lookup.ts (a paid order deleted afterwards must not block
+  // the payout it was already part of).
+  async function getOrderByPI(pi: string) {
+    if (orderCache.has(pi)) return orderCache.get(pi)
+    const data = await getOrderByPaymentIntent(supabase, pi)
+    orderCache.set(pi, data)
+    return data
+  }
 
   const buckets: Record<string, any> = {}
   for (const key of Object.keys(CATS)) buckets[key] = emptyBucket()
@@ -178,7 +187,7 @@ async function classifyPayout(payout: any) {
       if (category === 'unclassified') unclassifiedDetail.push({ id: bt.id, chargeId: charge.id, amount: bt.amount, description: charge.description, paymentIntent: charge.payment_intent, reason: charge.payment_intent ? 'no matching WashRoute order found' : 'no payment_intent, invoice, or Gift Up description' })
     }
   }
-  return { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, creditDiscountExamples, unclassifiedDetail, transactionCount: btxns.length }
+  return { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, creditDiscountExamples, unclassifiedDetail, overridesApplied, transactionCount: btxns.length }
 }
 
 function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: any, creditsTotalCents: number, discountsTotalCents: number) {
@@ -249,7 +258,14 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!payout_id) return new Response(JSON.stringify({ error: 'payout_id is required' }), { status: 400 })
 
     const payout = await stripe.payouts.retrieve(payout_id)
-    const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail, transactionCount } = await classifyPayout(payout)
+    // Session 292: overridesApplied was referenced below (in the xero_payout_syncs
+    // upsert's category_breakdown) without ever being destructured here -- a bare
+    // out-of-scope reference that throws ReferenceError. Harmless right up until the
+    // Xero POST above it succeeds: the journal is live, but this function then throws,
+    // returns a 500, and the row never gets updated to say so. That is exactly the
+    // 'XERO AHEAD OF US' state this codebase worries about everywhere else, caused here
+    // by a typo rather than a race. Found while fixing #15801 (deleted-order lookup).
+    const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied, transactionCount } = await classifyPayout(payout)
     const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents)
 
     if (plan.safetyFailed || !plan.balances) {

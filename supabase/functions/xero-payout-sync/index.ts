@@ -5,6 +5,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { classifyPrecheckFailure, nextRetryAt } from '../_shared/payout-retry.ts'
 import { rechain, toCents, fromCents, type ChainEntry } from '../_shared/balance-rechain.ts'
 import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
+import { getOrderByPaymentIntent } from '../_shared/order-lookup.ts'
 import { findConflictingDeposit } from '../_shared/existing-deposit.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 
@@ -108,9 +109,12 @@ async function classifyPayout(payout: any) {
     return c
   }
   const orderCache = new Map<string, any>()
+  // Falls back to deleted_orders_log when the live table has nothing -- see
+  // _shared/order-lookup.ts for why (a paid order deleted afterwards must not
+  // block the payout it was already part of).
   async function getOrderByPI(pi: string) {
     if (orderCache.has(pi)) return orderCache.get(pi)
-    const { data } = await supabase.from('orders').select('id, order_number, source, line_items').eq('stripe_payment_intent_id', pi).maybeSingle()
+    const data = await getOrderByPaymentIntent(supabase, pi)
     orderCache.set(pi, data)
     return data
   }
