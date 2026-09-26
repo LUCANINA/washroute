@@ -1,5 +1,26 @@
 # WashRoute — Project Notes
 
+## Session 319 — Sep 26, 2026: Registrations → Cohort Analysis
+
+New view under Reports → Customers → Registrations (Overview | Cohort Analysis toggle; Delivery/Retail applies to both).
+- **Data:** `registration_cohorts(p_months)` RPC (migrations `session_319_registration_cohorts`, `319b_..._spend3`), SECURITY INVOKER,
+  anon revoked. Per signup month × channel: sign-ups, first order within month / +1 / +3, `ret3` (ordered during month+3),
+  lifetime spend, `spend3` (first 3 months), normalized "how did you find us", and distinct ordering customers per month.
+  ~4 s as staff (RLS) vs ~15 s for the old browser paging. Window never starts before go-live (first order Mar 22, 2026).
+- **UI:** 4 tiles (active customers/mo avg, ordered within 1 mo, still ordering at 3 mo, spend/sign-up 3 mo — latest closed
+  month vs earlier average), active-customers bar chart with average line, month table with ▲/▼ flags (±5 pts, ±15% money)
+  and an Average row, "No order yet →" list per month (view + CSV only, never sends), By Source table.
+- **Go-live month (Mar 2026) is excluded from every average and flag** — Starchup customers re-registered in bulk (209 sign-ups,
+  $492/sign-up vs ~140 and ~$235 normal). Months under 20 sign-ups are never flagged or used as a baseline.
+- **Root cause fixed — 85% of sign-ups had no source:** phone (text-code) signup never asked "How did you find us?".
+  `customer-app` name screen now has required `#name-source` (same list as `#s-source`); new customers get it on insert,
+  claimed customers only if blank. Messy March values (Google/Friend/Family/Saw Van) are normalized in the RPC, not rewritten.
+- `_regFirstOrderAndSpend` now pages `.range()` — the Overview's order fetch could silently truncate at 1000 rows/chunk.
+- Findings (delivery): first-month conversion steady ~45%; 3-month retention falling (Apr 24% → May 17%); active customers
+  peaked May (811), ~740 since.
+- ⚠️ Git from the Cowork VM leaves `.git/*.lock` files it can't delete (index.lock, HEAD.lock) — they blocked David's commit.
+  Don't run git (even `git status`) from device_bash; if a lock appears, `mv` it to `_to_delete/`.
+
 ## Session 314 — Sep 22, 2026: Referrals report shows the whole funnel
 
 David sent an SMS invite and the report showed nothing. Cause: "Send Invite" only opens the customer's
