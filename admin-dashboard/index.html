@@ -3555,6 +3555,8 @@
               .reg-cell-down .reg-cohort-rate{color:var(--red)}
               #rpt-cohort-tbody tr.coh-avg td{border-top:2px solid var(--gray-200);background:var(--gray-50);color:var(--gray-600)}
               .coh-link{background:none;border:none;padding:0;color:var(--accent);font:inherit;font-weight:600;cursor:pointer}
+              .rpt-res-toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-600);cursor:pointer;user-select:none}
+              .rpt-res-toggle input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
             </style>
             <div style="display:flex;gap:8px;margin-bottom:16px">
               <button class="reg-subtab active" onclick="setRegSubTab('delivery',this)">Delivery</button>
@@ -3626,6 +3628,10 @@
                   <option value="24">24 months</option>
                 </select>
                 <div class="card-sub" style="margin:0" id="rpt-cohort-period-label"></div>
+                <div style="flex:1"></div>
+                <label class="rpt-res-toggle" title="Leaves out on-account and commercial accounts (commercial, HCEB, business) so the numbers show residential customers only.">
+                  <input type="checkbox" class="rpt-res-cb" onchange="setRptResidential(this.checked)"> Residential only
+                </label>
               </div>
 
               <div class="rpt-kpi-grid" id="reg-cohort-kpis" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">
@@ -3767,7 +3773,13 @@
           </div>
 
           <div id="rpttab-deliverykpis" style="display:none">
-            <div id="dk-period-note" class="card-sub" style="margin-bottom:14px;color:var(--gray-500)"></div>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+              <div id="dk-period-note" class="card-sub" style="margin:0;color:var(--gray-500)"></div>
+              <div style="flex:1"></div>
+              <label class="rpt-res-toggle" title="Leaves out on-account and commercial accounts (commercial, HCEB, business) so the numbers show residential customers only.">
+                <input type="checkbox" class="rpt-res-cb" onchange="setRptResidential(this.checked)"> Residential only
+              </label>
+            </div>
             <div id="dk-cards"><div class="rpt-no-data">Loading…</div></div>
           </div>
 
@@ -52608,6 +52620,7 @@ ${oneCopy}
   }
 
   async function loadDeliveryKpis() {
+    _syncRptResidential();
     const fromEl = document.getElementById('rpt-from');
     const toEl   = document.getElementById('rpt-to');
     if (!fromEl?.value || !toEl?.value) return;
@@ -52619,7 +52632,7 @@ ${oneCopy}
     // "Avg Pounds Processed / Hour" = delivery pounds (RPC) ÷ total launderer labor
     // hours (Square), computed here because the SQL RPC can't reach the edge function.
     const [{ data, error }, curLabor, prevLabor] = await Promise.all([
-      db.rpc('delivery_kpis', { p_from: fromEl.value, p_to: toEl.value }),
+      db.rpc('delivery_kpis', { p_from: fromEl.value, p_to: toEl.value, p_residential: _rptResidential }),
       fetchSquareLaborHours(fromEl.value, toEl.value),
       fetchSquareLaborHours(prevFrom, prevTo),
     ]);
@@ -53053,6 +53066,30 @@ ${oneCopy}
     URL.revokeObjectURL(url);
   }
 
+  // ── "RESIDENTIAL ONLY" SWITCH (session 319) ──
+  // Shared by Delivery KPIs and Cohort Analysis: leaves out on-account and commercial
+  // accounts, which otherwise swamp the residential trend (a large commercial invoice
+  // settling made Jul 2026 look like a record month). The SQL side is
+  // _is_business_customer(); _isBusinessCustomer() below mirrors it for the one list
+  // that reads raw rows. Remembered per browser — a viewing preference, not data.
+  let _rptResidential = false;
+  try { _rptResidential = localStorage.getItem('wr_rpt_residential') === '1'; } catch (_) {}
+  const _isBusinessCustomer = c => (c.billing_type || '') === 'on_account'
+    || ['commercial', 'hceb'].includes(String(c.customer_type || '').toLowerCase())
+    || ['business', 'commercial'].includes(c.account_type || '');
+  function _syncRptResidential() {
+    document.querySelectorAll('.rpt-res-cb').forEach(cb => { cb.checked = _rptResidential; });
+  }
+  function setRptResidential(on) {
+    _rptResidential = !!on;
+    try { localStorage.setItem('wr_rpt_residential', on ? '1' : '0'); } catch (_) {}
+    _syncRptResidential();
+    _cohortData = null;                       // reload on next view
+    if (rptTab === 'deliverykpis') loadDeliveryKpis();
+    if (rptTab === 'registrations' && _regView === 'cohort') loadCohortAnalysis();
+  }
+  window.setRptResidential = setRptResidential;
+
   // ── REGISTRATIONS: COHORT ANALYSIS (session 319) ──
   // All the math lives in the registration_cohorts(p_months) RPC (migrations
   // session_319 / 319b) — one call, ~0.2 s, instead of paging every order into
@@ -53109,10 +53146,11 @@ ${oneCopy}
   window._onCohortMonthsChange = _onCohortMonthsChange;
 
   async function loadCohortAnalysis() {
+    _syncRptResidential();
     const tbody = document.getElementById('rpt-cohort-tbody');
     if (tbody) tbody.innerHTML = `<tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
     closeCohortUnconverted();
-    const { data, error } = await db.rpc('registration_cohorts', { p_months: _cohortMonthsBack });
+    const { data, error } = await db.rpc('registration_cohorts', { p_months: _cohortMonthsBack, p_residential: _rptResidential });
     if (error || !data) {
       console.error('loadCohortAnalysis:', error);
       if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="rpt-no-data">Couldn't load cohort data.</td></tr>`;
@@ -53389,7 +53427,7 @@ ${oneCopy}
     const custs = [];
     for (let from = 0; ; from += 1000) {
       const { data, error } = await db.from('customers')
-        .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, referral_source, created_at')
+        .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, referral_source, created_at, billing_type, customer_type, account_type')
         .gte('created_at', fromISO).lt('created_at', toISO)
         .order('created_at', { ascending: false }).order('id', { ascending: true })
         .range(from, from + 999);
@@ -53398,7 +53436,7 @@ ${oneCopy}
       if (!data || data.length < 1000) break;
     }
     const wantRetail = _regSubTab === 'retail';
-    const inChannel = custs.filter(c => (c.referral_source === 'pos_walkin') === wantRetail);
+    const inChannel = custs.filter(c => (c.referral_source === 'pos_walkin') === wantRetail && !(_rptResidential && _isBusinessCustomer(c)));
     const { firstOrderByCust } = await _regFirstOrderAndSpend(inChannel.map(c => c.id));
     const rows = inChannel.filter(c => !firstOrderByCust[c.id]);
     _cohortUnconv = { monthKey, rows };

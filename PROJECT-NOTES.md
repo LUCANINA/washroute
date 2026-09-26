@@ -18,6 +18,13 @@ New view under Reports → Customers → Registrations (Overview | Cohort Analys
 - `_regFirstOrderAndSpend` now pages `.range()` — the Overview's order fetch could silently truncate at 1000 rows/chunk.
 - Findings (delivery): first-month conversion steady ~45%; 3-month retention falling (Apr 24% → May 17%); active customers
   peaked May (811), ~740 since.
+- **Residential only switch** (migration `session_319d_residential_filter`): `_is_business_customer(id)` = on_account billing,
+  commercial/HCEB type, or business/commercial account. `delivery_kpis`, `_dk_window`, `_dk_retention`, `registration_cohorts`
+  take `p_residential DEFAULT false` (old signatures dropped; off = byte-identical output, verified). Checkbox on Delivery KPIs and
+  Cohort Analysis, remembered per browser. Driver hours/stops stay route-level. Commercial settlements ($56k Jul, $40k Aug) had
+  made July look like a record. `registration_cohorts` spend also includes subscription invoices (`319c`; admin-only by RLS).
+- Reports refresh stays on the current report: hash `#reports/<tab>[/cohort]`; showPage('reports') now opens via setRptTab.
+- Snapshot doc (Sep 26, 2026): "Residential Delivery Snapshot — Sep 2026" — price rise broke even on 13% fewer customers.
 - ⚠️ Git from the Cowork VM leaves `.git/*.lock` files it can't delete (index.lock, HEAD.lock) — they blocked David's commit.
   Don't run git (even `git status`) from device_bash; if a lock appears, `mv` it to `_to_delete/`.
 
