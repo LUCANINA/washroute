@@ -3546,52 +3546,106 @@
               .reg-subtab{font-size:13px;font-weight:600;color:var(--gray-500);background:var(--gray-100);border:1px solid var(--gray-200);border-radius:8px;padding:6px 18px;cursor:pointer;transition:all .15s}
               .reg-subtab:hover{color:var(--gray-700)}
               .reg-subtab.active{color:#fff;background:var(--accent);border-color:var(--accent)}
+              .reg-cohort-rate{font-weight:700;color:var(--gray-800)}
+              .reg-cohort-sub{font-size:11px;color:var(--gray-400)}
             </style>
             <div style="display:flex;gap:8px;margin-bottom:16px">
               <button class="reg-subtab active" onclick="setRegSubTab('delivery',this)">Delivery</button>
               <button class="reg-subtab" onclick="setRegSubTab('retail',this)">Retail</button>
             </div>
-            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
-              <div class="stat-card">
-                <div class="stat-label">New Registrations</div>
-                <div class="stat-value" id="rpt-reg-count">—</div>
+            <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:16px">
+              <button class="reg-subtab active" id="reg-view-tab-overview" onclick="setRegView('overview',this)">Overview</button>
+              <button class="reg-subtab" id="reg-view-tab-cohort" onclick="setRegView('cohort',this)">Cohort Analysis</button>
+            </div>
+
+            <!-- ═══ OVERVIEW VIEW (single period, existing) ═══ -->
+            <div id="reg-view-overview">
+              <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+                <div class="stat-card">
+                  <div class="stat-label">New Registrations</div>
+                  <div class="stat-value" id="rpt-reg-count">—</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">Converted (1+ order)</div>
+                  <div class="stat-value" id="rpt-reg-converted">—</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">Conversion Rate</div>
+                  <div class="stat-value" id="rpt-reg-conv-rate">—</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">Total Spend</div>
+                  <div class="stat-value" id="rpt-reg-spend">—</div>
+                </div>
               </div>
-              <div class="stat-card">
-                <div class="stat-label">Converted (1+ order)</div>
-                <div class="stat-value" id="rpt-reg-converted">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Conversion Rate</div>
-                <div class="stat-value" id="rpt-reg-conv-rate">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Total Spend</div>
-                <div class="stat-value" id="rpt-reg-spend">—</div>
+              <div class="card" style="margin-bottom:0">
+                <div class="card-header">
+                  <div class="card-title">Registrations</div>
+                  <div class="card-sub" id="rpt-reg-period-label"></div>
+                  <button class="rev-export-btn" id="reg-export-btn" style="display:none" onclick="exportRegistrationsCSV()">Export CSV</button>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead>
+                      <tr>
+                        <th style="cursor:pointer;user-select:none" onclick="sortRegReport('name')">Name <span id="reg-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Referral</th>
+                        <th style="cursor:pointer;user-select:none" onclick="sortRegReport('signup')">Signed Up <span id="reg-sort-signup" style="font-size:10px;color:var(--gray-400)">▼</span></th>
+                        <th style="cursor:pointer;user-select:none" onclick="sortRegReport('firstOrder')">First Order <span id="reg-sort-firstOrder" style="font-size:10px;color:var(--gray-400)"></span></th>
+                        <th style="cursor:pointer;user-select:none;text-align:right" onclick="sortRegReport('spend')">Spend to Date <span id="reg-sort-spend" style="font-size:10px;color:var(--gray-400)"></span></th>
+                      </tr>
+                    </thead>
+                    <tbody id="rpt-reg-tbody">
+                      <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-            <div class="card" style="margin-bottom:0">
-              <div class="card-header">
-                <div class="card-title">Registrations</div>
-                <div class="card-sub" id="rpt-reg-period-label"></div>
-                <button class="rev-export-btn" id="reg-export-btn" style="display:none" onclick="exportRegistrationsCSV()">Export CSV</button>
+
+            <!-- ═══ COHORT ANALYSIS VIEW (session 315) ═══
+                 Independent of the shared rpt-from/rpt-to pickers — always shows the
+                 trailing N months so David can compare one signup month against
+                 another (e.g. did a marketing push in one month convert better than
+                 the next?). Channel filter (Delivery/Retail) above still applies. -->
+            <div id="reg-view-cohort" style="display:none">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+                <div class="card-sub" style="margin:0">Show</div>
+                <select id="reg-cohort-months" class="form-input" style="width:140px" onchange="_onCohortMonthsChange()">
+                  <option value="6">6 months</option>
+                  <option value="12" selected>12 months</option>
+                  <option value="18">18 months</option>
+                  <option value="24">24 months</option>
+                </select>
+                <div class="card-sub" style="margin:0" id="rpt-cohort-period-label"></div>
               </div>
-              <div class="rpt-table-wrap">
-                <table class="rpt-drv-tbl">
-                  <thead>
-                    <tr>
-                      <th style="cursor:pointer;user-select:none" onclick="sortRegReport('name')">Name <span id="reg-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
-                      <th>Email</th>
-                      <th>Phone</th>
-                      <th>Referral</th>
-                      <th style="cursor:pointer;user-select:none" onclick="sortRegReport('signup')">Signed Up <span id="reg-sort-signup" style="font-size:10px;color:var(--gray-400)">▼</span></th>
-                      <th style="cursor:pointer;user-select:none" onclick="sortRegReport('firstOrder')">First Order <span id="reg-sort-firstOrder" style="font-size:10px;color:var(--gray-400)"></span></th>
-                      <th style="cursor:pointer;user-select:none;text-align:right" onclick="sortRegReport('spend')">Spend to Date <span id="reg-sort-spend" style="font-size:10px;color:var(--gray-400)"></span></th>
-                    </tr>
-                  </thead>
-                  <tbody id="rpt-reg-tbody">
-                    <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
-                  </tbody>
-                </table>
+              <div class="card" style="margin-bottom:0">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Registrations by Month</div>
+                    <div class="card-sub">Each row is one signup month. Conversion is measured from that month's own start, so a month can only be judged once enough time has passed — a fresher cohort shows "—" until it does.</div>
+                  </div>
+                  <button class="rev-export-btn" id="reg-cohort-export-btn" style="display:none" onclick="exportCohortCSV()">Export CSV</button>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead>
+                      <tr>
+                        <th>Cohort Month</th>
+                        <th style="text-align:right">Registrations</th>
+                        <th style="text-align:right" title="Placed a first order in the same calendar month they signed up">Converted Within Month</th>
+                        <th style="text-align:right" title="Placed a first order by the end of the month after they signed up">Converted After 1 Month</th>
+                        <th style="text-align:right" title="Placed a first order within 3 months of signing up">Converted After 3 Months</th>
+                        <th style="text-align:right">Total Spend</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rpt-cohort-tbody">
+                      <tr><td colspan="6"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -4822,14 +4876,6 @@
               </div>
               <div id="bk-ov-period-bar" class="lpb" style="padding:0 24px 16px"></div>
               <div id="bk-ov-queue-list"></div>
-              <!-- Stripe payouts not booked (session 266). Hidden unless there is
-                   something to show: on a healthy book this card does not exist,
-                   which is the LESS IS BEST rule applied to a section rather than
-                   a column. Filled by _bkLoadPayoutReallocations(). -->
-              <div id="bk-payout-realloc-card" style="display:none;padding:12px 20px 16px;border-top:1px solid var(--gray-100)">
-                <div style="font-size:12.5px;font-weight:600;color:var(--gray-500);margin-bottom:8px">Stripe payouts not booked</div>
-                <div id="bk-payout-realloc-list"></div>
-              </div>
             </div>
 
           </div>
@@ -4838,6 +4884,23 @@
           <div id="bk-view-loans" style="display:none">
             <div class="bk-load-banner"></div>
           <div id="loans-subview-manage">
+
+          <!-- Stripe payouts not booked (session 266; moved here session 292 -- it
+               shipped inside #bk-view-overview, which David hid for good in session
+               269 ("we don't need it anymore"). switchBookkeepingView sets that div's
+               display:none unconditionally and never shows it again, so this card
+               (and the only UI path to xero-payout-reallocate) has been unreachable
+               since session 269 -- exactly the failure session 267's intake move
+               was written to avoid, just missed for this one card. Same fix:
+               moved to the page that is actually shown. Hidden unless there is
+               something to show: on a healthy book this card does not exist,
+               which is the LESS IS BEST rule applied to a section rather than
+               a column. Filled by _bkLoadPayoutReallocations(), called from
+               switchBookkeepingView whenever the Loans tab becomes active. -->
+          <div id="bk-payout-realloc-card" style="display:none;padding:0 0 16px;margin-bottom:16px;border-bottom:1px solid var(--gray-100)">
+            <div style="font-size:12.5px;font-weight:600;color:var(--gray-500);margin-bottom:8px">Stripe payouts not booked</div>
+            <div id="bk-payout-realloc-list"></div>
+          </div>
 
           <!-- ── INTAKE HEADS THIS PAGE (session 267, David) ─────────────────
                The dropzone and its results pile moved here from the Overview
@@ -10640,6 +10703,10 @@
       switchClientSubView(sub || _clientActiveSubView);
       return;   // switchClientSubView writes the hash, including the sub-path
     }
+    // Session 292: this card's only home is Loans now (see the comment on
+    // #bk-payout-realloc-card) -- fire-and-forget, same as Overview/Client View
+    // did, and must never hold up the rest of the tab switch.
+    if (view === 'loans') { try { _bkLoadPayoutReallocations(); } catch (_) {} }
     try { history.replaceState(null, '', '#bookkeeping/' + view); } catch(_) {}
   }
 
@@ -52697,6 +52764,38 @@ ${oneCopy}
   }
 
   // ── REGISTRATIONS REPORT ──
+  // Session 315: shared by Overview + Cohort Analysis. Earliest order per customer
+  // (→ "converted") and spend from PAID orders. Paged with .range() because
+  // PostgREST silently caps a response at 1000 rows — a chunk of 200 customers
+  // with regular weekly orders easily passes that, and the old single call would
+  // then under-count spend with no error.
+  async function _regFirstOrderAndSpend(custIds) {
+    const firstOrderByCust = {};
+    const spendByCust = {};
+    const PAGE = 1000;
+    for (let i = 0; i < custIds.length; i += IN_BATCH) {
+      const chunk = custIds.slice(i, i + IN_BATCH);
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await db.from('orders')
+          .select('id, customer_id, created_at, total_amount, tip_amount, billing_status')
+          .in('customer_id', chunk)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) { console.error('_regFirstOrderAndSpend:', error); break; }
+        (data || []).forEach(o => {
+          if (!firstOrderByCust[o.customer_id]) firstOrderByCust[o.customer_id] = o.created_at;
+          if (o.billing_status === 'paid') {
+            spendByCust[o.customer_id] = (spendByCust[o.customer_id] || 0)
+              + Number(o.total_amount || 0) + Number(o.tip_amount || 0);
+          }
+        });
+        if (!data || data.length < PAGE) break;
+      }
+    }
+    return { firstOrderByCust, spendByCust };
+  }
+
   let _regRows = [];
   let _regSort = { col: 'signup', dir: 'desc' };
   let _regSubTab = 'delivery';   // 'delivery' (default) | 'retail' — retail = referral_source='pos_walkin'
@@ -52727,19 +52826,7 @@ ${oneCopy}
     //    POS walk-in sales historically never bumped lifetime_value (fixed via
     //    the record_pos_sale_ltv trigger), so that field reads $0 for retail
     //    customers. Summing paid orders is accurate for both delivery + retail.
-    const custIds = rows.map(c => c.id);
-    const firstOrderByCust = {};
-    const spendByCust = {};
-    if (custIds.length) {
-      const orderRows = await batchedIn('orders', 'customer_id, created_at, total_amount, tip_amount, billing_status', 'customer_id', custIds, q => q.order('created_at', { ascending: true }));
-      orderRows.forEach(o => {
-        if (!firstOrderByCust[o.customer_id]) firstOrderByCust[o.customer_id] = o.created_at;
-        if (o.billing_status === 'paid') {
-          spendByCust[o.customer_id] = (spendByCust[o.customer_id] || 0)
-            + Number(o.total_amount || 0) + Number(o.tip_amount || 0);
-        }
-      });
-    }
+    const { firstOrderByCust, spendByCust } = await _regFirstOrderAndSpend(rows.map(c => c.id));
 
     // Shape final rows (isRetail drives the Delivery/Retail sub-tab split)
     _regRows = rows.map(c => ({
@@ -52785,9 +52872,11 @@ ${oneCopy}
 
   function setRegSubTab(tab, btnEl) {
     _regSubTab = tab;
-    document.querySelectorAll('.reg-subtab').forEach(b => b.classList.remove('active'));
+    // Only the channel buttons — the Overview/Cohort view buttons share the class.
+    document.querySelectorAll('.reg-subtab:not([id^="reg-view-tab-"])').forEach(b => b.classList.remove('active'));
     if (btnEl) btnEl.classList.add('active');
     _renderRegReport();
+    if (_regView === 'cohort') renderCohortTable();
   }
 
   function renderRegistrationsTable() {
@@ -52882,6 +52971,187 @@ ${oneCopy}
     a.href = url; a.download = fname; a.click();
     URL.revokeObjectURL(url);
   }
+
+  // ── REGISTRATIONS: COHORT ANALYSIS (session 315) ──
+  // Independent dataset from the Overview table above — spans the trailing N
+  // months regardless of the shared rpt-from/rpt-to pickers, so a signup month
+  // can be compared against neighboring months. Loaded lazily the first time
+  // the Cohort Analysis view is opened; the months-back selector re-fetches.
+  let _regView = 'overview';       // 'overview' | 'cohort'
+  let _cohortCustomers = null;     // [{id, monthKey, isRetail, firstOrder, spend}] or null = not yet loaded
+  let _cohortMonthsBack = 12;
+  let _cohortGoLiveKey = null;     // "YYYY-MM" of the first WashRoute order — earlier cohorts have no order history (Starchup)
+
+  // "YYYY-MM" for a timestamp, in business timezone.
+  const _monthKeyOf = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: BIZ_TZ, year: 'numeric', month: '2-digit' }).slice(0, 7);
+  // Add n months to a "YYYY-MM" key (n may be negative).
+  const _monthKeyAdd = (key, n) => {
+    const [y, m] = key.split('-').map(Number);
+    const total = (y * 12 + (m - 1)) + n;
+    return Math.floor(total / 12) + '-' + String((total % 12) + 1).padStart(2, '0');
+  };
+  const _monthKeyLabel = (key) => {
+    const [y, m] = key.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', year: 'numeric' });
+  };
+
+  function setRegView(view, btnEl) {
+    _regView = view;
+    ['overview', 'cohort'].forEach(v => document.getElementById('reg-view-tab-' + v)?.classList.toggle('active', v === view));
+    document.getElementById('reg-view-overview').style.display = view === 'overview' ? '' : 'none';
+    document.getElementById('reg-view-cohort').style.display   = view === 'cohort'   ? '' : 'none';
+    if (view === 'cohort') {
+      if (_cohortCustomers === null) loadCohortAnalysis();
+      else renderCohortTable();
+    }
+  }
+  window.setRegView = setRegView;
+
+  function _onCohortMonthsChange() {
+    _cohortMonthsBack = Number(document.getElementById('reg-cohort-months')?.value || 12);
+    loadCohortAnalysis();
+  }
+  window._onCohortMonthsChange = _onCohortMonthsChange;
+
+  async function loadCohortAnalysis() {
+    const tbody = document.getElementById('rpt-cohort-tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
+
+    // Orders only exist from the WashRoute go-live (Starchup history was never
+    // imported), so a cohort from before then would read as a false 0%. Clip the
+    // window to start at the go-live month, found from the data, not hardcoded.
+    if (_cohortGoLiveKey === null) {
+      const { data: first } = await db.from('orders').select('created_at').order('created_at', { ascending: true }).limit(1);
+      _cohortGoLiveKey = first?.[0]?.created_at ? _monthKeyOf(first[0].created_at) : '';
+    }
+    const { nowKey, startKey } = _cohortRange();
+    const fromISO  = pacificDayStart(startKey + '-01').toISOString();
+
+    // Paged — 24 months of signups can pass PostgREST's 1000-row cap.
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from('customers')
+        .select('id, referral_source, created_at')
+        .gte('created_at', fromISO)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + 999);
+      if (error) {
+        console.error('loadCohortAnalysis:', error);
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="rpt-no-data">Couldn't load cohort data.</td></tr>`;
+        return;
+      }
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+
+    const { firstOrderByCust, spendByCust } = await _regFirstOrderAndSpend(rows.map(c => c.id));
+
+    _cohortCustomers = rows.map(c => ({
+      id: c.id,
+      monthKey: _monthKeyOf(c.created_at),
+      isRetail: c.referral_source === 'pos_walkin',
+      firstOrder: firstOrderByCust[c.id] || null,
+      spend: spendByCust[c.id] || 0,
+    }));
+
+    const label = document.getElementById('rpt-cohort-period-label');
+    if (label) {
+      const clipped = _cohortGoLiveKey && startKey === _cohortGoLiveKey && _monthKeyAdd(nowKey, -(_cohortMonthsBack - 1)) < _cohortGoLiveKey;
+      label.textContent = `${_monthKeyLabel(startKey)} – ${_monthKeyLabel(nowKey)}`
+        + (clipped ? ` · order history starts ${_monthKeyLabel(_cohortGoLiveKey)} (WashRoute go-live)` : '');
+    }
+
+    renderCohortTable();
+  }
+
+  // One row per signup month, newest first, for the active channel. Shared by
+  // the table and the CSV so the two can never disagree.
+  //   Within month   → first order before the 1st of the next month
+  //   After 1 month  → first order before the 1st of signup month + 2
+  //   After 3 months → first order before the 1st of signup month + 4
+  // A window still open (its boundary not yet passed) is null = "Too early".
+  // Trailing N months ending this month, but never earlier than go-live.
+  function _cohortRange() {
+    const nowKey = _monthKeyOf(new Date().toISOString());
+    let startKey = _monthKeyAdd(nowKey, -(_cohortMonthsBack - 1));
+    if (_cohortGoLiveKey && startKey < _cohortGoLiveKey) startKey = _cohortGoLiveKey;
+    return { nowKey, startKey };
+  }
+
+  function _cohortSummary() {
+    const filtered = (_cohortCustomers || []).filter(c => _regSubTab === 'retail' ? c.isRetail : !c.isRetail);
+    const { nowKey, startKey } = _cohortRange();
+    const byMonth = {};
+    filtered.forEach(c => { (byMonth[c.monthKey] = byMonth[c.monthKey] || []).push(c); });
+    const now = new Date();
+    const out = [];
+    for (let k = nowKey; ; k = _monthKeyAdd(k, -1)) {
+      const rows = byMonth[k] || [];
+      const total = rows.length;
+      const win = (months) => {
+        const boundary = pacificDayStart(_monthKeyAdd(k, months) + '-01');
+        if (!total || now < boundary) return null;
+        const n = rows.filter(r => r.firstOrder && new Date(r.firstOrder) < boundary).length;
+        return { n, pct: Math.round((n / total) * 100) };
+      };
+      out.push({ monthKey: k, total, m0: win(1), m1: win(2), m3: win(4),
+                 spend: rows.reduce((s, r) => s + r.spend, 0) });
+      if (k === startKey) break;
+    }
+    return { rows: out, count: filtered.length };
+  }
+
+  function renderCohortTable() {
+    const tbody = document.getElementById('rpt-cohort-tbody');
+    if (!tbody || _cohortCustomers === null) return;
+    const exportBtn = document.getElementById('reg-cohort-export-btn');
+    const { rows, count } = _cohortSummary();
+    if (!count) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--gray-400)">No ${_regSubTab === 'retail' ? 'retail' : 'delivery'} registrations in this window</td></tr>`;
+      if (exportBtn) exportBtn.style.display = 'none';
+      return;
+    }
+    const cell = (w, total) => {
+      if (!total) return '<span class="reg-cohort-sub">—</span>';
+      if (!w) return '<span class="reg-cohort-sub">Too early</span>';
+      return `<span class="reg-cohort-rate">${w.pct}%</span> <span class="reg-cohort-sub">${w.n.toLocaleString()} of ${total.toLocaleString()}</span>`;
+    };
+    tbody.innerHTML = rows.map(r => `<tr>
+        <td style="font-weight:600;color:var(--gray-800);white-space:nowrap">${_monthKeyLabel(r.monthKey)}</td>
+        <td style="text-align:right;font-weight:600;color:var(--gray-800);font-variant-numeric:tabular-nums">${r.total.toLocaleString()}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${cell(r.m0, r.total)}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${cell(r.m1, r.total)}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${cell(r.m3, r.total)}</td>
+        <td style="text-align:right;font-weight:600;color:var(--gray-800);font-variant-numeric:tabular-nums">${fmtMoney(r.spend)}</td>
+      </tr>`).join('');
+    if (exportBtn) exportBtn.style.display = '';
+  }
+
+  function exportCohortCSV() {
+    if (_cohortCustomers === null) return;
+    const { rows, count } = _cohortSummary();
+    if (!count) return;
+    const pct = (w, total) => !total ? '' : (w ? `${w.pct}%` : 'too early');
+    const num = (w, total) => !total || !w ? '' : w.n;
+    const header = ['Cohort Month','Registrations',
+      'Converted Within Month %','Converted Within Month #',
+      'Converted After 1 Month %','Converted After 1 Month #',
+      'Converted After 3 Months %','Converted After 3 Months #','Total Spend'];
+    const out = rows.map(r => [r.monthKey, r.total,
+      pct(r.m0, r.total), num(r.m0, r.total),
+      pct(r.m1, r.total), num(r.m1, r.total),
+      pct(r.m3, r.total), num(r.m3, r.total), r.spend.toFixed(2)]);
+    const csv = [header, ...out].map(row => row.map(v => {
+      const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `registrations-cohorts-${_regSubTab}-${_cohortMonthsBack}mo.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+  window.exportCohortCSV = exportCohortCSV;
 
   function rptDateRange(period) {
     // Anchor everything in Pacific dates — the previous browser-local approach
