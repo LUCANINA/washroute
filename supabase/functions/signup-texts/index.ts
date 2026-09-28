@@ -2,6 +2,8 @@
 //
 //   signup_d2  ~day 2   "welcome, here's {pct}% off {scope}" + booking link with the code applied
 //   signup_d7  ~day 7   "your {pct}% off is still waiting" (only after d2 went out or was skipped)
+//   referral_announce_2026_10  one-time text to active customers announcing referrals (mode 'referral',
+//              only inside the REF_FROM..REF_UNTIL window; amounts read live from referral_config())
 //
 // The link, not "reply PICKUP", is the call to action: almost no one who hasn't ordered yet has a
 // saved address, and the PICKUP text command needs one (checked 2026-09-28: 2 of 36).
@@ -32,6 +34,11 @@ const HOUR = 3_600_000
 const D2_MIN_H = 40, D2_MAX_H = 6 * 24      // day 2 .. day 6
 const D7_MIN_H = 156, D7_MAX_H = 14 * 24    // day 6.5 .. day 14
 const CAP = 50                              // per run
+const REF_KIND = 'referral_announce_2026_10'
+const REF_FROM = '2026-10-01T16:55:00Z', REF_UNTIL = '2026-10-01T19:00:00Z'   // Thu Oct 1, ~10 AM-noon PDT
+const REF_CAP = 80                          // per call (keeps a call well under the time limit); cron every 5 min in the window
+const REF_ANOMALY = 1200
+const REF_LINK = 'app.familylaundry.com/?page=invite'
 const ANOMALY = 150
 
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } })
@@ -50,11 +57,15 @@ const msgD2 = (first: string, pct: number, uses: number | null) =>
   `Hi ${first}, welcome to Family Laundry! Here's ${pct}% off ${scopeOf(uses)}. Book in 2 minutes: ${LINK} Reply STOP to opt out.`
 const msgD7 = (first: string, pct: number, uses: number | null) =>
   `Hi ${first}, your ${pct}% off ${scopeOf(uses)} is still waiting. Book your first pickup: ${LINK} Reply STOP to opt out.`
+// Referral amounts come ONLY from referral_config() — never typed here (CLAUDE.md rule).
+const usd = (n: number) => `$${Number(n).toFixed(Number(n) % 1 ? 2 : 0)}`
+const msgRef = (first: string, friend: number, referrer: number) =>
+  `Hi ${first}, thanks for being a Family Laundry customer! Give a friend ${usd(friend)} off their first order, and get ${usd(referrer)} when they try us. Share your link here: ${REF_LINK} Reply STOP to opt out.`
 
 type Cust = { id: string; first_name_cache: string | null; phone_cache: string | null; credits: number | null
-  account_type: string | null; referral_source: string | null; frozen_at: string | null; cancelled_at: string | null
+  account_type: string | null; customer_type: string | null; referral_source: string | null; frozen_at: string | null; cancelled_at: string | null
   sms_marketing_opt_out_at: string | null; sms_notifications_opt_out_at: string | null; created_at: string }
-const COLS = 'id, first_name_cache, phone_cache, credits, account_type, referral_source, frozen_at, cancelled_at, sms_marketing_opt_out_at, sms_notifications_opt_out_at, created_at'
+const COLS = 'id, first_name_cache, phone_cache, credits, account_type, customer_type, referral_source, frozen_at, cancelled_at, sms_marketing_opt_out_at, sms_notifications_opt_out_at, created_at'
 
 async function sendSms(to: string, body: string, customerId?: string) {
   const r = await fetch(`${SUPABASE_URL}/functions/v1/send-sms`, {
@@ -116,7 +127,7 @@ async function plan() {
   return { d2, d7 }
 }
 
-async function sendLogged(c: Cust, kind: 'signup_d2' | 'signup_d7', body: string) {
+async function sendLogged(c: Cust, kind: string, body: string) {
   const { data: row, error } = await db.from('marketing_sms_log')
     .insert({ customer_id: c.id, kind, status: 'sending' }).select('id').single()
   if (error) {
@@ -131,6 +142,42 @@ async function sendLogged(c: Cust, kind: 'signup_d2' | 'signup_d7', body: string
   return r.ok ? 'sent' : 'failed'
 }
 
+async function refConfig(): Promise<{ friend: number; referrer: number } | null> {
+  const { data, error } = await db.rpc('referral_config')
+  if (error || !data || !(data as any).enabled) return null
+  const friend = Number((data as any).friend_credit), referrer = Number((data as any).referrer_credit)
+  if (!(friend > 0) || !(referrer > 0)) return null
+  return { friend, referrer }
+}
+
+// Active = a delivered delivery (non walk-in) order in the last 60 days; individual, texts allowed.
+async function refAudience(): Promise<Cust[]> {
+  const since = new Date(Date.now() - 60 * 24 * HOUR).toISOString()
+  const ids = new Set<string>()
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('orders').select('customer_id, source')
+      .eq('status', 'delivered').gte('actual_delivery_at', since).order('id').range(from, from + 999)
+    if (error) throw new Error('orders: ' + error.message)
+    for (const o of (data || []) as any[]) if (o.customer_id && o.source !== 'walk_in') ids.add(o.customer_id)
+    if (!data || data.length < 1000) break
+  }
+  const list = [...ids]
+  const out: Cust[] = []
+  for (let i = 0; i < list.length; i += 100) {
+    const { data, error } = await db.from('customers').select(COLS).in('id', list.slice(i, i + 100))
+    if (error) throw new Error('customers: ' + error.message)
+    for (const c of (data || []) as Cust[]) {
+      if ((c.account_type || 'individual') !== 'individual') continue
+      if (/commercial/i.test(c.customer_type || '')) continue
+      if (c.frozen_at || c.cancelled_at) continue
+      if (!e164(c.phone_cache) || c.sms_marketing_opt_out_at || c.sms_notifications_opt_out_at) continue
+      out.push(c)
+    }
+  }
+  const log = await logged(out.map(c => c.id))
+  return out.filter(c => !log.get(c.id)?.has(REF_KIND))
+}
+
 async function isInternalCall(req: Request): Promise<boolean> {
   const provided = req.headers.get('x-wr-internal') || ''
   if (!provided) return false
@@ -143,6 +190,23 @@ Deno.serve(async (req) => {
     if (!(await isInternalCall(req))) return json({ error: 'forbidden' }, 403)
     const body = await req.json().catch(() => ({}))
     const mode = body.mode || 'dryrun'
+
+    if (mode === 'referral' || mode === 'referral_dryrun') {
+      const rc = await refConfig()
+      if (!rc) return json({ mode, sent: 0, note: 'referral program disabled or amounts missing — nothing sent' })
+      const aud = await refAudience()
+      const summary: any = { mode, window: [REF_FROM, REF_UNTIL], eligible: aud.length, sample: msgRef('<first>', rc.friend, rc.referrer) }
+      if (aud.length > REF_ANOMALY) return json({ ...summary, refused: true, reason: `more than ${REF_ANOMALY} eligible` }, 409)
+      if (mode === 'referral_dryrun') return json(summary)
+      const now = Date.now()
+      if (now < Date.parse(REF_FROM) || now > Date.parse(REF_UNTIL)) return json({ ...summary, sent: 0, note: 'outside the send window — nothing sent' })
+      const res = { sent: 0, failed: 0, duplicate: 0 } as any
+      for (const c of aud.slice(0, REF_CAP)) res[await sendLogged(c, REF_KIND, msgRef(firstName(c.first_name_cache), rc.friend, rc.referrer))]++
+      summary.result = res
+      console.log('signup-texts referral run', JSON.stringify(res))
+      return json(summary)
+    }
+
     const p = await promo()
     if (!p) return json({ mode, sent: 0, note: `${PROMO_CODE} not active — nothing sent` })
 
@@ -153,7 +217,9 @@ Deno.serve(async (req) => {
         return json({ error: 'test text only goes to an admin/manager phone on file' }, 400)
       const a = await sendSms(to, msgD2('David', p.pct, p.uses))
       const b = await sendSms(to, msgD7('David', p.pct, p.uses))
-      return json({ mode, d2: a, d7: b, sample_d2: msgD2('David', p.pct, p.uses), sample_d7: msgD7('David', p.pct, p.uses) })
+      const rc = body.referral ? await refConfig() : null
+      const r = rc ? await sendSms(to, msgRef('David', rc.friend, rc.referrer)) : null
+      return json({ mode, d2: a, d7: b, referral: r, sample_d2: msgD2('David', p.pct, p.uses), sample_d7: msgD7('David', p.pct, p.uses) })
     }
 
     const { d2, d7 } = await plan()

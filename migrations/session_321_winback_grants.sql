@@ -75,3 +75,8 @@ CREATE POLICY marketing_sms_log_staff_read ON public.marketing_sms_log FOR SELEC
 -- Rollback: DROP TABLE IF EXISTS public.marketing_sms_log;
 -- Cron (2026-09-28): SELECT cron.schedule('wr-signup-texts', '5 17 * * *', <net.http_post signup-texts {mode:'run'} with x-wr-internal>);
 --   = 10:05 AM PDT daily. Stop: SELECT cron.unschedule('wr-signup-texts');
+
+-- session_321c_marketing_sms_log_referral_kind (applied 2026-09-28): kind CHECK now also allows 'referral_announce_2026_10'.
+-- Referral announcement: signup-texts mode 'referral' (amounts read from referral_config(); only sends inside
+-- 2026-10-01 16:55-19:00 UTC; 80 per call). Cron: SELECT cron.schedule('wr-referral-announce-2026-10', '*/5 17 1 10 *', <...{mode:'referral'}>);
+-- 787 eligible at setup. Remove after it runs: SELECT cron.unschedule('wr-referral-announce-2026-10');

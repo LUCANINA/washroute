@@ -22,6 +22,12 @@ delivery customers, new ≈ lapsed (~70 vs ~95/mo), ~45% of signups never order.
 - **Cron:** `wr-winback-tick` `*/15 17 * * *`, `wr-signup-texts` `5 17 * * *` (10 AM PDT). Both functions verify_jwt FALSE,
   x-wr-internal only, deployed via MCP. Tables staff read-only (TRUNCATE revoked — default privileges grant it), cascade on
   customer delete (merge_duplicate_customer deletes rows; RESTRICT would block merges). Commit d1b1806.
+- **Referral announcement (Thu Oct 1, 10 AM PT):** one text to 787 active customers (delivered non-walk-in order in 60 days,
+  individual, texts allowed) via `signup-texts` mode `referral`; amounts read from `referral_config()` (never typed); link
+  `app.familylaundry.com/?page=invite` (new customer-app deep link → Rewards › Invite; records surface 'home' because
+  referral_events.surface CHECK allows only account/home/post_delivery). Cron `wr-referral-announce-2026-10` — unschedule after.
+- **Reviews:** 30 days = 951 rating requests → 65 ratings (64 were 4–5★) → 6 Google clicks. Google button is now the primary
+  (navy) action on the thank-you screen for every rater; Done is secondary.
 - **Competitor note:** 2ULaundry (short code 58815) texts at signup, day 2 (20% off 1st), day 9 "last chance", all ~10 AM.
 - Low, not done: order_delivered email template body says "Thanks for using WashRoute!" (customer-facing brand slip).
 
