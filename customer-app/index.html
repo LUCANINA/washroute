@@ -733,7 +733,10 @@
     .rate-star:active { transform: scale(.9); }
     .rate-hint { text-align: center; font-size: 14px; color: var(--gray-500); min-height: 18px; margin-bottom: 10px; }
     .rate-note { width: 100%; box-sizing: border-box; min-height: 84px; padding: 10px 12px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 15px; font-family: inherit; resize: vertical; outline: none; }
-    .rate-review { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; padding: 13px; border-radius: 10px; border: 1.5px solid var(--gray-200); background: white; color: var(--navy); font-size: 16px; font-weight: 700; text-align: center; text-decoration: none; font-family: inherit; }
+    /* Session 321: the review link is the primary action on the thank-you screen for EVERY rater
+       (never only happy ones — Google/FTC review gating); "Done" is the quiet secondary action. */
+    .rate-review { display: block; width: 100%; box-sizing: border-box; margin-top: 14px; padding: 14px; border-radius: 10px; border: none; background: var(--navy); color: white; font-size: 17px; font-weight: 700; text-align: center; text-decoration: none; font-family: inherit; }
+    .rate-done { display: block; width: 100%; margin-top: 8px; padding: 12px; background: none; border: none; color: var(--gray-600); font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; }
     .d-rated { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .d-rated-stars { color: #f59e0b; font-size: 19px; letter-spacing: 1px; }
     /* Preferences = hub (like Profile): Laundry Plan / Laundry Care / Tips rows,
@@ -9594,7 +9597,7 @@ async function submitRating() {
       </div>` : ''}
     </div>
     ${link ? `<a class="rate-review" href="${escHtml(link)}" target="_blank" rel="noopener" onclick="db.rpc('mark_review_link_clicked',{p_order_id:'${orderId}'}).then(()=>{},()=>{})">${isGoogle ? 'Write a Google review' : 'Write a review'}</a>` : ''}
-    <button class="rw-send" style="margin-top:10px" onclick="closeSheet('rate-sheet')">Done</button>`;
+    <button class="${link ? 'rate-done' : 'rw-send'}" style="margin-top:10px" onclick="closeSheet('rate-sheet')">Done</button>`;
   if (window._currentDetailOrder?.id === orderId) renderOrderRating(window._currentDetailOrder);
 }
 
