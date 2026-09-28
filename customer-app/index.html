@@ -9423,6 +9423,7 @@ if (document.readyState === 'loading') {
    link is https://app.familylaundry.com/?rate=<order id>. */
 // ── Email deep links (session 315) ──
 // ?page=pricing        → open Account › Pricing
+// ?page=invite         → open Rewards › Invite (referral announcement text, session 321)
 // ?promo=LOVELAUNDRY   → apply that code once the customer is signed in
 // Captured at load (survives the sign-in step), acted on from renderHome once signed in.
 const LINK_KEY = 'wr_email_link';
@@ -9431,7 +9432,7 @@ const LINK_KEY = 'wr_email_link';
     const qs = new URLSearchParams(window.location.search);
     const page = qs.get('page'), promo = qs.get('promo');
     const intent = {};
-    if (page === 'pricing') intent.page = 'pricing';
+    if (page === 'pricing' || page === 'invite') intent.page = page;
     if (promo && /^[A-Za-z0-9_-]{2,30}$/.test(promo)) intent.promo = promo.toUpperCase();
     if (!intent.page && !intent.promo) return;
     localStorage.setItem(LINK_KEY, JSON.stringify({ ...intent, until: Date.now() + 7 * 24 * 60 * 60 * 1000 }));
@@ -9458,6 +9459,8 @@ function maybeHandleEmailLinks() {
       goTo('account');
       setTimeout(() => openPricingPanel(), 300);
     }
+    // referral_events.surface only allows account/home/post_delivery, so this records as 'home'
+    if (pending.page === 'invite') openRewardsInvite();
   }, 400);
 }
 
