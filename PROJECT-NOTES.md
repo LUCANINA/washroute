@@ -33,6 +33,10 @@ delivery customers, new ≈ lapsed (~70 vs ~95/mo), ~45% of signups never order.
   Monthly → opens the normal booking flow with that frequency pre-picked (`startRecurringBooking`); nothing books until they
   confirm. Plus a hint under "How often?" (reply SKIP any week). Why: 512 active 2+ order customers had no repeat pickup;
   repeat-pickup customers lapse 21% vs 28%. Click-tested in headless Chromium with stubbed data (all 6 cases pass).
+- **Google Ads:** starter kit in a Claude doc ("Google Ads Starter Kit"): one Search campaign, $16/day, Maximize clicks w/ $6 cap,
+  11 core ZIPs, 2 ad groups, landing `app.familylaundry.com/?promo=GOOGLE15`. New discount row **GOOGLE15** (15%, first 3 orders,
+  same as LOVELAUNDRY) exists only to attribute Google customers. Local Services Ads don't list laundry in the US, so that plan
+  line moved to Search. No call asset (David prefers app bookings). Next: Google conversion tag on booking confirmation.
 - **Competitor note:** 2ULaundry (short code 58815) texts at signup, day 2 (20% off 1st), day 9 "last chance", all ~10 AM.
 - Low, not done: order_delivered email template body says "Thanks for using WashRoute!" (customer-facing brand slip).
 
