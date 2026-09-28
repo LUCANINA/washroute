@@ -28,6 +28,11 @@ delivery customers, new ≈ lapsed (~70 vs ~95/mo), ~45% of signups never order.
   referral_events.surface CHECK allows only account/home/post_delivery). Cron `wr-referral-announce-2026-10` — unschedule after.
 - **Reviews:** 30 days = 951 rating requests → 65 ratings (64 were 4–5★) → 6 Google clicks. Google button is now the primary
   (navy) action on the thank-you screen for every rater; Done is secondary.
+- **"Make it recurring" (customer app):** Home card for customers with 2+ delivered delivery orders, no repeat pickup in
+  progress, no subscription, not snoozed (30 days, localStorage `wr_recur_snooze`). Every week / Every 2 weeks (highlighted) /
+  Monthly → opens the normal booking flow with that frequency pre-picked (`startRecurringBooking`); nothing books until they
+  confirm. Plus a hint under "How often?" (reply SKIP any week). Why: 512 active 2+ order customers had no repeat pickup;
+  repeat-pickup customers lapse 21% vs 28%. Click-tested in headless Chromium with stubbed data (all 6 cases pass).
 - **Competitor note:** 2ULaundry (short code 58815) texts at signup, day 2 (20% off 1st), day 9 "last chance", all ~10 AM.
 - Low, not done: order_delivered email template body says "Thanks for using WashRoute!" (customer-facing brand slip).
 
