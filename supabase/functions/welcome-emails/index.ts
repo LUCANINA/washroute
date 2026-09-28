@@ -68,7 +68,7 @@ function email1(first: string) {
   const html = shell(`
 <p>Hi ${esc(first)},</p>
 <p>Thanks for signing up with Family Laundry. Here's how your first order works.</p>
-<p><b>1. Schedule a pickup.</b> Book in the <a href="${APP}">app</a>, or text PICKUP to the number that texted you when you signed up. Choose a morning pickup and, in most areas, your laundry comes back clean and folded by 10 p.m. the same day.</p>
+<p><b>1. Schedule a pickup.</b> Book in the <a href="${APP}">app</a>, or text PICKUP to the number that texted you when you signed up. Your laundry comes back clean and folded within 24 hours.</p>
 <p><b>2. Pack your laundry.</b> Any trash bag or laundry bag works for your first order. We'll return everything in a Family Laundry bag that's yours to keep. Two tall kitchen bags hold about as much as one of ours. Orders over two bags may take an extra day, and we'll let you know.</p>
 <p><b>3. Leave it out when your driver texts.</b> You'll get a text about 10–15 minutes before arrival. Set your bag outside your door or on your porch.</p>
 <p><b>How we clean:</b> warm wash, cold rinse, medium-heat dry. Free &amp; Clear detergent only, with no fragrance, fabric softener or bleach. Every load is sanitized with ozonated water.</p>
@@ -79,7 +79,7 @@ ${button(APP, 'Schedule a pickup')}`, preview)
 
 Thanks for signing up with Family Laundry. Here's how your first order works.
 
-1. Schedule a pickup. Book in the app (${APP}), or text PICKUP to the number that texted you when you signed up. Choose a morning pickup and, in most areas, your laundry comes back clean and folded by 10 p.m. the same day.
+1. Schedule a pickup. Book in the app (${APP}), or text PICKUP to the number that texted you when you signed up. Your laundry comes back clean and folded within 24 hours.
 
 2. Pack your laundry. Any trash bag or laundry bag works for your first order. We'll return everything in a Family Laundry bag that's yours to keep. Two tall kitchen bags hold about as much as one of ours. Orders over two bags may take an extra day, and we'll let you know.
 
@@ -96,20 +96,25 @@ Unsubscribe: <%asm_group_unsubscribe_raw_url%>`
   return { subject, preview, html, text }
 }
 
-function email2(first: string, pct: number) {
+function email2(first: string, pct: number, uses: number | null = 1) {
   const p = `${pct}%`
-  const subject = `${p} off your first pickup`
+  // Wording follows the code's use limit (discounts.max_orders_per_customer): 1 = "first order",
+  // N = "first N orders", unlimited = "every order". Never hard-code the count here.
+  const n = uses == null ? null : Math.max(1, Math.floor(Number(uses) || 1))
+  const scope = n == null ? 'every order' : n === 1 ? 'your first order' : `your first ${n} orders`
+  const subjScope = n == null ? 'every pickup' : n === 1 ? 'your first pickup' : `your first ${n} pickups`
+  const subject = `${p} off ${subjScope}`
   const preview = `Use code ${PROMO_CODE} when you book`
   const link = `${APP}?promo=${PROMO_CODE}`
   const html = shell(`
 <p>Hi ${esc(first)},</p>
-<p>Still thinking it over? We'd love to take laundry off your list. Use code <b>${PROMO_CODE}</b> for <b>${p} off</b> your first order.</p>
+<p>Still thinking it over? We'd love to take laundry off your list. Use code <b>${PROMO_CODE}</b> for <b>${p} off ${scope}</b>.</p>
 <p>Book in the app, or just text PICKUP. We'll handle the rest.</p>
 <p>Questions? Reply to this email and we'll help.</p>
 ${button(link, 'Book my first pickup')}`, preview)
   const text = `Hi ${first},
 
-Still thinking it over? We'd love to take laundry off your list. Use code ${PROMO_CODE} for ${p} off your first order.
+Still thinking it over? We'd love to take laundry off your list. Use code ${PROMO_CODE} for ${p} off ${scope}.
 
 Book in the app (${link}), or just text PICKUP. We'll handle the rest.
 
@@ -176,11 +181,12 @@ async function planEmail1(): Promise<Cust[]> {
   return custs.filter(c => !done.has(c.id) && mailable(c, supp))
 }
 
-async function planEmail2(): Promise<{ list: Cust[]; pct: number | null; reason?: string }> {
-  const { data: disc } = await db.from('discounts').select('value, active, deleted_at, type')
+async function planEmail2(): Promise<{ list: Cust[]; pct: number | null; uses?: number | null; reason?: string }> {
+  const { data: disc } = await db.from('discounts').select('value, active, deleted_at, type, max_orders_per_customer')
     .eq('name', PROMO_CODE).maybeSingle()
   if (!disc || !disc.active || disc.deleted_at || disc.type !== 'percent') return { list: [], pct: null, reason: `${PROMO_CODE} not active` }
   const pct = Number(disc.value)
+  const uses: number | null = disc.max_orders_per_customer ?? null
   const now = Date.now()
   const { data: firsts, error } = await db.from('email_send_log').select('customer_id, sent_at')
     .eq('kind', 'welcome_1').eq('status', 'sent')
@@ -203,7 +209,7 @@ async function planEmail2(): Promise<{ list: Cust[]; pct: number | null; reason?
   const redeemed = new Set((reds || []).map((r: any) => r.customer_id))
   const supp = await suppressed(((custs || []) as Cust[]).map(c => norm(c.email_cache)))
   const list = ((custs || []) as Cust[]).filter(c => !ordered.has(c.id) && !redeemed.has(c.id) && mailable(c, supp))
-  return { list, pct }
+  return { list, pct, uses }
 }
 
 // ── Send one, logging first ────────────────────────────────────────────────
@@ -241,10 +247,10 @@ Deno.serve(async (req) => {
     if (mode === 'test') {
       const to = norm(body.to)
       if (!EMAIL_RE.test(to) || !TEST_ALLOW.test(to)) return json({ error: 'test sends only go to staff addresses' }, 400)
-      const { data: disc } = await db.from('discounts').select('value').eq('name', PROMO_CODE).maybeSingle()
+      const { data: disc } = await db.from('discounts').select('value, max_orders_per_customer').eq('name', PROMO_CODE).maybeSingle()
       const first = String(body.first_name || 'David')
       const a = await send(to, first, 'welcome_test', email1(first))
-      const b = await send(to, first, 'welcome_test', email2(first, Number(disc?.value || 15)))
+      const b = await send(to, first, 'welcome_test', email2(first, Number(disc?.value || 15), disc?.max_orders_per_customer ?? null))
       return json({ mode, to, email1: a, email2: b })
     }
 
@@ -252,7 +258,7 @@ Deno.serve(async (req) => {
     const e2 = await planEmail2()
     const summary: any = {
       mode, go_live: GO_LIVE,
-      email1_eligible: e1.length, email2_eligible: e2.list.length, email2_pct: e2.pct, email2_note: e2.reason || null,
+      email1_eligible: e1.length, email2_eligible: e2.list.length, email2_pct: e2.pct, email2_uses: e2.uses ?? null, email2_note: e2.reason || null,
       sample1: e1.slice(0, 3).map(c => norm(c.email_cache)), sample2: e2.list.slice(0, 3).map(c => norm(c.email_cache)),
     }
     if (e1.length > ANOMALY || e2.list.length > ANOMALY) {
@@ -268,7 +274,7 @@ Deno.serve(async (req) => {
     }
     if (e2.pct) for (const c of e2.list.slice(0, EMAIL2_CAP)) {
       const first = (c.first_name_cache || '').trim() || 'there'
-      res.welcome_2[await sendLogged(c, 'welcome_2', email2(first, e2.pct))]++
+      res.welcome_2[await sendLogged(c, 'welcome_2', email2(first, e2.pct, e2.uses))]++
     }
     summary.result = res
     if (res.welcome_1.sent || res.welcome_2.sent || res.welcome_1.failed || res.welcome_2.failed)
