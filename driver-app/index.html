@@ -4749,6 +4749,9 @@ function subscribeToRouteStopUpdates() {
         //       an UPDATE we didn't see the first time.
         // Don't require isMyRoute for the explicit case — the route itself may have
         // just been reassigned to me too, so todayRoutes won't know about it yet.
+        // Session 320: a finished (complete/skipped/failed) stop we don't already have isn't
+        // work for us — don't reload for it (e.g. after-hours backfills of old stops).
+        if (!['pending', 'en_route'].includes(updated.status)) return;
         const explicitlyMine = updated.driver_id === currentDriver?.id;
         const inheritedOnMyRoute = updated.driver_id === null && isMyRoute(updated.route_id);
         if (explicitlyMine || inheritedOnMyRoute) {
@@ -4904,6 +4907,11 @@ function subscribeToRouteStopUpdates() {
       const updated = payload.new;
       const localRoute = todayRoutes.find(r => r.id === updated.id) || upcomingRoutes.find(r => r.id === updated.id);
       const wasMyRoute = !!localRoute;
+      // Session 320: routes' stop counters are now kept by a DB trigger, so any stop change on
+      // any route (incl. past ones) echoes a routes UPDATE. A route dated before the day we're
+      // showing can never be ours to run — ignore it instead of reloading.
+      const _effDay = PREVIEW_MODE ? PREVIEW_DATE : today();
+      if (!wasMyRoute && updated.run_date && updated.run_date < _effDay) return;
       const isNowMine  = updated.driver_id === currentDriver?.id || updated.driver_id === null;
 
       // ⚠️ Session 151 — fix for "route disappears + driver logged out on every stop":

@@ -29497,7 +29497,7 @@ ${noActivityNote}
 
   async function loadTodayRoutesWidget() {
     const { data } = await db.from('routes')
-      .select('id, name, status, total_stops, completed_stops, color, started_at')
+      .select('id, name, status, total_stops, completed_stops, skipped_stops, color, started_at')
       .eq('run_date', today())
       .order('started_at', { ascending: true, nullsFirst: false })
       .order('name');
@@ -29512,7 +29512,7 @@ ${noActivityNote}
           <div style="width:10px;height:10px;border-radius:50%;background:${r.color||'var(--accent)'};flex-shrink:0;"></div>
           <div style="flex:1;min-width:0;">
             <div style="font-weight:600;font-size:13px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.name}</div>
-            <div style="font-size:12px;color:var(--gray-500);">${r.completed_stops||0} / ${r.total_stops||0} stops</div>
+            <div style="font-size:12px;color:var(--gray-500);">${r.completed_stops||0} of ${r.total_stops||0} stops${r.skipped_stops ? ` · <span style="color:var(--amber);font-weight:600;">${r.skipped_stops} skipped</span>` : ''}</div>
           </div>
           ${statusBadge(r.status)}
         </div>`).join('')}

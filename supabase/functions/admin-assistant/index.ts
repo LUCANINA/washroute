@@ -163,7 +163,7 @@ const TOOLS = [
   },
   {
     name: 'get_routes_for_day',
-    description: 'All route runs on a date (YYYY-MM-DD): route name, status, drivers, stop counts.',
+    description: 'All route runs on a date (YYYY-MM-DD): route name, status, drivers, stop counts. total_stops = stops the route had to run (orders cancelled beforehand are excluded); completed_stops = done; skipped_stops = driver could not complete (not home, bags not out, no access). A finished route has completed_stops + skipped_stops = total_stops. Counts are kept by the database from the actual stops.',
     input_schema: { type: 'object', properties: { date: { type: 'string' } }, required: ['date'] },
   },
 ]
@@ -296,7 +296,7 @@ async function runTool(db: Db, name: string, input: Record<string, unknown>): Pr
     case 'get_routes_for_day': {
       const d = clean(input.date)
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error('date must be YYYY-MM-DD')
-      const routes = check(await db.from('routes').select('name, status, total_stops, completed_stops, pickup_driver_id, delivery_driver_id, driver_id, started_at, completed_at').eq('run_date', d).order('name'), 'routes') || []
+      const routes = check(await db.from('routes').select('name, status, total_stops, completed_stops, skipped_stops, pickup_driver_id, delivery_driver_id, driver_id, started_at, completed_at').eq('run_date', d).order('name'), 'routes') || []
       const ids = [...new Set(routes.flatMap((r: Record<string, string>) => [r.driver_id, r.pickup_driver_id, r.delivery_driver_id]).filter(Boolean))]
       const people = ids.length ? check(await db.from('profiles').select('id, first_name, last_name').in('id', ids), 'drivers') : []
       const nm = (id?: string) => { const p = people.find((x: { id: string }) => x.id === id); return p ? `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() : null }

@@ -1,5 +1,37 @@
 # WashRoute — Project Notes
 
+## Session 320 — Sep 28, 2026: Route stop counts kept by the database (issue #414)
+
+Issue #414 (auto-filed by the admin assistant): Sep 23 Berkeley/Oakland AM showed more completed than total stops; Hayward AM
+"complete" with 11/14. **No stops were missed** — `routes.total_stops`/`completed_stops` were hand-maintained (+1/−1 in
+auto_route_order, reconcile_*, sync_*_window_change, admin client) and drifted whenever a path forgot (148/312 routes wrong in 30
+days; 22 routes all-done but never marked complete — the route-hours gap from session 172).
+- **Counts are now derived** (migrations `session_320`, `320a`): `_route_stop_tally(route)` + `recompute_route_counters(route)`;
+  AFTER trigger `trg_recompute_route_counters` on route_stops (insert/delete/status/route_id/completed_at) recomputes the route;
+  BEFORE trigger `trg_routes_enforce_counters` replaces ANY write to a counter column with the real count (legacy "+1" code and the
+  admin client's total_stops writes are now harmless no-ops). Route status/started_at/completed_at follow from the counts
+  (never demotes in_progress; cancelled untouched).
+- **Definitions (David: "keep the skips, they are an important data point"):** only ~6% of `skipped` stops were driver skips — the
+  rest are customer/admin cancellations and the delivery leg auto-skipped after a failed pickup. So:
+  `total_stops` = stops the route had to run (cancellations excluded) · `completed_stops` = complete ·
+  NEW `skipped_stops` = driver couldn't complete (NEW `route_stops.driver_skipped_at`, stamped by `skip_route_stop`) or `failed`.
+  `trg_clear_driver_skip_on_reopen` clears the marker when a stop reopens (undo, reset).
+- **Skip history preserved:** `reconcile_order_stops` used to REUSE a skipped/failed stop on reschedule — moving it (and the skip)
+  onto the new route. Now it only reuses cancelled stops; driver skips/failures stay where they happened and a new stop is inserted.
+- **Capacity side effect (intended):** `get_available_runs_for_zone` compares `total_stops` to `stop_limit`; totals are now exact and
+  exclude cancellations, so undercounted routes stop overbooking (today's Berkeley AM had 22 stops vs a limit of 20) and a
+  cancellation frees its slot.
+- **Backfill:** snapshot `_archive.routes_counters_s320` (all 2110 routes). Today+future routes with a driver recounted in the
+  daytime. Past routes + historical `driver_skipped_at` (signal: pickup_failed/delivery_failed event on the run date, or the
+  driver app's "Can't complete:" note) run AFTER HOURS via `session_320b_route_counters_backfill.sql` (scheduled 11:30pm PT) —
+  every routes/route_stops UPDATE echoes over realtime and the driver app reloaded on past-route echoes.
+- **Driver app:** routes UPDATE handler ignores routes dated before the day shown; route_stops UPDATE for a stop not in the list
+  no longer reloads unless the stop is pending/en_route.
+- **Admin:** Today's Routes widget reads "15 of 17 stops · 2 skipped". **admin-assistant** `get_routes_for_day` returns
+  `skipped_stops` and its tool description explains the counts → `bash deploy-session-320.sh` (verify_jwt ON, measured).
+- Tested (rolled back) as a driver JWT: skip → 7/0/1; reopen → marker cleared 7/0/0; cancel → 6; legacy total+50 → stays 6.
+- Low, not done: the driver app's own "N incomplete" line (client-side) still counts cancellations.
+
 ## Session 319 — Sep 26, 2026: Registrations → Cohort Analysis
 
 New view under Reports → Customers → Registrations (Overview | Cohort Analysis toggle; Delivery/Retail applies to both).
