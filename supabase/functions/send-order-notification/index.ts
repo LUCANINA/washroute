@@ -8,8 +8,6 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SVC_KEY      = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const ANON_KEY     = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
-const KLAVIYO_KEY = Deno.env.get('KLAVIYO_API_KEY') ?? '';
-
 const BIZ_TZ = 'America/Los_Angeles';
 
 const dbHeaders: Record<string, string> = {
@@ -231,10 +229,7 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: auth.reason }), { status: auth.status, headers: CORS });
     }
 
-    // Fetch order FIRST — needed by both the Klaviyo event path and the SMS
-    // path. Done before the template check so Klaviyo tracking stays decoupled
-    // from SMS template state (toggling off the order_confirmed SMS template
-    // in admin must NOT silently break the Klaviyo flow trigger).
+    // Fetch order FIRST, before the template check.
     // session 137: include tip_amount + tip_type so {{amount}} matches the
     // actual Stripe-charged total.
     const orders = await dbGet(
@@ -247,9 +242,8 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Order not found', orderId }), { status: 404, headers: CORS });
     }
 
-    // Fetch customer — email_cache added for Klaviyo event tracking
     const customers = await dbGet(
-      `customers?id=eq.${encodeURIComponent(order.customer_id)}&select=id,first_name_cache,last_name_cache,phone_cache,address_cache,email_cache,sms_notifications_opt_out_at&limit=1`
+      `customers?id=eq.${encodeURIComponent(order.customer_id)}&select=id,first_name_cache,last_name_cache,phone_cache,address_cache,sms_notifications_opt_out_at&limit=1`
     );
     const customer = Array.isArray(customers) ? customers[0] : null;
 
@@ -257,62 +251,7 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true, sms: false, reason: 'no_customer' }), { headers: CORS });
     }
 
-    // ── Klaviyo "Placed Order" event (fire-and-forget, non-fatal) ──
-    // Fired on the 'confirmed' event (customer-app order placement). Unlocks
-    // real-time behavioral flows in Klaviyo — most importantly the laggard
-    // conversion flow's "has placed an order yet?" conditional split, which
-    // would otherwise lag by ~24h waiting for the nightly profile sync.
-    // unique_id=order.id dedupes against any repeat 'confirmed' calls.
-    // Runs BEFORE the template / phone / SMS path so it's independent of
-    // whether the order_confirmed SMS template is enabled or whether the
-    // customer has a phone on file.
-    if (event === 'confirmed' && customer.email_cache && KLAVIYO_KEY) {
-      const klviTotal = computeChargedTotal(order.total_amount, order.tip_amount, order.tip_type);
-      try {
-        const r = await fetch('https://a.klaviyo.com/api/events/', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Klaviyo-API-Key ${KLAVIYO_KEY}`,
-            'accept':        'application/json',
-            'content-type':  'application/json',
-            'revision':      '2024-10-15',
-          },
-          body: JSON.stringify({
-            data: {
-              type: 'event',
-              attributes: {
-                properties: {
-                  OrderId:      String(order.order_number || ''),
-                  OrderValue:   klviTotal,
-                  BagCount:     order.total_bags || 0,
-                  PickupDate:   order.pickup_window_start,
-                  DeliveryDate: order.delivery_window_start,
-                  $value:       klviTotal,
-                },
-                time:           new Date().toISOString(),
-                value:          klviTotal,
-                value_currency: 'USD',
-                unique_id:      String(order.id),
-                metric:  { data: { type: 'metric',  attributes: { name: 'Placed Order' } } },
-                profile: { data: { type: 'profile', attributes: { email: customer.email_cache } } },
-              },
-            },
-          }),
-        });
-        if (!r.ok) {
-          const t = await r.text().catch(() => '');
-          console.warn(`[klaviyo-event] Placed Order ${r.status} for order=${order.order_number}: ${t.slice(0, 500)}`);
-        } else {
-          console.log(`[klaviyo-event] Placed Order tracked: order=${order.order_number} email=${customer.email_cache}`);
-        }
-      } catch (e: any) {
-        console.warn('[klaviyo-event] fetch failed:', e?.message || String(e));
-      }
-    }
-
-    // Template lookup (SMS path) — must come AFTER the Klaviyo block so that
-    // a disabled order_confirmed SMS template doesn't silently break the
-    // Klaviyo flow trigger above.
+    // Template lookup (SMS path).
     const templates = await dbGet(
       `message_templates?trigger_key=eq.${triggerKey}&select=sms_enabled,sms_body,email_enabled,email_subject,email_body&limit=1`
     );
@@ -329,7 +268,6 @@ Deno.serve(async (req: Request) => {
     }
 
     // Per-customer automated-SMS kill-switch (session 174 — Kidango sites).
-    // Placed AFTER the Klaviyo block so order tracking is unaffected.
     if (customer.sms_notifications_opt_out_at) {
       console.log(`[send-order-notification] SMS suppressed: customer ${customer.id} opted out of automated SMS`);
       return new Response(JSON.stringify({ ok: true, sms: false, reason: 'sms_notifications_opted_out' }), { headers: CORS });
