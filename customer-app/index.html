@@ -2969,13 +2969,6 @@ async function handleNameSubmit() {
         return;
       }
     }
-    // ── Klaviyo welcome subscribe (phone-OTP signup path) ──
-    // Mirrors handleSignup's behavior so OTP-registered users also land in the
-    // "Email List" and receive the Welcome Series. Fire-and-forget; failure is
-    // non-fatal and logged inside the helper / edge function.
-    if (emailConsent && email) {
-      subscribeKlaviyoWelcome({ email, first_name: firstName, last_name: lastName, phone: phoneVal });
-    }
     _awaitingName = false;
     // Trigger loadUserData so currentCustomer is populated, then go home
     await loadUserData();
@@ -3176,14 +3169,6 @@ async function handleSignup(e) {
   const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone, sms_consent: smsConsent, email_consent: emailConsent, referral_source: referralSource }, emailRedirectTo: redirectUrl } });
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
-  // ── Klaviyo welcome subscribe (fire-and-forget, gated on email consent) ──
-  // Adds the new signup to "Email List" so the "Email Welcome Series" flow
-  // fires. Done here (before email confirmation) so the welcome arrives
-  // promptly; subscribe is idempotent on Klaviyo's side so a duplicate from
-  // loadUserData() post-confirm is harmless.
-  if (emailConsent && data?.user) {
-    subscribeKlaviyoWelcome({ email, first_name: first, last_name: last, phone });
-  }
   if (data.user) {
     // Only call ensureProfile when we have an active session (email auto-confirmed
     // or instant login). Without a session, RLS blocks the writes and the data is
@@ -3202,34 +3187,6 @@ async function handleSignup(e) {
       }
     }
     // If there IS a session, onAuthStateChange fires and navigates automatically
-  }
-}
-
-// Adds a fresh signup to Klaviyo's "Email List" (id VDLwxj), which is the
-// trigger for the "Email Welcome Series" flow. Fire-and-forget — caller MUST
-// NOT await. Klaviyo errors are logged for debugging only and never delay or
-// fail the signup UI. Only called when the customer explicitly opted into
-// email marketing via the s-email-consent checkbox.
-function subscribeKlaviyoWelcome({ email, first_name, last_name, phone }) {
-  // Session 315: RETIRED. The welcome series is now sent by WashRoute itself (edge function
-  // welcome-emails, every 15 min, from email_marketing_consent_at). Subscribing here too would
-  // send a second welcome from Klaviyo. Kept as a no-op so the four call sites stay untouched.
-  return;
-  if (!email) return;
-  try {
-    fetch(`${SUPA_URL}/functions/v1/klaviyo-subscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
-      body: JSON.stringify({
-        email,
-        first_name: first_name || null,
-        last_name:  last_name  || null,
-        phone:      phone      || null,
-      })
-    }).then(r => { if (!r.ok) console.warn('[klaviyo-subscribe] HTTP', r.status); })
-      .catch(e => console.warn('[klaviyo-subscribe] fetch error:', e?.message || e));
-  } catch (e) {
-    console.warn('[klaviyo-subscribe] thrown:', e?.message || e);
   }
 }
 
@@ -3289,11 +3246,6 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     }))) return null;
     const { data: newCust } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
     currentCustomer = newCust;
-    // ── Klaviyo welcome subscribe (booking-flow signup path, session 174) ──
-    // Same gating semantics as handleSignup / handleNameSubmit. Fire-and-forget.
-    if (emailConsent && (email || user.email)) {
-      subscribeKlaviyoWelcome({ email: email || user.email, first_name: first, last_name: last, phone });
-    }
   } else {
     currentCustomer = ec;
     if (smsConsent && !ec.sms_consent_at) {
@@ -3302,11 +3254,6 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     // Mirror for email marketing consent; never re-consent someone who opted out.
     if (emailConsent && !ec.email_marketing_consent_at && !ec.email_marketing_opt_out_at) {
       await db.from('customers').update({ email_marketing_consent_at: new Date().toISOString() }).eq('id', ec.id);
-      // First time this customer consents → also subscribe in Klaviyo (session 174)
-      const klEmail = email || user.email || ec.email_cache;
-      if (klEmail) {
-        subscribeKlaviyoWelcome({ email: klEmail, first_name: first || ec.first_name_cache, last_name: last || ec.last_name_cache, phone: phone || ec.phone_cache });
-      }
     }
   }
 }
@@ -3667,13 +3614,6 @@ async function loadUserData() {
     } else {
       const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
       currentCustomer = data;
-      // ── Klaviyo welcome subscribe (fresh customer post-email-confirm path) ──
-      // Covers the case where handleSignup couldn't fire (no session yet) and
-      // the customer first lands here after clicking the email confirm link.
-      // Gated on m.email_consent so we honor the same checkbox semantics.
-      if (m.email_consent && custEmail) {
-        subscribeKlaviyoWelcome({ email: custEmail, first_name: custFirst, last_name: custLast, phone: custPhone });
-      }
     }
   }
   // Load payment cards so the home screen banner is accurate immediately
@@ -5825,13 +5765,6 @@ async function renderConfirmAuth() {
       }))) return;
       const { data: newCust } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
       currentCustomer = newCust;
-      // ── Klaviyo welcome subscribe (fresh customer at order-confirm path) ──
-      // Symmetric with handleSignup + loadUserData + handleNameSubmit. Same
-      // gating semantics: only when the user opted in via the email-consent
-      // checkbox during signup.
-      if (m.email_consent && email) {
-        subscribeKlaviyoWelcome({ email, first_name: first, last_name: last, phone });
-      }
     }
   }
 
@@ -5882,7 +5815,7 @@ async function placeOrder() {
     // Email marketing consent — booking-flow equivalent of s-email-consent.
     // Default-checked; if the user unticks it we honor the no. (session 174 fix:
     // this form previously had no email-consent checkbox, so book-and-signup
-    // customers — the highest-converting path — never reached Klaviyo.)
+    // customers — the highest-converting path — were never marked as consenting.)
     const emailConsent = document.getElementById('c-email-consent')?.checked ?? false;
     const referralSource = document.getElementById('c-source')?.value || null;
     if (!first || !last || !email || !pass || !phone) {
