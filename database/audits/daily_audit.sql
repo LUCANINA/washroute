@@ -29,7 +29,17 @@ FROM orders o
 LEFT JOIN customers c ON c.id = o.customer_id
 WHERE o.status IN ('scheduled','picked_up','processing','folding','ready_for_delivery','out_for_delivery')
   AND (o.routing_error IS NOT NULL
-       OR NOT EXISTS (SELECT 1 FROM route_stops rs WHERE rs.order_id = o.id AND rs.stop_type = 'pickup'))
+       OR (
+         -- 2026-09-28: POS counter sales have no pickup leg BY DESIGN, so the
+         -- missing-pickup-stop branch must not flag them. This false-positive
+         -- class was first noted in session 160 and re-noted in 162, 171 and
+         -- 185 (6-12 phantom P0 rows every morning) without being patched.
+         -- Note the exemption is scoped to THIS branch only: a walk_in that
+         -- somehow did record a routing_error still surfaces via the branch
+         -- above, so no real signal is lost.
+         COALESCE(o.source, '') <> 'walk_in'
+         AND NOT EXISTS (SELECT 1 FROM route_stops rs WHERE rs.order_id = o.id AND rs.stop_type = 'pickup')
+       ))
 ORDER BY o.pickup_window_start;
 
 
