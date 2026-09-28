@@ -48,7 +48,7 @@ Year 1 needs +$58K a month. The seven levers below add up to ~$90K, so the plan 
 | 1 | Turn signups into first orders | 55% → 70% of signups order | ~$13K | Low (automated texts/emails + first-order offer) |
 | 2 | Cut churn | ~95 → ~80 customers lost a month | ~$16K | Low (save offers, recurring push) |
 | 3 | Win back dormant customers | Reactivate ~60 of ~5,500 dormant accounts for good | ~$16K | Low (credits) |
-| 4 | Referrals | 1 → 15+ referred first orders a month | ~$11K | $50 per new customer ($25 + $25 credit) |
+| 4 | Referrals | 1 → 15+ referred first orders a month | ~$11K | $40 per new customer ($20 + $20 credit) |
 | 5 | Paid local marketing | ~35 first orders a month from ads/mail | ~$22K | ~$6–7K/mo |
 | 6 | Commercial accounts | 5–6 new school/daycare accounts at ~$2–3K/mo | ~$12K | Sales time, some commission |
 | 7 | Subscription upsell | +40 subscribers ($275/mo) | Retention boost, counted in #2 | Low |
@@ -113,7 +113,7 @@ Year 1 spend is about $85–95K (~3.5% of revenue), ramping from $2–3K a month
 | Direct mail / door hangers on route streets | — | 1,500 | 2,000 |
 | Yelp (tracked test) | — | 750 | 0–1,000 |
 | Nextdoor + local sponsorships | — | 500 | 750 |
-| Referral credits ($25 + $25) | 500 | 1,000 | 1,500 |
+| Referral credits ($20 + $20) | 500 | 1,000 | 1,500 |
 | Win-back and first-order credits | 1,500 | 1,000 | 1,000 |
 | Commercial sales (commission/materials) | — | 500 | 1,500 |
 | **Total** | **~2,500** | **~8,750** | **~11,250** |
@@ -139,14 +139,14 @@ Watch these weekly; all can come straight from WashRoute once attribution is fix
 
 ## First 30 days
 
-- [ ] Make "How did you hear about us?" required at signup, with channel-specific promo codes
-- [ ] Build the 4-step signup nudge (text + email) with a first-order offer
-- [ ] Announce the referral program to all active customers; add a bag-tag insert
-- [ ] Confirm referral terms in Admin → Referrals ($25 + $25 planned)
+- [x] Make "How did you hear about us?" required at signup: already live since Sep 26 (every signup since has a source). Channel promo codes to add when ads/mail start
+- [x] Signup nudges: welcome email + day-3 email (15% off first 3 orders), plus day-2 and day-7 texts with a booking link that applies LOVELAUNDRY. First texts Sep 29
+- [ ] Announce the referral program to all active customers; add a bag-tag insert (terms are $20 + $20)
+- [x] Confirm referral terms: $20 friend / $20 referrer, max 5 a month per referrer
 - [ ] Send Google review link to every rater; refresh the Google Business Profile
-- [ ] Pull the dormant list, split into segments, run preflight, send the first win-back batch of ~500
+- [x] Win-back: $20 credit, 30 days, to 415 customers who stopped since March. Email day 0, text day 1. Pilot of 10 on Sep 29, rest after review
 - [ ] Add "make it recurring" prompt after the 2nd order
-- [ ] List 20 schools and daycares near our routes and start outreach
+- [x] List 20 schools and daycares near our routes (marketing/PROSPECTS-SCHOOLS-DAYCARES-2026-09.md); start outreach
 - [ ] Start Google Search ads at $500/mo on core keywords, tracked by code
 
 ## Constraints

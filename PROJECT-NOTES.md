@@ -1,5 +1,30 @@
 # WashRoute — Project Notes
 
+## Session 321 — Sep 28, 2026: Marketing plan, first 30 days (win-back credit, signup texts, welcome email fixes)
+
+Plan: `marketing/GROWTH-MARKETING-PLAN-2026-2029.md` (+ live Claude doc). Goal +30%/yr for 3 yrs; baseline ~$192K/mo, ~660 active
+delivery customers, new ≈ lapsed (~70 vs ~95/mo), ~45% of signups never order. Commercial prospects:
+`marketing/PROSPECTS-SCHOOLS-DAYCARES-2026-09.md`.
+- **Found already done:** "How did you find us?" required on phone signup since Sep 26 (6/6 signups since have a source).
+  Referrals live: $20/$20, cap 5/mo per referrer, 1 qualified. LOVELAUNDRY now 15% off first 3 orders (max_orders_per_customer=3;
+  the 42 who used it once before don't get the extra 2).
+- **welcome-emails v3/v4:** email 2 wording reads the code's use limit ("15% off your first 3 orders"); email 1 promises 24-hour
+  turnaround instead of "morning pickup back by 10 p.m. same day" (not offered everywhere). Commit 283db5e.
+- **Win-back (`winback` fn + `winback_grants`):** batch WB-2026-10-A = 415 individual customers who ordered in WashRoute but nothing
+  delivered in 60+ days, $0 credit, no open order. Day 0: $20 via `adjust_customer_credits` (note "Win-back …") then email (consent
+  only). Day 1: one text if not booked ("Reply PICKUP" works — they have addresses). Day 30: remove the unused part via the same RPC
+  (credit_use net of credit_refund since grant). Only rows with `release_at <= now()` are touched; each step claims its row first.
+  Pilot 10 released Sep 29 10 AM PT; other 405 held until the pilot checks out:
+  `UPDATE winback_grants SET release_at=now() WHERE batch='WB-2026-10-A' AND release_at IS NULL;`
+- **Signup texts (`signup-texts` fn + `marketing_sms_log`):** day 2 and day 7 texts to signups (since Sep 21) with no order, no
+  credit, not walk-in, not opted out. CTA is the link `app.familylaundry.com/?promo=LOVELAUNDRY`, NOT "reply PICKUP": only 2 of 36
+  recent non-ordering signups had a saved address, and the PICKUP command needs one. 11 eligible for the first run.
+- **Cron:** `wr-winback-tick` `*/15 17 * * *`, `wr-signup-texts` `5 17 * * *` (10 AM PDT). Both functions verify_jwt FALSE,
+  x-wr-internal only, deployed via MCP. Tables staff read-only (TRUNCATE revoked — default privileges grant it), cascade on
+  customer delete (merge_duplicate_customer deletes rows; RESTRICT would block merges). Commit d1b1806.
+- **Competitor note:** 2ULaundry (short code 58815) texts at signup, day 2 (20% off 1st), day 9 "last chance", all ~10 AM.
+- Low, not done: order_delivered email template body says "Thanks for using WashRoute!" (customer-facing brand slip).
+
 ## Session 320 — Sep 28, 2026: Route stop counts kept by the database (issue #414)
 
 Issue #414 (auto-filed by the admin assistant): Sep 23 Berkeley/Oakland AM showed more completed than total stops; Hayward AM
