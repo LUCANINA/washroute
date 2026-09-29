@@ -71,6 +71,11 @@ days; 22 routes all-done but never marked complete — the route-hours gap from 
   `skipped_stops` and its tool description explains the counts → `bash deploy-session-320.sh` (verify_jwt ON, measured).
 - Tested (rolled back) as a driver JWT: skip → 7/0/1; reopen → marker cleared 7/0/0; cancel → 6; legacy total+50 → stays 6.
 - Low, not done: the driver app's own "N incomplete" line (client-side) still counts cancellations.
+- **After-hours backfill DONE (23:31 PT, `session_320b`):** no driver activity at run time. 265 historical driver skips marked;
+  all 2,120 routes recounted → **0 mismatches** vs `_route_stop_tally`; 1,398 routes' counts changed; **344 finished routes newly
+  marked complete**; 0 done-but-not-complete in last 30 days; 253 routes carry skips. Sep 23: Berkeley AM 15/15, Oakland AM 16/16,
+  Hayward AM 11/11, Oakland PM 16/18 (2 skipped). `session_320c`: 3 empty pre-go-live test routes had been demoted
+  complete→scheduled — reopen now requires open stops; restored from snapshot. admin-assistant v6 deployed by David. **#414 resolved.**
 
 ## Session 319 — Sep 26, 2026: Registrations → Cohort Analysis
 

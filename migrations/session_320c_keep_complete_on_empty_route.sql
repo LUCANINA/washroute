@@ -1,0 +1,8 @@
+-- Session 320c — a 'complete' route is only reopened when it actually has open stops again.
+-- 320b demoted 3 pre-go-live test routes (all stops removed) from complete -> scheduled; restored.
+-- Applied 2026-09-28 23:32 PT. Function body = 320a with the two reopen branches gated on c.open > 0:
+--   WHEN c.open > 0 AND v_done > 0 AND r.status IN ('scheduled','complete') THEN 'in_progress'
+--   WHEN c.open > 0 AND v_done = 0 AND r.status = 'complete'                THEN 'scheduled'
+-- plus: UPDATE routes SET status/completed_at FROM _archive.routes_counters_s320
+--        WHERE old status 'complete' AND now 'scheduled' AND total_stops = 0  (3 rows).
+-- Full SQL: supabase_migrations.schema_migrations, name session_320c_keep_complete_on_empty_route.
