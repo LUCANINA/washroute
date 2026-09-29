@@ -43528,10 +43528,17 @@ ${oneCopy}
     const value = parseFloat(document.getElementById('disc-new-value').value) || 0;
     if (!name) { showToast('Please enter a name', 'error'); return; }
     if (value <= 0) { showToast('Please enter a value greater than 0', 'error'); return; }
+    // Session 322b: never create a second code with a name that already exists (active OR
+    // archived) — the promo box looks codes up by name, so a copy makes it ambiguous.
+    const dup = [...allDiscounts, ...archivedDiscounts].find(d => String(d.name || '').trim().toUpperCase() === name.toUpperCase());
+    if (dup) {
+      showToast(`${dup.name} already exists${dup.active && !dup.deleted_at ? '' : ' (in Archived)'} — pick a different name`, 'error');
+      return;
+    }
     const usesRaw = document.getElementById('disc-new-uses')?.value || '';
     const max_orders_per_customer = (type === 'percent' && usesRaw) ? parseInt(usesRaw, 10) : null;
     const { data, error } = await db.from('discounts').insert({ name, type, value, active: true, max_orders_per_customer }).select().single();
-    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    if (error) { showToast(error.code === '23505' ? `${name} already exists — pick a different name` : 'Error: ' + error.message, 'error'); return; }
     allDiscounts.push(data);
     allDiscounts.sort((a,b) => a.name.localeCompare(b.name));
     hideAddDiscountForm();
@@ -43556,6 +43563,8 @@ ${oneCopy}
 
   async function restoreDiscount(id) {
     const rd = archivedDiscounts.find(x => x.id === id);
+    const liveTwin = rd && allDiscounts.find(x => String(x.name || '').toUpperCase() === String(rd.name || '').toUpperCase());
+    if (liveTwin) { showToast(`An active ${liveTwin.name} already exists — archive it first`, 'error'); return; }
     if (rd && _discountSpent(rd) && !confirm(`${rd.name} was already used. One-time codes can't be redeemed twice, so restoring it won't make it work again. Restore anyway?`)) return;
     const { error } = await db.from('discounts').update({ active: true, deleted_at: null }).eq('id', id);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }

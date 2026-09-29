@@ -12,6 +12,13 @@
 - Rollback: `DROP TRIGGER trg_archive_spent_fixed_discount ON discount_redemptions; DROP FUNCTION archive_spent_fixed_discount();`
 - Not covered: a $ code applied to an order through the New Order coupon box (orders.discount_id) is not a redemption and is
   not auto-archived. 0 such uses to date.
+- **322b — duplicate code names** (migration `session_322b_discount_duplicate_names`): 3VFHQ + 76EG3 had hand-typed copies from
+  2026-05-26 (originals redeemed for Sadie Alvarado 20 min later, $200 once; copies never used) → copies archived. WY3QW: 100%
+  typo row (archived) + real $100 row. `redeem_discount_code` lookup now `ORDER BY active-first, newest` (was bare LIMIT 1 — could
+  pick an archived copy). Partial unique index `discounts_one_active_name` = one ACTIVE code per UPPER(name). Admin "+ New
+  Discount" refuses any existing name (active or archived); Restore refuses if an active twin exists. Prior fn def in
+  `_archive._fn_redeem_discount_code_20260929`. Known gap: giftup-webhook `archiveDiscountByCode` uses `.maybeSingle()` by name,
+  which errors on a duplicated name (WY3QW) → a Gift Up refund of that code would not archive it.
 
 ## Session 321 — Sep 28, 2026: Marketing plan, first 30 days (win-back credit, signup texts, welcome email fixes)
 
