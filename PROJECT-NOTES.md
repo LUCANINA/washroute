@@ -1,5 +1,18 @@
 # WashRoute — Project Notes
 
+## Session 322 — Sep 29, 2026: Discounts page — Archived tab + auto-archive used $ codes
+
+- **Admin → Discounts:** Active / Archived are now tabs (with counts) instead of archived rows piling up under the list.
+  Archived sorts newest-archived first; used one-time $ codes are tagged "Used". Restoring a used $ code asks first
+  (it can't be redeemed twice, so restoring it does nothing useful).
+- **DB (migration `session_322_auto_archive_spent_coupons`):** AFTER INSERT trigger `trg_archive_spent_fixed_discount` on
+  `discount_redemptions` → `archive_spent_fixed_discount()` sets `active=false, deleted_at=now()` on the fixed code the moment
+  it is redeemed. % codes untouched. Sweep found 0 (David had archived the 18 used codes by hand on Sep 28). Tested in a
+  rolled-back transaction. Side effect: a second person typing a used code now sees "no longer valid" instead of "already used".
+- Rollback: `DROP TRIGGER trg_archive_spent_fixed_discount ON discount_redemptions; DROP FUNCTION archive_spent_fixed_discount();`
+- Not covered: a $ code applied to an order through the New Order coupon box (orders.discount_id) is not a redemption and is
+  not auto-archived. 0 such uses to date.
+
 ## Session 321 — Sep 28, 2026: Marketing plan, first 30 days (win-back credit, signup texts, welcome email fixes)
 
 Plan: `marketing/GROWTH-MARKETING-PLAN-2026-2029.md` (+ live Claude doc). Goal +30%/yr for 3 yrs; baseline ~$192K/mo, ~660 active

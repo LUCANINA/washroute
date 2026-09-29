@@ -42365,6 +42365,8 @@ ${oneCopy}
     // Refresh the panel: credits balance, dropdown (this code now hidden),
     // and the Transactions tab will pick up the new credit_add row on next load.
     openCustomerPanel(panelCustomerId, 'billing');
+    // Session 322: the database archives a used $ code on redemption; refresh the Discounts list.
+    loadDiscounts().catch(() => {});
   }
 
   // ── TRANSACTIONS TAB ─────────────────────────────────────────────
@@ -42752,6 +42754,9 @@ ${oneCopy}
   // Global discounts cache
   let allDiscounts = [];
   let archivedDiscounts = [];
+  // Session 322: Active / Archived are separate views instead of one long list.
+  let _discView = 'active';
+  function setDiscountView(v) { _discView = v; renderDiscounts(); }
 
   async function loadDiscounts() {
     // Session 141: also fetch redemptions so the list can show
@@ -43420,8 +43425,18 @@ ${oneCopy}
     const el = document.getElementById('discounts-list');
     if (!el) return;
 
+    const showArchived = _discView === 'archived';
+    const tabsHtml = `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 16px 10px">
+        <div class="filter-tabs">
+          <button class="filter-tab${showArchived ? '' : ' active'}" onclick="setDiscountView('active')">Active<span class="tab-count">${allDiscounts.length}</span></button>
+          <button class="filter-tab${showArchived ? ' active' : ''}" onclick="setDiscountView('archived')">Archived<span class="tab-count">${archivedDiscounts.length}</span></button>
+        </div>
+        ${showArchived ? '<div style="font-size:12px;color:var(--gray-400)">Hidden from new orders and the promo box. Used one-time $ codes land here on their own.</div>' : ''}
+      </div>`;
+
     // Header row labelling the discount columns
-    const headerHtml = (allDiscounts.length || archivedDiscounts.length) ? `
+    const headerHtml = (showArchived ? archivedDiscounts.length : allDiscounts.length) ? `
       <div style="display:flex;align-items:center;padding:8px 16px;gap:12px;background:var(--gray-50);border-top:1px solid var(--gray-100)">
         <div style="flex:1;font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-500)">Code</div>
         <div style="width:110px;text-align:right;font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-500)">Created</div>
@@ -43448,15 +43463,17 @@ ${oneCopy}
           <div id="disc-usage-${d.id}" style="display:none;padding:0 16px 12px"></div>`).join('')
       : '<div style="color:var(--gray-400);font-size:13px;padding:16px">No discounts yet. Create one above.</div>';
 
+    const archivedSorted = [...archivedDiscounts].sort((a, b) =>
+      String(b.deleted_at || '').localeCompare(String(a.deleted_at || '')) || a.name.localeCompare(b.name));
     const archivedHtml = archivedDiscounts.length
-      ? `<div style="border-top:1px solid var(--gray-100);margin-top:4px;padding:10px 16px 4px">
-          <div style="font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-400);margin-bottom:4px">Archived</div>
-          ${archivedDiscounts.map(d => `
-            <div style="display:flex;align-items:center;padding:10px 0;border-top:1px solid var(--gray-100);gap:12px;opacity:.65">
+      ? `<div style="padding:0 16px 4px">
+          ${archivedSorted.map(d => `
+            <div style="display:flex;align-items:center;padding:10px 0;border-top:1px solid var(--gray-100);gap:12px;opacity:.75">
               <div style="flex:1;min-width:0">
                 <div style="font-weight:600;font-size:13px;color:var(--gray-700)">${esc(d.name)}</div>
                 <div style="font-size:12px;color:var(--gray-400);margin-top:2px">
                   ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'}
+                  ${_discountSpent(d) ? ' · Used' : ''}
                   ${d.deleted_at ? ' · Archived ' + fmtDate(d.deleted_at) : ''}
                 </div>
               </div>
@@ -43465,9 +43482,9 @@ ${oneCopy}
               <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;width:72px" onclick="restoreDiscount('${d.id}')">Restore</button>
             </div>`).join('')}
         </div>`
-      : '';
+      : '<div style="color:var(--gray-400);font-size:13px;padding:16px">Nothing archived.</div>';
 
-    el.innerHTML = headerHtml + activeHtml + archivedHtml;
+    el.innerHTML = tabsHtml + headerHtml + (showArchived ? archivedHtml : activeHtml);
   }
 
   function showAddDiscountForm() {
@@ -43534,7 +43551,12 @@ ${oneCopy}
     showToast('Discount archived', '');
   }
 
+  // A one-time $ code is spent once it has a redemption (redeem_discount_code allows one).
+  function _discountSpent(d) { return d.type === 'fixed' && (d._redemptions || []).length > 0; }
+
   async function restoreDiscount(id) {
+    const rd = archivedDiscounts.find(x => x.id === id);
+    if (rd && _discountSpent(rd) && !confirm(`${rd.name} was already used. One-time codes can't be redeemed twice, so restoring it won't make it work again. Restore anyway?`)) return;
     const { error } = await db.from('discounts').update({ active: true, deleted_at: null }).eq('id', id);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     const d = archivedDiscounts.find(x => x.id === id);
