@@ -787,16 +787,26 @@
     .fb-link { display: inline-block; margin-top: 10px; background: none; border: none; padding: 0; color: var(--accent); font-weight: 600; font-size: 15px; cursor: pointer; font-family: inherit; }
     .fb-about { font-size: 14px; color: var(--gray-500); margin: -6px 0 12px; }
     .fb-about b { color: var(--navy); background: var(--gray-100); border-radius: 6px; padding: 2px 7px; }
-    .fb-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-    .fb-chip { border: 1.5px solid var(--gray-200); border-radius: 20px; padding: 8px 13px; font-size: 15px; font-weight: 600; color: var(--gray-700); background: white; cursor: pointer; font-family: inherit; touch-action: manipulation; }
+    /* 2026-09-29: topics are one row of five equal tiles (line icon + short label),
+       message + photos share one box — replaces wrapping emoji pills of mixed widths. */
+    .fb-q { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-500); margin: 0 0 8px; }
+    .fb-chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 14px; }
+    .fb-chip { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 11px 0 9px; border: 1.5px solid var(--gray-200); border-radius: 12px; font-size: 12.5px; font-weight: 600; color: var(--gray-600); background: white; cursor: pointer; font-family: inherit; touch-action: manipulation; }
+    .fb-chip svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
     .fb-chip.on { background: var(--navy); border-color: var(--navy); color: white; }
+    .fb-compose { border: 1.5px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+    .fb-compose:focus-within { border-color: var(--navy); }
+    .fb-compose .rate-note { border: none; border-radius: 0; min-height: 110px; resize: none; }
+    .fb-compose .fb-photos { margin: 0; padding: 0 10px 10px; gap: 6px; }
+    .fb-compose .fb-thumb { width: 44px; height: 44px; }
+    .fb-compose .fb-add { height: auto; border: none; border-radius: 8px; padding: 6px 10px; background: var(--gray-100); font-size: 14px; }
     .fb-photos { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
     .fb-thumb { position: relative; width: 56px; height: 56px; border-radius: 8px; overflow: hidden; background: var(--gray-100); }
     .fb-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .fb-thumb button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; border: none; background: rgba(15,23,42,.75); color: white; font-size: 14px; line-height: 20px; padding: 0; cursor: pointer; }
     .fb-add { display: inline-flex; align-items: center; gap: 6px; border: 1.5px dashed var(--gray-300); border-radius: 8px; padding: 0 12px; height: 56px; color: var(--gray-600); font-size: 15px; font-weight: 600; cursor: pointer; background: white; font-family: inherit; }
-    .fb-check { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--gray-700); margin: 4px 0 2px; cursor: pointer; }
-    .fb-check input { width: 18px; height: 18px; accent-color: var(--navy); }
+    .fb-check { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--gray-500); margin: 12px 0 2px; cursor: pointer; }
+    .fb-check input { width: 16px; height: 16px; accent-color: var(--navy); }
     .fb-done { text-align: center; padding: 6px 4px 2px; }
     .fb-done .tick { width: 56px; height: 56px; border-radius: 50%; background: #dcfce7; color: var(--green); font-size: 31px; line-height: 56px; margin: 0 auto 10px; }
     .sheet-x { background: none; border: none; font-size: 27px; line-height: 1; color: var(--gray-400); cursor: pointer; padding: 0 4px; }
@@ -9761,9 +9771,12 @@ async function openServiceAreaPanel() {
    submit_customer_message; the database emails info@familylaundry.com and opens a
    staff issue for Problem / Billing. Photos go to the private feedback-photos
    bucket under <auth uid>/. */
-const FB_TOPICS = [
-  ['idea', '💡 Idea'], ['problem', '⚠️ Problem'], ['delivery', '🚚 Driver/Delivery'],
-  ['billing', '💳 Billing'], ['compliment', '❤️ Compliment'],
+const FB_TOPICS = [   // [key, label, svg path] — keys are stored, labels are display only
+  ['problem', 'Problem', '<path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'],
+  ['delivery', 'Delivery', '<path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>'],
+  ['billing', 'Billing', '<rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/>'],
+  ['idea', 'Idea', '<path d="M9 18h6m-5 4h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/>'],
+  ['compliment', 'Kudos', '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21.2l8.8-8.8a5.5 5.5 0 0 0 0-7.8z"/>'],
 ];
 const FB_MAX_PHOTOS = 3;
 let _fb = { orderId: null, topic: null, photos: [], sending: false };
@@ -9785,11 +9798,14 @@ function openFeedbackSheet(orderId, topic) {
     </div>
     <div id="fb-body">
       ${orderId ? `<div class="fb-about">About order <b>${num ? '#' + escHtml(String(num)) : 'this order'}</b></div>` : ''}
-      <div class="fb-chips" id="fb-chips" role="radiogroup" aria-label="Topic">
-        ${FB_TOPICS.map(([k, l]) => `<button class="fb-chip" role="radio" aria-checked="false" data-k="${k}" onclick="fbSetTopic('${k}')">${l}</button>`).join('')}
+      <div class="fb-q" id="fb-q">What's this about?</div>
+      <div class="fb-chips" id="fb-chips" role="radiogroup" aria-labelledby="fb-q">
+        ${FB_TOPICS.map(([k, l, svg]) => `<button class="fb-chip" role="radio" aria-checked="false" data-k="${k}" onclick="fbSetTopic('${k}')"><svg viewBox="0 0 24 24" aria-hidden="true">${svg}</svg>${l}</button>`).join('')}
       </div>
-      <textarea class="rate-note" id="fb-msg" maxlength="4000" placeholder="Tell us what's on your mind" oninput="fbUpdateSend()"></textarea>
-      <div class="fb-photos" id="fb-photos"></div>
+      <div class="fb-compose">
+        <textarea class="rate-note" id="fb-msg" maxlength="4000" placeholder="Tell us what's on your mind" oninput="fbUpdateSend()"></textarea>
+        <div class="fb-photos" id="fb-photos"></div>
+      </div>
       <input type="file" id="fb-file" accept="image/*" multiple style="display:none" onchange="fbAddPhotos(this)">
       <label class="fb-check"><input type="checkbox" id="fb-contact" checked> OK to contact me about this</label>
       <div class="sheet-err" id="fb-err"></div>
