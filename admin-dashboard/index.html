@@ -57459,10 +57459,10 @@ async function _dvIframeLoaded() {
     if (cached) return cached;
 
     const b = _lndrMonthBounds(ym);
-    // The open month stops at YESTERDAY: today's pounds are in the orders
-    // table all day, but today's hours are not in Square until shifts close.
-    // Counting one without the other inflated the rate (Sep 2026 read 26.8
-    // lbs/hr instead of 25.1).
+    // The open month stops at YESTERDAY: today's pounds are all in the orders
+    // table from the morning, but today's hours only build up as shifts run.
+    // Counting a full day of pounds against part of a day of hours inflated
+    // the rate (Sep 2026 read 26.1 in the morning, 26.8 later; really 25.1).
     const hardTo = isOpen && capDay < b.to ? capDay : b.to;
     if (isOpen && capDay < b.from) return null;    // no complete day yet
 
@@ -57914,9 +57914,10 @@ async function _dvIframeLoaded() {
   // Hours:  Square via fetchSquareLaborHours, matched by square_employee_name.
   // Rate:   a person counts only when they have BOTH pounds and hours that
   //         month — the same rule the old tiles and trend used.
-  // The open month stops at YESTERDAY. Today's pounds are in the orders table
-  // all day, but today's hours are not in Square until shifts close; counting
-  // one without the other made Sep 2026 read 26.8 lbs/hr instead of 25.1.
+  // The open month stops at YESTERDAY. Today's pounds are all in the orders
+  // table from the morning (weighed at pickup), but today's Square hours only
+  // build up as shifts run — so an intraday figure swung from 26.1 (morning)
+  // to 26.8 (afternoon, cached hours) for a month that is really 25.1.
   //
   // Issues: cs_issues raised in the month, charged to the order's folded_by_id
   // (same attribution as the old Issues column). Split orders charge the
@@ -58202,7 +58203,7 @@ async function _dvIframeLoaded() {
           ${noneOpen ? `<div class="lm-scroll">${_lmIssuesHtml(none)}</div>` : ''}` : ''}
         ${noHours.length ? `<div>Pounds but no Square hours matched: ${noHours.map(p => esc(p.name)).join(', ')}. Set their Square name on the Launderers page.</div>` : ''}
         ${d.issuesError ? '<div style="color:var(--red)">Issues could not be loaded — the counts above show 0.</div>' : ''}
-        <div>Grouped by each person’s current Square title. ${ms.open ? 'This month runs to yesterday — today’s hours aren’t in Square until shifts close.' : ''}
+        <div>Grouped by each person’s current Square title. ${ms.open ? 'This month runs to yesterday — today’s pounds land all at once, but today’s hours are still being logged.' : ''}
           <button type="button" class="lm-link" onclick="lmExportCSV()">Export CSV</button></div>
       </div>`;
 

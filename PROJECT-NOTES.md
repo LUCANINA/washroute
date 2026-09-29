@@ -10,8 +10,9 @@
   with vs-last-month, 6-month average, a diverging bar, Most lbs / Fastest trophies per group, and a clickable issue count
   (date, customer, issue, order # → `openOrderPanel`, status; last month's count beside it). Name → person page (6 months vs
   group average, table, that month's issues). CSV export per month. Code: `loadLaundererMonthly` + `_lm*` helpers, CSS `.lm-*`.
-- **Bug fixed:** the open month counted today's pounds but not today's hours (Square has none until shifts close) → Sep read
-  26.8 lbs/hr instead of 25.1. `_lndrLoadMonthBucket` now stops the open month at YESTERDAY; the new view fetches hours to
+- **Bug fixed:** the open month counted ALL of today's pounds (weighed at pickup, there from the morning) against only the part
+  of today's hours logged so far → Sep read 26.1 in the morning and 26.8 in the afternoon (cached hours) instead of 25.1.
+  Checked: shifting pounds one day (delivered Sep 2–29 vs hours Sep 1–28) also gives 25.1. `_lndrLoadMonthBucket` now stops the open month at YESTERDAY; the new view fetches hours to
   yesterday too. On the 1st of a month the report opens on last month.
 - Removed from the screen (David): Today tiles, 12-month chart, monthly table, retail-attendant checkbox, weekly figures,
   per-row mini charts. Old functions (`loadLaundererReport`, `_renderLndrTbody`, trend code) are now unreachable — left in
