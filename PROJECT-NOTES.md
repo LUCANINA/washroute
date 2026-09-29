@@ -1,5 +1,28 @@
 # WashRoute — Project Notes
 
+## Session 323 — Sep 29, 2026: Launderers report rebuilt as a monthly view
+
+- **Admin → Reports → Launderers** is now one month at a time (‹ › stepper; the shared Today/7 days/Custom row is hidden on
+  this report only — `#page-reports.rpt-own-period`, toggled in `setRptTab`). Designed on a canvas first with real Sep numbers.
+  Hero: whole-floor lbs/hr + 6-month dot chart + "worth of +1 lb/hr" (hours saved on a typical month's pounds × `LM_COST_PER_HR`
+  = $22.50, laundry payroll + employer taxes ÷ Square hours, Aug–Sep pay runs — a constant, update when wages change).
+  Rows grouped by current Square title (Tech I / Tech II), split at the group's monthly average (no targets — David's call),
+  with vs-last-month, 6-month average, a diverging bar, Most lbs / Fastest trophies per group, and a clickable issue count
+  (date, customer, issue, order # → `openOrderPanel`, status; last month's count beside it). Name → person page (6 months vs
+  group average, table, that month's issues). CSV export per month. Code: `loadLaundererMonthly` + `_lm*` helpers, CSS `.lm-*`.
+- **Bug fixed:** the open month counted today's pounds but not today's hours (Square has none until shifts close) → Sep read
+  26.8 lbs/hr instead of 25.1. `_lndrLoadMonthBucket` now stops the open month at YESTERDAY; the new view fetches hours to
+  yesterday too. On the 1st of a month the report opens on last month.
+- Removed from the screen (David): Today tiles, 12-month chart, monthly table, retail-attendant checkbox, weekly figures,
+  per-row mini charts. Old functions (`loadLaundererReport`, `_renderLndrTbody`, trend code) are now unreachable — left in
+  place, safe to delete in a later tidy-up.
+- Tested in headless Chromium with the bk-stub client and Apr–Sep figures matching production (floor 25.1, Tech I 30.7,
+  Tech II 15.5, 10 above / 7 below, today's 3,637 lbs excluded); Revenue report still shows its period row. Not tested:
+  a non-admin CS user (customers RLS → customer names come back blank, shown as —).
+- **Open / not fixed:** Delivery KPIs "Avg Pounds Processed / Hour" divides pounds by Square hours over a range that
+  usually ends today → same today-inflation. Issues are charged to `orders.folded_by_id` only (split orders → primary folder).
+  Tech II lbs/hr swings month to month (folding-only measure?) and Martha Cruz (Tech I) sits at 8–14 — both raised with David.
+
 ## Session 322 — Sep 29, 2026: Discounts page — Archived tab + auto-archive used $ codes
 
 - **Admin → Discounts:** Active / Archived are now tabs (with counts) instead of archived rows piling up under the list.
@@ -36,6 +59,13 @@ delivery customers, new ≈ lapsed (~70 vs ~95/mo), ~45% of signups never order.
   (credit_use net of credit_refund since grant). Only rows with `release_at <= now()` are touched; each step claims its row first.
   Pilot 10 released Sep 29 10 AM PT; other 405 held until the pilot checks out:
   `UPDATE winback_grants SET release_at=now() WHERE batch='WB-2026-10-A' AND release_at IS NULL;`
+  **Sep 29 update (session 322):** the 405 are no longer open-ended — David chose batches of 100 and they are staged by
+  `release_at`: **Oct 2 = 100, Oct 5 = 100, Oct 6 = 100, Oct 7 = 105**, each at 16:45 UTC (9:45 AM PT, just before the first
+  `wr-winback-tick` of the day). Nothing is held any more. One date = one batch because `GRANT_CAP` is 100 per run (the Oct 7
+  batch of 105 finishes on that morning's second tick). Oct 1 was deliberately skipped — the referral announcement to 787
+  active customers goes out that morning. Start dates chosen so the pilot's full cycle (credit + email day 0, text day 1) can
+  be read before batch 2. **To pull a batch back:** `UPDATE winback_grants SET release_at=NULL WHERE batch='WB-2026-10-A'
+  AND grant_status='pending' AND release_at='2026-10-0X 16:45:00+00';` — safe for any batch that hasn't been granted yet.
 - **Signup texts (`signup-texts` fn + `marketing_sms_log`):** day 2 and day 7 texts to signups (since Sep 21) with no order, no
   credit, not walk-in, not opted out. CTA is the link `app.familylaundry.com/?promo=LOVELAUNDRY`, NOT "reply PICKUP": only 2 of 36
   recent non-ordering signups had a saved address, and the PICKUP command needs one. 11 eligible for the first run.

@@ -1308,6 +1308,105 @@
                        font-size:13px; color:#1A1C20; background:#fff; outline:none; }
     .rpt-dates input:focus { border-color:#2F5DA8; box-shadow:0 0 0 3px rgba(47,93,168,.12); }
 
+    /* ── Launderers report, monthly view (session 323). Every rule is scoped to
+       .lm-* so nothing here can reach the sibling reports. The Launderers report
+       picks its own month, so the shared Today/7 days/Custom row is hidden while
+       it is open (setRptTab toggles .rpt-own-period on #page-reports). */
+    #page-reports.rpt-own-period .rpt-head-period,
+    #page-reports.rpt-own-period #rpt-dates { display:none !important; }
+    .lm-wrap { padding:18px 20px 24px; display:flex; flex-direction:column; gap:20px; color:#1A1C20; }
+    .lm-bar-top { display:flex; align-items:center; justify-content:flex-end; gap:6px; }
+    .lm-step { width:36px; height:36px; border:1px solid var(--gray-200); background:#fff; border-radius:8px;
+               display:inline-flex; align-items:center; justify-content:center; cursor:pointer; color:#1A1C20; }
+    .lm-step:disabled { opacity:.35; cursor:default; }
+    .lm-month { min-width:210px; text-align:center; font-size:15px; font-weight:600; }
+    .lm-month span { font-weight:400; color:var(--gray-400); }
+    .lm-card { background:#fff; border:1px solid var(--gray-200); border-radius:12px; padding:22px 26px; }
+    .lm-hero { display:grid; grid-template-columns:minmax(200px,240px) minmax(0,1fr) minmax(220px,260px); gap:32px; align-items:center; }
+    .lm-big { font-size:48px; font-weight:700; letter-spacing:-.03em; line-height:1; }
+    .lm-big small { font-size:15px; font-weight:400; color:var(--gray-500); letter-spacing:0; margin-left:6px; }
+    .lm-sub { font-size:14px; color:var(--gray-500); margin-top:6px; }
+    .lm-sub strong { color:#1A1C20; font-weight:500; }
+    .lm-cap { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); }
+    .lm-chart { position:relative; height:132px; margin-top:8px; }
+    .lm-chart svg { position:absolute; left:0; top:0; width:100%; height:100px; overflow:visible; }
+    .lm-chart .lm-gl { position:absolute; left:0; right:28px; border-top:1px dashed var(--gray-200); }
+    .lm-chart .lm-gv { position:absolute; right:0; font-size:11px; color:var(--gray-400); transform:translateY(-50%); }
+    .lm-dot { position:absolute; width:10px; height:10px; border-radius:50%; border:2px solid var(--accent); background:#fff;
+              transform:translate(-50%,-50%); box-sizing:border-box; }
+    .lm-dot.cur { background:var(--accent); }
+    .lm-dv { position:absolute; transform:translate(-50%,-150%); font-size:12.5px; color:var(--gray-600); font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .lm-dv.cur { color:#1A1C20; font-weight:700; }
+    .lm-dm { position:absolute; top:112px; transform:translateX(-50%); font-size:12px; color:var(--gray-400); }
+    .lm-worth { border-left:1px solid var(--gray-100); padding-left:26px; }
+    .lm-worth .lm-money { font-size:28px; font-weight:700; letter-spacing:-.02em; margin-top:6px; }
+    .lm-worth .lm-money small { font-size:14px; font-weight:400; color:var(--gray-500); letter-spacing:0; }
+    .lm-note { font-size:12px; color:var(--gray-400); margin-top:4px; line-height:1.4; }
+    .lm-summary { font-size:14.5px; padding:0 2px; }
+    .lm-summary b.up { color:var(--accent); } .lm-summary b.dn { color:#b45309; }
+    .lm-sec + .lm-sec { margin-top:32px; }
+    .lm-sec-h { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding-bottom:8px; }
+    .lm-sec-h h3 { margin:0; font-size:17px; font-weight:650; }
+    .lm-sec-h span { font-size:13px; color:var(--gray-500); }
+    .lm-sec-h span b { color:#1A1C20; }
+    .lm-scroll { overflow-x:auto; }
+    .lm-grid { display:grid; grid-template-columns:minmax(240px,1.6fr) 64px 64px 72px 200px 56px minmax(110px,.8fr);
+               column-gap:14px; align-items:center; min-width:900px; }
+    .lm-head { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); padding-bottom:6px; }
+    .lm-r { text-align:right; }
+    .lm-row { border-top:1px solid var(--gray-100); }
+    .lm-row > .lm-grid { min-height:54px; }
+    .lm-name { display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; padding:6px 0; }
+    .lm-link { background:none; border:0; padding:0; font:inherit; font-size:15px; font-weight:500; color:#1A1C20; cursor:pointer; text-align:left; }
+    .lm-link:hover { color:var(--accent); }
+    .lm-tag { font-size:11px; font-weight:600; color:var(--gray-500); background:var(--gray-100); border-radius:999px; padding:2px 8px; }
+    .lm-trophy { display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:600; color:#5c4712;
+                 background:#f3efe6; border-radius:999px; padding:2px 8px 2px 6px; white-space:nowrap; }
+    .lm-rate { font-size:21px; font-weight:650; letter-spacing:-.02em; text-align:right; font-variant-numeric:tabular-nums; }
+    .lm-rate.dn { color:#b45309; }
+    .lm-num { font-size:14px; color:var(--gray-600); text-align:right; font-variant-numeric:tabular-nums; }
+    .lm-diff { font-size:14px; font-weight:600; font-variant-numeric:tabular-nums; }
+    .lm-dvg { position:relative; width:200px; height:12px; }
+    .lm-dvg i { position:absolute; left:99px; top:-8px; width:2px; height:28px; background:#1A1C20; }
+    .lm-dvg b { position:absolute; top:0; height:12px; border-radius:3px; }
+    .lm-avgline { display:flex; align-items:center; height:34px; border-top:2px solid #1A1C20; font-size:12px;
+                  font-weight:600; letter-spacing:.04em; }
+    .lm-iss { display:flex; align-items:center; gap:8px; }
+    .lm-iss-btn { min-width:44px; height:32px; padding:0 10px; border:1px solid var(--gray-200); border-radius:8px; background:#fff;
+                  font:inherit; font-size:14px; font-weight:650; color:#1A1C20; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+    .lm-iss-btn[aria-expanded="true"] { background:var(--accent-light); border-color:#bfd3fb; }
+    .lm-iss-zero { min-width:44px; text-align:center; font-size:14px; color:var(--gray-300); }
+    .lm-iss-prev { font-size:12px; color:var(--gray-400); white-space:nowrap; }
+    .lm-issues { margin:0 0 14px; padding:4px 16px; background:var(--gray-50); border:1px solid var(--gray-100); border-radius:10px; min-width:868px; }
+    .lm-issue { display:grid; grid-template-columns:64px minmax(120px,170px) minmax(0,1fr) 76px 76px; column-gap:14px;
+                align-items:center; padding:9px 0; font-size:13.5px; border-bottom:1px solid var(--gray-100); }
+    .lm-issue:last-child { border-bottom:0; }
+    .lm-issue .d { color:var(--gray-500); font-variant-numeric:tabular-nums; }
+    .lm-issue .c { font-weight:600; }
+    .lm-issue .o { background:none; border:0; padding:0; font:inherit; color:var(--accent); cursor:pointer; text-align:left; font-variant-numeric:tabular-nums; }
+    .lm-issue .s { font-size:12px; font-weight:600; color:var(--gray-500); text-transform:capitalize; }
+    .lm-issue .s.open { color:#b45309; }
+    .lm-foot { display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--gray-500); }
+    .lm-foot .lm-link { font-size:13px; color:var(--accent); font-weight:500; }
+    .lm-back { background:none; border:0; padding:0; font:inherit; font-size:14px; color:var(--accent); cursor:pointer; }
+    .lm-pstats { display:flex; gap:40px; flex-wrap:wrap; margin-top:18px; }
+    .lm-pstats div span { display:block; font-size:34px; font-weight:700; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+    .lm-pstats div small { font-size:13px; color:var(--gray-500); }
+    .lm-pbars { display:flex; align-items:flex-end; justify-content:space-around; height:210px; margin-top:28px; padding-bottom:4px;
+                border-bottom:1px solid var(--gray-200); }
+    .lm-pbar { display:flex; flex-direction:column; align-items:center; gap:4px; width:64px; }
+    .lm-pbar .v { font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
+    .lm-pbar .col { position:relative; width:52px; border-radius:6px 6px 2px 2px; }
+    .lm-pbar .tick { position:absolute; left:-8px; right:-8px; height:3px; background:#1A1C20; border-radius:2px; }
+    .lm-pbar .in { position:absolute; top:7px; left:0; right:0; text-align:center; color:#fff; font-size:13px; font-weight:650; font-variant-numeric:tabular-nums; }
+    .lm-pmon { display:flex; justify-content:space-around; margin-top:6px; }
+    .lm-pmon span { width:64px; text-align:center; font-size:12.5px; color:var(--gray-400); }
+    .lm-ptbl { width:100%; border-collapse:collapse; margin-top:22px; font-size:14px; font-variant-numeric:tabular-nums; }
+    .lm-ptbl th { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); font-weight:500; text-align:right; padding:6px 0; }
+    .lm-ptbl th:first-child, .lm-ptbl td:first-child { text-align:left; }
+    .lm-ptbl td { text-align:right; padding:9px 0; border-top:1px solid var(--gray-100); }
+    @media (max-width: 1100px) { .lm-hero { grid-template-columns:1fr; } .lm-worth { border-left:0; padding-left:0; } }
+
     /* The 24h pulse. Until now New Delivery Customers and Recent Orders were two
        full-width cards above ALL fourteen reports, including the ten they have
        nothing to do with. They were moved here off Overview (session 88) to
@@ -3201,59 +3300,21 @@
 
           <!-- ── TAB: LAUNDERER ── -->
           <div id="rpttab-launderer" style="display:none">
-            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
-              <div class="stat-card">
-                <div class="stat-label">Lbs. Processed</div>
-                <div class="stat-value" id="rpt-lndr-lbs">—</div>
+            <!-- Session 323: monthly view. One question — who is keeping pace this
+                 month? Everything below is rendered by loadLaundererMonthly(). -->
+            <div class="lm-wrap">
+              <div class="lm-bar-top">
+                <button type="button" class="lm-step" id="lm-prev" aria-label="Previous month" onclick="lmStepMonth(-1)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <div class="lm-month" id="lm-month-label">—</div>
+                <button type="button" class="lm-step" id="lm-next" aria-label="Next month" onclick="lmStepMonth(1)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
               </div>
-              <div class="stat-card" id="lndr-tile-all" onclick="setLndrCategoryFilter(null)" style="cursor:pointer" title="Click to show all launderers">
-                <div class="stat-label">Avg Lbs./Hr</div>
-                <div style="display:flex;align-items:baseline;gap:8px">
-                  <div class="stat-value" id="rpt-lndr-lbs-per-hr">—</div>
-                  <span id="lndr-tile-delta"></span>
-                </div>
+              <div id="lm-body">
+                <div class="rev-empty">Loading…</div>
               </div>
-              <div class="stat-card" id="lndr-tile-I" onclick="setLndrCategoryFilter('I')" style="cursor:pointer" title="Click to show only Laundry Tech I">
-                <div class="stat-label">Tech I — Lbs./Hr</div>
-                <div class="stat-value" id="rpt-lndr-t1-lbs-per-hr">—</div>
-              </div>
-              <div class="stat-card" id="lndr-tile-II" onclick="setLndrCategoryFilter('II')" style="cursor:pointer" title="Click to show only Laundry Tech II">
-                <div class="stat-label">Tech II — Lbs./Hr</div>
-                <div class="stat-value" id="rpt-lndr-t2-lbs-per-hr">—</div>
-              </div>
-            </div>
-            <!-- ── 12-MONTH TREND ── -->
-            <div style="border-top:1px solid var(--gray-100)">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px 6px;flex-wrap:wrap">
-                <div style="font-size:13px;font-weight:700;color:var(--gray-600)">12-Month Trend</div>
-                <div style="display:flex;align-items:center;gap:12px">
-                  <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--gray-500)"
-                         title="Overlay one launderer's monthly Lbs/Hr on the floor average, to see whether they are pulling ahead or just moving with the floor">
-                    Compare
-                    <select id="lndr-trend-compare" onchange="setLndrTrendCompare(this.value)"
-                            style="font-family:inherit;font-size:12.5px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;background:white;color:var(--gray-700)">
-                      <option value="">Floor average only</option>
-                    </select>
-                  </label>
-                  <button id="lndr-trend-toggle" onclick="toggleLndrTrend()"
-                          style="font-family:inherit;font-size:12.5px;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px">Hide</button>
-                </div>
-              </div>
-              <div id="lndr-trend-panel">
-                <div id="lndr-trend-summary" style="padding:2px 20px 12px"></div>
-                <div style="padding:0 20px 8px;height:240px"><canvas id="lndr-trend-chart"></canvas></div>
-                <div id="lndr-trend-body" class="rev-tbl-wrap" style="padding:0 20px 16px"></div>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:flex-end;gap:16px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray-600);cursor:pointer;user-select:none" title="Drop anyone with a POS PIN (retail attendants) from the table and from every average on this report">
-                <input type="checkbox" id="lndr-exclude-attendants" onchange="toggleLndrExcludeAttendants(this.checked)">
-                Exclude retail attendants
-              </label>
-              <button class="rev-export-btn" id="launderer-export-btn" style="display:none" onclick="exportLaundererCSV()">Export CSV</button>
-            </div>
-            <div id="launderer-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
-              <div class="rev-empty">Select a date range above and the report will load automatically.</div>
             </div>
           </div>
 
@@ -52128,7 +52189,7 @@ ${oneCopy}
     if (rptTab === 'revenue')            loadRevenueReport();
     else if (rptTab === 'items')         loadItemsReport();
     else if (rptTab === 'possales')      loadPosSalesReport();
-    else if (rptTab === 'launderer')     loadLaundererReport();
+    else if (rptTab === 'launderer')     loadLaundererMonthly();
     else if (rptTab === 'drivers')       loadReports();
     else if (rptTab === 'onaccount')     loadOnAccountReport();
     else if (rptTab === 'invoices')      loadInvoicesReport();
@@ -52557,6 +52618,9 @@ ${oneCopy}
         _rptQuickClear(); // 30-day window isn't one of the quick presets
       }
     }
+    // Session 323: the Launderers report picks its own month, so the shared
+    // Today / 7 days / Custom row is hidden while it is open.
+    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer');
     _rptSyncPeriodUI();
     runCurrentReport();
   }
@@ -57386,18 +57450,21 @@ async function _dvIframeLoaded() {
   // every later open — this is what makes the section fast after the first
   // load. The open month is held 10 minutes so today's work still shows up.
   async function _lndrLoadMonthBucket(ym) {
+    // Session 323: the open month stops at YESTERDAY (see hardTo below).
     const todayPT = _lndrTodayPT();
-    const isOpen  = ym >= todayPT.slice(0, 7);
+    const capDay  = addDaysPacific(todayPT, -1);
+    const isOpen  = ym >= capDay.slice(0, 7);
     const key     = `wr-lndrtrend|${ym}`;
     const cached  = _reportCacheGet(key, isOpen ? 10 * 60e3 : 30 * 864e5);
     if (cached) return cached;
 
     const b = _lndrMonthBounds(ym);
-    // The open month stops at TODAY: pounds are counted by delivery window,
-    // which runs into the future, and there are no hours for days nobody has
-    // worked yet. Counting them would inflate the rate, not measure it.
-    const hardTo = isOpen && todayPT < b.to ? todayPT : b.to;
-    if (isOpen && todayPT < b.from) return null;   // month hasn't started
+    // The open month stops at YESTERDAY: today's pounds are in the orders
+    // table all day, but today's hours are not in Square until shifts close.
+    // Counting one without the other inflated the rate (Sep 2026 read 26.8
+    // lbs/hr instead of 25.1).
+    const hardTo = isOpen && capDay < b.to ? capDay : b.to;
+    if (isOpen && capDay < b.from) return null;    // no complete day yet
 
     const padFrom = new Date(b.from  + 'T00:00:00'); padFrom.setDate(padFrom.getDate() - 1);
     const padTo   = new Date(hardTo  + 'T00:00:00'); padTo.setDate(padTo.getDate() + 1);
@@ -57834,6 +57901,452 @@ async function _dvIframeLoaded() {
 
   window.loadLaundererReport = loadLaundererReport;
   window.exportLaundererCSV  = exportLaundererCSV;
+
+  // ── LAUNDERERS — MONTHLY VIEW (session 323) ────────────────────────────────
+  // Replaces the date-range table and the 12-month trend chart. The screen
+  // answers one question: who is keeping pace this month? Each person is
+  // compared with the average of their OWN Square title group (Tech I /
+  // Tech II) for the same month, not with a fixed target and not with the
+  // whole floor (Tech II runs about half Tech I's rate, so a floor average
+  // hides everyone).
+  //
+  // Pounds: _lndrLoadMonthBucket (split-aware, cached per month).
+  // Hours:  Square via fetchSquareLaborHours, matched by square_employee_name.
+  // Rate:   a person counts only when they have BOTH pounds and hours that
+  //         month — the same rule the old tiles and trend used.
+  // The open month stops at YESTERDAY. Today's pounds are in the orders table
+  // all day, but today's hours are not in Square until shifts close; counting
+  // one without the other made Sep 2026 read 26.8 lbs/hr instead of 25.1.
+  //
+  // Issues: cs_issues raised in the month, charged to the order's folded_by_id
+  // (same attribution as the old Issues column). Split orders charge the
+  // primary folder only.
+  //
+  // Labour cost for "worth of +1 lb/hr": laundry payroll wages + employer
+  // taxes ÷ Square laundry hours, Aug–Sep 2026 pay runs. A constant, not a
+  // live figure — update it when wages change.
+  const LM_COST_PER_HR = 22.5;
+  let _lmMonth  = null;   // 'YYYY-MM' on screen
+  let _lmData   = null;   // built by _lmBuild
+  let _lmOpen   = null;   // launderer id (or '__none') whose issue list is open
+  let _lmPerson = null;   // launderer id being viewed in detail
+  let _lmSeq    = 0;      // drops a stale load when the month is stepped quickly
+
+  const _lmNoLabor = () => ({ laundry_hours: {}, laundry_titles: {} });
+  function _lmYesterday() { return addDaysPacific(_lndrTodayPT(), -1); }
+  function _lmShift(ym, n) {
+    const [y, m] = ym.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + n, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+  function _lmMonthName(ym, style) {
+    return new Date(`${ym}-15T12:00:00`).toLocaleDateString('en-US', { month: style || 'long', timeZone: BIZ_TZ });
+  }
+  function _lmShortDate(iso) {
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+  }
+  const _lmF1 = n => (n == null || !isFinite(n)) ? '—' : n.toFixed(1);
+  function _lmSigned(n) {
+    if (n == null || !isFinite(n)) return '—';
+    const r = Math.round(n * 10) / 10;
+    return (r > 0 ? '+' : r < 0 ? '−' : '±') + Math.abs(r).toFixed(1);
+  }
+  const _lmMoney = n => '$' + (Math.round(n / 10) * 10).toLocaleString('en-US');
+
+  function lmStepMonth(n) {
+    if (!_lmMonth) return;
+    const next = _lmShift(_lmMonth, n);
+    if (next > _lmYesterday().slice(0, 7)) return;
+    _lmMonth = next;
+    _lmOpen = null;
+    loadLaundererMonthly();
+  }
+  window.lmStepMonth = lmStepMonth;
+
+  async function _lmLoadIssues(fromYm, toYm) {
+    const { data, error } = await db.from('cs_issues')
+      .select('id, title, category, status, created_at, order_id, orders!inner(order_number, folded_by_id, customers(first_name_cache, last_name_cache))')
+      .not('order_id', 'is', null)
+      .gte('created_at', pacificDayStart(`${fromYm}-01`).toISOString())
+      .lte('created_at', pacificDayEnd(_lndrMonthBounds(toYm).to).toISOString())
+      .order('created_at')
+      .limit(5000);
+    if (error) { console.warn('launderer issues failed', error); return { error: true, rows: [] }; }
+    return { error: false, rows: data || [] };
+  }
+
+  async function loadLaundererMonthly() {
+    const body = document.getElementById('lm-body');
+    if (!body) return;
+    const latest = _lmYesterday().slice(0, 7);
+    if (!_lmMonth || _lmMonth > latest) _lmMonth = latest;
+    const month = _lmMonth;
+    const seq = ++_lmSeq;
+    _lmRenderStepper();
+    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+
+    const months = [];
+    for (let i = 5; i >= 0; i--) months.push(_lmShift(month, -i));
+    const cap = _lmYesterday();
+    const todayPT = _lndrTodayPT();
+
+    let built;
+    try {
+      const [buckets, labor, lres, issues] = await Promise.all([
+        Promise.all(months.map(ym => _lndrLoadMonthBucket(ym).catch(e => { console.warn('launderer month', ym, e); return null; }))),
+        Promise.all(months.map(ym => {
+          const b = _lndrMonthBounds(ym);
+          if (b.from > cap) return Promise.resolve(_lmNoLabor());
+          // A month that ended over 45 days ago is past any payroll edit.
+          const settled = (new Date(todayPT) - new Date(b.to)) > 45 * 864e5;
+          return fetchSquareLaborHours(b.from, b.to < cap ? b.to : cap, settled ? 30 * 864e5 : undefined)
+            .catch(() => _lmNoLabor());
+        })),
+        db.from('launderers').select('id, name, square_employee_name, pin').eq('is_active', true).order('name'),
+        _lmLoadIssues(months[4], month),
+      ]);
+      if (seq !== _lmSeq) return;
+      if (lres.error) throw lres.error;
+      built = _lmBuild(months, buckets, labor, lres.data || [], issues);
+    } catch (e) {
+      if (seq !== _lmSeq) return;
+      body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Could not load the report: ${esc(e.message || String(e))}</div>`;
+      return;
+    }
+    _lmData = built;
+    if (_lmPerson && !built.people.some(p => p.id === _lmPerson)) _lmPerson = null;
+    _lmRender();
+  }
+  window.loadLaundererMonthly = loadLaundererMonthly;
+
+  function _lmBuild(months, buckets, labor, launderers, issues) {
+    const month = months[5], prev = months[4];
+    const openYm = _lmYesterday().slice(0, 7);
+
+    const people = launderers.map(l => {
+      const sq = l.square_employee_name || l.name;
+      const series = months.map((ym, i) => {
+        const lbs = buckets[i]?.per?.[l.id]?.lbs || 0;
+        const h   = labor[i]?.laundry_hours?.[sq];
+        const hrs = (h != null && h > 0) ? h : null;
+        return { lbs, hrs, rate: (hrs && lbs > 0) ? lbs / hrs : null, title: labor[i]?.laundry_titles?.[sq] || null };
+      });
+      // Group by the most recent title Square reports — people change title
+      // (Marcela and Maria del Rocio moved Tech II → Tech I in 2026).
+      let title = null;
+      for (let i = 5; i >= 0 && !title; i--) title = series[i].title;
+      let L = 0, H = 0;
+      series.forEach(s => { if (s.rate != null) { L += s.lbs; H += s.hrs; } });
+      return { id: l.id, name: l.name, isAttendant: !!l.pin, title, cat: _lndrTitleCategory(title || '') || 'other',
+               series, cur: series[5], prv: series[4], avg6: H > 0 ? L / H : null };
+    });
+
+    const monthStats = months.map((ym, i) => {
+      const g = {}; let L = 0, H = 0;
+      people.forEach(p => {
+        const s = p.series[i]; if (s.rate == null) return;
+        L += s.lbs; H += s.hrs;
+        const c = g[p.cat] || (g[p.cat] = { L: 0, H: 0 }); c.L += s.lbs; c.H += s.hrs;
+      });
+      const groups = {}; Object.entries(g).forEach(([k, v]) => { groups[k] = v.H > 0 ? v.L / v.H : null; });
+      const b = buckets[i];
+      return { ym, lbs: L, hrs: H, rate: H > 0 ? L / H : null, groups,
+               // go-live month: orders start mid-month but hours cover all of it
+               partialStart: !!(b && b.firstDay != null && b.firstDay > 3),
+               open: ym >= openYm };
+    });
+
+    const iss = { cur: {}, prev: {}, none: [] };
+    (issues.rows || []).forEach(r => {
+      const ym = new Date(r.created_at).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }).slice(0, 7);
+      const key = ym === month ? 'cur' : ym === prev ? 'prev' : null;
+      if (!key) return;
+      const c = r.orders?.customers;
+      const item = {
+        date: r.created_at, title: r.title || r.category || 'Issue', status: r.status || '',
+        orderId: r.order_id, orderNo: r.orders?.order_number,
+        customer: c ? `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() : '',
+      };
+      const lid = r.orders?.folded_by_id;
+      if (!lid) { if (key === 'cur') iss.none.push(item); return; }
+      (iss[key][lid] = iss[key][lid] || []).push(item);
+    });
+
+    return { months, month, prev, people, monthStats, iss, issuesError: !!issues.error,
+             laborMissing: !Object.keys(labor[5]?.laundry_hours || {}).length };
+  }
+
+  function _lmRenderStepper() {
+    const lab = document.getElementById('lm-month-label');
+    const nx  = document.getElementById('lm-next');
+    if (!_lmMonth || !lab) return;
+    const cap = _lmYesterday();
+    const open = _lmMonth === cap.slice(0, 7);
+    lab.innerHTML = `${esc(_lmMonthName(_lmMonth))} ${_lmMonth.slice(0, 4)}` +
+      (open ? ` <span>· to ${esc(_lmShortDate(pacificDayStart(cap).toISOString()))}</span>` : '');
+    if (nx) nx.disabled = _lmShift(_lmMonth, 1) > cap.slice(0, 7);
+  }
+
+  function _lmRender() {
+    const body = document.getElementById('lm-body');
+    const d = _lmData;
+    if (!body || !d) return;
+    _lmRenderStepper();
+    if (_lmPerson) { body.innerHTML = _lmPersonHtml(_lmPerson); return; }
+
+    const ms = d.monthStats[5], mp = d.monthStats[4];
+    const mName = _lmMonthName(d.month), pName = _lmMonthName(d.prev);
+    const rated = d.people.filter(p => p.cur.rate != null);
+
+    if (!rated.length) {
+      const why = d.laborMissing
+        ? 'No hours came back from Square for this month. Square may be unreachable — try again in a minute.'
+        : 'No folding recorded for this month yet.';
+      body.innerHTML = `<div class="rev-empty">${why}</div>`;
+      return;
+    }
+
+    // ── hero: floor rate, 6-month chart, worth of +1 lb/hr ──
+    const pts = d.monthStats.map((m, i) => ({ i, m, v: (m.rate != null && !m.partialStart) ? m.rate : null }));
+    const vals = pts.filter(p => p.v != null).map(p => p.v);
+    let lo = vals.length ? Math.floor(Math.min(...vals) - 1) : 0, hi = vals.length ? Math.ceil(Math.max(...vals) + 1) : 4;
+    if (hi - lo < 4) { const mid = (hi + lo) / 2; lo = Math.floor(mid - 2); hi = lo + 4; }
+    const X = i => 6 + i * (88 / 5);                       // % across
+    const Y = v => 8 + (1 - (v - lo) / (hi - lo)) * 84;    // px down, 100px plot
+    const line = pts.filter(p => p.v != null).map(p => `${X(p.i)},${Y(p.v).toFixed(1)}`).join(' ');
+    const mid = Math.round((lo + hi) / 2);
+    const chart = !vals.length ? '<div class="lm-note">Not enough complete months to chart.</div>' : `
+      <div class="lm-chart">
+        ${[hi, mid, lo].map(v => `<div class="lm-gl" style="top:${Y(v).toFixed(1)}px"></div><div class="lm-gv" style="top:${Y(v).toFixed(1)}px">${v}</div>`).join('')}
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+        </svg>
+        ${pts.map(p => {
+          const cur = p.i === 5;
+          const lab = `<div class="lm-dm" style="left:${X(p.i)}%">${esc(_lmMonthName(p.m.ym, 'short'))}</div>`;
+          if (p.v == null) return lab;
+          return `<div class="lm-dot${cur ? ' cur' : ''}" style="left:${X(p.i)}%;top:${Y(p.v).toFixed(1)}px"></div>
+                  <div class="lm-dv${cur ? ' cur' : ''}" style="left:${X(p.i)}%;top:${Y(p.v).toFixed(1)}px">${_lmF1(p.v)}</div>${lab}`;
+        }).join('')}
+      </div>`;
+
+    // Worth of +1 lb/hr: the hours saved folding a typical month's pounds one
+    // pound an hour faster. "Typical" = the average of the complete months in
+    // view (the open month and a go-live month would understate it).
+    const full = d.monthStats.filter(m => m.rate != null && !m.open && !m.partialStart);
+    const typLbs = full.length ? full.reduce((a, m) => a + m.lbs, 0) / full.length : ms.lbs;
+    const r = ms.rate;
+    const hrsSaved = typLbs / r - typLbs / (r + 1);
+    const perMonth = hrsSaved * LM_COST_PER_HR;
+
+    const vsPrev = (mp.rate != null) ? `${_lmSigned(ms.rate - mp.rate)} vs ${esc(pName)} (${_lmF1(mp.rate)})` : '';
+    const hero = `
+      <div class="lm-card lm-hero">
+        <div>
+          <div class="lm-big">${_lmF1(ms.rate)}<small>lbs/hr</small></div>
+          <div class="lm-sub"><strong>Whole floor, ${esc(mName)}</strong></div>
+          ${vsPrev ? `<div class="lm-sub">${vsPrev}</div>` : ''}
+          <div class="lm-note">${Math.round(ms.lbs).toLocaleString()} lbs · ${Math.round(ms.hrs).toLocaleString()} hours</div>
+        </div>
+        <div>
+          <div class="lm-cap">Monthly average, whole floor</div>
+          ${chart}
+        </div>
+        <div class="lm-worth" title="Hours saved folding a typical month's pounds (${Math.round(typLbs).toLocaleString()} lbs) at ${_lmF1(r + 1)} instead of ${_lmF1(r)} lbs/hr, times the labour cost per hour.">
+          <div class="lm-cap">Worth of +1 lb/hr</div>
+          <div class="lm-money">${_lmMoney(perMonth)}<small> / month</small></div>
+          <div class="lm-sub" style="margin-top:4px">${_lmMoney(perMonth * 12)} a year · ≈ ${Math.round(hrsSaved)} labour hours a month</div>
+          <div class="lm-note">at $${LM_COST_PER_HR.toFixed(2)}/hr — laundry payroll incl. employer taxes ÷ Square hours</div>
+        </div>
+      </div>`;
+
+    // ── groups ──
+    const groupDefs = [['I', 'Tech I'], ['II', 'Tech II'], ['other', 'Other titles']];
+    let nUp = 0, nDn = 0;
+    const sections = groupDefs.map(([cat, label]) => {
+      const rows = rated.filter(p => p.cat === cat).sort((a, b) => b.cur.rate - a.cur.rate);
+      if (!rows.length) return '';
+      const avg = ms.groups[cat], avgPrev = mp.groups[cat];
+      const mostLbs = rows.reduce((a, p) => (!a || p.cur.lbs > a.cur.lbs) ? p : a, null);
+      const fastest = rows[0];
+      const above = rows.filter(p => p.cur.rate >= avg), below = rows.filter(p => p.cur.rate < avg);
+      nUp += above.length; nDn += below.length;
+      const rowHtml = p => _lmRowHtml(p, avg, { most: p === mostLbs, fast: p === fastest });
+      return `
+        <div class="lm-sec">
+          <div class="lm-sec-h">
+            <h3>${esc(label)}</h3>
+            <span>${rows.length} ${rows.length === 1 ? 'person' : 'people'} · group average <b>${_lmF1(avg)}</b> in ${esc(mName)}${avgPrev != null ? ` (${_lmF1(avgPrev)} in ${esc(pName)})` : ''} · ${above.length} above, ${below.length} below</span>
+          </div>
+          <div class="lm-scroll">
+            <div class="lm-grid lm-head">
+              <div>Name</div><div class="lm-r">${esc(_lmMonthName(d.month, 'short'))}</div><div class="lm-r">vs ${esc(_lmMonthName(d.prev, 'short'))}</div>
+              <div class="lm-r" title="Pounds ÷ hours over the six months shown in the chart">6-mo avg</div>
+              <div style="text-align:center">below · avg · above</div><div>vs avg</div>
+              <div title="Customer issues raised this month on orders this person folded">Issues</div>
+            </div>
+            ${above.map(rowHtml).join('')}
+            <div class="lm-avgline">${esc(label.toUpperCase())} AVERAGE · ${_lmF1(avg)} LBS/HR</div>
+            ${below.map(rowHtml).join('')}
+          </div>
+        </div>`;
+    }).join('');
+
+    // ── footnotes: missing hours, issues with no folder, export ──
+    const noHours = d.people.filter(p => p.cur.lbs > 0 && p.cur.hrs == null);
+    const none = d.iss.none;
+    const noneOpen = _lmOpen === '__none';
+    const foot = `
+      <div class="lm-foot">
+        ${none.length ? `<div><button type="button" class="lm-link" aria-expanded="${noneOpen}" onclick="lmToggleIssues('__none')">${none.length} more issue${none.length === 1 ? '' : 's'}</button> this month ${none.length === 1 ? 'is' : 'are'} on orders with no folder recorded.</div>
+          ${noneOpen ? `<div class="lm-scroll">${_lmIssuesHtml(none)}</div>` : ''}` : ''}
+        ${noHours.length ? `<div>Pounds but no Square hours matched: ${noHours.map(p => esc(p.name)).join(', ')}. Set their Square name on the Launderers page.</div>` : ''}
+        ${d.issuesError ? '<div style="color:var(--red)">Issues could not be loaded — the counts above show 0.</div>' : ''}
+        <div>Grouped by each person’s current Square title. ${ms.open ? 'This month runs to yesterday — today’s hours aren’t in Square until shifts close.' : ''}
+          <button type="button" class="lm-link" onclick="lmExportCSV()">Export CSV</button></div>
+      </div>`;
+
+    body.innerHTML = `
+      ${hero}
+      <div class="lm-summary">Each person is compared with the average of their own group this month.
+        <b class="up">${nUp} above</b> · <b class="dn">${nDn} below</b>.</div>
+      <div class="lm-card">${sections}</div>
+      ${foot}`;
+  }
+
+  const _lmIconFast = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9a6b00" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>';
+  const _lmIconMost = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9a6b00" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/></svg>';
+
+  function _lmRowHtml(p, avg, trophy) {
+    const d = _lmData;
+    const rate = p.cur.rate, diff = rate - avg, low = diff < 0;
+    const HALF = 99, SPAN = 15;
+    const w = Math.max(2, Math.round(Math.min(Math.abs(diff), SPAN) / SPAN * HALF));
+    const bar = `left:${low ? HALF - w : HALF + 2}px;width:${w}px;background:${low ? 'var(--amber)' : 'var(--accent)'}`;
+    const vsPrev = p.prv.rate != null ? _lmSigned(rate - p.prv.rate) : 'new';
+    const cur = d.iss.cur[p.id] || [], prv = d.iss.prev[p.id] || [];
+    const open = _lmOpen === p.id;
+    const idArg = escJS(p.id);
+    const issCell = cur.length
+      ? `<button type="button" class="lm-iss-btn" aria-expanded="${open}" aria-label="Show ${cur.length} issues for ${esc(p.name)}" onclick="lmToggleIssues('${idArg}')">${cur.length}
+           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="${open ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"/></svg></button>`
+      : '<span class="lm-iss-zero">0</span>';
+    return `
+      <div class="lm-row">
+        <div class="lm-grid">
+          <div class="lm-name">
+            <button type="button" class="lm-link" onclick="lmOpenPerson('${idArg}')">${esc(p.name)}</button>
+            ${p.isAttendant ? '<span class="lm-tag" title="Also works the POS register — some hours are counter time">Retail</span>' : ''}
+            ${trophy.most ? `<span class="lm-trophy" title="Most pounds in this group this month">${_lmIconMost}Most lbs</span>` : ''}
+            ${trophy.fast ? `<span class="lm-trophy" title="Highest lbs/hr in this group this month">${_lmIconFast}Fastest</span>` : ''}
+          </div>
+          <div class="lm-rate${low ? ' dn' : ''}">${_lmF1(rate)}</div>
+          <div class="lm-num">${vsPrev}</div>
+          <div class="lm-num">${_lmF1(p.avg6)}</div>
+          <div class="lm-dvg"><b style="${bar}"></b><i></i></div>
+          <div class="lm-diff">${_lmSigned(diff)}</div>
+          <div class="lm-iss">${issCell}<span class="lm-iss-prev">${esc(_lmMonthName(d.prev, 'short'))} ${prv.length}</span></div>
+        </div>
+        ${open ? _lmIssuesHtml(cur) : ''}
+      </div>`;
+  }
+
+  function _lmIssuesHtml(list) {
+    return `<div class="lm-issues">${list.map(i => `
+      <div class="lm-issue">
+        <span class="d">${esc(_lmShortDate(i.date))}</span>
+        <span class="c">${esc(i.customer || '—')}</span>
+        <span>${esc(i.title)}</span>
+        ${i.orderNo != null
+          ? `<button type="button" class="o" onclick="openOrderPanel('${escJS(i.orderId)}')">#${esc(String(i.orderNo))}</button>`
+          : '<span>—</span>'}
+        <span class="s${String(i.status).toLowerCase() === 'resolved' ? '' : ' open'}">${esc(i.status || '—')}</span>
+      </div>`).join('')}</div>`;
+  }
+
+  function lmToggleIssues(id) {
+    _lmOpen = _lmOpen === id ? null : id;
+    _lmRender();
+  }
+  window.lmToggleIssues = lmToggleIssues;
+
+  function lmOpenPerson(id) {
+    _lmPerson = id; _lmRender();
+    document.getElementById('rpttab-launderer')?.scrollIntoView({ block: 'start' });
+  }
+  function lmClosePerson() { _lmPerson = null; _lmRender(); }
+  window.lmOpenPerson = lmOpenPerson;
+  window.lmClosePerson = lmClosePerson;
+
+  function _lmPersonHtml(id) {
+    const d = _lmData;
+    const p = d.people.find(x => x.id === id);
+    if (!p) return '';
+    const label = p.cat === 'I' ? 'Tech I' : p.cat === 'II' ? 'Tech II' : (p.title || 'No title');
+    const gAvg = i => d.monthStats[i].groups[p.cat] ?? null;
+    const maxV = Math.max(10, ...p.series.map(s => s.rate || 0), ...d.months.map((_, i) => gAvg(i) || 0));
+    const H = 170;
+    const bars = p.series.map((s, i) => {
+      const ga = gAvg(i);
+      const low = s.rate != null && ga != null && s.rate < ga;
+      const h = s.rate != null ? Math.max(2, Math.round(s.rate / maxV * H)) : 0;
+      const tick = ga != null ? `<div class="tick" style="bottom:${Math.round(ga / maxV * H) - 1}px"></div>` : '';
+      // The value sits INSIDE the bar so the group-average line can never
+      // strike through it; a bar too short to hold it carries it above.
+      const inside = h >= 28;
+      const val = `<span class="${inside ? 'in' : 'v'}">${s.rate != null ? _lmF1(s.rate) : '—'}</span>`;
+      return `<div class="lm-pbar">${inside ? '' : val}
+        <div class="col" style="height:${h}px;background:${low ? 'var(--amber)' : 'var(--accent)'}">${inside ? val : ''}${tick}</div></div>`;
+    }).join('');
+    const rows = p.series.map((s, i) => `
+      <tr><td>${esc(_lmMonthName(d.months[i]))}${d.monthStats[i].open ? ' (to date)' : ''}</td>
+        <td>${s.lbs ? Math.round(s.lbs).toLocaleString() : '—'}</td><td>${s.hrs != null ? s.hrs.toFixed(0) : '—'}</td>
+        <td style="font-weight:600">${_lmF1(s.rate)}</td><td style="color:var(--gray-500)">${_lmF1(gAvg(i))}</td></tr>`).join('');
+    const cur = d.iss.cur[p.id] || [];
+    const ga = gAvg(5);
+    const low = p.cur.rate != null && ga != null && p.cur.rate < ga;
+    return `
+      <div class="lm-card">
+        <button type="button" class="lm-back" onclick="lmClosePerson()">← All launderers</button>
+        <h2 style="margin:14px 0 4px;font-size:26px;font-weight:650;letter-spacing:-.02em">${esc(p.name)}</h2>
+        <div class="lm-sub" style="margin:0">${esc(label)}${p.isAttendant ? ' · also works the register' : ''} · dark line = ${esc(label)} average that month</div>
+        <div class="lm-pstats">
+          <div><span style="color:${low ? '#b45309' : '#1A1C20'}">${_lmF1(p.cur.rate)}</span><small>${esc(_lmMonthName(d.month))}</small></div>
+          <div><span style="color:var(--gray-600)">${_lmF1(ga)}</span><small>${esc(label)} average, ${esc(_lmMonthName(d.month))}</small></div>
+          <div><span style="color:var(--gray-600)">${_lmF1(p.avg6)}</span><small>Six-month average</small></div>
+        </div>
+        <div class="lm-pbars">${bars}</div>
+        <div class="lm-pmon">${d.months.map(m => `<span>${esc(_lmMonthName(m, 'short'))}</span>`).join('')}</div>
+        <table class="lm-ptbl">
+          <thead><tr><th>Month</th><th>Pounds</th><th>Hours</th><th>Lbs/hr</th><th>${esc(label)} avg</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <h3 style="margin:28px 0 8px;font-size:16px;font-weight:650">Issues in ${esc(_lmMonthName(d.month))} (${cur.length})</h3>
+        ${cur.length ? `<div class="lm-scroll">${_lmIssuesHtml(cur)}</div>` : '<div class="lm-note">None.</div>'}
+      </div>`;
+  }
+
+  function lmExportCSV() {
+    const d = _lmData;
+    if (!d) return;
+    const ms = d.monthStats[5];
+    const q = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [['Name', 'Title', 'Group', 'Pounds', 'Hours', 'Lbs/hr', `Lbs/hr ${d.prev}`, '6-mo avg', 'Group avg', 'vs group avg', 'Issues', `Issues ${d.prev}`].join(',')];
+    d.people.filter(p => p.cur.rate != null).sort((a, b) => a.cat.localeCompare(b.cat) || b.cur.rate - a.cur.rate).forEach(p => {
+      const ga = ms.groups[p.cat];
+      lines.push([p.name, p.title, p.cat, Math.round(p.cur.lbs), p.cur.hrs.toFixed(2), p.cur.rate.toFixed(2),
+        p.prv.rate != null ? p.prv.rate.toFixed(2) : '', p.avg6 != null ? p.avg6.toFixed(2) : '',
+        ga != null ? ga.toFixed(2) : '', ga != null ? (p.cur.rate - ga).toFixed(2) : '',
+        (d.iss.cur[p.id] || []).length, (d.iss.prev[p.id] || []).length].map(q).join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `launderers-${d.month}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  window.lmExportCSV = lmExportCSV;
 
   async function sendLaunchAnnouncementAll() {
     // Fetch all customers with email or phone
