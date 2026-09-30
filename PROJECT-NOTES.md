@@ -1,5 +1,56 @@
 # WashRoute — Project Notes
 
+## Session 324 — Sep 30, 2026: Win-back pilot results, the Starchup history trap, SMS STOP now recorded
+
+- **Pilot (WB-2026-10-A, Sep 29, 10 customers) — 3 booked, 30%.** All three replied PICKUP to the day-1 text;
+  none used the app or the email link. Orders #16380/#16381/#16383. They had lapsed 71, 142 and 167 days and had
+  1–2 prior orders each. The highest-value lapsed customers did NOT book (one $892 lifetime / $297 avg, one with
+  10 prior orders). 3 people is far too small to act on, but the early read is that $20 wins back one-time triers
+  rather than former regulars — re-test once Oct 2's 99 have had a few days. Ledger matched 10/10, cron 8/8 clean.
+- **🔴 THE BIG ONE — order history predates the app, and segmenting on `orders` alone is wrong.** The app's FIRST
+  order is **2026-03-22**. Everything before the Starchup migration lives ONLY in `customers.lifetime_value`,
+  `total_orders`, `last_order_at` — it is not in `orders`, and never was. A first pass at target lists treated
+  "no rows in `orders`" as "never ordered" and produced 4,250 supposed strangers who are in fact former customers
+  holding $3.6M of lifetime value between them (largest single: $34,585). The draft email would have told a
+  customer with 17 past orders and $1,284 spent that they had "never got round to a first order". **Always segment
+  on the LATER of (a) max delivered `orders.created_at` and (b) `customers.last_order_at`.** Only 442 people in the
+  whole database have genuinely never ordered, and almost none have an address — there is no cold-prospect list here.
+- **68 customers have `last_order_at` >= Mar 1 but no rows in `orders`.** 46 are pre-launch (before Mar 22) — nothing
+  missing, just the cutover gap. 4 are test/staff accounts (`dmacquart+wrsignup1@gmail.com`, `luis@familylaundry.com`,
+  `john@familylaundry.com`, `matt+FamilyrefTest@starchup.com`). That leaves **18 real customers with post-launch orders
+  that vanished**, $12,741 of lifetime value — largest Jacob Lagerros ($4,705, last order May 28) and Corrina Collins
+  ($3,868, Mar 23). Worth checking those two orders individually. Not a systemic migration loss.
+- **SMS STOP now reaches our own record (migrations `session_324` + `session_324b`, applied by hand in the SQL editor).**
+  `send-sms` records whatever Twilio says at handoff ('queued'); the terminal status arrives later at
+  `twilio-status-callback` -> `record_sms_delivery_status`, which updated `sms_messages` and nothing else. So Twilio
+  error **21610** (recipient texted STOP) never set `customers.sms_marketing_opt_out_at`, we kept texting them, and
+  `winback_grants.sms_status` still read 'sent'. The RPC now stamps the opt-out on 21610 and returns an `opted_out`
+  count. Backfilled 7; all 11 known 21610 customers are now marked. **2 were still pending in WB-2026-10-A** and are
+  now correctly skipped. Deliberately does NOT set `sms_notifications_opt_out_at` — that would suppress pickup
+  confirmations for good even after the customer texts START. Caveat: the rollback snapshot step did not run, so
+  `_archive_rpc_defs` has no copy of the previous body.
+- **⚠️ A "day-0 bug" I reported did not exist.** I claimed `winback` granted credit without checking whether the
+  customer had already returned, and had David park 5 pending grants (ids 9, 116, 184, 316, 338, `release_at` NULL).
+  The function already has three guards — `already has credit`, `already has an order booked`, `ordered since
+  enrollment` — so all five would have been skipped with a note. No harm done, but they now sit as `pending` with no
+  release date instead of `skipped`. Restoring their original `release_at` (Oct 2 / Oct 5 / Oct 7 16:45 UTC) lets the
+  function record them properly. **Read the function source before calling something a bug.**
+- **Target lists rebuilt** on the combined-date rule, excluding the 415 already in the batch, anyone with no address or
+  outside the 6 mapped `service_zones`, and the 4 test accounts: S1 lapsed 60–190d = 102, S2 slipping 30–59d = 133,
+  S3 cold 191–365d = 283, S4 over a year = 3,149. 3,667 people, $3.4M of lifetime value. Everyone on them is a FORMER
+  customer — the message is "we'd like you back", never "try us for the first time".
+- **Four scheduled tasks prep the phases** (Oct 8 / 13 / 20 / 27, 8:47am PT), all READ-ONLY: they re-run their segment,
+  report what the earlier phases actually earned, check the blockers and hand David the SQL. Each gates on the one
+  before; phase 4 is told to recommend dropping itself outright if phase 3 loses money. The $25-vs-$20 test moved from
+  the 874-person list to phase 4's 3,149 — at ~437/arm it could only have caught a doubling; at ~1,575/arm it can
+  detect a realistic gap. Judge on net cash per person emailed, not booking rate.
+- **Sending headroom:** ~480 texts and ~60 emails a day today. Phase 4's 2,958 emails must ramp (150/day → 300 → 500 →
+  800, stop if bounces exceed 5%), highest lifetime value first. Do NOT bulk-text the over-a-year group whatever the
+  consent flags say — stale numbers mean wrong-number complaints, and carrier filtering would break pickup
+  confirmations for paying customers.
+- **Baselines for comparison** (whole business, 60 days to Sep 30): 4.9% skipped, 1.5% cancelled, 2.1% pickup_failed,
+  $78.05 average delivered order. Database: 6,253 customers, 1,464 ever delivered.
+
 ## Session 323 — Sep 29, 2026: Launderers report rebuilt as a monthly view
 
 - **Admin → Reports → Launderers** is now one month at a time (‹ › stepper; the shared Today/7 days/Custom row is hidden on

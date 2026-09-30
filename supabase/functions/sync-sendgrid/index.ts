@@ -1,5 +1,5 @@
 // sync-sendgrid — keeps SendGrid Marketing Campaigns in step with WashRoute.
-// Session 315 (2026-09-23). Replaces sync-klaviyo once Klaviyo is cancelled.
+// Session 315 (2026-09-23). Klaviyo was cancelled Sep 29 2026; this is the only marketing-list sync.
 //
 // WHAT IT DOES (fullsync, nightly):
 //   1. PULL opt-outs FROM SendGrid → WashRoute. Anyone in the "Marketing emails"
@@ -211,7 +211,7 @@ async function buildPlan() {
   }
 }
 
-// ── Internal-caller auth (same mechanism as sync-klaviyo, session 228) ─────
+// ── Internal-caller auth (shared-secret mechanism, session 228) ───────────
 async function isInternalCall(req: Request): Promise<boolean> {
   const provided = req.headers.get('x-wr-internal') || ''
   if (!provided) return false

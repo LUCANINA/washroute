@@ -96,6 +96,12 @@ fixes the problem, and prefer one shared helper over N parallel edits.
 - **Don't "correct" billing data you can't explain.** Find who changed it and why first (usage log,
   `order_events`, `customer_transactions`, SMS, edge logs). Session 309 reversed a staff goodwill adjustment
   on Liz Morris's account by assuming it was a bug.
+- **Customer order history predates the `orders` table.** The app's first order is **2026-03-22**; everything before
+  the Starchup migration lives ONLY in `customers.lifetime_value`, `total_orders` and `last_order_at`. "No rows in
+  `orders`" does NOT mean "never ordered" — it usually means a former customer. Any segmentation, churn or win-back
+  query must use the LATER of (a) their newest delivered `orders` row and (b) `customers.last_order_at`. Session 324
+  built a 4,250-person "never ordered" list that was really former customers holding $3.6M of lifetime value, and
+  drafted an email telling a 17-order customer they'd never got round to a first order.
 - **Never ask only happy customers for public reviews** (Google/FTC "review gating"). The Google link is shown
   to every rater; never ask for Yelp reviews; never reward reviews.
 - **CANCEL, STOP, END, QUIT, UNSUBSCRIBE are carrier opt-out words** — Twilio unsubscribes the texter before our

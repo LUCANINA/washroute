@@ -1,4 +1,4 @@
-// welcome-emails — WashRoute's own welcome series (replaces Klaviyo's "Email Welcome Series").
+// welcome-emails — WashRoute's own welcome series.
 // Session 315 (2026-09-23).
 //
 //   Email 1  "Welcome to Family Laundry"   — to a new customer who agreed to marketing email,

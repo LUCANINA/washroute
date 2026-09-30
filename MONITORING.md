@@ -26,12 +26,22 @@ ORDER BY created_at DESC LIMIT 20;
 
 ### 1. `wr-health-monitor` — order-rate anomaly detector
 
-**What it does:** every 15 minutes, counts customer-app orders from the last 60min and compares to the same 60min window 24h prior. Alerts on suspicious drops.
+**What it does:** every 15 minutes, counts customer-app orders from the last **3 hours** and compares to the **average of that same 3-hour window over the previous 7 days**. Alerts on suspicious drops.
 
-**When it fires:**
-- Business hours (8am–9pm PT) + 0 orders + baseline ≥ 3 → **critical** SMS
-- Business hours + ≥80% drop + baseline ≥ 5 → **critical** SMS
-- Off-hours + 0 orders + baseline ≥ 10 → **warn** SMS
+**When it fires** (`baseline` = the 7-day average for this time of day):
+- Business hours (8am–9pm PT) + 0 orders + baseline ≥ 6 → **critical** SMS
+- Business hours + ≥80% drop + baseline ≥ 6 → **critical** SMS
+- Off-hours + 0 orders + baseline ≥ 6 → **warn** SMS
+
+> **Why 3 hours and a 7-day average (session 322):** the original rule used a
+> 1-hour window against the *same hour yesterday* — one noisy sample against
+> another. Customer-app orders average ~1.7/hour, so a perfectly normal business
+> hour is empty 20% of the time, and yesterday's matching hour clears `≥ 3`
+> often enough that the "0 orders" critical fired **4 times in 24 hours** on
+> healthy traffic. Backtested over 14 days of real orders, the current
+> thresholds produce **0 false alarms** while still catching a real outage
+> within ~3 hours. If you change a threshold, re-run that backtest first —
+> a monitor nobody trusts is worse than no monitor.
 
 **Dedup:** won't re-alert the same `alert_type` within 60 minutes. Also writes a "heartbeat" row every 6 hours when everything's healthy so you can see the monitor is alive.
 
@@ -191,6 +201,7 @@ Or pull the Twilio plug entirely by clearing the env var in Supabase Dashboard �
 | 2026-06-04 | Initial v1: `wr-health-monitor` + `wr-nightly-smoke-test` + `daily_audit.sql` (Session 167 Phase 8 PM) |
 | 2026-06-05 | A5 (Session 168): added Stripe→DB seam check `audit_subscriptions_missing_invoice()` to nightly-smoke-test (v4) + daily_audit Check 9. Catches webhook signing-secret drift. |
 | 2026-06-05 | Session 168: added cancel→revert check `audit_subscription_pricelist_orphans()` to nightly-smoke-test (v5) + daily_audit Check 10 + invariants INV6/INV7. Catches a customer stuck on $0 Subscription pricing with no active sub. ⚠️ Paired prevention (`stripe-webhook` previous_pricelist guard) is committed in source but NOT yet deployed — deploy `stripe-webhook` via a clean method before relying on prevention; monitor catches it meanwhile. |
+| 2026-09-29 | Session 322: `wr-health-monitor` order-rate rule rewritten — 3-hour window vs a 7-day same-window average, all thresholds at baseline ≥ 6. The old 1-hour-vs-yesterday rule was firing ~4 false criticals a day. Backtested: 0 false alarms over 14 days. Klaviyo cancelled; `sync-klaviyo` + `klaviyo-subscribe` retired. |
 
 Add a row every time you ship a new check, change a threshold, or retire an alert.
 

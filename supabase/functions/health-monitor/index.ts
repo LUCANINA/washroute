@@ -3,10 +3,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 // Session 167 — production health monitor.
 //
-// Triggered by pg_cron every 15 minutes. Compares current order-rate to the
-// baseline (same window 24h prior). Sends SMS to ALERT_PHONE if it detects:
-//   (a) Zero customer-app orders in the last 60 min AND baseline >= 3
-//   (b) >= 80% drop from baseline AND baseline >= 5
+// Triggered by pg_cron every 15 minutes. Compares the customer-app order rate
+// over the last 3 hours against the average of that same 3-hour window over
+// the previous 7 days (see session 322 note below for why). Sends SMS to
+// ALERT_PHONE if it detects:
+//   (a) Zero customer-app orders in the window AND baseline >= 6
+//   (b) >= 80% drop from baseline AND baseline >= 6
 //
 // Business hours only (Pacific 8am - 9pm). Outside that window: silent unless
 // SEVERE drop (which catches the 'overnight outage that should have orders').
@@ -113,43 +115,60 @@ Deno.serve(async (req) => {
     const hourPT = pacificHour(now)
     const inBusinessHours = hourPT >= 8 && hourPT < 21
 
-    const sixtyMinAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString()
-    const dayAgo60 = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
-    const dayAgo60Plus = new Date(now.getTime() - 23 * 60 * 60 * 1000).toISOString()
+    // Session 322: the alert used a ONE-hour window compared against the SAME
+    // hour yesterday — a single noisy sample against another single noisy
+    // sample. Customer-app orders average ~1.7/hour, so a normal business hour
+    // is empty 20% of the time, and yesterday's matching hour clears the old
+    // `baseline >= 3` bar often enough that the "0 orders" critical fired ~4x a
+    // day on healthy traffic. Now: a THREE-hour window compared against the
+    // average of the same three-hour window over the previous 7 days.
+    // Backtested over 14 days of real orders: 0 false alarms at these
+    // thresholds (the old rule fired 4 times in the last 24 hours alone).
+    const WINDOW_HOURS = 3
+    const BASELINE_DAYS = 7
+    const MIN_BASELINE = 6           // only alert when this slot is normally busy
+    const windowMs = WINDOW_HOURS * 60 * 60 * 1000
 
-    const { count: currentCount } = await db.from('orders')
-      .select('id', { count: 'exact', head: true })
-      .eq('source', 'customer_app')
-      .gte('created_at', sixtyMinAgo)
+    async function countOrders(fromMs: number, toMs: number): Promise<number> {
+      const { count } = await db.from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('source', 'customer_app')
+        .gte('created_at', new Date(fromMs).toISOString())
+        .lt('created_at', new Date(toMs).toISOString())
+      return count ?? 0
+    }
 
-    const { count: baselineCount } = await db.from('orders')
-      .select('id', { count: 'exact', head: true })
-      .eq('source', 'customer_app')
-      .gte('created_at', dayAgo60)
-      .lt('created_at', dayAgo60Plus)
+    const nowMs = now.getTime()
+    const current = await countOrders(nowMs - windowMs, nowMs)
 
-    const current = currentCount ?? 0
-    const baseline = baselineCount ?? 0
+    // Same clock window on each of the previous 7 days, averaged.
+    let baselineTotal = 0
+    for (let d = 1; d <= BASELINE_DAYS; d++) {
+      const end = nowMs - d * 24 * 60 * 60 * 1000
+      baselineTotal += await countOrders(end - windowMs, end)
+    }
+    const baselineAvg = baselineTotal / BASELINE_DAYS
+    const baseline = Math.round(baselineAvg * 10) / 10
 
     let alertType: string | null = null
     let severity: 'info' | 'warn' | 'critical' = 'info'
     let alertMessage = ''
 
     if (inBusinessHours) {
-      if (current === 0 && baseline >= 3) {
+      if (current === 0 && baselineAvg >= MIN_BASELINE) {
         alertType = 'orders_zero_in_business_hours'
         severity = 'critical'
-        alertMessage = `⚠️ WashRoute alert: 0 customer-app orders in the last hour (normally ${baseline}). Check the app + Postgres logs.`
-      } else if (baseline >= 5 && current <= Math.floor(baseline * 0.2)) {
+        alertMessage = `⚠️ WashRoute alert: 0 customer-app orders in the last ${WINDOW_HOURS} hours (normally ${baseline} at this time of day). Check the app + Postgres logs.`
+      } else if (baselineAvg >= MIN_BASELINE && current <= Math.floor(baselineAvg * 0.2)) {
         alertType = 'orders_drop_severe'
         severity = 'critical'
-        alertMessage = `⚠️ WashRoute alert: order rate dropped ≥80% in the last hour (${current} vs ${baseline} baseline). Check the app.`
+        alertMessage = `⚠️ WashRoute alert: customer-app orders dropped ≥80% over the last ${WINDOW_HOURS} hours (${current} vs ${baseline} normal). Check the app.`
       }
     } else {
-      if (current === 0 && baseline >= 10) {
+      if (current === 0 && baselineAvg >= MIN_BASELINE) {
         alertType = 'orders_zero_overnight_high_baseline'
         severity = 'warn'
-        alertMessage = `WashRoute notice: 0 customer-app orders in the last hour (baseline ${baseline}). Off-hours, but unusual.`
+        alertMessage = `WashRoute notice: 0 customer-app orders in the last ${WINDOW_HOURS} hours (normally ${baseline}). Off-hours, but unusual.`
       }
     }
 
@@ -166,7 +185,7 @@ Deno.serve(async (req) => {
           alert_type: 'heartbeat',
           severity: 'info',
           message: `Healthy. Current: ${current}, baseline: ${baseline}.`,
-          context: { current, baseline, hourPT, inBusinessHours },
+          context: { current, baseline, windowHours: WINDOW_HOURS, hourPT, inBusinessHours },
         })
       }
       return new Response(JSON.stringify({ ok: true, status: 'healthy', current, baseline, hourPT }), { headers: { ...cors, 'Content-Type': 'application/json' } })
