@@ -1,5 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
+import {
+  classifySkip, classifyPickup, isRescheduleRequest, resolvePickupDate,
+  ptDateKey, ptDateFmt, wrDow,
+  type SkipWhen, type PickupDay,
+} from '../_shared/sms-intent.ts';
+
 const SUPABASE_URL        = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SVC_KEY    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const TWILIO_ACCOUNT_SID  = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
@@ -59,41 +65,6 @@ function fmtDatePT(iso: string): string {
   });
 }
 
-// ── Skip-request classifier (2026-09-21) ──
-// "Skip pick up today thanks" used to fall through to the staff inbox because
-// only a handful of exact phrasings counted. Now: the text must contain SKIP
-// and EVERY other word must come from a small filler list. Any
-// other word — a name, "don't", "not", "next", "and", a question about
-// something else — means a human reads it. Returns null when it isn't a skip.
-// `when` is the day the customer named, checked against the order in handleSkip.
-export type SkipWhen = 'today' | 'tomorrow' | 'week' | null;
-const SKIP_FILLER = new Set([
-  'PLEASE','PLS','PLZ','CAN','COULD','WOULD','YOU','WE','I','HI','HELLO','HEY','OK','OKAY',
-  'PICK','UP','PICKUP','PICKUPS','MY','THE','OUR','ORDER','LAUNDRY','ME','US','IT','FOR',
-  'NEED','WANT','TO','JUST','TIME','SORRY',
-  'TODAY','TODAYS','TONIGHT','TONITE','TOMORROW','TOMORROWS','TMRW','THIS','WEEK','WEEKS',
-  'THANKS','THANK','THX','TY','TNX',
-]);
-export function classifySkip(body: string): { when: SkipWhen } | null {
-  const words = (body || '').toUpperCase().replace(/[^A-Z]+/g, ' ').trim().split(' ').filter(Boolean);
-  if (!words.includes('SKIP')) return null;
-  if (!words.every(w => w === 'SKIP' || SKIP_FILLER.has(w))) return null;
-  const has = (...ws: string[]) => ws.some(w => words.includes(w));
-  const namesToday = has('TODAY', 'TODAYS', 'TONIGHT', 'TONITE');
-  const namesTomorrow = has('TOMORROW', 'TOMORROWS', 'TMRW');
-  if (namesToday && namesTomorrow) return null;           // contradictory — let a human decide
-  if (namesToday) return { when: 'today' };
-  if (namesTomorrow) return { when: 'tomorrow' };
-  if (has('WEEK', 'WEEKS')) return { when: 'week' };
-  return { when: null };
-}
-
-// YYYY-MM-DD in Pacific time, `addDays` from now (or from `iso` when given).
-function ptDateKey(iso?: string, addDays = 0): string {
-  const d = iso ? new Date(iso) : new Date(Date.now() + addDays * 86400000);
-  return d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-}
-
 function interpolate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '').trim();
 }
@@ -111,34 +82,6 @@ function getPtOffsetHours(y?: number, mo?: number, d?: number): number {
     }).format(noon)
   );
   return 12 - ptNoonHour;
-}
-
-const ptDateFmt = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
-});
-
-// WashRoute's route_templates.schedule_days uses the convention 0=Mon … 6=Sun.
-// JavaScript's Date.getDay() uses 0=Sun … 6=Sat, so it must be converted with
-// (getDay() + 6) % 7 before comparing against schedule_days — the same
-// conversion used throughout the customer app and admin dashboard. Without it,
-// Sunday (getDay()=0) falsely matches schedule_days value 0 (which means Monday),
-// so the SMS reorder would book closed Sundays and never book Saturdays.
-function wrDow(y: number, m: number, d: number): number {
-  return (new Date(y, m - 1, d).getDay() + 6) % 7;
-}
-
-function getNextPickupDayPT(
-  schedDays: number[],
-  holidays?: Set<string>
-): { dateStr: string; year: number; month: number; day: number } | null {
-  for (let ahead = 1; ahead <= 14; ahead++) {
-    const utcMs   = Date.now() + ahead * 86_400_000;
-    const dateStr = ptDateFmt.format(new Date(utcMs));
-    const [y,m,d] = dateStr.split('-').map(Number);
-    const dow     = wrDow(y, m, d);
-    if (schedDays.includes(dow) && !(holidays && holidays.has(dateStr))) return { dateStr, year: y, month: m, day: d };
-  }
-  return null;
 }
 
 // Resolve the first delivery date on or after (pickup + turnaround_days) that
@@ -383,7 +326,8 @@ async function handleSkip(customerId: string, from: string, to: string, when: Sk
 }
 
 async function handlePickup(
-  customerId: string, firstName: string, from: string, to: string
+  customerId: string, firstName: string, from: string, to: string,
+  wantDate: string | null = null,
 ): Promise<string> {
   const activeStatuses = 'scheduled,picked_up,processing,ready_for_delivery,on_hold';
   // 2026-09-16: these lookups don't depend on each other — run them together
@@ -541,13 +485,30 @@ async function handlePickup(
     if (tie || best < 2 || best * 2 < times.length) usualHHMM = null;
   }
 
-  const chosen = (usualHHMM ? slots.find(x => x.startHHMM === usualHHMM) : undefined) || slots[0];
+  // Session 325: when the customer named a day, only that day's slots count.
+  // If none are open we do NOT quietly book a different day — we say what IS
+  // open and let them choose. Booking a day they didn't ask for is how a van
+  // ends up at a doorstep with nothing on it.
+  const dayPool = wantDate ? slots.filter(x => x.date === wantDate) : slots;
+  const chosen = (usualHHMM ? dayPool.find(x => x.startHHMM === usualHHMM) : undefined) || dayPool[0];
+
+  if (!chosen && wantDate) {
+    const next = slots[0];
+    const asked = fmtDatePT(ptDateTimeToUtc(
+      Number(wantDate.slice(0, 4)), Number(wantDate.slice(5, 7)), Number(wantDate.slice(8, 10)), 12, 0));
+    const reply = next
+      ? `Hi ${firstName}! We're full on ${asked}. The next opening is ${fmtDatePT(ptDateTimeToUtc(next.y, next.m, next.d, next.startH, next.startM))} ` +
+        `between ${fmt12h(next.startH)}–${fmt12h(next.endH)}. Reply PICKUP to take it, or book another day at app.familylaundry.com.`
+      : `Hi ${firstName}! We're full on ${asked} and have nothing open in the next week. Please book at app.familylaundry.com.`;
+    await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
+    return twimlMessage(reply);
+  }
   if (!chosen) {
     const reply = `Hi ${firstName}! No pickup slots are open in the next week. Please book at app.familylaundry.com.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
     return twimlMessage(reply);
   }
-  console.log(`PICKUP slot: usual=${usualHHMM ?? '-'} chosen=${chosen.date} ${chosen.startHHMM} tmpl=${chosen.templateId} open_slots=${slots.length}`);
+  console.log(`PICKUP slot: want=${wantDate ?? '-'} usual=${usualHHMM ?? '-'} chosen=${chosen.date} ${chosen.startHHMM} tmpl=${chosen.templateId} open_slots=${slots.length}`);
 
   const rt = tmplById.get(chosen.templateId)!;
   const wStartH = chosen.startH, wStartM = chosen.startM;
@@ -689,13 +650,33 @@ Deno.serve(async (req: Request) => {
       if (skipReply !== null) return new Response(skipReply, { headers: TWIML_HDRS });
       return new Response(TWIML_EMPTY, { headers: TWIML_HDRS });   // day mismatch → staff inbox
     }
-    if (PICKUP_WORDS.has(letters)) {
+    const pickupReq = classifyPickup(body || '');
+    if (pickupReq || PICKUP_WORDS.has(letters)) {
       if (!customerId) return noAccount(`We couldn't find an account for your number. Please sign up at app.familylaundry.com.`);
-      return new Response(await handlePickup(customerId, firstName, from, to), { headers: TWIML_HDRS });
+      const wantDate = pickupReq ? resolvePickupDate(pickupReq.day) : null;
+      return new Response(await handlePickup(customerId, firstName, from, to, wantDate), { headers: TWIML_HDRS });
+    }
+    // Session 325: "reschedule" names no day, so we never guess one — we ask the
+    // question that turns it into a PICKUP the system can act on.
+    if (isRescheduleRequest(body || '')) {
+      if (!customerId) return noAccount(`We couldn't find an account for your number. Please sign up at app.familylaundry.com.`);
+      const act = await dbGet(
+        `orders?customer_id=eq.${customerId}&status=in.(scheduled,ready_for_pickup)` +
+        `&order=pickup_window_start.asc&limit=1&select=order_number,pickup_window_start`
+      );
+      const cur = Array.isArray(act) ? act[0] : null;
+      const reply = cur
+        ? `Hi ${firstName}! You're booked for ${cur.pickup_window_start ? fmtDatePT(cur.pickup_window_start) : 'an upcoming pickup'} ` +
+          `(order #${cur.order_number}). To move it, reply SKIP and then PICKUP FRIDAY (or any day). ` +
+          `You can also change it at app.familylaundry.com.`
+        : `Hi ${firstName}! Happy to book you in. Which day works? Reply PICKUP FRIDAY (or any day), or just PICKUP for the soonest slot.`;
+      await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
+      return new Response(twimlMessage(reply), { headers: TWIML_HDRS });
     }
     if (keyword === 'HELP') {
       const helpMsg = `Family Laundry\n` +
-        `PICKUP - Book a pickup\n` +
+        `PICKUP - Book the soonest pickup\n` +
+        `PICKUP FRIDAY - Book a particular day\n` +
         `SKIP - Skip or cancel your next pickup\n` +
         `STOP - Unsubscribe from texts\n` +
         `START - Re-subscribe to texts\n` +

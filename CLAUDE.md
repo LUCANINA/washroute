@@ -104,6 +104,12 @@ fixes the problem, and prefer one shared helper over N parallel edits.
   drafted an email telling a 17-order customer they'd never got round to a first order.
 - **Never ask only happy customers for public reviews** (Google/FTC "review gating"). The Google link is shown
   to every rater; never ask for Yelp reviews; never reward reviews.
+- **Widening what an inbound text is allowed to mean? Replay the real corpus first.** Session 325 loosened PICKUP from
+  six exact strings to a word-classifier. Reasoning said it was safe; replaying 120 days of real inbound messages found
+  `"do i have a schedule pick up tonight?"` — every word allowed, but a question about state, and it would have booked a
+  van. The classifiers live in `supabase/functions/_shared/sms-intent.ts` with tests in `tests/sms-intent.test.mts`
+  (`node --experimental-strip-types`). The asymmetry that decides every close call: a missed command costs a reply, a
+  wrongly booked pickup sends a driver to an empty doorstep.
 - **CANCEL, STOP, END, QUIT, UNSUBSCRIBE are carrier opt-out words** — Twilio unsubscribes the texter before our
   webhook runs. Never use them as SMS commands (cancel = SKIP).
 - **Referral amounts live ONLY in referral settings** (Admin → Referrals, `referral_config()`).

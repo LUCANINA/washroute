@@ -557,10 +557,23 @@ FROM cron.job j
 ORDER BY classification, j.jobname;
 
 
--- @check id=23 name="Chargeable Subscription Plan While Subscriptions Pre-Launch" priority=P0
+-- @check id=23 name="Active Subscription Plan Not Billable in Stripe" priority=P1
+-- RETIRED AND REPLACED 2026-10-01. The old check was
+-- "Chargeable Subscription Plan While Subscriptions Pre-Launch" at P0: it returned
+-- a row for any active plan that had a stripe_price_id, on the premise that
+-- subscriptions had not launched and a chargeable plan therefore meant someone had
+-- armed billing by accident. Subscriptions ARE launched — 101 active subscriptions
+-- and 102 customers on the Subscription pricelist as of this date — so the old
+-- query returned its P0 row every single morning for the healthy, intended state.
+-- A check that fires on the happy path trains you to ignore it, which is worse than
+-- having no check at all.
+--
+-- The inverse is the condition that now matters: an ACTIVE plan with NO
+-- stripe_price_id cannot be charged, so every subscriber on it silently receives
+-- free service. Same table, same cheap query, opposite sense.
 SELECT id, name, price_monthly, is_active, stripe_price_id
 FROM subscription_plans
-WHERE is_active = true AND stripe_price_id IS NOT NULL;
+WHERE is_active = true AND stripe_price_id IS NULL;
 
 
 -- @check id=24b name="Account-Credit Over-Application / Double Charge" priority=P1

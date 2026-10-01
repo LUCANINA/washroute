@@ -63,10 +63,21 @@ Deno.serve(async (req) => {
       .eq('id', customerId).single()
     if (!customer) return json({ error: 'Customer not found' }, 404)
 
+    // A malformed email (e.g. a typo'd "gmailcom" with no dot) makes
+    // stripe.customers.create throw, which used to 500 this whole function and
+    // leave the customer unable to save a card at all. The email is cosmetic on
+    // the Stripe customer — we already hold it in our own DB — so a bad one is
+    // dropped rather than allowed to block card setup.
+    const _email = String(customer.email_cache || '').trim()
+    const _emailOk = /^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/.test(_email)
+    if (_email && !_emailOk) {
+      console.warn(`create-setup-intent: dropping malformed email for customer ${customer.id}: ${_email}`)
+    }
+
     let stripeCustomerId = customer.stripe_customer_id
     if (!stripeCustomerId) {
       const sc = await stripe.customers.create({
-        email: customer.email_cache || undefined,
+        email: _emailOk ? _email : undefined,
         name: `${customer.first_name_cache || ''} ${customer.last_name_cache || ''}`.trim() || undefined,
         metadata: { supabase_customer_id: customer.id },
       })

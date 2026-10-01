@@ -1,5 +1,50 @@
 # WashRoute — Project Notes
 
+## Session 325 — Oct 1, 2026: SMS booking understands a named day; reschedule answers instead of going silent
+
+- **Why:** session 324's win-back customer replied "Reshedule", it fell to the staff inbox, and a booking sat unanswered
+  for 16 hours until David picked it up by hand. Looking at `twilio-webhook` showed the cause was structural: SKIP got a
+  real classifier in Sep 2026 (`classifySkip`), PICKUP never did — it matched six hardcoded strings
+  (`PICKUP`, `PICKUPPLEASE`, `PLEASEPICKUP`, `PICKUPPLS`, `PICKUPTHANKS`, `PICKUPTHANKYOU`). In the 120 days to Oct 1:
+  775 exact SKIP, ~53 exact PICKUP, and 193 messages that mentioned a pickup AND named a weekday, every one of which
+  went to a human. People only use the commands you teach them, which is the whole story of that 775-vs-53 gap.
+- **New `supabase/functions/_shared/sms-intent.ts`.** `classifySkip` moved here unchanged, plus `classifyPickup`,
+  `isRescheduleRequest`, `resolvePickupDate` and the date helpers (`ptDateKey`, `ptDateFmt`, `wrDow`). Extracted
+  because `twilio-webhook/index.ts` reads `Deno.env` at module scope and imports a `jsr:` specifier, so a Node test
+  could never import it. `getNextPickupDayPT` came along in the move and was deleted — nothing had called it since
+  `handlePickup` switched to `get_slot_availability`.
+- **`classifyPickup` mirrors the skip rule:** the text must contain a pickup word and EVERY other word must be filler
+  or a day name; anything unexpected returns null and a human reads it. `PICKUP FRIDAY`, `pick up on tuesday please`,
+  `can i have a pickup tomorrow?` all book. `no pick up today`, `skip pickup`, `pickup friday or saturday`,
+  `pick up my laundry at my moms house` all go to the inbox.
+- **🔑 Caught by replaying 120 days of real inbound texts, not by reasoning:** `"do i have a schedule pick up tonight?"`
+  is built entirely from allowed words but ASKS about a pickup rather than requesting one — it would have booked a van.
+  Added an opener guard (`DO I`, `DID I`, `AM I`, `DOES MY`, `WAS MY`) and the real message is now a test case.
+  **Any future widening of these classifiers must be replayed against the real corpus before deploy.** The SQL that
+  does it is an array-containment check (`w <@ ARRAY[...filler...]`) over distinct inbound bodies.
+- **Deliberately narrow:** of 844 distinct pickup-mentioning messages, only 31 now auto-handle. That is the intended
+  ratio. The asymmetry that drives every judgement here: a missed command costs a reply, a wrongly booked pickup sends
+  a van to a doorstep with nothing on it.
+- **A named day that is full does NOT silently become another day.** `handlePickup` takes `wantDate` and filters the
+  slot pool to it; if nothing is open it replies with what IS open and lets the customer choose, rather than booking a
+  day they did not ask for.
+- **Reschedule asks a question, never guesses a date.** With an active order: "You're booked for <date> (order #N).
+  To move it, reply SKIP and then PICKUP FRIDAY." Without one: "Which day works? Reply PICKUP FRIDAY." No data changes
+  either way. HELP now lists `PICKUP FRIDAY` as well.
+- **Tests:** `tests/sms-intent.test.mts`, 53 assertions, `node --experimental-strip-types tests/sms-intent.test.mts`.
+  The negative cases matter more than the positive ones. `tsc --noEmit` clean on the shared module.
+- **Deployed and verified by behaviour, not by git:** `twilio-webhook` version 64 → 66, `verify_jwt` still false, and
+  `get_edge_function` shows BOTH files bundled — the new `_shared` import was the real risk in this deploy and the CLI
+  picked it up. Command used:
+  `npx -y supabase@latest functions deploy twilio-webhook --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
+- **Not yet proven:** day-filtering against real slot data. The first booking of this shape logs
+  `PICKUP slot: want=<date> usual=… chosen=…` — check that line before trusting it. Also untouched: ~19 skip-intent
+  messages per 120 days that never say "skip" ("no pick up today"), left to humans on purpose — misreading a negation
+  books a driver to an empty doorstep. And ~386 genuine questions per 120 days still need a person.
+- **Win-back context:** phase 2 of WB-2026-10-A (100 grants) releases Oct 2, so this change lands the day before the
+  first large batch of "Reply PICKUP" texts. Pilot stands at 3 of 10 booked, 2 in the shop at $119.95 each (vs a
+  $78.05 average order), $40 of the $200 credit consumed.
+
 ## Session 324 — Sep 30, 2026: Win-back pilot results, the Starchup history trap, SMS STOP now recorded
 
 - **Pilot (WB-2026-10-A, Sep 29, 10 customers) — 3 booked, 30%.** All three replied PICKUP to the day-1 text;
