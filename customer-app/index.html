@@ -9609,8 +9609,33 @@ async function submitRating() {
       </div>` : ''}
     </div>
     ${link ? `<a class="rate-review" href="${escHtml(link)}" target="_blank" rel="noopener" onclick="db.rpc('mark_review_link_clicked',{p_order_id:'${orderId}'}).then(()=>{},()=>{})">${isGoogle ? 'Write a Google review' : 'Write a review'}</a>` : ''}
+    <div id="rate-ref"></div>
     <button class="${link ? 'rate-done' : 'rw-send'}" style="margin-top:10px" onclick="closeSheet('rate-sheet')">Done</button>`;
+  if (!data.low) fillRateReferral(orderId);
   if (window._currentDetailOrder?.id === orderId) renderOrderRating(window._currentDetailOrder);
+}
+
+/* Session 326: the referral ask at the happiest moment — right after a good
+   rating, on the thank-you screen. Low ratings never see it. The review link
+   above is untouched and still shown to EVERY rater (no review gating — this
+   only adds a referral ask, never changes who is asked for a review).
+   Same rules as the order-detail card: program on, 'post_delivery' surface
+   enabled, not snoozed, not already asked for this order. */
+async function fillRateReferral(orderId) {
+  if (referralAskSnoozed() || referralAskDoneFor(orderId)) return;
+  const data = await getReferralState();
+  if (!data || data.enabled !== true || !referralSurfaces(data).includes('post_delivery')) return;
+  const host = document.getElementById('rate-ref');
+  if (!host || _rateOrderId !== orderId) return;   // sheet closed or moved on
+  const headline = `Give ${referralDollars(data.friend_credit)}, get ${referralDollars(data.referrer_credit)}`;
+  host.innerHTML = `
+    <div style="margin-top:16px;padding:14px 14px 12px;border:1px solid var(--gray-200);border-radius:10px;text-align:center">
+      <div style="font-size:16px;font-weight:700;color:var(--navy)">Know someone who&rsquo;d love this? ${headline}.</div>
+      <div style="font-size:14px;color:var(--gray-600);line-height:1.5;margin:5px 0 11px">${referralPitch(data)}</div>
+      <button onclick="shareReferralFrom('${orderId}')"
+        style="width:100%;padding:11px;background:white;color:var(--navy);border:1.5px solid var(--navy);border-radius:8px;
+               font-size:15px;font-weight:600;cursor:pointer;font-family:inherit">Text a friend</button>
+    </div>`;
 }
 
 /* ── Help & Info: FAQ, contact, service area (session 299) ───────────────

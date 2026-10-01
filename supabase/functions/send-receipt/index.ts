@@ -111,7 +111,80 @@ function dedupeLineItems(items: any[]): any[] {
   });
 }
 
-function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, priorTotal: number | null = null): string {
+// ── Referral block (session 326) ──────────────────────────────────────────
+// Every receipt carries the customer's own WORKING referral code + link.
+// The code comes from `referral_codes` (what claim_referral_code accepts) — NOT
+// customers.ambassador_code, which is the old Starchup code and is rejected by
+// the referral system. Amounts come ONLY from referral_config() (CLAUDE.md:
+// referral amounts are never typed anywhere else). Any failure here returns
+// null and the receipt goes out without the block — never blocks a receipt.
+type ReferralBlock = { code: string; link: string; friend: number; referrer: number };
+
+function fmtAmt(n: number): string {
+  return '$' + (Math.round(n * 100) % 100 === 0 ? String(Math.round(n)) : n.toFixed(2));
+}
+
+async function getReferralBlock(db: any, customerId: string, firstName: string | null, billingType: string | null): Promise<ReferralBlock | null> {
+  try {
+    if (!customerId) return null;
+    const { data: cfg, error: cfgErr } = await db.rpc('referral_config');
+    if (cfgErr || !cfg || cfg.enabled !== true) return null;
+    if (billingType === 'on_account' && cfg.commercial_can_refer === false) return null;
+    const friend = Number(cfg.friend_credit), referrer = Number(cfg.referrer_credit);
+    if (!(friend > 0) || !(referrer > 0)) return null;
+
+    let code: string | null = null;
+    const { data: existing, error: selErr } = await db.from('referral_codes')
+      .select('code, active').eq('customer_id', customerId).maybeSingle();
+    if (selErr) return null;
+    if (existing) {
+      if (existing.active === false) return null;   // staff switched this code off
+      code = existing.code;
+    } else {
+      // Same shape get_or_create_referral_code mints: FIRSTNAME + 3 digits.
+      // (That RPC needs a signed-in caller, so it can't be used from here.)
+      let stem = String(firstName || '').replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 10);
+      if (stem.length < 2) stem = 'WASH';
+      for (let i = 0; i < 25 && !code; i++) {
+        const candidate = stem + String(Math.floor(Math.random() * 900) + 100);
+        const { error: insErr } = await db.from('referral_codes')
+          .insert({ customer_id: customerId, code: candidate });
+        if (!insErr) { code = candidate; break; }
+        // Lost a race on customer_id (code minted elsewhere) → read it back.
+        const { data: again } = await db.from('referral_codes')
+          .select('code, active').eq('customer_id', customerId).maybeSingle();
+        if (again) { if (again.active === false) return null; code = again.code; }
+        // else: code collision → loop and try another number
+      }
+    }
+    if (!code) return null;
+    return { code, link: 'https://app.familylaundry.com/r/' + code, friend, referrer };
+  } catch (e) {
+    console.warn('[send-receipt] referral block skipped:', (e as any)?.message ?? e);
+    return null;
+  }
+}
+
+function buildReferralHtml(r: ReferralBlock | null): string {
+  if (!r) return '';
+  const shortLink = r.link.replace(/^https:\/\//, '');
+  return `
+          <tr><td style="padding:24px 32px 26px;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;">
+              <tr><td style="padding:18px 20px;text-align:center;">
+                <div style="font-size:17px;font-weight:800;color:#1e3a8a;margin-bottom:6px;">Give ${fmtAmt(r.friend)}, Get ${fmtAmt(r.referrer)}</div>
+                <div style="font-size:13px;color:#1e40af;line-height:1.6;margin-bottom:12px;">
+                  Friends get ${fmtAmt(r.friend)} off their first order with your code, and you get ${fmtAmt(r.referrer)} in credit when they try us.
+                </div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-bottom:4px;">Your code</div>
+                <div style="font-size:22px;font-weight:900;letter-spacing:.06em;color:#111827;margin-bottom:12px;">${r.code}</div>
+                <a href="${r.link}" style="font-size:13px;color:#1d4ed8;font-weight:600;text-decoration:none;">${shortLink}</a>
+              </td></tr>
+            </table>
+          </td></tr>`;
+}
+
+function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, priorTotal: number | null = null, referral: ReferralBlock | null = null): string {
   const firstName = customer.first_name_cache ?? customer.email_cache?.split('@')[0] ?? 'there';
 
   // Normalize two possible line_item formats:
@@ -436,6 +509,8 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, pr
 
           </td></tr>
 
+          ${priorTotal === null ? buildReferralHtml(referral) : ''}
+
           <tr><td style="padding:22px 32px 28px;border-top:1px solid #f3f4f6;margin-top:22px;font-size:11.5px;color:#9ca3af;text-align:center;line-height:1.7;">
             Questions? Reply to this email or visit familylaundry.com<br>
             Family Laundry &middot; 2609 Foothill Blvd, Oakland CA 94601
@@ -475,13 +550,13 @@ Deno.serve(async (req: Request) => {
     const { data: order, error: orderErr } = await supabase
       .from('orders')
       .select(`
-        id, order_number, total_amount, line_items, total_bags, weight_lbs,
+        id, customer_id, order_number, total_amount, line_items, total_bags, weight_lbs,
         pickup_window_start, pickup_window_end,
         delivery_window_start, delivery_window_end,
         actual_pickup_at, actual_delivery_at,
         tip_amount, tip_type, tax_amount,
         pickup_address:pickup_address_id ( line1, city, state, zip ),
-        customers ( first_name_cache, last_name_cache, email_cache )
+        customers ( first_name_cache, last_name_cache, email_cache, billing_type )
       `)
       .eq('id', order_id)
       .single();
@@ -520,7 +595,11 @@ Deno.serve(async (req: Request) => {
     const priorTotal = (prior_total === undefined || prior_total === null)
       ? null
       : Math.round(Number(prior_total) * 100) / 100;
-    const html = buildEmailHtml(order, customer, creditApplied, priorTotal);
+    // Session 326: referral block (skipped on corrected receipts).
+    const referral = priorTotal === null
+      ? await getReferralBlock(supabase, (order as any).customer_id, customer?.first_name_cache ?? null, customer?.billing_type ?? null)
+      : null;
+    const html = buildEmailHtml(order, customer, creditApplied, priorTotal, referral);
 
     const sgRes = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
