@@ -42992,6 +42992,16 @@ ${oneCopy}
     cpComposeChannel(_cpComposeCh);
   }
 
+  // customers.phone_cache is mostly "(510) 555-1234" (Starchup import); Twilio
+  // needs +15105551234. Returns null when it isn't a recognisable US number.
+  function _cpE164(raw) {
+    if (!raw) return null;
+    const d = String(raw).replace(/\D/g, '');
+    if (d.length === 10) return '+1' + d;
+    if (d.length === 11 && d[0] === '1') return '+' + d;
+    return null;
+  }
+
   function cpComposeChannel(ch) {
     _cpComposeCh = ch;
     const c = _panelCustomerData || {};
@@ -43003,7 +43013,7 @@ ${oneCopy}
     const btn  = document.getElementById('cpc-send');
     if (subj) subj.style.display = ch === 'email' ? '' : 'none';
     if (body) body.placeholder = ch === 'email' ? 'Write your email…' : 'Type a text message…';
-    const addr = ch === 'email' ? (c.email_cache || '') : (c.phone_cache || '');
+    const addr = ch === 'email' ? (c.email_cache || '') : (c.phone_cache ? (_cpE164(c.phone_cache) || c.phone_cache) : '');
     if (to) {
       to.textContent = addr ? `To ${addr}` : (ch === 'email' ? 'No email on file' : 'No phone on file');
       to.style.color = addr ? 'var(--gray-500)' : 'var(--red)';
@@ -43058,9 +43068,11 @@ ${oneCopy}
     let payload, fn;
     if (ch === 'sms') {
       if (!c.phone_cache) return showErr('This customer has no phone number on file.');
+      const toPhone = _cpE164(c.phone_cache);
+      if (!toPhone) return showErr(`Phone number "${c.phone_cache}" doesn't look like a US number — fix it under Details first.`);
       if (text.length > 1000) return showErr('Text is too long (1,000 characters max).');
       fn = 'send-sms';
-      payload = { to: c.phone_cache, body: text, customer_id: custId };
+      payload = { to: toPhone, body: text, customer_id: custId };
     } else {
       if (!c.email_cache) return showErr('This customer has no email address on file.');
       if (!subject) return showErr('Add a subject line.');

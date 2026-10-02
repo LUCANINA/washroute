@@ -1,5 +1,22 @@
 # WashRoute — Project Notes
 
+## Session 327 — Oct 2, 2026: send a text or email from the customer panel
+
+- **What:** Customer panel → Contact → Messages now has a compose box (Text / Email toggle, subject for email, Send).
+  Recipient comes from the customer record, never typed — this sends to ONE customer only. Uses the existing
+  `send-sms` / `send-email` edge functions (staff login checked server-side, sender name stamped, message logged), so
+  no backend or schema change. Emails are wrapped in the same branded HTML as booking confirmations; send-email adds
+  the unsubscribe footer.
+- **Email history is real now:** the list merges `sms_messages` + `email_messages` (9.5k emails were already being
+  logged; the panel just said "coming soon"). Texts show who sent them and a red "Not delivered" flag.
+- **🔑 Phone format (327b):** only ~734 of ~6,260 `customers.phone_cache` values are E.164; ~5,200 are "(510) 555-1234"
+  from the Starchup import. `_cpE164()` converts before calling send-sms; anything not a US 10/11-digit number gets a
+  clear error instead of a Twilio failure. Any NEW code that texts `phone_cache` must normalise the same way.
+- Email preview text is extracted with `DOMParser`, never `innerHTML` on a temp div (detached divs still fire
+  `<img onerror>`).
+- History query is now always scoped to the open customer (it used to load the latest 100 SMS for everyone if the id
+  was missing).
+
 ## Session 325 — Oct 1, 2026: SMS booking understands a named day; reschedule answers instead of going silent
 
 - **Why:** session 324's win-back customer replied "Reshedule", it fell to the staff inbox, and a booking sat unanswered
