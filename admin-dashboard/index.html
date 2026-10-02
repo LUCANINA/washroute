@@ -7455,6 +7455,8 @@
       <a id="op-cust-name" href="#" onclick="event.preventDefault();var _cid=opCurrentCustId;closeOrderPanel();setTimeout(()=>openCustomerPanel(_cid,'contact'),200)" style="color:var(--gray-900);text-decoration:none">—</a>
     </div>
     <div style="font-size:12px;color:var(--gray-500);margin-top:3px" id="op-cust-phone">—</div>
+    <!-- Session 326: where the bag was physically processed, and who folded it. -->
+    <div id="op-processed-at" style="display:none;margin-top:8px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:12.5px;color:var(--gray-900);line-height:1.45"></div>
   </div>
 
   <!-- Tab bar -->
@@ -8453,6 +8455,10 @@
     <div class="loading"><div class="spinner"></div> Loading…</div>
   </div>
   <div class="slide-over-footer" style="flex-direction:column;gap:8px;padding:16px 24px">
+    <div id="intake-site-row" style="display:none;align-items:center;gap:8px;font-size:12.5px;color:var(--gray-600)">
+      <label for="intake-site" style="white-space:nowrap;font-weight:600">Processing at</label>
+      <select id="intake-site" style="flex:1;min-width:0;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:12.5px;background:#fff;color:var(--gray-900)"></select>
+    </div>
     <div id="intake-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
     <button class="proc-save-btn" id="intake-next-btn" onclick="intakeNextStep()" disabled>Save &amp; Start Processing</button>
   </div>
@@ -30785,7 +30791,7 @@ ${noActivityNote}
                folded_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
-               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id, source,
+               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id, processed_site_id, source,
                subscription_id,
                archived_at, archived_reason, archived_by,
                services(name),
@@ -31423,6 +31429,7 @@ ${noActivityNote}
     document.getElementById('op-num').textContent = `Order #${o.order_number || '—'}`;
     document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
     opRenderSiteBadge(o.site_id);
+    opRenderProcessedAt(o);
 
     // Customer strip
     const custLink = document.getElementById('op-cust-name');
@@ -32343,6 +32350,33 @@ ${noActivityNote}
     el.style.color = tint;
     el.style.background = '#fff';
     el.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${tint};margin-right:6px;vertical-align:middle"></span>${esc(site.name)} <span style="opacity:.5;margin-left:3px">▾</span>`;
+  }
+
+  // Session 326: "Processed at X · folded by Y" — the one line that answers
+  // "who handled this bag" when something comes back damaged or stained.
+  //
+  // processed_site_id is stamped at intake by set_order_processed_site. It is
+  // deliberately NOT o.site_id: site_id is the customer's home site, written once
+  // at order creation from customers.default_site_id and never updated, so it says
+  // nothing about where the work happened. Showing site_id here would be confidently
+  // wrong, which is worse than silent — so a missing stamp reads "not recorded".
+  // Every order processed before session 326 is NULL and stays that way; we cannot
+  // honestly backfill a location that was never captured.
+  function opRenderProcessedAt(o) {
+    const el = document.getElementById('op-processed-at');
+    if (!el) return;
+    const site   = o.processed_site_id ? getSiteById(o.processed_site_id) : null;
+    const folder = (o.folded_by && o.folded_by.name) ? o.folded_by.name : null;
+    if (!site && !folder) { el.style.display = 'none'; return; }   // nothing known yet
+    const pin = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;opacity:.65"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>';
+    const dot = '<span style="color:var(--gray-400);margin:0 5px">·</span>';
+    const parts = [];
+    parts.push(site
+      ? `Processed at <strong>${esc(site.name)}</strong>`
+      : `Processed at <span style="color:var(--gray-500)">not recorded</span>`);
+    if (folder) parts.push(`folded by <strong>${esc(folder)}</strong>`);
+    el.innerHTML = pin + parts.join(dot);
+    el.style.display = 'block';
   }
 
   function opToggleSiteDropdown(e) {
@@ -51467,6 +51501,29 @@ ${oneCopy}
     filterKanbanCol('intake'); // re-apply search if active
   }
 
+  // Session 326 (QA finding): the Processing Queue filters on orders.site_id — the
+  // CUSTOMER'S home site, written once at order creation and never updated. So a bag
+  // physically at Foothill belonging to a 23rd Ave customer appears in the 23rd Ave
+  // queue. Silently inheriting that filter would stamp the wrong facility in exactly
+  // the cross-site case this feature exists to catch, and a confidently-wrong answer
+  // is worse than none. So the operator SEES and confirms the site at intake.
+  // Defaults to the queue filter; falls back to the default site when it is "All sites".
+  function _intakeFillSiteRow() {
+    const row = document.getElementById('intake-site-row');
+    const sel = document.getElementById('intake-site');
+    if (!row || !sel) return;
+    const sites = (allSites || []).filter(s => s.is_active);
+    if (!sites.length) { row.style.display = 'none'; return; }  // sites not loaded yet
+    const preferred = (procSiteFilter && sites.some(s => s.id === procSiteFilter))
+      ? procSiteFilter
+      : ((getDefaultSite() || {}).id || sites[0].id);
+    sel.innerHTML = sites.map(s =>
+      `<option value="${esc(s.id)}"${s.id === preferred ? ' selected' : ''}>${esc(s.name)}</option>`
+    ).join('');
+    sel.value = preferred;
+    row.style.display = 'flex';
+  }
+
   async function openIntakePanel(orderId) {
     // Fresh-fetch the order so bags/notes/dates are always current
     // (admin may have changed them in the order panel since the proc queue last loaded)
@@ -51550,6 +51607,7 @@ ${oneCopy}
     const ln = order.customers?.last_name_cache  || '';
     document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || 'Process Order';
     document.getElementById('intake-subtitle').textContent = `Order #${order.order_number||'—'} · ${procSvc?.name||''}`;
+    _intakeFillSiteRow();   // session 326: confirm WHERE this is being processed
     // Configure footer button — Intake only
     const nextBtn = document.getElementById('intake-next-btn');
     nextBtn.textContent = '⚖️ Save & Start Processing';
@@ -52324,6 +52382,32 @@ ${oneCopy}
       errEl.textContent = error.message; errEl.style.display = '';
       btn.disabled = false; btn.textContent = '⚖️ Save & Start Processing';
       return;
+    }
+
+    const movedIdForSite = procActiveOrder.id;
+    // Read the operator's confirmed site, not procSiteFilter — see _intakeFillSiteRow.
+    const stampSiteId    = (document.getElementById('intake-site') || {}).value || null;
+    // Session 326: record WHERE this order was physically processed. A separate
+    // guarded RPC rather than an argument to record_order_intake — adding a parameter
+    // there would create a second overload and require dropping the live 12-arg
+    // version of the central billing RPC. See migration session_326c.
+    //
+    // procSiteFilter is the Processing Queue's site filter: "the facility whose queue
+    // I am working". '' means "All sites", in which case we know nothing and record
+    // nothing rather than guessing. A failure here must NOT fail the intake — the
+    // weight and the charge are already committed — but it is surfaced, never swallowed.
+    try {
+      const { error: siteErr } = await db.rpc('set_order_processed_site', {
+        p_order_id: movedIdForSite,
+        p_site_id:  stampSiteId,
+      });
+      if (siteErr) {
+        console.error('[intake] processed-site stamp failed:', siteErr.message);
+        showToast('Saved — but the processing site was not recorded', 'warning');
+      }
+    } catch (e) {
+      console.error('[intake] processed-site stamp threw:', e);
+      showToast('Saved — but the processing site was not recorded', 'warning');
     }
 
     // Surface info from the RPC if a prior intake's credit was reversed automatically.
@@ -58766,14 +58850,29 @@ async function _dvIframeLoaded() {
     const el = document.getElementById('oa-drift-banner');
     if (!el) return;
     if (!_oaInvoiceDrift.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    // Closable: the dismissal is remembered for THIS exact set of drifted invoices,
+    // so the banner comes back on its own if a new invoice drifts or an amount changes.
+    const key = _oaInvoiceDrift.map(h => `${h.invoice_number}:${h.diff}`).sort().join('|');
+    let dismissed = null;
+    try { dismissed = localStorage.getItem('oaDriftBannerDismissed'); } catch (e) {}
+    if (dismissed === key) { el.style.display = 'none'; el.innerHTML = ''; return; }
     const n = _oaInvoiceDrift.length;
+    el.style.position = 'relative';
     el.innerHTML =
-      `<div style="font-weight:700;margin-bottom:3px">⚠ ${n} sent invoice${n !== 1 ? 's' : ''} no longer match${n !== 1 ? '' : 'es'} ${n !== 1 ? 'their' : 'its'} orders</div>` +
+      `<button type="button" title="Hide this warning" aria-label="Hide this warning" onclick="dismissOADriftBanner()" style="position:absolute;top:6px;right:8px;background:none;border:none;color:#92400e;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px">×</button>` +
+      `<div style="font-weight:700;margin-bottom:3px;padding-right:24px">⚠ ${n} sent invoice${n !== 1 ? 's' : ''} no longer match${n !== 1 ? '' : 'es'} ${n !== 1 ? 'their' : 'its'} orders</div>` +
       _oaInvoiceDrift.map(h =>
         `<div><b>${esc(h.invoice_number)}</b> · ${esc(h.bill_to_name || '—')} — sent for ${fmtMoney(h.sent)}, orders now total ${fmtMoney(h.now)} (${esc(_fmtSigned(h.diff))})</div>`
       ).join('') +
       `<div style="margin-top:3px;color:#a16207">An order was changed after the invoice went out. Balances below use the current order amounts.</div>`;
     el.style.display = '';
+  }
+
+  function dismissOADriftBanner() {
+    const key = _oaInvoiceDrift.map(h => `${h.invoice_number}:${h.diff}`).sort().join('|');
+    try { localStorage.setItem('oaDriftBannerDismissed', key); } catch (e) {}
+    const el = document.getElementById('oa-drift-banner');
+    if (el) { el.style.display = 'none'; el.innerHTML = ''; }
   }
 
   // ── INVOICE ADJUSTMENTS (session 291m) ──────────────────────────────
