@@ -1,4 +1,6 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { PDFDocument, StandardFonts, rgb } from 'npm:pdf-lib@1.17.1';
+import { encodeBase64 } from 'jsr:@std/encoding@1/base64';
 
 const SENDGRID_API_KEY = Deno.env.get('SENDGRID_API_KEY') ?? '';
 const FROM_EMAIL = 'info@familylaundry.com';
@@ -181,9 +183,10 @@ function buildReferralHtml(r: ReferralBlock | null): string {
           </td></tr>`;
 }
 
-function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, priorTotal: number | null = null, referral: ReferralBlock | null = null): string {
-  const firstName = customer.first_name_cache ?? customer.email_cache?.split('@')[0] ?? 'there';
-
+// ── Receipt numbers (session 330) ─────────────────────────────────────────
+// ONE computation feeds both the HTML email and the PDF attachment, so the two
+// can never disagree. Moved out of buildEmailHtml verbatim — no math changed.
+function computeReceiptData(order: any, creditApplied: number = 0) {
   // Normalize two possible line_item formats:
   // Old (customer-app): { qty, name, total, unit_price, service_id }
   // New (processing):   { label, amount, type }
@@ -317,6 +320,24 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, pr
   const hasMixedTender = effectiveCredit > 0 && cardPaid > 0;
   const fullyPaidByCredit = effectiveCredit > 0 && cardPaid === 0;
 
+  // Show subtotal row only when it differs from total (i.e. credits exist, multi-line, tax, or tip)
+  const showSubtotal = displayItems.length > 1 || discountItems.length > 0 || tipDollars > 0 || taxAmt > 0 || effectiveCredit > 0;
+
+  return {
+    displayItems, discountItems, effectiveCredit, subtotalShown, taxAmt, taxLabel,
+    tipDollars, tipLabel, grandTotal, cardPaid, hasMixedTender, fullyPaidByCredit,
+    bags, weightLbs, showSubtotal,
+  };
+}
+
+function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, priorTotal: number | null = null, referral: ReferralBlock | null = null): string {
+  const firstName = customer.first_name_cache ?? customer.email_cache?.split('@')[0] ?? 'there';
+  const {
+    displayItems, discountItems, effectiveCredit, subtotalShown, taxAmt, taxLabel,
+    tipDollars, tipLabel, grandTotal, cardPaid, hasMixedTender, fullyPaidByCredit,
+    bags, weightLbs, showSubtotal,
+  } = computeReceiptData(order, creditApplied);
+
   // ── Correction banner (session 229) ──
   // Set only when this is a re-send of a receipt that was originally emailed with
   // a too-low total (see the NON_LINE_TYPES note above). `priorTotal` is the big
@@ -425,9 +446,6 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, pr
     ? `${bags} bag${bags !== 1 ? 's' : ''}${weightLbs != null ? ` &middot; ${weightLbs.toFixed(1)} lbs` : ''}`
     : '';
 
-  // Show subtotal row only when it differs from total (i.e. credits exist, multi-line, tax, or tip)
-  const showSubtotal = displayItems.length > 1 || discountItems.length > 0 || tipDollars > 0 || taxAmt > 0 || effectiveCredit > 0;
-
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -521,10 +539,120 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, pr
 </html>`;
 }
 
+// ── PDF receipt (session 330) ─────────────────────────────────────────────
+// Built with pdf-lib (no headless browser in Deno). Numbers come from the SAME
+// computeReceiptData() the HTML email uses. Standard Helvetica only covers the
+// WinAnsi character set, so any other character in a label is dropped rather
+// than crashing the whole receipt.
+function pdfSafe(s: any): string {
+  return String(s ?? '')
+    .replace(/&middot;/g, '·').replace(/&amp;/g, '&')
+    .replace(/[^\x20-\x7E -ÿ–—‘’“”•…]/g, '')
+    .trim();
+}
+
+async function buildReceiptPdfBase64(order: any, customer: any, creditApplied: number, cardLabel: string | null): Promise<string> {
+  const d = computeReceiptData(order, creditApplied);
+  const pdf = await PDFDocument.create();
+  pdf.setTitle(`Family Laundry Receipt #${order.order_number}`);
+  pdf.setAuthor('Family Laundry');
+  const page = pdf.addPage([612, 792]); // US Letter
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const ink = rgb(0.07, 0.09, 0.15), grey = rgb(0.42, 0.45, 0.5), green = rgb(0.02, 0.59, 0.41), rule = rgb(0.9, 0.91, 0.92);
+  const L = 56, R = 556;
+  let y = 736;
+
+  const text = (s: string, x: number, size = 10, f = font, color = ink) =>
+    page.drawText(pdfSafe(s), { x, y, size, font: f, color });
+  const right = (s: string, size = 10, f = font, color = ink) => {
+    const t = pdfSafe(s);
+    page.drawText(t, { x: R - f.widthOfTextAtSize(t, size), y, size, font: f, color });
+  };
+  const hr = (thick = 0.75, color = rule) => {
+    page.drawLine({ start: { x: L, y }, end: { x: R, y }, thickness: thick, color });
+  };
+  const money = (n: number) => '$' + Math.abs(Number(n)).toFixed(2);
+  const dateStr = (iso: string | null) => iso ? fmtDate(iso) : '';
+
+  // Header
+  text('FAMILY LAUNDRY', L, 18, bold);
+  right('RECEIPT', 18, bold);
+  y -= 16;
+  text('2609 Foothill Blvd · Oakland, CA 94601 · familylaundry.com', L, 9, font, grey);
+  right(`Order #${order.order_number}`, 10, bold);
+  y -= 14;
+  right(`Date: ${dateStr(order.billed_at || order.actual_delivery_at || order.created_at)}`, 9, font, grey);
+  y -= 26;
+
+  // Bill to + service summary
+  const name = [customer?.first_name_cache, customer?.last_name_cache].filter(Boolean).join(' ');
+  text('BILLED TO', L, 8, bold, grey);
+  text('SERVICE', 330, 8, bold, grey);
+  y -= 14;
+  text(name || 'Customer', L, 11, bold);
+  const pick = order.actual_pickup_at || order.pickup_window_start;
+  const drop = order.actual_delivery_at || order.delivery_window_start;
+  if (pick) text(`Pickup: ${dateStr(pick)}`, 330, 10);
+  y -= 13;
+  if (customer?.email_cache) text(customer.email_cache, L, 9, font, grey);
+  if (drop) text(`Delivery: ${dateStr(drop)}`, 330, 10);
+  y -= 13;
+  const a = order.pickup_address;
+  if (a?.line1) text(`${a.line1}${a.city ? ', ' + a.city : ''}${a.state ? ', ' + a.state : ''}${a.zip ? ' ' + a.zip : ''}`, L, 9, font, grey);
+  if (d.bags != null) text(`${d.bags} bag${d.bags !== 1 ? 's' : ''}${d.weightLbs != null ? ` · ${d.weightLbs.toFixed(1)} lbs` : ''}`, 330, 10);
+  y -= 28;
+
+  // Line items
+  text('DESCRIPTION', L, 8, bold, grey);
+  right('AMOUNT', 8, bold, grey);
+  y -= 8; hr(1, ink); y -= 16;
+  const items = d.displayItems.length ? d.displayItems : [{ label: 'Wash & Fold service', amount: null }];
+  for (const it of items) {
+    if (y < 140) break; // single page; receipts never come close
+    text(it.label ?? 'Service', L, 10);
+    if (it.amount != null) right(money(it.amount), 10);
+    y -= 7; hr(); y -= 15;
+  }
+  y -= 4;
+
+  // Totals block (right-aligned column)
+  const row = (label: string, value: string, f = font, color = ink, size = 10) => {
+    page.drawText(pdfSafe(label), { x: 330, y, size, font: f, color });
+    right(value, size, f, color); y -= 16;
+  };
+  if (d.showSubtotal) row('Subtotal', money(d.subtotalShown), font, grey);
+  for (const di of d.discountItems) row(di.label ?? 'Discount', '-' + money(di.amount), font, green);
+  if (d.effectiveCredit > 0) row('Account credit applied', '-' + money(d.effectiveCredit), font, green);
+  if (d.taxAmt > 0) row(d.taxLabel, money(d.taxAmt), font, grey);
+  if (d.tipDollars > 0) row(d.tipLabel, '+' + money(d.tipDollars), font, grey);
+  page.drawLine({ start: { x: 330, y: y + 8 }, end: { x: R, y: y + 8 }, thickness: 1.5, color: ink });
+  y -= 8;
+  const totalLabel = d.hasMixedTender ? 'PAID BY CARD' : (d.fullyPaidByCredit || d.grandTotal <= 0 ? 'TOTAL' : 'TOTAL PAID');
+  const totalValue = d.fullyPaidByCredit || d.grandTotal <= 0 ? '$0.00 (paid with credits)' : money(d.hasMixedTender ? d.cardPaid : d.grandTotal);
+  row(totalLabel, totalValue, bold, ink, 13);
+  if (cardLabel && !(d.fullyPaidByCredit || d.grandTotal <= 0)) row('Payment', cardLabel, font, grey, 9);
+  row('Balance due', '$0.00', font, grey, 9);
+
+  // Footer
+  page.drawText(pdfSafe('Thank you for your business. Questions? Reply to the receipt email or visit familylaundry.com'),
+    { x: L, y: 64, size: 8.5, font, color: grey });
+  page.drawText(pdfSafe('Family Laundry · 2609 Foothill Blvd, Oakland CA 94601'), { x: L, y: 52, size: 8.5, font, color: grey });
+
+  return encodeBase64(await pdf.save());
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
+
+  // Session 330: hoisted so the catch block can log a receipt_failed event.
+  let reqOrderId: string | null = null;
+  let isTest = false;
+  let sendSource = 'manual';
+  let dbForLog: any = null;
+  let logRecipient: string | null = null;
 
   try {
     const auth = await authorize(req);
@@ -535,13 +663,37 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { order_id, prior_total } = await req.json();
+    const body = await req.json();
+    reqOrderId = body?.order_id ?? null;
+    const { order_id, prior_total } = body ?? {};
+    // Session 330: `test_email` sends the exact receipt (PDF included) to a staff
+    // address instead of the customer, and is never logged to order_events.
+    const testEmail: string | null = (typeof body?.test_email === 'string' && body.test_email.includes('@'))
+      ? body.test_email.trim() : null;
+    isTest = !!testEmail;
+    // Session 330: 'auto_charge' = sent by charge-order after the background
+    // auto-charge sweep. Those sends are once-per-order (see guard below).
+    sendSource = typeof body?.source === 'string' ? body.source : 'manual';
     if (!order_id) throw new Error('order_id is required');
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
+    dbForLog = supabase;
+
+    // Once-per-order guard for automatic sends: if any path already emailed this
+    // order's receipt, the auto-charge path does not send a second one. Manual
+    // "Email receipt" clicks are deliberately NOT guarded — staff resends work.
+    if (sendSource === 'auto_charge' && !isTest) {
+      const { data: prior, error: priorErr } = await supabase.from('order_events')
+        .select('id').eq('order_id', order_id).eq('event_type', 'receipt_sent').limit(1);
+      if (priorErr) throw new Error('Could not check receipt history: ' + priorErr.message);
+      if (prior && prior.length > 0) {
+        return new Response(JSON.stringify({ ok: true, skipped: 'already_sent' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
 
     // Fetch order + customer + address + schedule windows + tip fields
     const { data: order, error: orderErr } = await supabase
@@ -550,10 +702,10 @@ Deno.serve(async (req: Request) => {
         id, customer_id, order_number, total_amount, line_items, total_bags, weight_lbs,
         pickup_window_start, pickup_window_end,
         delivery_window_start, delivery_window_end,
-        actual_pickup_at, actual_delivery_at,
+        actual_pickup_at, actual_delivery_at, billed_at, created_at,
         tip_amount, tip_type, tax_amount,
         pickup_address:pickup_address_id ( line1, city, state, zip ),
-        customers ( first_name_cache, last_name_cache, email_cache, billing_type )
+        customers ( first_name_cache, last_name_cache, email_cache, billing_type, pricelist )
       `)
       .eq('id', order_id)
       .single();
@@ -561,8 +713,10 @@ Deno.serve(async (req: Request) => {
     if (orderErr || !order) throw new Error(orderErr?.message ?? 'Order not found');
 
     const customer = order.customers as any;
-    const toEmail  = customer?.email_cache;
-    if (!toEmail) throw new Error('Customer has no email address on file');
+    const customerEmail = customer?.email_cache;
+    if (!customerEmail && !isTest) throw new Error('Customer has no email address on file');
+    const toEmail = testEmail ?? customerEmail;
+    logRecipient = toEmail;
 
     // Session 150: fetch credit_use transactions for this order so the email
     // receipt can split mixed-tender payments. Without this, an order paid
@@ -598,6 +752,32 @@ Deno.serve(async (req: Request) => {
       : null;
     const html = buildEmailHtml(order, customer, creditApplied, priorTotal, referral);
 
+    // Session 330: PDF receipt for Commercial-pricelist customers who pay by card
+    // (on-account customers get monthly invoices instead). Restores session 219's
+    // feature, which was lost because it was deployed but never committed.
+    const wantsPdf = customer?.pricelist === 'Commercial' && customer?.billing_type !== 'on_account';
+    let attachments: any[] | undefined;
+    if (wantsPdf) {
+      let cardLabel: string | null = null;
+      const { data: chg } = await supabase.from('customer_transactions')
+        .select('card_brand, card_last4').eq('order_id', order_id).eq('type', 'charge')
+        .order('created_at', { ascending: false }).limit(1);
+      if (chg && chg[0]?.card_last4) {
+        cardLabel = `${String(chg[0].card_brand || 'Card').toUpperCase()} ending ${chg[0].card_last4}`;
+      }
+      const pdfB64 = await buildReceiptPdfBase64(order, customer, creditApplied, cardLabel);
+      attachments = [{
+        content: pdfB64,
+        filename: `FamilyLaundry-Receipt-${order.order_number}.pdf`,
+        type: 'application/pdf',
+        disposition: 'attachment',
+      }];
+    }
+
+    const baseSubject = priorTotal !== null
+      ? `Corrected receipt — Family Laundry Order #${order.order_number}`
+      : `Your receipt — Family Laundry Order #${order.order_number}`;
+
     const sgRes = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
       headers: {
@@ -607,10 +787,9 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         personalizations: [{ to: [{ email: toEmail }] }],
         from: { email: FROM_EMAIL, name: FROM_NAME },
-        subject: priorTotal !== null
-          ? `Corrected receipt — Family Laundry Order #${order.order_number}`
-          : `Your receipt — Family Laundry Order #${order.order_number}`,
+        subject: isTest ? `[TEST] ${baseSubject}` : baseSubject,
         content: [{ type: 'text/html', value: html }],
+        ...(attachments ? { attachments } : {}),
       }),
     });
 
@@ -619,12 +798,37 @@ Deno.serve(async (req: Request) => {
       throw new Error(`SendGrid error ${sgRes.status}: ${errBody}`);
     }
 
+    // Session 330: every real send is recorded on the order's history tab, so a
+    // "we never got it" report can be answered from the order itself.
+    let logged = true;
+    if (!isTest) {
+      const { error: logErr } = await supabase.from('order_events').insert({
+        order_id,
+        event_type: 'receipt_sent',
+        new_value: 'sent',
+        description: `Receipt emailed to ${toEmail}${attachments ? ' (PDF attached)' : ''}${sendSource === 'auto_charge' ? ' — after auto-charge' : ''}`,
+        actor_name: 'System',
+      });
+      if (logErr) { logged = false; console.error(`[send-receipt] order ${order_id}: SENT but receipt_sent log failed: ${logErr.message}`); }
+    }
+
     return new Response(
-      JSON.stringify({ ok: true }),
+      JSON.stringify({ ok: true, to: isTest ? toEmail : undefined, pdf: !!attachments, test: isTest, logged }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (err: any) {
+    console.error(`[send-receipt] order ${reqOrderId ?? '?'} (${sendSource}${isTest ? ', test' : ''}) failed: ${err?.message ?? err}`);
+    if (dbForLog && reqOrderId && !isTest) {
+      const { error: logErr } = await dbForLog.from('order_events').insert({
+        order_id: reqOrderId,
+        event_type: 'receipt_failed',
+        new_value: 'failed',
+        description: `Receipt NOT sent${logRecipient ? ` to ${logRecipient}` : ''}: ${String(err?.message ?? err).slice(0, 300)}`,
+        actor_name: 'System',
+      });
+      if (logErr) console.error(`[send-receipt] receipt_failed log also failed: ${logErr.message}`);
+    }
     return new Response(
       JSON.stringify({ ok: false, error: err.message }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

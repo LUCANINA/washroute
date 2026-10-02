@@ -1,5 +1,31 @@
 # WashRoute — Project Notes
 
+## Session 330 — Oct 2, 2026: Covenant House receipts (again) — auto-charge never emailed receipts; session 219's PDF fix had been wiped
+
+- **Report:** Covenant House (medge@covca.org) not receiving email receipts / invoices. Same complaint as session 219.
+- **Root cause 1 — the auto-charge path never sent a receipt.** Their orders are marked Ready on the POS (no charge),
+  then `sweep_autocharge_ready_orders` (pg_cron, session 179) charges them via `charge-order`. charge-order only fires
+  `send-order-notification` `payment_received`, which is **SMS-only** (it ignores the template's email fields). No
+  `send-receipt` call anywhere on that path. Covenant missed #12529, #14711, #15397, #15992. ~64 customers / ~91 orders
+  in the last 30 days went this way (timing estimate). Session 219 only re-sent one receipt by hand; it never fixed this.
+- **Root cause 2 — session 219's send-receipt work (PDF attachment + `receipt_sent`/`receipt_failed` logging +
+  `test_email`) was deployed but NEVER COMMITTED.** Later deploys from the repo (sessions 229, 326) overwrote it ~Aug 22.
+  Last `receipt_sent` event before today: 2026-08-22. **Lesson: deploy from the repo, commit before/with every deploy.**
+- **Fix — send-receipt v65 (repo + deployed):** numbers moved verbatim into `computeReceiptData()` shared by the HTML
+  and a new pdf-lib PDF (Commercial pricelist && billing_type <> on_account). HTML output proven byte-identical to v64
+  on 2,000 fuzzed orders. Every real send logs `receipt_sent` (description names recipient, PDF, auto-charge); every
+  failure logs `receipt_failed`; log errors are checked. `test_email` sends a [TEST] copy, never logged.
+  `source:'auto_charge'` sends are once-per-order (skipped if a `receipt_sent` exists); manual resends are not guarded.
+- **Fix — charge-order v68:** `authorize()` reports `internal` (x-wr-internal = only the sweep). On success, internal
+  callers fire `send-receipt` with `source:'auto_charge'` (EdgeRuntime.waitUntil). Admin paths unchanged (they send
+  their own receipt). No DB change. Both functions verify_jwt=false (probed), deployed by David via CLI with
+  `--no-verify-jwt`.
+- **⚠️ Deliverability (open, David's action):** familylaundry.com has **no SPF record**, and `s1/s2._domainkey` CNAME to
+  Wix (ascendbywix), not SendGrid — so SendGrid mail "from info@familylaundry.com" is not domain-authenticated
+  (DMARC p=none). covca.org filters through Barracuda, which commonly junks unauthenticated mail. A test receipt to
+  info@familylaundry.com (Google Workspace) was accepted by SendGrid but never appeared in the mailbox. Fix = SendGrid
+  Domain Authentication (use a non-colliding DKIM selector) + an SPF record including sendgrid.net and Google.
+
 ## Session 329 — Oct 2, 2026: customer panel redesign + custom charges + "Charge card again"
 
 - **What changed (admin-dashboard/index.html, `#customer-panel`):** the customer panel went from 5 tabs + sub-tabs
@@ -104,13 +130,45 @@
   "You do not have permission to mutate this order". Data fixes of this kind need the admin UI or an edge function.
   This is the guard working — do not route around it with raw INSERTs into `route_stops`
   (`trg_sync_order_status` fires on insert and can move the order's status).
-- **Open:** driver-app Messages timeouts. 871 statement timeouts across 352 connections in 24h, all on one query
-  (`driver-app/index.html` `loadCustomerSms`). The query is **not** slow — 9–12ms in every variant, with and without
-  the RLS predicate, and PostgREST already applies a LIMIT, so "add a limit" is not the fix. Postgres logs show real
-  row-lock contention (ShareLock waits 1.7s–9.9s, one past the 8s `authenticated` timeout). Suspect worth checking:
-  `advance_order_status` / `reschedule_order` hold `SELECT ... FOR UPDATE` on an orders row and then call
-  `net.http_post` to an edge function inside the same transaction. Not proven — needs live observation during a busy
-  stretch rather than another guess.
+- **🔑 SOLVED — driver-app Messages timeouts were RECURSIVE RLS, not a slow query.** 871 statement
+  timeouts in 24h, one query, 352 connections, clustered in shift hours. Measured as a real driver
+  with RLS applied: **6,607 ms** against the 8s `authenticated` timeout, 300,141 buffer hits (~2.3 GB).
+  Two or three drivers at once tips it over — which is why it looked intermittent.
+  - **How we wasted an hour first:** run that query as postgres/service_role and it takes ~10ms,
+    because RLS is bypassed. We measured that, concluded "the query is fine", and chased lock
+    contention and `net.http_post`-inside-FOR-UPDATE instead. **The cost IS the RLS.** Always
+    reproduce with `SET LOCAL ROLE authenticated` + `SET LOCAL request.jwt.claims` or you measure
+    nothing. The reported error context ("SQL function current_driver_id statement 1") is just where
+    the interrupt landed — it is not where the time goes.
+  - **Cause:** the `driver_read_customer_sms` policy on `sms_messages` filters
+    `customer_id IN (SELECT ... FROM route_stops JOIN orders ...)`. Reading `orders` makes Postgres
+    inline the ENTIRE orders RLS stack per candidate row: Seq Scan on orders **6,459 ms**, containing
+    `driver_read_assigned_orders` inline (**2,879 ms** — seq scans route_stops 26,006 + routes 2,161)
+    and `customer_read_own_orders` → `driver_stop_customer_ids()` (**2,982 ms**), plus two Seq Scans
+    on `profiles`. One driver opening Messages seq-scans three tables.
+  - **Fix written:** `migrations/session_328b_sms_messages_driver_policy_no_nested_orders_rls.sql` —
+    a STABLE SECURITY DEFINER `driver_today_customer_ids()` so the policy never re-enters orders RLS
+    (the pattern `driver_stop_customer_ids` / `pos_session_active` already use). Equivalence proven
+    across every driver before writing: 166 pairs old, 166 new, 0 lost, 0 gained.
+    **NOT APPLIED — the apply was blocked by a permission control on RLS policy changes.**
+  - **🔑 Blast radius is ONE screen, not the whole app — and here is why that matters.** Session 161
+    already moved the driver app's heavy reads to SECURITY DEFINER RPCs (`get_driver_route_stops`,
+    `get_driver_stop_addresses`, `get_driver_override_stops`), which bypass RLS entirely. Checked
+    every policy on every table the driver app touches directly: **`driver_read_customer_sms` on
+    `sms_messages` is the only one whose USING clause reads `orders`.** Messages is the one screen
+    session 161 left behind on a raw table read, which is exactly why it is the one that times out.
+    An earlier draft of this note claimed every driver query that reads orders pays ~2.9s — that was
+    wrong, and the query above is the check that disproves it:
+      SELECT tablename, policyname FROM pg_policies
+       WHERE schemaname='public' AND cmd IN ('SELECT','ALL') AND qual ~* '\morders\M';
+  - **Latent, not currently burning — `driver_stop_customer_ids()` has no date bound.** It returns
+    every customer a driver has EVER served (790 for our busiest driver, vs 42 actually on today's
+    routes) and took 2,982 ms in the plan. It backs `driver_read_stop_customers` on `customers`.
+    It only showed up in this plan because the sms policy dragged the customers RLS in with it;
+    once 328b lands, it leaves this hot path. The driver app never reads `customers` directly, so
+    today it is a landmine rather than a live cost. Narrowing it to recent dates would remove a
+    driver's access to past customers — a product decision, not a mechanical fix.
+  - `sms_messages` has two permissive policies for authenticated/SELECT; both run on every read.
 
 ## Session 327c — Oct 2, 2026: customer emails from info@ Gmail land in customer history
 

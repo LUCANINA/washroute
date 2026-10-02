@@ -16,7 +16,7 @@ const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
 // Only staff who handle billing may charge: admin, manager, attendant.
 const CHARGE_ROLES = new Set(['admin', 'manager', 'attendant', 'laundry_tech'])
 
-async function authorize(req: Request): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+async function authorize(req: Request): Promise<{ ok: true; internal?: boolean } | { ok: false; status: number; reason: string }> {
   // Internal caller: pg_cron jobs and SECURITY DEFINER trigger/RPC functions reach
   // us through net.http_post and cannot present the service-role key (it is not
   // stored anywhere reachable from SQL — the vault is empty). They send the shared
@@ -27,7 +27,7 @@ async function authorize(req: Request): Promise<{ ok: true } | { ok: false; stat
   if (internalSecret) {
     const secretClient = createClient(supabaseUrl, supabaseServiceKey)
     const { data: iaRow } = await secretClient.from('wr_internal_auth').select('secret').maybeSingle()
-    if (iaRow?.secret && internalSecret === iaRow.secret) return { ok: true }
+    if (iaRow?.secret && internalSecret === iaRow.secret) return { ok: true, internal: true }
   }
 
   const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || ''
@@ -73,6 +73,28 @@ function notifyCustomer(orderId: string, event: string) {
     },
     body: JSON.stringify({ orderId, event }),
   }).catch(e => console.warn(`notification ${event} failed:`, e.message));
+}
+
+// ── v68 (session 330): receipt email after a background auto-charge ──────────
+// The admin dashboard emails the receipt itself after ITS charges. Orders marked
+// Ready on the POS are charged by the pg_cron sweep (sweep_autocharge_ready_orders),
+// the only caller that authenticates with x-wr-internal — and nothing emailed
+// those customers a receipt (Covenant House, Oct 2026). So: internal caller +
+// success → ask send-receipt for the receipt. source:'auto_charge' makes
+// send-receipt skip the send if this order's receipt already went out.
+// waitUntil keeps the request alive after we respond to pg_net.
+function sendAutoChargeReceipt(orderId: string) {
+  const p = fetch(`${supabaseUrl}/functions/v1/send-receipt`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${supabaseServiceKey}`,
+    },
+    body: JSON.stringify({ order_id: orderId, source: 'auto_charge' }),
+  }).then(async r => {
+    if (!r.ok) console.error(`auto-charge receipt for ${orderId} failed: ${r.status} ${await r.text()}`)
+  }).catch(e => console.error(`auto-charge receipt for ${orderId} failed:`, e.message))
+  try { (globalThis as any).EdgeRuntime?.waitUntil?.(p) } catch (_e) { /* best effort */ }
 }
 
 // ── v49 (session 228): typed failure reasons ─────────────────────────────────
@@ -408,6 +430,7 @@ Deno.serve(async (req) => {
 
     // Notify customer of successful payment
     notifyCustomer(orderId, 'payment_received')
+    if (auth.internal) sendAutoChargeReceipt(orderId)
 
     console.log('Order charged successfully:', orderId,
       paymentIntent ? paymentIntent.id : '[credits-only]',
