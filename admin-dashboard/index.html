@@ -671,10 +671,10 @@
     #customer-panel .cp2-months > span { grid-row: 1; white-space: nowrap; }
     #customer-panel .cp2-iss { display: block; width: 100%; text-align: left; background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; font: inherit; color: inherit; box-sizing: border-box; }
     #customer-panel .cp2-iss:hover { border-color: var(--gray-300); }
-    /* Messages tab: the thread scrolls, the compose box stays put. */
+    /* Messages tab: compose box pinned at the top, thread (newest first) scrolls below it. */
     #customer-panel .cp2-msgs { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
     #customer-panel .cp2-thread { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 22px 14px; display: flex; flex-direction: column; }
-    #customer-panel #cp-engagement-list { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+    #customer-panel #cp-engagement-list { display: flex; flex-direction: column; gap: 8px; }
     #customer-panel .cp2-day { text-align: center; font-size: 11.5px; font-weight: 600; color: var(--gray-500); margin: 8px 0 0; }
     #customer-panel .cp2-sys { align-self: center; display: inline-flex; align-items: center; gap: 6px; max-width: 92%; font: inherit; font-size: 12px; color: var(--gray-500); background: none; border: none; cursor: pointer; padding: 3px 8px; border-radius: 6px; text-align: left; }
     #customer-panel .cp2-sys:hover { background: var(--gray-100); }
@@ -687,7 +687,7 @@
     #customer-panel .cp2-bub.staff { background: var(--accent); color: #fff; border-radius: 14px 14px 4px 14px; }
     #customer-panel .cp2-bub.cust { background: #fff; color: var(--gray-800); border: 1px solid var(--gray-200); border-radius: 14px 14px 14px 4px; }
     #customer-panel .cp2-bub.fail { box-shadow: 0 0 0 2px var(--red); }
-    #customer-panel .cp2-compose { flex-shrink: 0; background: #fff; border-top: 1px solid var(--gray-200); padding: 10px 22px 14px; }
+    #customer-panel .cp2-compose { flex-shrink: 0; background: #fff; border-bottom: 1px solid var(--gray-200); padding: 14px 22px 12px; }
     #customer-panel .cp2-composebox { border: 1px solid var(--gray-300); border-radius: 12px; padding: 9px 10px 7px 12px; }
     #customer-panel .cp2-composebox textarea, #customer-panel .cp2-composebox input { display: block; width: 100%; box-sizing: border-box; border: none; outline: none; padding: 0; font: inherit; font-size: 13.5px; line-height: 1.45; resize: none; background: transparent; color: var(--gray-900); }
     #customer-panel .cp2-composebar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
@@ -8059,11 +8059,8 @@
     </div>
   </div>
 
-  <!-- ── MESSAGES: one thread, compose at the bottom ── -->
+  <!-- ── MESSAGES: compose at the top, thread newest first ── -->
   <div class="cp-body cp2-msgs" id="cptab-messages" style="display:none">
-    <div class="cp2-thread" id="cp2-thread">
-      <div id="cp-engagement-list"><div class="cp2-cap" style="text-align:center">Loading…</div></div>
-    </div>
     <div class="cp2-compose" id="cp-compose">
       <div class="cp2-composebox">
         <label for="cpc-subject" class="cp2-sr">Subject</label>
@@ -8081,6 +8078,9 @@
       <div id="cpc-error" style="display:none;margin-top:6px;color:var(--red);font-size:12.5px"></div>
       <!-- cpComposeChannel still toggles these; the select above is what people use. -->
       <span style="display:none"><button type="button" id="cpc-ch-sms"></button><button type="button" id="cpc-ch-email"></button></span>
+    </div>
+    <div class="cp2-thread" id="cp2-thread">
+      <div id="cp-engagement-list"><div class="cp2-cap" style="text-align:center">Loading…</div></div>
     </div>
   </div>
 
@@ -42785,7 +42785,7 @@ ${oneCopy}
     box.style.display = '';
   }
 
-  // ══ Session 329: Messages tab — one thread, oldest at the top ══
+  // ══ Session 329: Messages tab — compose on top, thread newest first (David, 329) ══
   // People get bubbles (staff right, customer left). Automated sends — outbound
   // with no staff name — shrink to one grey line; click to read the full text.
   let _cp2MsgLimit = 40;
@@ -42795,9 +42795,8 @@ ${oneCopy}
     if (!el) return;
     const all = _allCpMsgs || [];
     if (!all.length) { el.innerHTML = '<div class="cp2-cap" style="text-align:center;padding:24px 0">No messages yet.</div>'; return; }
-    const msgs = all.slice(0, _cp2MsgLimit).reverse();
+    const msgs = all.slice(0, _cp2MsgLimit);   // _allCpMsgs is newest first
     const parts = [];
-    if (all.length > _cp2MsgLimit) parts.push(`<button type="button" class="cp2-sys" style="color:var(--accent);font-weight:600" onclick="_cp2MsgLimit+=40;renderCpEngagement(true)">Show earlier messages</button>`);
     let lastDay = '';
     const thisYear = new Date().toLocaleDateString('en-US', { timeZone: BIZ_TZ, year: 'numeric' });
     msgs.forEach(m => {
@@ -42829,8 +42828,9 @@ ${oneCopy}
       parts.push(`<div class="${cls}"><div class="cp2-bub ${bub}${failed ? ' fail' : ''}">${content}</div>
         <div class="cp2-cap" style="font-size:11.5px">${who}${esc(t)}${isEmail ? ' · Email' : ''}${failed ? ' · <b style="color:var(--red)">not delivered</b>' : ''}</div></div>`);
     });
+    if (all.length > _cp2MsgLimit) parts.push(`<button type="button" class="cp2-sys" style="color:var(--accent);font-weight:600" onclick="_cp2MsgLimit+=40;renderCpEngagement(true)">Show older messages</button>`);
     el.innerHTML = parts.join('');
-    if (!arguments[0]) { const th = document.getElementById('cp2-thread'); if (th) th.scrollTop = th.scrollHeight; }
+    if (!arguments[0]) { const th = document.getElementById('cp2-thread'); if (th) th.scrollTop = 0; }
   }
   function cp2ToggleSys(key) {
     if (_cp2OpenSys.has(key)) _cp2OpenSys.delete(key); else _cp2OpenSys.add(key);
