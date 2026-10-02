@@ -857,3 +857,40 @@ WHERE o.created_at > now() - interval '45 days'
   AND COALESCE(o.total_amount,0) > 0
   AND COALESCE(c.billing_type,'') <> 'on_account'
 ORDER BY o.total_amount DESC;
+-- @check id=28 name="Active Order With No Delivery Stop (invisible order)" priority=P0
+-- Session 2026-10-02. Order #16426 was paid ($101.95), folded and racked, yet had
+-- ZERO route_stops and routing_error = NULL — so it appeared nowhere: not on a route,
+-- not in the Issues queue, and not in any of the other 41 checks here.
+--
+-- How it happened: rollback_order_to_on_hold DELETEs all stops and parks the order in
+-- on_hold with a routing_error (correct, by design — a human reschedules it from Issues).
+-- The order was then advanced forward to ready_for_delivery five seconds later.
+-- advance_order_status treats any move out of on_hold as "forward", which CLEARS
+-- routing_error, and it only re-routes when the target status is exactly 'scheduled'.
+-- Net result: no stops, no flag, no visibility.
+--
+-- Why check 1 did not catch it: check 1 only tests for a missing PICKUP stop. #16426 was
+-- caught by luck because the rollback had removed both legs. An order that keeps its
+-- completed pickup stop and loses only the delivery leg passes check 1, passes check 11
+-- (which requires the delivery stop to EXIST but be stale) and passes check 4 (which
+-- requires a stop row). This check closes that gap.
+--
+-- walk_in is exempt: POS counter sales have no delivery leg by design (6 such orders as
+-- of this date, all legitimate). Scoped to live stops — a skipped/failed delivery stop is
+-- check 21's job, not this one.
+SELECT o.order_number, o.status, o.billing_status, o.total_amount,
+       o.routing_error,
+       (o.updated_at AT TIME ZONE 'America/Los_Angeles')::text AS last_touched_pt,
+       c.first_name_cache || ' ' || c.last_name_cache AS customer
+FROM orders o
+LEFT JOIN customers c ON c.id = o.customer_id
+WHERE o.status IN ('scheduled','picked_up','processing','folding',
+                   'ready_for_delivery','out_for_delivery')
+  AND COALESCE(o.source, '') <> 'walk_in'
+  AND NOT EXISTS (
+    SELECT 1 FROM route_stops rs
+    WHERE rs.order_id = o.id
+      AND rs.stop_type = 'delivery'
+      AND rs.status NOT IN ('skipped', 'failed')
+  )
+ORDER BY o.updated_at DESC;

@@ -145,6 +145,9 @@ async function classifyPayout(payout: any) {
 
     if (charge.invoice) category = 'subscription'
     else if (charge.description && charge.description.startsWith('Gift Up:')) category = 'gift_card'
+    // Session 329: staff custom charges (charge-custom) have no order -- book to
+    // 403 Delivery like xero-payout-sync does. Keep the two classifiers identical.
+    else if ((charge.metadata && charge.metadata.kind === 'custom_charge') || (charge.description && charge.description.startsWith('Custom charge:'))) category = 'delivery'
     else if (charge.payment_intent) {
       order = await getOrderByPI(charge.payment_intent as string)
       if (order) {

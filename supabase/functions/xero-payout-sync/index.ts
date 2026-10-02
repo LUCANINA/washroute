@@ -185,6 +185,15 @@ async function classifyPayout(payout: any) {
       category = 'subscription'
     } else if (charge.description && charge.description.startsWith('Gift Up:')) {
       category = 'gift_card'
+    } else if ((charge.metadata && charge.metadata.kind === 'custom_charge') ||
+               (charge.description && charge.description.startsWith('Custom charge:'))) {
+      // Session 329: staff custom charges (charge-custom) carry no order, so
+      // getOrderByPI finds nothing and they would land in 'unclassified' --
+      // which holds the whole payout up. David's call: book them to 403
+      // Delivery - Wash & Fold, the same account as delivery orders. Matched on
+      // the metadata tag first (set by charge-custom), description prefix as a
+      // fallback; both are written by our own function, never typed by a user.
+      category = 'delivery'
     } else if (charge.payment_intent) {
       order = await getOrderByPI(charge.payment_intent as string)
       if (order) {

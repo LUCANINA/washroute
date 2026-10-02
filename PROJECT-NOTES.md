@@ -1,5 +1,117 @@
 # WashRoute — Project Notes
 
+## Session 329 — Oct 2, 2026: customer panel redesign + custom charges + "Charge card again"
+
+- **What changed (admin-dashboard/index.html, `#customer-panel`):** the customer panel went from 5 tabs + sub-tabs
+  (Contact › Details/Marketing/Messages, Billing › Plan/Payment/Balance/History) and one shared Save button to
+  **six flat tabs: Overview · Billing · Orders · Messages · Issues · Settings.** Designed on the "Customer Profile
+  Redesign" canvas with David, built with Bronwyn Ayla's real data as the test case.
+  - **Header:** name + pencil (edit name/phone/email), contact line, one stat line (lifetime · orders · customer
+    since · credit only when > $0). The "7 days" recency chip is gone; a chip shows only for Cancelled/Frozen.
+  - **Overview:** Right now (next open order with address nickname, every open issue) · Addresses (nickname, zone,
+    per-address delivery notes; Remove moved inside Edit) · Cleaning preferences (read view lists only what's
+    switched on; edit view turns every Yes/No preference into a one-tap chip that drives the existing hidden
+    `<select>`, so `savePanelPreferences` is unchanged).
+  - **Billing:** Balance card (red ONLY when money is owed) · **Billing settings** (collapsed; summary line; each
+    row's Change opens just that control and calls `saveBilling(this)`) · **Payments** (open; one row per
+    charge/refund/credit; click a row for details; **refunds are inline** in the row — same `refund-charge` call,
+    amount defaults to what's left, partial refunds allowed). Day filters removed.
+  - **Orders:** Order rhythm (26 weekly bars, next order dashed, cadence in words) · In progress · Past orders.
+    Delivered+paid carries no badge; failed pickups read "Pickup failed · Bags not out" + "Not charged" (the
+    amount was only ever an estimate — David, this session); unpaid = the only red; skipped/cancelled/archived
+    fold into one "Hidden" line. "Select for receipts or billing" → checkboxes + the existing bar
+    (Show Receipts · Email Receipts · Bill Orders). Active/Completed tabs + 7/30/60/120 filters removed.
+  - **Messages:** one thread, oldest at top. Automated sends (outbound, no `sent_by_name`) shrink to one grey line
+    (click to read); people get bubbles. Compose box at the bottom with a Text/Email picker. Marketing opt-ins
+    moved to Settings.
+  - **Issues:** Open first, then History. Tab shows the open count. New issues = header Issue button.
+  - **Settings:** route override, processing site, source (autosave via `cp2SaveSettings`, which writes ONLY
+    those three columns), customer app link, marketing toggles, referral.
+- **How it's wired:** every element id the older load/save code reads (cpe-*, cpb-*, cpc-*, cp-*) is kept, just
+  moved — so `openCustomerPanel`, `saveBilling`, `saveCustomerContact`, card/subscription renderers and compose
+  keep working. New code is `cp2*` / `.cp2-*` (CSS scoped to `#customer-panel`). Replaced outright:
+  `cpTab`, `renderCpOrders`, `renderCpTxns`, `renderCpEngagement`, `loadCpIssues`, `addrCardHTML`.
+  `cpContactSubtab` / `cpBillingSubtab` are compat shims. Old tab names ('contact', 'preferences') map to Overview.
+- **New: "Charge card again"** (Billing, only when money is owed, automatic billing, card on file): two clicks,
+  re-runs `_chargeOrderCall` (charge-order — same function and guards as Issues › Retry charge) for each
+  `v_outstanding_orders` row, then emails receipts like `retryChargeFromIssues`.
+- **New: custom charges** — `supabase/functions/charge-custom` (v1 deployed 2026-10-02, verify_jwt TRUE, probed:
+  anon call → 401 "Invalid or expired session", nothing charged). Staff roles as charge-order; reason required;
+  $500 cap; refuses on-account and cancelled; default card only (no fall-through); Stripe idempotency key from a
+  `requestId` made once per form open (double-click / retry can't charge twice); writes `customer_transactions`
+  type `charge`, `order_id` NULL, with the PI (so Payments can refund it); texts a receipt via send-sms.
+  Description prefix `Custom charge:` + `metadata.kind='custom_charge'`.
+- **Xero:** a charge with no order would land in 'unclassified' and hold up the payout. David chose **403 Delivery
+  - Wash & Fold**. Classification added in BOTH `xero-payout-sync` and `xero-payout-reallocate` (they carry
+  duplicate classifiers — blast-radius find; keep them identical). ⚠️ **Not deployed from here** (both
+  `verify_jwt: false`, both import `_shared/*`): deploy from David's terminal with `--no-verify-jwt` BEFORE the
+  first custom charge is made.
+- **Found, not fixed (David's call):** Bronwyn's header lifetime $807.50 ≠ her orders' $811.55 ≠ payments net
+  $673.60 ($811.55 charged − $137.95 refunded). The Apr 3 credit-add / charge / refund / credit-remove sequence on
+  #1651 is a deliberate "Free rewash" (refund note). The old customer panel printed raw `bags_not_out`; a label map
+  existed elsewhere. `custActivityBadge` still says "No orders" when `last_delivered_order_at` is empty, ignoring
+  `last_order_at` (session 324 trap) — it now only renders for Cancelled/Frozen in the panel, but is still used
+  elsewhere.
+- **Tested:** headless Chromium against the real file with an offline stub (Bronwyn's real rows + a sample busy
+  customer): 74 checks, all clicked through the real UI — tabs, edit details, prefs chips, Billing rows, inline
+  refund (incl. part-refunded #2665 = $68.95 left), custom charge (two-click, $500 cap), Charge card again, order
+  states, receipts bar, messages thread, issues, settings autosave, and Overview/Orders/Customers/Processing/Inbox
+  pages still open. Maps couldn't be checked offline (the stub fakes Leaflet). Not testable offline: real Stripe
+  charges/refunds, the Stripe card form, Google address autocomplete.
+
+## Session 328 — Oct 2, 2026: the invisible order — #16426, and why no check caught it
+
+- **What happened:** order #16426 (Sabrina Moore) was charged $101.95, folded and racked, and had **zero route
+  stops** with `routing_error` NULL. It was on no route, in no queue, and in none of the 41 `daily_audit.sql`
+  checks. The customer was expecting a 7am delivery that had silently moved to 6pm, with no text sent.
+- **Cause — two correct behaviours that combine into a hole.** `rollback_order_to_on_hold` DELETEs every stop and
+  parks the order in `on_hold` WITH a `routing_error`, so Issues picks it up — correct by design. Five seconds
+  later the order was advanced forward to `ready_for_delivery`. `advance_order_status` treats any move out of
+  `on_hold` as forward, which **clears `routing_error`**, and it only re-routes when the target status is exactly
+  `'scheduled'`:
+  `v_needs_reroute := (p_new_status = 'scheduled' AND (pickup_run_id IS NULL OR delivery_run_id IS NULL));`
+  Net result: no stops, no flag, no visibility. The gap is in the RPC, so it affects every caller — admin dropdown,
+  driver app, POS, and the 5-minute autocharge sweep — not just the screen the rollback was clicked on.
+- **🔑 Why the audit missed it:** check 1 only tests for a missing **pickup** stop. #16426 was caught by luck because
+  the rollback removed both legs. An order that keeps its completed pickup stop and loses only the delivery leg
+  passes check 1, passes check 11 (needs the stop to EXIST but be stale) and passes check 4 (needs a stop row).
+- **🔑 Prefer a state test to a flag test.** The whole failure was a flag being cleared by unrelated code. "Does a
+  live delivery stop exist?" cannot be cleared by a bug elsewhere; `routing_error` can. New detection asks the state
+  question, which also means it catches orders stranded by any future path, not only this one.
+- **Three independent layers, added this session:**
+  1. **Admin → Overview → "For your review"** (`loadRescheduleOrders`, kind `unrouted`, sorted first) — the CS team
+     sees it within minutes and reschedules. Includes a cap-detection guard (PostgREST silently truncates a wide
+     select — the admin inbox lost rows to exactly that) and a widespread-issue guard: >10 hits renders a caution
+     banner instead of flooding the list, because a dozen at once means the query is wrong, not that a dozen
+     customers lost a delivery.
+  2. **`daily_audit.sql` check 28** (P0) — overnight net. `walk_in` exempt (6 counter sales, no delivery leg by design).
+  3. **`migrations/session_328_...sql`** — preserves `routing_error` when an order enters an active status with no
+     live delivery stop, so it stays in Issues. **Written, reviewed, NOT APPLIED** pending David.
+- **🔑 Do NOT "fix" this by calling `auto_route_order` from `advance_order_status`.** After a rollback
+  `pickup_run_id` is NULL and the pickup stop is gone, so for an order at processing/folding/ready_for_delivery the
+  PICKUP branch fires and INSERTs a fresh pending pickup stop — sending a driver to collect laundry that is already
+  folded and racked — and rewrites `pickup_window_start`. Safe auto-re-routing needs `auto_route_order` split into
+  per-leg entry points (`auto_route_order_legs(p_order_id, p_do_pickup, p_do_delivery)`). Separate, larger job.
+- **Two audit checks produce known false positives** (both found while acting on this report, before any damage):
+  - **Check 6 (duplicate orders)** groups by customer + pickup date and ignores address. #16290/#16391 looked like
+    duplicates but are one commercial client (Nit Pixies Clinic) at **two sites** — Woodminster Ln, Oakland and
+    San Pablo Ave, El Cerrito. Cancelling one would have killed a real weekly pickup. The recurring no-dup index
+    already learned this lesson; this check hasn't. Should include pickup_address_id.
+  - **Check 21** fires on retained driver-skip rows. #16359 had a `delivery:skipped` row from a driver skip AND a
+    live `delivery:pending` stop — nothing was wrong. Session 320 keeps those rows deliberately.
+- **Admin RPCs cannot be driven from the Supabase MCP connection.** `enforce_caller_owns_order` passes only for
+  `service_role` or `is_staff()`; the MCP session is neither, so `reschedule_order_leg` refuses with
+  "You do not have permission to mutate this order". Data fixes of this kind need the admin UI or an edge function.
+  This is the guard working — do not route around it with raw INSERTs into `route_stops`
+  (`trg_sync_order_status` fires on insert and can move the order's status).
+- **Open:** driver-app Messages timeouts. 871 statement timeouts across 352 connections in 24h, all on one query
+  (`driver-app/index.html` `loadCustomerSms`). The query is **not** slow — 9–12ms in every variant, with and without
+  the RLS predicate, and PostgREST already applies a LIMIT, so "add a limit" is not the fix. Postgres logs show real
+  row-lock contention (ShareLock waits 1.7s–9.9s, one past the 8s `authenticated` timeout). Suspect worth checking:
+  `advance_order_status` / `reschedule_order` hold `SELECT ... FOR UPDATE` on an orders row and then call
+  `net.http_post` to an edge function inside the same transaction. Not proven — needs live observation during a busy
+  stretch rather than another guess.
+
 ## Session 327c — Oct 2, 2026: customer emails from info@ Gmail land in customer history
 
 - **What:** Admin → Settings → General → **Email** connects the info@familylaundry.com Gmail (read-only,

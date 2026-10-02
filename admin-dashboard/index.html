@@ -581,6 +581,117 @@
     .cp-order-num { font-family: monospace; font-weight: 700; color: var(--accent); font-size: 12px; min-width: 46px; }
     .cp-order-svc { flex: 1; color: var(--gray-700); min-width: 100px; }
     .cp-order-amt { font-weight: 600; color: var(--gray-900); min-width: 52px; text-align: right; }
+    /* ── Session 329: customer panel redesign (.cp2-*) — scoped to #customer-panel ── */
+    #customer-panel .cp2-header { padding: 20px 24px 0; border-bottom: none; }
+    #customer-panel .cp2-header .cp-name { margin-bottom: 0; }
+    #customer-panel .cp2-namerow { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+    #customer-panel .cp2-namerow #cp-status-badge { margin-left: 6px; }
+    #customer-panel .cp2-iconbtn { width: 32px; height: 32px; border: none; background: transparent; border-radius: 8px; color: var(--gray-500); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+    #customer-panel .cp2-iconbtn:hover { background: var(--gray-100); color: var(--gray-800); }
+    #customer-panel .cp2-hbtn { height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--gray-200); background: var(--gray-100); color: var(--gray-700); font: inherit; font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+    #customer-panel .cp2-hbtn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    #customer-panel .cp2-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; margin: 10px 0 4px; font-size: 13px; color: var(--gray-600); }
+    #customer-panel .cp2-stats strong { font-size: 14.5px; font-weight: 600; color: var(--gray-900); }
+    #customer-panel .cp2-tabs { padding: 0 14px; }
+    #customer-panel .cp2-tabcount { margin-left: 6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--amber-light); color: #92400e; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+    #customer-panel .cp2-card { background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+    #customer-panel .cp2-card.cp2-editing { border-color: #93c5fd; box-shadow: 0 0 0 3px var(--accent-light); }
+    #customer-panel .cp2-cardhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    #customer-panel .cp2-lbl { font-size: 12.5px; font-weight: 600; color: var(--gray-500); }
+    #customer-panel .cp2-cap { font-size: 12.5px; color: var(--gray-500); }
+    #customer-panel .cp2-help { font-size: 12.5px; color: var(--gray-600); margin-top: 5px; }
+    #customer-panel .cp2-flabel { display: block; font-size: 12.5px; font-weight: 600; color: var(--gray-700); margin: 12px 0 5px; }
+    #customer-panel .cp2-link { background: none; border: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); cursor: pointer; padding: 4px 0; white-space: nowrap; }
+    #customer-panel .cp2-link:hover { text-decoration: underline; }
+    #customer-panel .cp2-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+    #customer-panel .cp2-actions .btn { padding: 7px 14px; font-size: 13px; }
+    #customer-panel .cp2-btnrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    #customer-panel .cp2-btnrow:empty { display: none; }
+    #customer-panel .cp2-btnrow .btn { padding: 6px 12px; font-size: 12.5px; }
+    #customer-panel .cp2-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    #customer-panel .cp2-now { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+    #customer-panel .cp2-now + .cp2-now { padding-top: 10px; border-top: 1px solid var(--gray-100); }
+    #customer-panel a.cp2-now { color: inherit; text-decoration: none; }
+    #customer-panel .cp2-tile { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--accent-light); color: var(--blue); }
+    #customer-panel .cp2-tile.amber { background: var(--amber-light); color: var(--amber); }
+    #customer-panel .cp2-tile.green { background: var(--green-light); color: var(--green); border-radius: 50%; }
+    #customer-panel .cp2-tile.red { background: var(--red-light); color: #b91c1c; border-radius: 50%; }
+    #customer-panel .cp2-now-t { font-size: 15px; font-weight: 600; color: var(--gray-900); letter-spacing: -.01em; }
+    #customer-panel .cp2-addr { display: flex; gap: 10px; align-items: flex-start; padding-top: 12px; }
+    #customer-panel .cp2-addr + .cp2-addr, #customer-panel .cp2-addr-edit + .cp2-addr, #customer-panel .cp2-addr + .cp2-addr-edit { margin-top: 12px; border-top: 1px solid var(--gray-100); }
+    #customer-panel .cp2-addr-edit { padding-top: 12px; }
+    #customer-panel .cp2-nick { font-size: 12px; font-weight: 600; color: var(--gray-600); }
+    #customer-panel .cp2-note { display: flex; gap: 7px; align-items: flex-start; margin-top: 8px; padding: 7px 10px; background: var(--gray-50); border-radius: 8px; font-size: 13px; color: var(--gray-700); white-space: pre-line; }
+    #customer-panel .cp2-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    #customer-panel .cp2-tag { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: var(--accent-light); color: #1e40af; font-size: 12.5px; font-weight: 600; }
+    #customer-panel .cp2-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+    #customer-panel .cp2-chips:empty { display: none; }
+    #customer-panel .cp2-chip { height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--gray-300); background: #fff; color: var(--gray-600); font: inherit; font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    #customer-panel .cp2-chip[aria-pressed="true"] { background: var(--accent-light); border-color: #93c5fd; color: #1e40af; font-weight: 600; }
+    #customer-panel .cp2-sec { background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; margin-bottom: 12px; overflow: hidden; }
+    #customer-panel .cp2-sechd { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 12px 16px; background: none; border: none; font: inherit; color: var(--gray-500); text-align: left; cursor: pointer; box-sizing: border-box; }
+    #customer-panel .cp2-sechd:hover { background: var(--gray-50); }
+    #customer-panel .cp2-sechd > svg { transition: transform .15s; flex-shrink: 0; }
+    #customer-panel .cp2-sechd[aria-expanded="true"] > svg { transform: rotate(180deg); }
+    #customer-panel .cp2-sect { font-size: 14.5px; font-weight: 600; color: var(--gray-900); }
+    #customer-panel .cp2-secbody { padding: 0 16px 8px; }
+    #customer-panel .cp2-secbody.flush { padding: 0 0 6px; }
+    #customer-panel .cp2-kv { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--gray-100); }
+    #customer-panel .cp2-k { width: 88px; flex-shrink: 0; font-size: 12.5px; color: var(--gray-500); }
+    #customer-panel .cp2-v { flex: 1; min-width: 0; font-size: 13px; color: var(--gray-500); }
+    #customer-panel .cp2-v b { display: block; font-size: 13.5px; font-weight: 600; color: var(--gray-900); }
+    #customer-panel .cp2-rowedit { background: #f8fafc; border: 1px solid var(--gray-200); border-radius: 10px; padding: 12px; margin: 0 0 10px; }
+    #customer-panel .cp2-tx { display: flex; align-items: baseline; gap: 12px; width: 100%; padding: 9px 16px; background: none; border: none; border-top: 1px solid var(--gray-100); font: inherit; font-size: 13.5px; color: inherit; text-align: left; cursor: pointer; box-sizing: border-box; }
+    #customer-panel .cp2-tx:hover { background: var(--gray-50); }
+    #customer-panel .cp2-td { width: 50px; flex-shrink: 0; color: var(--gray-500); font-size: 12.5px; }
+    #customer-panel .cp2-tn { flex: 1; min-width: 0; color: var(--gray-900); }
+    #customer-panel .cp2-ta { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--gray-900); white-space: nowrap; }
+    #customer-panel .cp2-muted { color: var(--gray-500) !important; font-weight: 400 !important; }
+    #customer-panel .cp2-det { margin: 0 16px 10px 78px; padding: 11px 13px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; font-size: 13px; }
+    #customer-panel .cp2-dl { display: grid; grid-template-columns: 74px 1fr; gap: 3px 10px; }
+    #customer-panel .cp2-dl > span:nth-child(odd) { color: var(--gray-500); }
+    #customer-panel .cp2-ord { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--gray-100); cursor: pointer; }
+    #customer-panel .cp2-ord.billing-selected { background: var(--accent-light); margin: 0 -16px; padding: 10px 16px; }
+    #customer-panel .cp2-od { flex: 1; min-width: 0; }
+    #customer-panel .cp2-od1 { font-size: 13.5px; font-weight: 600; color: var(--gray-900); }
+    #customer-panel .cp2-od2 { font-size: 12px; color: var(--gray-500); }
+    #customer-panel .cp2-od2 a { color: var(--gray-500); text-decoration: underline; text-decoration-color: var(--gray-300); }
+    #customer-panel .cp2-pill { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+    #customer-panel .cp2-pill.blue { background: var(--accent-light); color: #1e40af; }
+    #customer-panel .cp2-pill.red { background: var(--red-light); color: #b91c1c; }
+    #customer-panel .cp2-pill.gray { background: var(--gray-100); color: var(--gray-600); }
+    #customer-panel .cp2-pill.amber { background: var(--amber-light); color: #92400e; }
+    #customer-panel .cp2-pill.green { background: var(--green-light); color: #166534; }
+    #customer-panel .cp2-bars { display: grid; gap: 3px; align-items: end; height: 40px; margin-top: 12px; }
+    #customer-panel .cp2-bars > div { display: flex; align-items: flex-end; height: 40px; }
+    #customer-panel .cp2-bar { width: 100%; border-radius: 3px; background: var(--accent); }
+    #customer-panel .cp2-bar.none { height: 3px; background: var(--gray-200); border-radius: 2px; }
+    #customer-panel .cp2-bar.next { background: transparent; border: 2px dashed var(--accent); box-sizing: border-box; height: 16px; }
+    #customer-panel .cp2-months { display: grid; gap: 3px; margin-top: 6px; font-size: 11px; color: var(--gray-500); }
+    #customer-panel .cp2-months > span { grid-row: 1; white-space: nowrap; }
+    #customer-panel .cp2-iss { display: block; width: 100%; text-align: left; background: #fff; border: 1px solid var(--gray-200); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; font: inherit; color: inherit; box-sizing: border-box; }
+    #customer-panel .cp2-iss:hover { border-color: var(--gray-300); }
+    /* Messages tab: the thread scrolls, the compose box stays put. */
+    #customer-panel .cp2-msgs { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+    #customer-panel .cp2-thread { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 22px 14px; display: flex; flex-direction: column; }
+    #customer-panel #cp-engagement-list { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+    #customer-panel .cp2-day { text-align: center; font-size: 11.5px; font-weight: 600; color: var(--gray-500); margin: 8px 0 0; }
+    #customer-panel .cp2-sys { align-self: center; display: inline-flex; align-items: center; gap: 6px; max-width: 92%; font: inherit; font-size: 12px; color: var(--gray-500); background: none; border: none; cursor: pointer; padding: 3px 8px; border-radius: 6px; text-align: left; }
+    #customer-panel .cp2-sys:hover { background: var(--gray-100); }
+    #customer-panel .cp2-sys span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #customer-panel .cp2-sysbody { align-self: center; max-width: 86%; font-size: 13px; color: var(--gray-700); background: #fff; border: 1px solid var(--gray-200); border-radius: 10px; padding: 8px 12px; white-space: pre-line; word-break: break-word; }
+    #customer-panel .cp2-out, #customer-panel .cp2-inb { max-width: 80%; display: flex; flex-direction: column; gap: 3px; }
+    #customer-panel .cp2-out { align-self: flex-end; align-items: flex-end; }
+    #customer-panel .cp2-inb { align-self: flex-start; align-items: flex-start; }
+    #customer-panel .cp2-bub { padding: 8px 12px; font-size: 13.5px; line-height: 1.45; white-space: pre-line; word-break: break-word; }
+    #customer-panel .cp2-bub.staff { background: var(--accent); color: #fff; border-radius: 14px 14px 4px 14px; }
+    #customer-panel .cp2-bub.cust { background: #fff; color: var(--gray-800); border: 1px solid var(--gray-200); border-radius: 14px 14px 14px 4px; }
+    #customer-panel .cp2-bub.fail { box-shadow: 0 0 0 2px var(--red); }
+    #customer-panel .cp2-compose { flex-shrink: 0; background: #fff; border-top: 1px solid var(--gray-200); padding: 10px 22px 14px; }
+    #customer-panel .cp2-composebox { border: 1px solid var(--gray-300); border-radius: 12px; padding: 9px 10px 7px 12px; }
+    #customer-panel .cp2-composebox textarea, #customer-panel .cp2-composebox input { display: block; width: 100%; box-sizing: border-box; border: none; outline: none; padding: 0; font: inherit; font-size: 13.5px; line-height: 1.45; resize: none; background: transparent; color: var(--gray-900); }
+    #customer-panel .cp2-composebar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    #customer-panel .cp2-composebar select { height: 30px; border: none; background: var(--gray-100); border-radius: 6px; padding: 0 6px; font: inherit; font-size: 12.5px; color: var(--gray-700); cursor: pointer; }
 
     /* ── ORDER DETAIL PANEL ── */
     .order-panel { position: fixed; top: 0; right: -560px; width: 500px; height: 100vh; background: #f5f5f7; box-shadow: -6px 0 40px rgba(0,0,0,.18); z-index: 1101; display: flex; flex-direction: column; transition: right .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
@@ -7678,419 +7789,258 @@
 <!-- ─── CUSTOMER SIDE PANEL ─── -->
 <div class="panel-backdrop" id="panel-backdrop" onclick="closeCustomerPanel()"></div>
 <div class="side-panel" id="customer-panel">
-  <div class="cp-header">
+  <!-- ══ Session 329: customer panel redesign ══════════════════════════════════
+       Six flat tabs, no sub-tabs: Overview · Billing · Orders · Messages · Issues ·
+       Settings. Every element id the older load/save code reads (cpe-*, cpb-*,
+       cpc-*, cp-*) is kept — they just live in new places — so openCustomerPanel,
+       saveBilling, saveCustomerContact, the card + subscription renderers and the
+       compose box keep working unchanged. New presentation code is prefixed cp2*
+       and its CSS .cp2-*. Design canvas: "Customer Profile Redesign" artifact. -->
+  <div class="cp-header cp2-header">
     <div style="flex:1;min-width:0">
-      <div class="cp-name" id="cp-name">—</div>
+      <div class="cp2-namerow">
+        <div class="cp-name" id="cp-name">—</div>
+        <button type="button" class="cp2-iconbtn" onclick="cp2ToggleEditDetails(true)" title="Edit name, phone and email" aria-label="Edit name, phone and email"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+        <span id="cp-status-badge"></span>
+      </div>
       <div class="cp-meta" id="cp-meta"></div>
+      <div class="cp2-stats" id="cp2-stats"></div>
+      <!-- Legacy stat ids: still written by openCustomerPanel / loadPanelOrders. -->
+      <div style="display:none"><span id="cp-ltv"></span><span id="cp-total-orders"></span><span id="cp-avg-order"></span><span id="cp-last-order"></span><span id="cp-credit-balance"></span></div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;margin-left:12px">
-      <span id="cp-status-badge"></span>
-      <button onclick="openCreateIssue(panelCustomerId)" style="display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--gray-100);color:var(--gray-700);border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap" title="Create issue for this customer">⚑ Issue</button>
-      <button id="cp-new-order-btn" onclick="openOrderForCustomer()" style="display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Order
-      </button>
-      <button class="modal-close" onclick="closeCustomerPanel()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      <button type="button" class="cp2-hbtn" onclick="openCreateIssue(panelCustomerId)" title="Create issue for this customer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4"/><path d="M4 4h13l-2 4 2 4H4"/></svg>Issue</button>
+      <button type="button" class="cp2-hbtn primary" id="cp-new-order-btn" onclick="openOrderForCustomer()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Order</button>
+      <button class="modal-close" onclick="closeCustomerPanel()" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </div>
   </div>
-  <div class="cp-stats-strip">
-    <div class="cp-stat"><div class="cp-stat-label">Lifetime</div><div class="cp-stat-value" id="cp-ltv">—</div></div>
-    <div class="cp-stat"><div class="cp-stat-label">Orders</div><div class="cp-stat-value" id="cp-total-orders">—</div></div>
-    <div class="cp-stat"><div class="cp-stat-label">Avg Order</div><div class="cp-stat-value" id="cp-avg-order">—</div></div>
-    <div class="cp-stat"><div class="cp-stat-label">Last Order</div><div class="cp-stat-value" id="cp-last-order" style="white-space:nowrap">—</div></div>
-    <div class="cp-stat"><div class="cp-stat-label">Credit Balance</div><div class="cp-stat-value" id="cp-credit-balance">—</div></div>
-  </div>
-  <div class="cp-tabs">
-    <button class="cp-tab active" onclick="cpTab('contact',this)">Contact</button>
-    <button class="cp-tab" onclick="cpTab('preferences',this)">Preferences</button>
-    <button class="cp-tab" onclick="cpTab('billing',this)">Billing</button>
-    <button class="cp-tab" onclick="cpTab('orders',this)">Orders</button>
-    <button class="cp-tab" onclick="cpTab('issues',this)">Issues</button>
+  <div class="cp-tabs cp2-tabs" role="tablist">
+    <button class="cp-tab active" data-cptab="overview" onclick="cpTab('overview',this)">Overview</button>
+    <button class="cp-tab" data-cptab="billing" onclick="cpTab('billing',this)">Billing</button>
+    <button class="cp-tab" data-cptab="orders" onclick="cpTab('orders',this)">Orders</button>
+    <button class="cp-tab" data-cptab="messages" onclick="cpTab('messages',this)">Messages</button>
+    <button class="cp-tab" data-cptab="issues" onclick="cpTab('issues',this)">Issues<span class="cp2-tabcount" id="cp2-issue-count" style="display:none"></span></button>
+    <button class="cp-tab" data-cptab="settings" onclick="cpTab('settings',this)">Settings</button>
   </div>
 
-  <!-- ── CONTACT TAB ── -->
-  <!-- Session 151: Contact tab restructured into 3 cards.
-       Card 1 = identity only (was previously mixed with Price List + routing settings).
-       Card 2 = Addresses (unchanged).
-       Card 3 = Operations (Route Override + Default Processing Site).
-       Price List moved entirely to Billing tab (saved by saveBilling, not saveCustomerContact). -->
-  <div class="cp-body" id="cptab-contact">
-    <!-- Session 184b — Contact split into sub-tabs (Details / Marketing / Messages)
-         so the identity form isn't buried under marketing + message history. -->
-    <div class="filter-tabs" style="margin-bottom:16px">
-      <button class="filter-tab active" data-csub="details"   onclick="cpContactSubtab('details',this)">Details</button>
-      <button class="filter-tab"        data-csub="marketing" onclick="cpContactSubtab('marketing',this)">Marketing</button>
-      <button class="filter-tab"        data-csub="messages"  onclick="cpContactSubtab('messages',this)">Messages</button>
-    </div>
-
-    <div class="cpc-pane" id="cpc-pane-details">
-    <div class="cp-section-head"><span>Name &amp; Contact</span></div>
-    <div class="cp-card">
+  <!-- ── OVERVIEW: right now · addresses · cleaning preferences ── -->
+  <div class="cp-body" id="cptab-overview">
+    <!-- Opened by the pencil next to the name. -->
+    <section class="cp2-card cp2-editing" id="cp2-edit-details" style="display:none">
+      <div class="cp2-lbl" style="margin-bottom:10px">Edit name, phone and email</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-        <div class="cp-field"><div class="cp-field-label">First Name</div><input class="cp-input" id="cpe-first" type="text" placeholder="First name"></div>
-        <div class="cp-field"><div class="cp-field-label">Last Name</div><input class="cp-input" id="cpe-last" type="text" placeholder="Last name"></div>
+        <div class="cp-field"><label class="cp-field-label" for="cpe-first">First name</label><input class="cp-input" id="cpe-first" type="text" placeholder="First name"></div>
+        <div class="cp-field"><label class="cp-field-label" for="cpe-last">Last name</label><input class="cp-input" id="cpe-last" type="text" placeholder="Last name"></div>
       </div>
-      <div class="cp-field"><div class="cp-field-label">Phone</div><input class="cp-input" id="cpe-phone" type="tel" placeholder="Phone number"></div>
-      <div class="cp-field"><div class="cp-field-label">Email</div><input class="cp-input" id="cpe-email" type="email" placeholder="Email address"></div>
-      <div id="cp-app-status" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;margin-bottom:12px;font-size:13px;min-height:38px"></div>
-      <!-- Session 326: read-only referral line, filled by renderCpReferral() from referral_codes/referrals -->
-      <div id="cp-referral" style="display:none;padding:9px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.5"></div>
-      <div class="cp-field">
-        <div class="cp-field-label">How They Found Us</div>
-        <select class="cp-input" id="cpe-source">
-          <option value="">— Select —</option>
-          <option value="nextdoor">Nextdoor</option>
-          <option value="yelp">Yelp</option>
-          <option value="google">Google search</option>
-          <option value="friend_family">Friend / family</option>
-          <option value="instagram">Instagram</option>
-          <option value="roots_soul">Roots &amp; Soul</option>
-          <option value="oakland_ballers">Oakland Ballers</option>
-          <option value="saw_van">I saw your van!</option>
-          <option value="other">Other</option>
-          <option value="ai">ChatGPT, Claude, or other AI</option>
-          <option value="ambassador">Ambassador / Referral Code</option>
-        </select>
+      <div class="cp-field"><label class="cp-field-label" for="cpe-phone">Phone</label><input class="cp-input" id="cpe-phone" type="tel" placeholder="Phone number"></div>
+      <div class="cp-field"><label class="cp-field-label" for="cpe-email">Email</label><input class="cp-input" id="cpe-email" type="email" placeholder="Email address"></div>
+      <div class="cp2-actions">
+        <button type="button" class="btn btn-ghost" onclick="cp2ToggleEditDetails(false)">Cancel</button>
+        <button type="button" class="btn btn-primary" id="cp2-save-details" onclick="saveCustomerContact(this)">Save</button>
       </div>
-    </div>
-
-    <div class="cp-section-head">
-      <span>Addresses</span>
-      <button class="btn btn-ghost" style="padding:2px 9px;font-size:11.5px;font-weight:600;text-transform:none;letter-spacing:0" onclick="toggleAddAddrForm()">+ Add</button>
-    </div>
-    <div id="cp-addresses"></div>
-    <!-- Inline add-address form -->
-    <div id="cp-add-addr-form" style="display:none;background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:12px;padding:14px 16px;margin-bottom:12px">
-      <div class="cp-subhead">New Address</div>
-      <div class="cp-field"><input class="cp-input" id="cpna-label" placeholder="Label (e.g. Home, Work)"></div>
-      <div class="cp-field wr-addr-wrap"><input class="cp-input" id="cpna-line1" placeholder="Start typing a street address…" autocomplete="off" oninput="wrAddrInput('new')" onblur="wrAddrHide('new')"><div class="wr-addr-sugg" id="cpna-suggestions"></div></div>
-      <div class="cp-field"><input class="cp-input" id="cpna-line2" placeholder="Apt / Unit (optional)"></div>
-      <div style="display:grid;grid-template-columns:1fr 70px 80px;gap:8px" class="cp-field">
-        <input class="cp-input" id="cpna-city" placeholder="City">
-        <input class="cp-input" id="cpna-state" placeholder="State" maxlength="2">
-        <input class="cp-input" id="cpna-zip" placeholder="ZIP">
-      </div>
-      <div class="cp-field"><textarea class="cp-input" id="cpna-instructions" placeholder="Access/delivery instructions (optional)" rows="2"></textarea></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="saveNewAddress()">Save Address</button>
-        <button class="btn btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="toggleAddAddrForm()">Cancel</button>
-      </div>
-    </div>
-
-    <!-- Operations card (session 151): advanced routing/processing rules for this customer.
-         Lives on Contact tab because Save Contact Info already handles these fields,
-         but visually separated from identity so the top card stays uncluttered. -->
-    <div class="cp-section-head"><span>Operations</span></div>
-    <div class="cp-card">
-      <div class="cp-field">
-        <div class="cp-field-label">Route Override</div>
-        <select class="cp-input" id="cpe-route-override">
-          <option value="">— Default (zone-based) —</option>
-        </select>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">When set, orders auto-route to this route instead of the customer's zone.</div>
-      </div>
-      <div class="cp-field">
-        <div class="cp-field-label">Default Processing Site</div>
-        <select class="cp-input" id="cpe-default-site">
-          <option value="">— Use main site —</option>
-        </select>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">New orders from this customer will be assigned to this site automatically. Leave empty to use the main site.</div>
-      </div>
-    </div>
-
-    <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--gray-100)">
-      <button class="btn btn-primary cp-save-btn" onclick="saveCustomerContact()">Save Contact Info</button>
       <div class="cp-save-msg" id="cp-contact-msg">✓ Saved</div>
-    </div>
-    </div><!-- /cpc-pane-details -->
+    </section>
 
-    <!-- Marketing sub-tab — SMS/email opt-in toggles (auto-save). -->
-    <div class="cpc-pane" id="cpc-pane-marketing" style="display:none">
-    <div class="cp-card">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
-        <div>
-          <div style="font-size:13px;font-weight:500;color:var(--gray-800)">SMS Marketing</div>
-          <div style="font-size:12px;color:var(--gray-400);margin-top:2px" id="cp-sms-mkt-detail"></div>
-        </div>
-        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
-          <input type="checkbox" id="cp-sms-mkt-toggle" onchange="toggleMarketingOpt('sms')" style="opacity:0;width:0;height:0">
-          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
-          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-sms-mkt-knob"></span>
-        </label>
-      </div>
-      <div style="border-top:1px solid var(--gray-100);margin:10px 0"></div>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
-        <div>
-          <div style="font-size:13px;font-weight:500;color:var(--gray-800)">Email Marketing</div>
-          <div style="font-size:12px;color:var(--gray-400);margin-top:2px" id="cp-email-mkt-detail"></div>
-        </div>
-        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
-          <input type="checkbox" id="cp-email-mkt-toggle" onchange="toggleMarketingOpt('email')" style="opacity:0;width:0;height:0">
-          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
-          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-email-mkt-knob"></span>
-        </label>
-      </div>
-    </div>
-    <style>
-      #cp-sms-mkt-toggle:checked + span { background: #059669 !important; }
-      #cp-sms-mkt-toggle:checked ~ #cp-sms-mkt-knob { left: 22px !important; }
-      #cp-email-mkt-toggle:checked + span { background: #059669 !important; }
-      #cp-email-mkt-toggle:checked ~ #cp-email-mkt-knob { left: 22px !important; }
-    </style>
-    </div><!-- /cpc-pane-marketing -->
+    <section class="cp2-card" id="cp2-rightnow">
+      <div class="cp2-lbl">Right now</div>
+      <div id="cp2-rightnow-body"><div class="cp2-cap" style="margin-top:8px">Loading…</div></div>
+    </section>
 
-    <!-- Messages sub-tab — compose (session 327) + SMS/email history. -->
-    <div class="cpc-pane" id="cpc-pane-messages" style="display:none">
-    <!-- Session 327: send a one-off text or email to THIS customer only. -->
-    <div id="cp-compose" style="margin-bottom:18px;padding:12px;border:1px solid var(--gray-200);border-radius:10px;background:white">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
-        <div style="display:flex;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px">
-          <button type="button" class="filter-tab active" id="cpc-ch-sms" onclick="cpComposeChannel('sms')">Text</button>
-          <button type="button" class="filter-tab" id="cpc-ch-email" onclick="cpComposeChannel('email')">Email</button>
+    <section class="cp2-card">
+      <div class="cp2-cardhead">
+        <span class="cp2-lbl">Addresses</span>
+        <button type="button" class="cp2-link" onclick="toggleAddAddrForm()">+ Add</button>
+      </div>
+      <div id="cp-addresses"></div>
+      <div id="cp-add-addr-form" class="cp2-rowedit" style="display:none;margin-top:12px">
+        <div class="cp2-lbl" style="margin-bottom:8px">New address</div>
+        <div class="cp-field"><input class="cp-input" id="cpna-label" placeholder="Nickname (e.g. Home, Work)"></div>
+        <div class="cp-field wr-addr-wrap"><input class="cp-input" id="cpna-line1" placeholder="Start typing a street address…" autocomplete="off" oninput="wrAddrInput('new')" onblur="wrAddrHide('new')"><div class="wr-addr-sugg" id="cpna-suggestions"></div></div>
+        <div class="cp-field"><input class="cp-input" id="cpna-line2" placeholder="Apt / Unit (optional)"></div>
+        <div style="display:grid;grid-template-columns:1fr 70px 80px;gap:8px" class="cp-field">
+          <input class="cp-input" id="cpna-city" placeholder="City">
+          <input class="cp-input" id="cpna-state" placeholder="State" maxlength="2">
+          <input class="cp-input" id="cpna-zip" placeholder="ZIP">
         </div>
-        <div id="cpc-to" style="font-size:12px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0"></div>
+        <div class="cp-field"><textarea class="cp-input" id="cpna-instructions" placeholder="Delivery notes for the driver (optional)" rows="2"></textarea></div>
+        <div class="cp2-actions">
+          <button type="button" class="btn btn-ghost" onclick="toggleAddAddrForm()">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="saveNewAddress()">Save address</button>
+        </div>
       </div>
-      <input id="cpc-subject" type="text" placeholder="Subject" maxlength="150" style="display:none;width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13.5px;font-family:inherit">
-      <textarea id="cpc-body" rows="3" placeholder="Type a text message…" oninput="cpComposeCount()" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13.5px;font-family:inherit;line-height:1.45;resize:vertical"></textarea>
-      <div id="cpc-error" style="display:none;margin-top:6px;color:var(--red);font-size:12.5px"></div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;gap:8px">
-        <span id="cpc-count" style="font-size:11.5px;color:var(--gray-400)"></span>
-        <button type="button" id="cpc-send" onclick="cpComposeSend()" style="padding:7px 16px;border:none;border-radius:8px;background:var(--accent);color:white;font-weight:600;font-size:13px;cursor:pointer">Send text</button>
+    </section>
+
+    <section class="cp2-card" id="cp2-prefs-card">
+      <div class="cp2-cardhead">
+        <span class="cp2-lbl">Cleaning preferences</span>
+        <button type="button" class="cp2-link" id="cp2-prefs-edit-btn" onclick="cp2TogglePrefsEdit(true)">Edit</button>
       </div>
-    </div>
-    <div style="display:flex;gap:6px;margin-bottom:14px">
-      <button class="filter-tab active" onclick="filterCpEngagement('all',this)" id="cpeng-all">All</button>
-      <button class="filter-tab" onclick="filterCpEngagement('sms',this)" id="cpeng-sms">SMS</button>
-      <button class="filter-tab" onclick="filterCpEngagement('email',this)" id="cpeng-email">Email</button>
-    </div>
-    <div id="cp-engagement-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
-    </div><!-- /cpc-pane-messages -->
+      <div id="cp2-prefs-read"><div class="cp2-cap" style="margin-top:8px">Loading…</div></div>
+      <div id="cp2-prefs-edit" style="display:none">
+        <div class="cp2-cap" style="margin-top:6px">Tap to switch on or off.</div>
+        <div class="cp2-chips" id="cp2-pref-chips"></div>
+        <!-- Any preference that isn't a simple Yes/No keeps its dropdown here. -->
+        <div id="cp-global-prefs-list"></div>
+        <label class="cp2-flabel" for="cp-pref-notes">Care notes</label>
+        <textarea class="cp-input" id="cp-pref-notes" rows="3" placeholder="e.g. Hang dry delicates, wash whites separately, no fabric softener"></textarea>
+        <div class="cp2-cap" style="margin-top:4px">Shown to cleaners and folders on every new order. The customer can edit these in their app.</div>
+        <div class="cp2-actions">
+          <button type="button" class="btn btn-ghost" onclick="cp2TogglePrefsEdit(false)">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="savePanelPreferences(this)">Save</button>
+        </div>
+        <div class="cp-save-msg" id="cp-pref-msg">✓ Saved</div>
+      </div>
+    </section>
   </div>
 
-  <!-- ── BILLING TAB ── -->
-  <!-- Session 151: Billing tab regrouped from 6 stacked cards into 3 logical sections:
-       Plan → Payment → Balance & Adjustments. Price List moved here from Contact tab
-       (saved by saveBilling, not saveCustomerContact). No DOM IDs changed — load
-       functions and Stripe integration hooks all reference fields by ID, so moving
-       markup around inside the tab doesn't break wiring.
-       Session 152: each section now wraps in a sub-tab pane (Plan/Payment/Balance),
-       switched by cpBillingSubtab(). One shared Save Billing button at the bottom
-       saves all 3 sub-tabs' fields in a single UPDATE — no per-sub-tab save needed. -->
+  <!-- ── BILLING: balance, then Billing settings (collapsed) and Payments (open) ── -->
   <div class="cp-body" id="cptab-billing" style="display:none">
+    <div id="cp2-acct-top"></div>
 
-    <!-- Sub-tab strip — pill style matches every other secondary-nav strip in the admin
-         (Orders status filters, Drivers Messages/Manage, Settings Invoice/Printer/Reviews,
-         Customers List/Map/Groups, Transactions date range, etc.). Defaults to 'plan';
-         last-used remembered in localStorage. -->
-    <div class="filter-tabs" style="margin-bottom:16px">
-      <button class="filter-tab active" data-subtab="plan"    onclick="cpBillingSubtab('plan',this)">Plan</button>
-      <button class="filter-tab"        data-subtab="payment" onclick="cpBillingSubtab('payment',this)">Payment</button>
-      <button class="filter-tab"        data-subtab="balance" onclick="cpBillingSubtab('balance',this)">Balance</button>
-      <button class="filter-tab"        data-subtab="history" onclick="cpBillingSubtab('history',this)">History</button>
-    </div>
+    <section class="cp2-card" id="cp2-balance-card">
+      <div id="cp2-balance-body"></div>
+      <div class="cp2-btnrow" id="cp2-balance-actions"></div>
 
-    <!-- Account Status — cancellation is a customer-lifecycle action, kept separate from
-         Plan/Payment since it affects both. Session 207: cancel_customer_account RPC +
-         cancel-customer-account edge function (Stripe subscription cancel + card detach). -->
-    <div class="cpb-pane" id="cpb-pane-plan">
-    <div id="cp-account-status-card" style="display:none"></div>
-
-    <div class="cp-section-head"><span>Plan</span></div>
-    <div class="cp-card">
-      <div class="cp-field">
-        <div class="cp-field-label">Price List</div>
-        <!-- Options populated from allCategories at panel-open time (session 141 pt 7).
-             Lives on Billing tab as of session 151; saveBilling writes pricelist now. -->
-        <select class="cp-input" id="cpe-type"></select>
-      </div>
-      <!-- Subscription content (Assign Plan + Start Checkout, or active sub display).
-           Populated by renderCpSubscription() into #cpb-sub-content. -->
-      <div style="border-top:1px solid var(--gray-100);margin-top:12px;padding-top:14px">
-        <div class="cp-subhead">Subscription</div>
-        <div id="cpb-sub-content" style="font-size:13px;color:var(--gray-500)">Loading…</div>
-      </div>
-    </div>
-    </div><!-- /cpb-pane-plan -->
-
-    <!-- 2. PAYMENT — how this customer pays -->
-    <div class="cpb-pane" id="cpb-pane-payment" style="display:none">
-    <div class="cp-section-head"><span>Payment</span></div>
-    <div class="cp-card">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-        <div class="cp-field">
-          <div class="cp-field-label">Billing Type</div>
-          <select class="cp-input" id="cpb-billing-type" onchange="document.getElementById('cpb-group-row').style.display=this.value==='on_account'?'':'none'">
-            <option value="automatic">Automatic</option>
-            <option value="on_account">On Account</option>
-          </select>
-        </div>
-        <div class="cp-field">
-          <div class="cp-field-label">Payment Method</div>
-          <select class="cp-input" id="cpb-payment-method">
-            <option value="credit_card">Credit Card</option>
-            <option value="check">Check</option>
-            <option value="ach">ACH</option>
-          </select>
-        </div>
-      </div>
-      <div class="cp-field" id="cpb-group-row" style="margin-top:8px;display:none">
-        <div class="cp-field-label">Billing Group</div>
-        <select class="cp-input" id="cpb-billing-group">
-          <option value="">— None —</option>
-        </select>
-      </div>
-
-      <!-- Card on file -->
-      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div class="cp-subhead">Card on File</div>
-        <div id="cp-payment-info" style="margin-bottom:4px">—</div>
-        <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
-        <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px">
-          <div class="cp-subhead">Enter Card Details</div>
-          <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:8px;margin-bottom:10px;font-size:14px"></div>
-          <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
-          <div style="display:flex;gap:8px">
-            <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
-            <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Default Tip -->
-      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div class="cp-subhead">Default Tip</div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
-          <div class="filter-tabs" style="flex-shrink:0">
-            <button class="filter-tab active" id="cpb-tip-dollar" onclick="setCpTipType('$',this)">$</button>
-            <button class="filter-tab" id="cpb-tip-pct" onclick="setCpTipType('%',this)">%</button>
-          </div>
-          <span style="font-size:12px;color:var(--gray-400)">Set by customer in their app</span>
-        </div>
-      </div>
-    </div>
-    </div><!-- /cpb-pane-payment -->
-
-    <!-- 3. BALANCE & ADJUSTMENTS — what they owe + what reduces what they owe -->
-    <div class="cpb-pane" id="cpb-pane-balance" style="display:none">
-    <div class="cp-section-head"><span>Balance &amp; Adjustments</span></div>
-    <div class="cp-card">
-      <!-- Account Credit -->
-      <div class="cp-subhead">Account Credit</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
-        <div style="font-size:22px;font-weight:700;color:var(--gray-900)" id="cpb-credits-display">$0.00</div>
-        <div style="display:flex;gap:6px;margin-left:4px">
-          <button class="btn btn-ghost" style="padding:5px 12px;font-size:12.5px" onclick="showCreditAdjust('add')">+ Add</button>
-          <button class="btn btn-ghost" style="padding:5px 12px;font-size:12.5px" onclick="showCreditAdjust('remove')">− Remove</button>
-        </div>
-      </div>
-      <div id="cpb-credit-adjust-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-top:10px">
-        <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:8px" id="cpb-adjust-label">Add Credits</div>
-        <div style="display:flex;gap:8px;align-items:center">
+      <div id="cpb-credit-adjust-form" class="cp2-rowedit" style="display:none;margin-top:12px">
+        <div class="cp2-lbl" style="margin-bottom:8px" id="cpb-adjust-label">Add credit</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <span style="font-size:14px;color:var(--gray-500)">$</span>
           <input class="cp-input" id="cpb-adjust-amount" type="number" min="0" step="0.01" placeholder="0.00" style="width:100px">
-          <input class="cp-input" id="cpb-adjust-note" type="text" placeholder="Reason (optional)" style="flex:1">
-          <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="applyCreditAdjust()">Apply</button>
-          <button class="btn btn-ghost" style="padding:6px 10px;font-size:12.5px" onclick="hideCreditAdjust()">✕</button>
+          <input class="cp-input" id="cpb-adjust-note" type="text" placeholder="Reason (optional)" style="flex:1;min-width:140px">
+        </div>
+        <div class="cp2-actions">
+          <button type="button" class="btn btn-ghost" onclick="hideCreditAdjust()">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="applyCreditAdjust()">Apply</button>
         </div>
       </div>
 
-      <!-- Outstanding Balance -->
-      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div class="cp-subhead">Outstanding Balance</div>
-        <div style="display:flex;align-items:baseline;gap:8px">
-          <div style="font-size:22px;font-weight:700" id="cpb-balance-display">$0.00</div>
-          <div style="font-size:12px;color:var(--gray-400)" id="cpb-balance-label">outstanding</div>
-        </div>
-        <div style="font-size:11.5px;color:var(--gray-400);margin-top:3px" id="cpb-balance-detail"></div>
-      </div>
-
-      <!-- Discount + Fee Exempt -->
-      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div class="cp-subhead">Discount</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-          <div class="cp-field" style="margin-bottom:0">
-            <select class="cp-input" id="cpb-discount">
-              <option value="">— None —</option>
-            </select>
-          </div>
-          <div class="cp-field" style="margin-bottom:0">
-            <label style="display:flex;align-items:center;gap:5px;font-weight:500;font-size:12.5px;letter-spacing:0;color:var(--gray-600);cursor:pointer;margin-top:6px">
-              <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
-            </label>
-            <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Apply Promo Code (session 141) — admin-applied $ codes -->
-      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
-        <div class="cp-subhead">Apply Promo Code</div>
+      <div id="cp2-promo-row" class="cp2-rowedit" style="display:none;margin-top:12px">
+        <div class="cp2-lbl" style="margin-bottom:8px">Apply a promo code</div>
         <div style="display:flex;gap:8px;align-items:stretch">
-          <select class="cp-input" id="cpb-promo-code" style="flex:1">
-            <option value="">— Choose a code —</option>
-          </select>
-          <button class="btn btn-primary" onclick="applyPromoToCustomer()" id="cpb-promo-apply"
-                  style="padding:8px 16px;font-size:13px;white-space:nowrap">Apply</button>
+          <select class="cp-input" id="cpb-promo-code" style="flex:1"><option value="">— Choose a code —</option></select>
+          <button type="button" class="btn btn-primary" onclick="applyPromoToCustomer()" id="cpb-promo-apply" style="padding:8px 16px;font-size:13px;white-space:nowrap">Apply</button>
         </div>
-        <div style="font-size:12px;color:var(--gray-400);margin-top:6px">
-          Adds the $ value to this customer's credit. Only unredeemed fixed-amount codes are listed; once applied, the code is burned.
+        <div class="cp2-cap" style="margin-top:6px">Adds the code's $ value to this customer's credit. Only unused fixed-amount codes are listed; once applied, the code is used up.</div>
+      </div>
+
+      <!-- Session 329: custom charge to the default card (charge-custom function). -->
+      <div id="cp2-custom-charge" class="cp2-rowedit" style="display:none;margin-top:12px">
+        <div class="cp2-lbl" style="margin-bottom:8px">Custom charge</div>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div>
+            <label class="cp-field-label" for="cp2-cc-amount">Amount</label>
+            <input class="cp-input" id="cp2-cc-amount" type="number" min="0.5" max="500" step="0.01" placeholder="0.00" style="width:110px" oninput="cp2CcDisarm()">
+          </div>
+          <div style="flex:1;min-width:180px">
+            <label class="cp-field-label" for="cp2-cc-reason">Reason <span style="font-weight:400;color:var(--gray-400)">(on the receipt text)</span></label>
+            <input class="cp-input" id="cp2-cc-reason" type="text" maxlength="120" placeholder="e.g. Replacement bag" oninput="cp2CcDisarm()">
+          </div>
+        </div>
+        <div class="cp2-cap" style="margin-top:8px" id="cp2-cc-card"></div>
+        <div id="cp2-cc-error" style="display:none;margin-top:8px;color:var(--red);font-size:12.5px"></div>
+        <div class="cp2-actions">
+          <button type="button" class="btn btn-ghost" onclick="cp2OpenCustomCharge(false)">Cancel</button>
+          <button type="button" class="btn btn-primary" id="cp2-cc-go" onclick="cp2CustomChargeGo(this)">Charge card</button>
         </div>
       </div>
-    </div>
-    </div><!-- /cpb-pane-balance -->
 
-    <!-- 4. HISTORY — transaction ledger (folded in from the old Transactions tab, session 184) -->
-    <div class="cpb-pane" id="cpb-pane-history" style="display:none">
-    <div class="cp-section-head"><span>Transaction history</span></div>
-    <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
-      <span style="font-size:12px;color:var(--gray-400);margin-right:2px">Days:</span>
-      <button class="cp-range-btn" onclick="filterCpTxns(7,this)">7</button>
-      <button class="cp-range-btn" onclick="filterCpTxns(30,this)">30</button>
-      <button class="cp-range-btn" onclick="filterCpTxns(60,this)">60</button>
-      <button class="cp-range-btn" onclick="filterCpTxns(120,this)">120</button>
-      <button class="cp-range-btn active" onclick="filterCpTxns(0,this)">All</button>
-      <span id="cp-txn-summary" style="margin-left:auto;font-size:12px;color:var(--gray-500);font-weight:600"></span>
-    </div>
-    <div class="cp-card" style="padding:0;overflow:hidden">
-      <div id="cp-transactions-list" style="padding:4px 0"><div style="color:var(--gray-400);font-size:13px;padding:12px 16px">Loading…</div></div>
-    </div>
-    </div><!-- /cpb-pane-history -->
+      <!-- Legacy display ids, still written by openCustomerPanel / applyCreditAdjust. -->
+      <div style="display:none"><span id="cpb-credits-display"></span><span id="cpb-balance-display"></span><span id="cpb-balance-label"></span><span id="cpb-balance-detail"></span></div>
+    </section>
 
-    <!-- Shared Save Billing button — saves the Plan/Payment/Balance sub-tabs in one UPDATE.
-         Hidden on the read-only History sub-tab (session 184). -->
-    <div style="margin-top:20px" id="cpb-save-wrap">
-      <button class="btn btn-primary cp-save-btn" onclick="saveBilling()">Save Billing</button>
-      <div class="cp-save-msg" id="cp-billing-msg">✓ Saved</div>
-    </div>
+    <section class="cp2-sec">
+      <button type="button" class="cp2-sechd" id="cp2-billset-hd" aria-expanded="false" onclick="cp2ToggleSec('billset')">
+        <div style="flex:1;min-width:0"><div class="cp2-sect">Billing settings</div><div class="cp2-cap" id="cp2-billset-sum"></div></div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="cp2-secbody" id="cp2-billset-body" style="display:none">
+
+        <div class="cp2-kv"><div class="cp2-k">Plan</div><div class="cp2-v" id="cp2-v-plan"></div><button type="button" class="cp2-link" onclick="cp2EditRow('plan')">Change</button></div>
+        <div class="cp2-rowedit" id="cp2-e-plan" style="display:none">
+          <div class="cp-field"><label class="cp-field-label" for="cpe-type">Price list</label><select class="cp-input" id="cpe-type"></select></div>
+          <div class="cp-field-label" style="margin-top:10px">Subscription</div>
+          <div id="cpb-sub-content" style="font-size:13px;color:var(--gray-500)">Loading…</div>
+          <div class="cp2-actions"><button type="button" class="btn btn-ghost" onclick="cp2EditRow(null)">Close</button><button type="button" class="btn btn-primary" onclick="saveBilling(this)">Save price list</button></div>
+        </div>
+
+        <div class="cp2-kv"><div class="cp2-k">Billing</div><div class="cp2-v" id="cp2-v-billing"></div><button type="button" class="cp2-link" onclick="cp2EditRow('billing')">Change</button></div>
+        <div class="cp2-rowedit" id="cp2-e-billing" style="display:none">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+            <div class="cp-field"><label class="cp-field-label" for="cpb-billing-type">Billing type</label>
+              <select class="cp-input" id="cpb-billing-type" onchange="document.getElementById('cpb-group-row').style.display=this.value==='on_account'?'':'none'">
+                <option value="automatic">Automatic</option><option value="on_account">On account</option>
+              </select></div>
+            <div class="cp-field"><label class="cp-field-label" for="cpb-payment-method">Payment method</label>
+              <select class="cp-input" id="cpb-payment-method">
+                <option value="credit_card">Credit card</option><option value="check">Check</option><option value="ach">ACH</option>
+              </select></div>
+          </div>
+          <div class="cp-field" id="cpb-group-row" style="display:none"><label class="cp-field-label" for="cpb-billing-group">Billing group</label>
+            <select class="cp-input" id="cpb-billing-group"><option value="">— None —</option></select></div>
+          <div class="cp2-actions"><button type="button" class="btn btn-ghost" onclick="cp2EditRow(null)">Cancel</button><button type="button" class="btn btn-primary" onclick="saveBilling(this)">Save</button></div>
+        </div>
+
+        <div class="cp2-kv"><div class="cp2-k">Card</div><div class="cp2-v" id="cp2-v-card"></div><button type="button" class="cp2-link" onclick="cp2EditRow('card')">Manage</button></div>
+        <div class="cp2-rowedit" id="cp2-e-card" style="display:none">
+          <div id="cp-payment-info" style="margin-bottom:4px">—</div>
+          <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
+          <div id="cp-card-form" style="display:none;background:#fff;border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px">
+            <div class="cp-subhead">Enter card details</div>
+            <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:8px;margin-bottom:10px;font-size:14px"></div>
+            <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
+            <div style="display:flex;gap:8px">
+              <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save card</button>
+              <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
+            </div>
+          </div>
+          <div class="cp2-actions"><button type="button" class="btn btn-ghost" onclick="cp2EditRow(null)">Done</button></div>
+        </div>
+
+        <div class="cp2-kv"><div class="cp2-k">Pricing</div><div class="cp2-v" id="cp2-v-pricing"></div><button type="button" class="cp2-link" onclick="cp2EditRow('pricing')">Change</button></div>
+        <div class="cp2-rowedit" id="cp2-e-pricing" style="display:none">
+          <div class="cp-field"><label class="cp-field-label" for="cpb-discount">Discount</label><select class="cp-input" id="cpb-discount"><option value="">— None —</option></select></div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray-700);cursor:pointer">
+            <input type="checkbox" id="cpb-fee-exempt" style="width:15px;height:15px;accent-color:var(--accent)"> No pickup fees or minimums (fee exempt)
+          </label>
+          <div class="cp2-actions"><button type="button" class="btn btn-ghost" onclick="cp2EditRow(null)">Cancel</button><button type="button" class="btn btn-primary" onclick="saveBilling(this)">Save</button></div>
+        </div>
+
+        <div class="cp2-kv"><div class="cp2-k">Default tip</div><div class="cp2-v" id="cp2-v-tip"></div><button type="button" class="cp2-link" onclick="cp2EditRow('tip')">Change</button></div>
+        <div class="cp2-rowedit" id="cp2-e-tip" style="display:none">
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px" aria-label="Default tip">
+            <div class="filter-tabs" style="flex-shrink:0">
+              <button type="button" class="filter-tab active" id="cpb-tip-dollar" onclick="setCpTipType('$',this)">$</button>
+              <button type="button" class="filter-tab" id="cpb-tip-pct" onclick="setCpTipType('%',this)">%</button>
+            </div>
+          </div>
+          <div class="cp2-cap" style="margin-top:6px">Usually set by the customer in their app.</div>
+          <div class="cp2-actions"><button type="button" class="btn btn-ghost" onclick="cp2EditRow(null)">Cancel</button><button type="button" class="btn btn-primary" onclick="saveBilling(this)">Save</button></div>
+        </div>
+
+        <div id="cp2-acct-bottom" style="border-top:1px solid var(--gray-100);padding-top:10px;margin-top:2px">
+          <div id="cp-account-status-card" style="display:none"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cp2-sec">
+      <button type="button" class="cp2-sechd" id="cp2-payments-hd" aria-expanded="true" onclick="cp2ToggleSec('payments')">
+        <div style="flex:1;min-width:0"><div class="cp2-sect">Payments</div><div class="cp2-cap" id="cp-txn-summary"></div></div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="cp2-secbody flush" id="cp2-payments-body">
+        <div id="cp-transactions-list"><div class="cp2-cap" style="padding:10px 16px">Loading…</div></div>
+      </div>
+    </section>
+    <div id="cpb-save-wrap" style="display:none"><div class="cp-save-msg" id="cp-billing-msg"></div></div>
   </div>
 
-  <!-- Transactions folded into Billing → History sub-tab (session 184). -->
-
-  <!-- Engagement (marketing prefs + message history) now lives inside the Contact tab (session 184). -->
-
-  <!-- ── ORDERS TAB ── -->
+  <!-- ── ORDERS: rhythm, in progress, past orders ── -->
   <div class="cp-body" id="cptab-orders" style="display:none">
-    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="filter-tab active" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
-        <button class="filter-tab" id="cpof-completed" onclick="filterCpOrders('completed',this)">Completed</button>
-      </div>
-      <div id="cpof-range" style="display:none;gap:4px;align-items:center;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--gray-400);margin-right:2px">Days:</span>
-        <button class="cp-range-btn" onclick="setCpRange(7,this)">7</button>
-        <button class="cp-range-btn" onclick="setCpRange(30,this)">30</button>
-        <button class="cp-range-btn" onclick="setCpRange(60,this)">60</button>
-        <button class="cp-range-btn" onclick="setCpRange(120,this)">120</button>
-        <button class="cp-range-btn active" onclick="setCpRange(0,this)">All</button>
-      </div>
-    </div>
-    <div class="cp-card" style="padding:0;overflow:hidden">
-      <div id="cp-orders-list" style="padding:4px 0"><div style="color:var(--gray-400);font-size:13px;padding:12px 16px">Loading…</div></div>
-    </div>
-    <!-- Selection action bar — kept OUTSIDE the overflow:hidden card so its sticky
-         positioning works against the scroll pane; floats at the bottom of the
-         Orders pane when one or more completed orders are selected (session 184b). -->
+    <section class="cp2-card" id="cp2-rhythm" style="display:none"></section>
+    <div id="cp-orders-list"><div class="cp2-cap">Loading…</div></div>
+    <!-- Selection bar: appears after "Select to bill or print" + at least one tick. -->
     <div class="billing-bar" id="billing-bar">
       <div style="font-size:13px;font-weight:600;color:var(--gray-700)">
         <span id="billing-bar-count">0</span> order<span id="billing-bar-plural">s</span> selected &nbsp;·&nbsp; <span id="billing-bar-total" style="color:var(--accent)">$0.00</span>
@@ -8109,29 +8059,109 @@
     </div>
   </div>
 
-  <!-- ── PREFERENCES TAB ── -->
-  <div class="cp-body" id="cptab-preferences" style="display:none">
-    <div class="cp-card">
-      <div id="cp-global-prefs-list"></div>
-      <div style="margin-top:18px">
-        <div class="cp-subhead">Special Care Notes</div>
-        <textarea class="cp-input" id="cp-pref-notes" rows="4" placeholder="e.g. Hang dry delicates, wash whites separately, no fabric softener… (shows in Processing Queue)"></textarea>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:4px">Visible to cleaners and folders on every new order. Editable by the customer in their app.</div>
-      </div>
+  <!-- ── MESSAGES: one thread, compose at the bottom ── -->
+  <div class="cp-body cp2-msgs" id="cptab-messages" style="display:none">
+    <div class="cp2-thread" id="cp2-thread">
+      <div id="cp-engagement-list"><div class="cp2-cap" style="text-align:center">Loading…</div></div>
     </div>
-    <div style="margin-top:20px">
-      <button class="btn btn-primary cp-save-btn" onclick="savePanelPreferences()">Save Preferences</button>
-      <div class="cp-save-msg" id="cp-pref-msg">✓ Saved</div>
+    <div class="cp2-compose" id="cp-compose">
+      <div class="cp2-composebox">
+        <label for="cpc-subject" class="cp2-sr">Subject</label>
+        <input id="cpc-subject" type="text" placeholder="Subject" maxlength="150" style="display:none;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--gray-100)">
+        <label for="cpc-body" class="cp2-sr">Message</label>
+        <textarea id="cpc-body" rows="2" placeholder="Type a text message…" oninput="cpComposeCount()"></textarea>
+        <div class="cp2-composebar">
+          <label for="cp2-ch" class="cp2-sr">Send as</label>
+          <select id="cp2-ch" onchange="cpComposeChannel(this.value)"><option value="sms">Text</option><option value="email">Email</option></select>
+          <span id="cpc-to" class="cp2-cap" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+          <span id="cpc-count" class="cp2-cap"></span>
+          <button type="button" id="cpc-send" class="btn btn-primary" style="padding:6px 14px;font-size:13px" onclick="cpComposeSend()">Send text</button>
+        </div>
+      </div>
+      <div id="cpc-error" style="display:none;margin-top:6px;color:var(--red);font-size:12.5px"></div>
+      <!-- cpComposeChannel still toggles these; the select above is what people use. -->
+      <span style="display:none"><button type="button" id="cpc-ch-sms"></button><button type="button" id="cpc-ch-email"></button></span>
     </div>
   </div>
 
-  <!-- ── NOTES TAB ── -->
+  <!-- ── ISSUES: open first, then history ── -->
   <div class="cp-body" id="cptab-issues" style="display:none">
-    <div class="cp-section-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-      <span>Issue History</span>
-      <button onclick="openCreateIssue(panelCustomerId)" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ Log issue</button>
-    </div>
-    <div id="cp-issues-list"><div style="padding:16px;color:var(--gray-400);font-size:13px">Loading…</div></div>
+    <div id="cp-issues-list"><div class="cp2-cap">Loading…</div></div>
+  </div>
+
+  <!-- ── SETTINGS: set-once things. Each change saves itself. ── -->
+  <div class="cp-body" id="cptab-settings" style="display:none">
+    <section class="cp2-card">
+      <div class="cp2-lbl">Routing</div>
+      <label class="cp2-flabel" for="cpe-route-override">Route override</label>
+      <select class="cp-input" id="cpe-route-override" onchange="cp2SaveSettings()"><option value="">— Default (zone-based) —</option></select>
+      <div class="cp2-help">Set this only if orders should skip the zone's route.</div>
+      <label class="cp2-flabel" for="cpe-default-site">Processing site</label>
+      <select class="cp-input" id="cpe-default-site" onchange="cp2SaveSettings()"><option value="">— Use main site —</option></select>
+      <div class="cp2-help">Where new orders from this customer get washed. Empty = the main site.</div>
+    </section>
+
+    <section class="cp2-card">
+      <div class="cp2-lbl" style="margin-bottom:8px">Customer app</div>
+      <div id="cp-app-status" style="display:flex;align-items:center;gap:10px;font-size:13px;min-height:32px"></div>
+    </section>
+
+    <section class="cp2-card">
+      <div class="cp2-lbl" style="margin-bottom:4px">Marketing messages</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+        <div>
+          <div style="font-size:13.5px;font-weight:500;color:var(--gray-800)">Marketing texts</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px" id="cp-sms-mkt-detail"></div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0" aria-label="Marketing texts">
+          <input type="checkbox" id="cp-sms-mkt-toggle" onchange="toggleMarketingOpt('sms')" style="opacity:0;width:0;height:0">
+          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
+          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-sms-mkt-knob"></span>
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--gray-100)">
+        <div>
+          <div style="font-size:13.5px;font-weight:500;color:var(--gray-800)">Marketing emails</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px" id="cp-email-mkt-detail"></div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0" aria-label="Marketing emails">
+          <input type="checkbox" id="cp-email-mkt-toggle" onchange="toggleMarketingOpt('email')" style="opacity:0;width:0;height:0">
+          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
+          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-email-mkt-knob"></span>
+        </label>
+      </div>
+      <style>
+        #cp-sms-mkt-toggle:checked + span { background: #059669 !important; }
+        #cp-sms-mkt-toggle:checked ~ #cp-sms-mkt-knob { left: 22px !important; }
+        #cp-email-mkt-toggle:checked + span { background: #059669 !important; }
+        #cp-email-mkt-toggle:checked ~ #cp-email-mkt-knob { left: 22px !important; }
+      </style>
+    </section>
+
+    <section class="cp2-card" id="cp2-ref-card" style="display:none">
+      <div class="cp2-lbl" style="margin-bottom:8px">Referral</div>
+      <div id="cp-referral" style="display:none;font-size:13px;line-height:1.5"></div>
+    </section>
+
+    <section class="cp2-card">
+      <div class="cp2-lbl">Source</div>
+      <label class="cp2-flabel" for="cpe-source">How they found us</label>
+      <select class="cp-input" id="cpe-source" onchange="cp2SaveSettings()">
+        <option value="">— Not recorded —</option>
+        <option value="nextdoor">Nextdoor</option>
+        <option value="yelp">Yelp</option>
+        <option value="google">Google search</option>
+        <option value="friend_family">Friend / family</option>
+        <option value="instagram">Instagram</option>
+        <option value="roots_soul">Roots &amp; Soul</option>
+        <option value="oakland_ballers">Oakland Ballers</option>
+        <option value="saw_van">I saw your van!</option>
+        <option value="other">Other</option>
+        <option value="ai">ChatGPT, Claude, or other AI</option>
+        <option value="ambassador">Ambassador / Referral Code</option>
+      </select>
+    </section>
+    <div class="cp2-cap" style="text-align:center;margin-top:4px">Changes on this tab save automatically.</div>
   </div>
 </div>
 
@@ -28901,7 +28931,7 @@ ${noActivityNote}
       <div id="gen-panel-email" class="gen-settings-panel" style="${_genSettingsTab!=='email'?'display:none':''}">
         <div class="card" style="max-width:600px">
           <div class="card-header">
-            <div class="card-title">📧 Customer email</div>
+            <div class="card-title">📧 Customer email from info@ Gmail</div>
             <div class="card-sub">Copies emails between info@familylaundry.com and customers into each customer's Messages history, every 5 minutes. Read-only: WashRoute can't send, delete or change anything in Gmail. Other mail (vendors, invoices) is ignored.</div>
           </div>
           <div id="gmail-card-body" style="padding:20px 24px 24px"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
@@ -30123,7 +30153,7 @@ ${noActivityNote}
     // Kinds 2-4 all come from the outstanding-orders view (session 230), which is the
     // single source of truth for what money is owed and why. Kind 1 is a status
     // question, not a money question, so it still reads orders directly.
-    const [reschedRes, reviewRes] = await Promise.all([
+    const [reschedRes, reviewRes, unroutedRes] = await Promise.all([
       db.from('orders')
         .select('id, order_number, status, total_amount, billing_status, charge_failed_at, cancelled_by, driver_skip_reason, pickup_window_start, delivery_window_start, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
         // Session 291: this card is ONLY for orders where we are holding the customer's
@@ -30140,6 +30170,25 @@ ${noActivityNote}
       db.from('v_outstanding_orders')
         .select('id, order_number, status, amount_due, age_days, days_in_building, bucket, is_archived, archived_reason, on_account_card_error, created_at, customer_id, first_name_cache, last_name_cache, phone_cache')
         .order('age_days', { ascending: false }),
+      // Session 328: orders with NOBODY ASSIGNED TO DELIVER THEM. Order #16426
+      // (2026-10-02) was paid $101.95, folded and racked, yet had zero route stops
+      // and a cleared routing_error -- so it sat on no route, in no queue, and in
+      // none of the 41 daily-audit checks. The customer was waiting all day for a
+      // delivery nobody was scheduled to make.
+      //
+      // This asks the STATE question ("does a live delivery stop exist?"), not the
+      // flag question ("is routing_error set?"). The flag is precisely what failed:
+      // advance_order_status cleared it on the way out of on_hold. A flag can lie;
+      // a missing stop cannot. It also means this catches an order stranded by any
+      // future code path, not only the one rollback bug that exposed it.
+      //
+      // walk_in is excluded: POS counter sales have no delivery leg by design.
+      db.from('orders')
+        .select('id, order_number, status, total_amount, source, delivery_window_start, pickup_window_start, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache), route_stops(stop_type, status)', { count: 'exact' })
+        .in('status', ['scheduled', 'picked_up', 'processing', 'folding', 'ready_for_delivery', 'out_for_delivery'])
+        .neq('source', 'walk_in')
+        .is('archived_at', null)
+        .limit(2000),
     ]);
 
     if (reschedRes.error || !reschedRes.data) {
@@ -30148,6 +30197,33 @@ ${noActivityNote}
       return;
     }
     const reviewRows = reviewRes.data || [];
+
+    // Session 328: "unrouted" means no LIVE delivery stop exists for the order.
+    // skipped/failed stops deliberately do not count -- those are audit check 21's
+    // business and mean a human already knows about them.
+    const _hasLiveDeliveryStop = (o) => (o.route_stops || []).some(
+      s => s.stop_type === 'delivery' && s.status !== 'skipped' && s.status !== 'failed');
+    const unroutedRows = (unroutedRes && unroutedRes.data || []).filter(o => !_hasLiveDeliveryStop(o));
+    // PostgREST silently caps a wide select -- the admin inbox lost conversation rows
+    // to this exact trap. If we came back short of the true count we cannot trust
+    // "none found", so say so rather than render a false All clear.
+    const _unroutedTruncated = !!(unroutedRes && unroutedRes.count != null
+      && (unroutedRes.data || []).length < unroutedRes.count);
+    // Widespread-issue rule (preflight skill): one or two stranded orders is the
+    // normal shape of this problem. A dozen at once is far likelier to mean this
+    // query or an RLS policy changed under us than that a dozen customers really
+    // lost their delivery. Warn and cap instead of flooding the page with rows the
+    // CS team would start acting on.
+    const _unroutedSuspicious = unroutedRows.length > 10;
+    const _unroutedShown = _unroutedSuspicious ? unroutedRows.slice(0, 25) : unroutedRows;
+    // If the query errored we know nothing, which is NOT the same as knowing there is
+    // nothing. supabase-js never throws, so an unchecked error here would quietly
+    // render "All clear" over a stranded order -- the exact failure mode this card
+    // exists to prevent.
+    if (unroutedRes && unroutedRes.error) {
+      console.error('[for-your-review] unrouted check failed:', unroutedRes.error);
+    }
+    const _unroutedUnsure = _unroutedTruncated || !!(unroutedRes && unroutedRes.error);
 
     // 1. Needs rescheduling. Since session 291 removed the Orders → Issues tab, this is
     //    _isIssueRow's only caller — the tab was showing the same rows a second time.
@@ -30160,13 +30236,15 @@ ${noActivityNote}
     // Session 291: "Archived, still owed" was removed. Any unpaid order -- archived or
     // not -- now belongs on Unpaid Orders, which is where the money picture lives.
 
-    const total = needsReschedule.length + cardErrors.length + stalled.length;
+    const total = needsReschedule.length + cardErrors.length + stalled.length + unroutedRows.length;
     const badge = document.getElementById('reschedule-count-badge');
 
     if (!total) {
       if (badge) badge.style.display = 'none';
-      if (subEl) subEl.textContent = 'All clear';
-      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ Nothing needs review</div>';
+      if (subEl) subEl.textContent = _unroutedUnsure ? 'Partial check' : 'All clear';
+      el.innerHTML = _unroutedUnsure
+        ? '<div style="padding:20px;text-align:center;color:var(--amber);font-size:13px">Couldn\'t check every order for a missing delivery, so this isn\'t a clean bill of health. Tell David if this keeps showing.</div>'
+        : '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ Nothing needs review</div>';
       return;
     }
 
@@ -30180,19 +30258,32 @@ ${noActivityNote}
     // single renderer can pick the right "why" text and the right primary action.
     // Sorted by urgency: the customer's laundry is with us (reschedule) > money is
     // mislabelled (card error) > it has been with us too long (stalled).
-    const KIND_ORDER = { reschedule: 0, card_error: 1, stalled: 2 };
+    const KIND_ORDER = { unrouted: 0, reschedule: 1, card_error: 2, stalled: 3 };
     // Secondary sort is oldest-first, on whichever date that kind is actually about.
-    const _fyrSortKey = (o) => o._kind === 'reschedule'
+    const _fyrSortKey = (o) => (o._kind === 'reschedule' || o._kind === 'unrouted')
       ? (o.delivery_window_start || o.pickup_window_start || '')
       : (o.created_at || '');
     const unified = [
+      ..._unroutedShown.map(o => ({ ...o, _kind: 'unrouted' })),
       ...needsReschedule.map(o => ({ ...o, _kind: 'reschedule' })),
       ...cardErrors.map(o => ({ ...o, _kind: 'card_error' })),
       ...stalled.map(o => ({ ...o, _kind: 'stalled' })),
     ].sort((a, b) => (KIND_ORDER[a._kind] - KIND_ORDER[b._kind])
                   || String(_fyrSortKey(a)).localeCompare(String(_fyrSortKey(b))));
 
-    el.innerHTML = _fyrUnifiedHtml(unified);
+    const _unroutedUnsureNote = _unroutedUnsure
+      ? `<div style="padding:10px 14px;background:var(--amber-light);border-top:1px solid var(--gray-100);color:var(--gray-700);font-size:12px">
+           Couldn't check every order for a missing delivery — this list may be incomplete.
+         </div>`
+      : '';
+    const _unroutedNote = _unroutedSuspicious
+      ? `<div style="padding:10px 14px;background:var(--amber-light);border-top:1px solid var(--gray-100);color:var(--gray-700);font-size:12px">
+           <strong>${unroutedRows.length} orders</strong> look like they have no delivery scheduled. That is unusually many —
+           it more likely means something is wrong with this check than that ${unroutedRows.length} customers lost a delivery.
+           Showing the first ${_unroutedShown.length}. Worth checking with David before rescheduling them all.
+         </div>`
+      : '';
+    el.innerHTML = _unroutedUnsureNote + _unroutedNote + _fyrUnifiedHtml(unified);
   }
 
   // Shared section wrapper so all four groups read as one system.
@@ -30215,16 +30306,28 @@ ${noActivityNote}
   const REASON_LABELS = { bags_not_out: 'Bags not out', cant_access: "Can't access", customer_not_home: 'Not home', customer_requested_skip: 'Cust. requested', other: 'Other' };
 
   function _fyrRow(o) {
-    const isResched = o._kind === 'reschedule';
-    const cust   = isResched ? o.customers : o;
-    const custId = (isResched ? (o.customers && o.customers.id) : o.customer_id) || '';
+    const isResched  = o._kind === 'reschedule';
+    const isUnrouted = o._kind === 'unrouted';
+    // Both of these are read straight from `orders` and carry a nested customers
+    // object; the money kinds come from v_outstanding_orders with flat *_cache columns.
+    const fromOrders = isResched || isUnrouted;
+    const cust   = fromOrders ? o.customers : o;
+    const custId = (fromOrders ? (o.customers && o.customers.id) : o.customer_id) || '';
     const name   = `${(cust && cust.first_name_cache) || ''} ${(cust && cust.last_name_cache) || ''}`.trim() || 'Unknown';
     const phone  = (cust && cust.phone_cache) || '';
 
     // "Why" replaces the section heading: the reason is on the row, so nothing has
     // to be opened to understand why it is in the list.
     let why, when, amount, primary;
-    if (isResched) {
+    if (isUnrouted) {
+      // Deliberately plain language: the CS team should not need to know what a
+      // route stop is to understand that this customer is expecting laundry and
+      // no driver is coming.
+      why    = 'No delivery scheduled — nobody is assigned';
+      when   = o.delivery_window_start ? fmtDate(o.delivery_window_start) : '—';
+      amount = o.total_amount != null ? fmtMoney(o.total_amount) : '—';
+      primary = `<button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="${_fyrOpenOrder(o.id)}" title="Open the order and put it back on a route">Reschedule →</button>`;
+    } else if (isResched) {
       why = o.driver_skip_reason ? (REASON_LABELS[o.driver_skip_reason] || o.driver_skip_reason)
           : o.cancelled_by === 'system' ? 'Auto-failed'
           : o.cancelled_by === 'driver' ? 'Skipped by driver'
@@ -30252,7 +30355,7 @@ ${noActivityNote}
     return `<tr style="cursor:pointer" onclick="${_fyrOpenOrder(o.id)}">
       <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${esc(phone)}" data-cust-name="${esc(name)}" onchange="updateOrderBatchBar()"></td>
       <td class="td-mono">#${o.order_number}</td>
-      <td class="td-name"><span style="display:flex;align-items:center;gap:6px">${isResched ? _recurSvg(o.recurring_interval) : ''}<span>${esc(name)}</span></span></td>
+      <td class="td-name"><span style="display:flex;align-items:center;gap:6px">${fromOrders ? _recurSvg(o.recurring_interval) : ''}<span>${esc(name)}</span></span></td>
       <td>${isResched ? issueBadge(o) : statusBadge(o.status)}</td>
       <td style="font-size:12px;color:var(--gray-500)">${esc(why)}</td>
       <td style="font-size:12px;white-space:nowrap">${when}</td>
@@ -41866,99 +41969,909 @@ ${oneCopy}
     openModal('add-order', { customerId: panelCustomerId });
   }
 
+  // ══ Session 329: customer panel redesign — tab switching + shared helpers ══
+  // Six flat tabs. Old tab names still arrive from callers (openCustomerPanel(id,
+  // 'contact') etc.), so they are mapped rather than broken.
+  const CP2_TABS = ['overview', 'billing', 'orders', 'messages', 'issues', 'settings'];
+  const CP2_TAB_ALIASES = { contact: 'overview', preferences: 'overview', details: 'overview', notes: 'issues' };
+  function cp2TabName(n) {
+    n = CP2_TAB_ALIASES[n] || n;
+    return CP2_TABS.includes(n) ? n : 'overview';
+  }
+  // Per-open state for the new renderers. Reset in openCustomerPanel.
+  let _cp2 = { balRows: [], cards: [], subName: null, prefs: null };
+
+  const CP2_ICON = {
+    truck: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3z"/><path d="M14 10h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>',
+    flag: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4"/><path d="M4 4h13l-2 4 2 4H4"/></svg>',
+    box: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/></svg>',
+    pin: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--gray-400)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>',
+    note: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--gray-400)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;flex-shrink:0"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>',
+    check: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>',
+    card: '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
+    msg: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+    mail: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+    alert: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>',
+  };
+
+  // Pacific date helpers (BIZ_TZ rule — every format call names the time zone).
+  function cp2DayKey(d) { return new Date(d).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }); }
+  function cp2Short(d) { return new Date(d).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' }); }
+  function cp2Time(d) { return new Date(d).toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit' }); }
+  function cp2DayName(d) {
+    const k = cp2DayKey(d), today = cp2DayKey(new Date());
+    if (k === today) return 'today';
+    if (k === addDaysPacific(today, 1)) return 'tomorrow';
+    if (k === addDaysPacific(today, -1)) return 'yesterday';
+    return new Date(d).toLocaleDateString('en-US', { timeZone: BIZ_TZ, weekday: 'short', month: 'short', day: 'numeric' });
+  }
+  function cp2Cap(s) { s = String(s || '').replace(/_/g, ' '); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function cp2CardLabel(card) {
+    if (!card) return '';
+    const b = card.card_brand ? card.card_brand.charAt(0).toUpperCase() + card.card_brand.slice(1) : 'Card';
+    return `${b} •••• ${card.card_last4}`;
+  }
+  function cp2DefaultCard() {
+    const cards = _cp2.cards || [];
+    if (cards.length) return cards.find(c => c.is_default) || cards[0];
+    const c = _panelCustomerData || {};
+    return c.card_last4 ? { card_brand: c.card_brand, card_last4: c.card_last4, card_exp_month: c.card_exp_month, card_exp_year: c.card_exp_year } : null;
+  }
+
   function cpTab(name, btn) {
-    document.querySelectorAll('.cp-tab').forEach(t=>t.classList.remove('active'));
-    btn.classList.add('active');
-    // Session 184 — consolidated to 5 tabs: Contact (now hosts marketing + message
-    // history, formerly Engagement), Preferences, Billing (History sub-tab holds the
-    // former Transactions), Orders, Issues.
-    ['contact','preferences','billing','orders','issues'].forEach(n=>{
-      const el = document.getElementById('cptab-'+n);
-      if (el) el.style.display = (n===name) ? '' : 'none';
+    name = cp2TabName(name);
+    document.querySelectorAll('#customer-panel .cp-tab').forEach(t => t.classList.toggle('active', t.dataset.cptab === name));
+    CP2_TABS.forEach(n => {
+      const el = document.getElementById('cptab-' + n);
+      if (el) el.style.display = (n === name) ? '' : 'none';
     });
-    if (name==='orders' && panelCustomerId) loadPanelOrders(panelCustomerId);
-    if (name==='issues' && panelCustomerId) loadCpIssues(panelCustomerId);
-    if (name==='preferences' && panelCustomerId) loadPanelPreferences(panelCustomerId);
-    // Contact opens on its Details sub-tab; Marketing + Messages are lazy sub-tabs (session 184b).
-    if (name==='contact') cpContactSubtab('details');
-    // When entering Billing, restore the last-used sub-tab (session 152).
-    if (name === 'billing') {
-      const last = localStorage.getItem('wr-cpb-subtab') || 'plan';
-      cpBillingSubtab(last);
+    if (name !== 'overview') cp2ToggleEditDetails(false);
+    cp2LazyLoad(name);
+  }
+  // Tabs whose content is fetched when first shown.
+  function cp2LazyLoad(name) {
+    if (!panelCustomerId) return;
+    if (name === 'orders')   loadPanelOrders(panelCustomerId);
+    if (name === 'issues')   loadCpIssues(panelCustomerId);
+    if (name === 'messages') loadCpEngagement(panelCustomerId, _panelPhone);
+    if (name === 'billing')  loadCpTransactions(panelCustomerId);
+  }
+  // Compat shims: the sub-tabs are gone, but keep the names so any stray caller
+  // lands somewhere sensible instead of throwing.
+  function cpContactSubtab(name) { cpTab(name === 'messages' ? 'messages' : 'overview'); }
+  function cpBillingSubtab(name) { if (name === 'history' && panelCustomerId) loadCpTransactions(panelCustomerId); }
+
+  function cp2ToggleEditDetails(show) {
+    const box = document.getElementById('cp2-edit-details');
+    if (!box) return;
+    if (show) {
+      const c = _panelCustomerData || {};
+      document.getElementById('cpe-first').value = c.first_name_cache || '';
+      document.getElementById('cpe-last').value  = c.last_name_cache  || '';
+      document.getElementById('cpe-phone').value = c.phone_cache      || '';
+      document.getElementById('cpe-email').value = c.email_cache      || '';
+      if (document.getElementById('cptab-overview').style.display === 'none') cpTab('overview');
+      box.style.display = '';
+      document.getElementById('cpe-first').focus();
+    } else {
+      box.style.display = 'none';
     }
   }
 
-  // Session 184b — Contact sub-tabs (Details / Marketing / Messages). Details is the
-  // identity form; Marketing holds the opt-in toggles; Messages is the read-only
-  // SMS/email history (lazy-loaded on first view). `btn` optional (reset on open).
-  function cpContactSubtab(name, btn) {
-    document.querySelectorAll('#cptab-contact .filter-tab[data-csub]').forEach(t => t.classList.remove('active'));
-    const activeBtn = btn || document.querySelector(`#cptab-contact .filter-tab[data-csub="${name}"]`);
-    if (activeBtn) activeBtn.classList.add('active');
-    ['details','marketing','messages'].forEach(n => {
-      const el = document.getElementById('cpc-pane-' + n);
-      if (el) el.style.display = (n === name) ? '' : 'none';
-    });
-    if (name === 'messages' && panelCustomerId) loadCpEngagement(panelCustomerId, _panelPhone);
+  function cp2ToggleSec(which) {
+    const hd = document.getElementById('cp2-' + which + '-hd');
+    const body = document.getElementById('cp2-' + which + '-body');
+    if (!hd || !body) return;
+    const open = hd.getAttribute('aria-expanded') !== 'true';
+    hd.setAttribute('aria-expanded', open ? 'true' : 'false');
+    body.style.display = open ? '' : 'none';
+  }
+  function cp2SetSec(which, open) {
+    const hd = document.getElementById('cp2-' + which + '-hd');
+    const body = document.getElementById('cp2-' + which + '-body');
+    if (hd) hd.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (body) body.style.display = open ? '' : 'none';
   }
 
-  // Session 152 — Billing sub-tabs (Plan / Payment / Balance).
-  // `btn` is optional; when omitted (e.g., restoring from localStorage on tab entry)
-  // we find the matching button by data-subtab attribute. Scoped to #cptab-billing
-  // so the .filter-tab class match doesn't pick up other filter rows on the page.
-  // All sub-tab content lives inside #cptab-billing already — we just toggle pane visibility.
-  function cpBillingSubtab(name, btn) {
-    document.querySelectorAll('#cptab-billing .filter-tab[data-subtab]').forEach(t => t.classList.remove('active'));
-    const activeBtn = btn || document.querySelector(`#cptab-billing .filter-tab[data-subtab="${name}"]`);
-    if (activeBtn) activeBtn.classList.add('active');
-    ['plan','payment','balance','history'].forEach(n => {
-      const el = document.getElementById('cpb-pane-' + n);
-      if (el) el.style.display = (n === name) ? '' : 'none';
+  // Billing settings: one row's editor open at a time.
+  function cp2EditRow(row) {
+    ['plan', 'billing', 'card', 'pricing', 'tip'].forEach(r => {
+      const el = document.getElementById('cp2-e-' + r);
+      if (el) el.style.display = (r === row && el.style.display === 'none') ? '' : 'none';
     });
-    // History = read-only transaction ledger (folded in from the old Transactions
-    // tab, session 184). Hide the Save Billing button there; lazy-load the ledger.
-    const saveWrap = document.getElementById('cpb-save-wrap');
-    if (saveWrap) saveWrap.style.display = (name === 'history') ? 'none' : '';
-    if (name === 'history' && panelCustomerId) loadCpTransactions(panelCustomerId);
-    try { localStorage.setItem('wr-cpb-subtab', name); } catch (e) { /* private mode */ }
   }
 
-  // Customer panel → Issues tab: full per-customer cs_issues history (open + resolved,
-  // newest first). Replaced the old free-text Notes tab (session 173). Existing notes
-  // were migrated into cs_issues as resolved "Imported note" entries.
+  // Header line under the name: lifetime · orders · customer since · credit (only if any).
+  function cp2RenderHeaderStats(c) {
+    const el = document.getElementById('cp2-stats');
+    if (!el) return;
+    const ltv = Number(c.lifetime_value || 0);
+    const tot = c.total_orders || 0;
+    const avg = tot > 0 ? ltv / tot : 0;
+    const since = c.created_at ? new Date(c.created_at).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', year: 'numeric' }) : '';
+    const cr = Number(c.credits || 0);
+    el.innerHTML =
+      `<span title="Average order ${fmtMoney(avg)}"><strong>${fmtMoney(ltv)}</strong> lifetime</span>` +
+      `<span><strong>${tot}</strong> order${tot === 1 ? '' : 's'}</span>` +
+      (since ? `<span>customer since ${esc(since)}</span>` : '') +
+      (cr > 0 ? `<span><strong>${fmtMoney(cr)}</strong> credit</span>` : '');
+  }
+
+  // ── OVERVIEW · Right now: the next order in progress + every open issue ──
+  async function cp2LoadRightNow(customerId) {
+    const body = document.getElementById('cp2-rightnow-body');
+    if (!body) return;
+    const [ordRes, issRes] = await Promise.all([
+      db.from('orders')
+        .select('id, order_number, status, pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end, pickup_address_id, delivery_address_id, created_at')
+        .eq('customer_id', customerId).in('status', CP_ACTIVE_STATUSES).is('archived_at', null)
+        .order('pickup_window_start', { ascending: true, nullsFirst: false }).limit(5),
+      db.from('cs_issues').select('id, title, category, status, created_at, created_by')
+        .eq('customer_id', customerId).not('status', 'in', '(resolved,closed)')
+        .order('created_at', { ascending: false }).limit(10),
+    ]);
+    if (panelCustomerId !== customerId) return;
+    if (ordRes.error || issRes.error) {
+      body.innerHTML = `<div class="cp2-cap" style="margin-top:8px;color:var(--red)">Could not load: ${esc((ordRes.error || issRes.error).message)}</div>`;
+      return;
+    }
+    const orders = ordRes.data || [];
+    const issues = issRes.data || [];
+    cp2SetIssueCount(issues.length);
+    const parts = [];
+    // Address nicknames ("Home", "Prince St") are how customers name their places.
+    const nick = id => { const a = (_cpAddrs || []).find(x => x.id === id); return a ? (a.label || a.line1 || '') : ''; };
+    orders.slice(0, 2).forEach(o => {
+      let title, sub;
+      if (o.status === 'scheduled') {
+        title = 'Pickup ' + cp2DayName(o.pickup_window_start || o.created_at);
+        sub = o.pickup_window_start ? fmtSlot(o.pickup_window_start, o.pickup_window_end) : 'No pickup window set';
+      } else if (o.status === 'out_for_delivery') {
+        title = 'Out for delivery';
+        sub = o.delivery_window_start ? fmtSlot(o.delivery_window_start, o.delivery_window_end) : '';
+      } else if (o.status === 'ready_for_delivery') {
+        title = 'Ready · delivery ' + (o.delivery_window_start ? cp2DayName(o.delivery_window_start) : 'not scheduled');
+        sub = o.delivery_window_start ? fmtSlot(o.delivery_window_start, o.delivery_window_end) : '';
+      } else if (o.status === 'on_hold') {
+        title = 'On hold';
+        sub = '';
+      } else {
+        title = 'In process · ' + cp2Cap(o.status);
+        sub = o.delivery_window_start ? 'Delivery ' + cp2DayName(o.delivery_window_start) : '';
+      }
+      const where = nick(o.status === 'scheduled' ? o.pickup_address_id : (o.delivery_address_id || o.pickup_address_id));
+      if (where) sub = [sub, where].filter(Boolean).join(' · ');
+      parts.push(`<a href="#" class="cp2-now" onclick="event.preventDefault();cpOpenOrder('${escJS(o.id)}')">
+        <div class="cp2-tile">${o.status === 'scheduled' || o.status === 'out_for_delivery' ? CP2_ICON.truck : CP2_ICON.box}</div>
+        <div style="flex:1;min-width:0"><div class="cp2-now-t">${esc(title)}</div><div class="cp2-cap" style="font-size:13px">${esc([sub, '#' + o.order_number].filter(Boolean).join(' · '))}</div></div>
+        <span class="cp2-link">View order</span></a>`);
+    });
+    if (orders.length > 2) parts.push(`<div class="cp2-cap" style="margin-top:8px">+ ${orders.length - 2} more in progress — see Orders</div>`);
+    issues.forEach(iss => {
+      const cat = (typeof ISSUE_CATEGORIES === 'object' && ISSUE_CATEGORIES[iss.category]) || '';
+      const age = (typeof inboxTimeAgo === 'function') ? inboxTimeAgo(iss.created_at) : fmtDate(iss.created_at);
+      parts.push(`<a href="#" class="cp2-now" onclick="event.preventDefault();openIssueDetail(${Number(iss.id)})">
+        <div class="cp2-tile amber">${CP2_ICON.flag}</div>
+        <div style="flex:1;min-width:0"><div class="cp2-now-t" style="font-size:14.5px">${esc(iss.title || '(untitled)')}</div><div class="cp2-cap" style="font-size:13px">Open issue${cat ? ' · ' + esc(cat) : ''} · ${esc(age)}</div></div>
+        <span class="cp2-link">Open</span></a>`);
+    });
+    body.innerHTML = parts.length ? parts.join('')
+      : '<div class="cp2-cap" style="margin-top:8px;font-size:13px">Nothing scheduled and no open issues.</div>';
+  }
+
+  function cp2SetIssueCount(n) {
+    const el = document.getElementById('cp2-issue-count');
+    if (!el) return;
+    el.textContent = n;
+    el.style.display = n > 0 ? '' : 'none';
+  }
+
+  // ── OVERVIEW · Cleaning preferences ──
+  // Read view lists ONLY what differs from the default ("zero is absent"). The edit
+  // view turns every Yes/No preference into a one-tap chip that drives the hidden
+  // <select> loadPanelPreferences rendered, so savePanelPreferences is unchanged.
+  function cp2IsYesNo(p) {
+    const l = (p.options || []).map(o => String(o.label || '').trim().toLowerCase());
+    return l.length === 2 && l.includes('yes') && l.includes('no');
+  }
+  function cp2RenderPrefs(gPrefs, sel) {
+    _cp2.prefs = { gPrefs: gPrefs || [], sel: sel || {} };
+    const read = document.getElementById('cp2-prefs-read');
+    const chips = document.getElementById('cp2-pref-chips');
+    const editBtn = document.getElementById('cp2-prefs-edit-btn');
+    if (!read) return;
+    const on = [];
+    (gPrefs || []).forEach(p => {
+      const def = (p.options || []).find(o => o.is_default);
+      const cur = (sel && sel[p.id]) || (def && def.id);
+      const opt = (p.options || []).find(o => o.id === cur);
+      if (!opt || (def && opt.id === def.id)) return;
+      if (cp2IsYesNo(p)) { if (String(opt.label).trim().toLowerCase() === 'yes') on.push(p.name); }
+      else on.push(`${p.name}: ${opt.label}`);
+    });
+    const notes = String((sel && sel._notes) || '').trim();
+    if (!on.length && !notes) {
+      read.innerHTML = `<div style="margin-top:8px"><div style="font-size:14.5px;font-weight:600;color:var(--gray-900)">Standard wash</div><div class="cp2-cap" style="font-size:13px">No preferences or care notes yet.</div></div>`;
+      if (editBtn) editBtn.textContent = 'Add preferences';
+    } else {
+      read.innerHTML = (on.length ? `<div class="cp2-tags">${on.map(t => `<span class="cp2-tag">${esc(t)}</span>`).join('')}</div>` : '')
+        + (notes ? `<div style="font-size:14px;color:var(--gray-800);margin-top:10px;white-space:pre-line">${esc(notes)}</div>` : '');
+      if (editBtn) editBtn.textContent = 'Edit';
+    }
+    if (!chips) return;
+    // Chips for Yes/No preferences; hide their dropdowns (still in the DOM for save).
+    const yn = (gPrefs || []).filter(cp2IsYesNo);
+    chips.innerHTML = yn.map(p => {
+      const yes = p.options.find(o => String(o.label).trim().toLowerCase() === 'yes');
+      const no  = p.options.find(o => String(o.label).trim().toLowerCase() === 'no');
+      const s = document.getElementById('cpref-dyn-' + p.id);
+      const pressed = !!(s && yes && s.value === yes.id);
+      return `<button type="button" class="cp2-chip" aria-pressed="${pressed}" data-pref="${esc(p.id)}" data-yes="${esc(yes.id)}" data-no="${esc(no.id)}" onclick="cp2TogglePrefChip(this)">${pressed ? CP2_ICON.check.replace('width="19" height="19"', 'width="13" height="13"') : ''}${esc(p.name)}</button>`;
+    }).join('');
+    yn.forEach(p => {
+      const s = document.getElementById('cpref-dyn-' + p.id);
+      const f = s && s.closest('.cp-field');
+      if (f) f.style.display = 'none';
+    });
+    // Category headings only make sense if a dropdown is still visible under them.
+    document.querySelectorAll('#cp-global-prefs-list > div').forEach(group => {
+      const anyVisible = [...group.querySelectorAll('.cp-field')].some(f => f.style.display !== 'none');
+      group.style.display = anyVisible ? '' : 'none';
+    });
+  }
+  function cp2TogglePrefChip(btn) {
+    const s = document.getElementById('cpref-dyn-' + btn.dataset.pref);
+    if (!s) return;
+    const pressed = btn.getAttribute('aria-pressed') !== 'true';
+    s.value = pressed ? btn.dataset.yes : btn.dataset.no;
+    btn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+    const name = btn.textContent;
+    btn.innerHTML = (pressed ? CP2_ICON.check.replace('width="19" height="19"', 'width="13" height="13"') : '') + esc(name);
+  }
+  function cp2TogglePrefsEdit(show) {
+    const ed = document.getElementById('cp2-prefs-edit');
+    const rd = document.getElementById('cp2-prefs-read');
+    const btn = document.getElementById('cp2-prefs-edit-btn');
+    const card = document.getElementById('cp2-prefs-card');
+    if (!ed) return;
+    if (!show && _cp2.prefs) {
+      // Cancel: put every control back to what is saved.
+      const sel = _cp2.prefs.sel || {};
+      (_cp2.prefs.gPrefs || []).forEach(p => {
+        const s = document.getElementById('cpref-dyn-' + p.id);
+        if (s) s.value = sel[p.id] || ((p.options || []).find(o => o.is_default) || {}).id || '';
+      });
+      const n = document.getElementById('cp-pref-notes'); if (n) n.value = sel._notes || '';
+      cp2RenderPrefs(_cp2.prefs.gPrefs, sel);
+    }
+    ed.style.display = show ? '' : 'none';
+    rd.style.display = show ? 'none' : '';
+    if (btn) btn.style.display = show ? 'none' : '';
+    if (card) card.classList.toggle('cp2-editing', !!show);
+  }
+
+  // ── SETTINGS: route override, processing site and source save on change ──
+  async function cp2SaveSettings() {
+    if (!panelCustomerId) return;
+    const patch = {
+      route_template_override_id: document.getElementById('cpe-route-override').value || null,
+      default_site_id:            document.getElementById('cpe-default-site').value || null,
+      referral_source:            document.getElementById('cpe-source').value || null,
+    };
+    const { error } = await db.from('customers').update(patch).eq('id', panelCustomerId);
+    if (error) { showToast('Not saved: ' + error.message, 'error'); return; }
+    if (_panelCustomerData) Object.assign(_panelCustomerData, patch);
+    showToast('Saved', 'success');
+  }
+
+  // ══ Session 329: Billing tab — balance card, settings summary, payments ══
+
+  // Balance card: owed (red only when money is actually owed) + credit + actions.
+  function cp2RenderBalance() {
+    const c = _panelCustomerData || {};
+    const body = document.getElementById('cp2-balance-body');
+    const acts = document.getElementById('cp2-balance-actions');
+    if (!body || !acts) return;
+    const rows = _cp2.balRows || [];
+    const bal = rows.reduce((s, r) => s + Number(r.amount_due || 0), 0);
+    const credits = Number(c.credits || 0);
+    const card = cp2DefaultCard();
+    const auto = (c.billing_type || 'automatic') !== 'on_account';
+    const live = !c.cancelled_at;
+    if (bal > 0) {
+      const declined = rows.filter(r => r.bucket === 'card_declined').length;
+      body.innerHTML = `<div class="cp2-now" style="margin-top:0">
+        <div class="cp2-tile red">${CP2_ICON.card}</div>
+        <div style="flex:1;min-width:0"><div style="font-size:20px;font-weight:700;color:#b91c1c;letter-spacing:-.02em;line-height:1.2">${fmtMoney(bal)} owed</div>
+        <div class="cp2-cap" style="font-size:13px">${rows.length} unpaid order${rows.length === 1 ? '' : 's'}${declined ? ` · ${declined === rows.length ? 'card declined' : declined + ' card declined'}` : ''}</div></div></div>`;
+      document.getElementById('cp2-balance-card').style.borderColor = '#fecaca';
+    } else {
+      body.innerHTML = `<div class="cp2-now" style="margin-top:0">
+        <div class="cp2-tile green">${CP2_ICON.check}</div>
+        <div style="flex:1;min-width:0"><div class="cp2-now-t" style="font-size:16px">Paid up</div>
+        <div class="cp2-cap" style="font-size:13px">Nothing owed${credits > 0 ? '' : ' · no account credit'}</div></div></div>`;
+      document.getElementById('cp2-balance-card').style.borderColor = '';
+    }
+    if (credits > 0) {
+      body.innerHTML += `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--gray-100);font-size:13.5px;color:var(--gray-700)"><strong style="color:var(--gray-900)">${fmtMoney(credits)}</strong> account credit${c.credit_expires_at ? ` · expires ${esc(fmtDate(c.credit_expires_at))}` : ''}</div>`;
+    }
+    const b = [];
+    if (bal > 0 && auto && card && live) b.push(`<button type="button" class="btn btn-primary" id="cp2-charge-again" onclick="cp2ChargeAgain(this)">Charge card again</button>`);
+    if (bal > 0) b.push(`<button type="button" class="btn btn-ghost" onclick="cpTab('orders')">View unpaid orders</button>`);
+    b.push(`<button type="button" class="btn btn-ghost" onclick="showCreditAdjust('add')">Add credit</button>`);
+    if (credits > 0) b.push(`<button type="button" class="btn btn-ghost" onclick="showCreditAdjust('remove')">Remove credit</button>`);
+    b.push(`<button type="button" class="btn btn-ghost" onclick="cp2ShowPromo()">Promo code</button>`);
+    if (auto && card && live) b.push(`<button type="button" class="btn btn-ghost" onclick="cp2OpenCustomCharge(true)">Custom charge</button>`);
+    acts.innerHTML = b.join('');
+  }
+
+  function cp2ShowPromo() {
+    const el = document.getElementById('cp2-promo-row');
+    if (!el) return;
+    el.style.display = el.style.display === 'none' ? '' : 'none';
+  }
+
+  // "Charge card again": re-runs charge-order (same function and guards as the
+  // Issues page's Retry charge) for every unpaid order. Two clicks, no pop-up.
+  async function cp2ChargeAgain(btn) {
+    const rows = (_cp2.balRows || []).filter(r => r.id);
+    if (!rows.length) return;
+    const total = rows.reduce((s, r) => s + Number(r.amount_due || 0), 0);
+    const card = cp2DefaultCard();
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = `Confirm: charge ${fmtMoney(total)} to ${cp2CardLabel(card)}`;
+      setTimeout(() => { if (btn.isConnected && btn.dataset.armed === '1' && !btn.disabled) { btn.dataset.armed = ''; btn.textContent = 'Charge card again'; } }, 8000);
+      return;
+    }
+    btn.dataset.armed = '';
+    btn.disabled = true; btn.textContent = 'Charging…';
+    const custId = panelCustomerId;
+    let ok = 0; const failed = [];
+    for (const r of rows) {
+      const rc = await _chargeOrderCall(r.id);
+      if (rc.outcome === 'charged') {
+        ok++;
+        // Same follow-up as retryChargeFromIssues: email the receipt.
+        fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
+          body: JSON.stringify({ order_id: r.id }),
+        }).catch(() => {});
+      } else {
+        failed.push(`#${r.order_number || '?'}: ${rc.outcome === 'unauthorized' ? 'staff session expired — sign in again' : (rc.error || rc.outcome)}`);
+        if (rc.outcome === 'unauthorized') break;
+      }
+    }
+    if (!failed.length) showToast(`Charged ${ok} order${ok === 1 ? '' : 's'} to ${cp2CardLabel(card)} ✓`, 'success');
+    else showToast(`${ok ? ok + ' charged. ' : ''}Not charged — ${failed.join('; ')}`, 'error');
+    if (panelCustomerId === custId) openCustomerPanel(custId, 'billing');
+  }
+
+  // ── Custom charge (charge-custom edge function) ──
+  // requestId is created when the form opens and reused for retries, so a
+  // double-click or a network retry can never charge twice (Stripe idempotency).
+  let _cp2CcReq = null;
+  function cp2NewReqId() {
+    try { if (crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+    return 'cc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+  }
+  function cp2OpenCustomCharge(show) {
+    const el = document.getElementById('cp2-custom-charge');
+    if (!el) return;
+    if (show) {
+      _cp2CcReq = cp2NewReqId();
+      document.getElementById('cp2-cc-amount').value = '';
+      document.getElementById('cp2-cc-reason').value = '';
+      document.getElementById('cp2-cc-error').style.display = 'none';
+      const card = cp2DefaultCard();
+      document.getElementById('cp2-cc-card').textContent = card
+        ? `Charges ${cp2CardLabel(card)} right away. The customer gets a text receipt. Up to $500.`
+        : 'No card on file.';
+      cp2CcDisarm();
+      el.style.display = '';
+      document.getElementById('cp2-cc-amount').focus();
+    } else {
+      el.style.display = 'none';
+      _cp2CcReq = null;
+    }
+  }
+  function cp2CcDisarm() {
+    const b = document.getElementById('cp2-cc-go');
+    if (b && !b.disabled) { b.dataset.armed = ''; b.textContent = 'Charge card'; }
+  }
+  async function cp2CustomChargeGo(btn) {
+    const errEl = document.getElementById('cp2-cc-error');
+    const showErr = (m) => { errEl.textContent = m; errEl.style.display = 'block'; };
+    errEl.style.display = 'none';
+    const custId = panelCustomerId;
+    const amt = Math.round(parseFloat(document.getElementById('cp2-cc-amount').value) * 100) / 100;
+    const reason = document.getElementById('cp2-cc-reason').value.trim();
+    const card = cp2DefaultCard();
+    if (!custId || !card) return showErr('No card on file for this customer.');
+    if (!(amt >= 0.5)) return showErr('Enter an amount of at least $0.50.');
+    if (amt > 500) return showErr('Custom charges are capped at $500. Use an order or an invoice for more.');
+    if (!reason) return showErr('Add a reason — it goes on the customer\'s receipt text.');
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = `Confirm: charge ${fmtMoney(amt)} to ${cp2CardLabel(card)}`;
+      return;
+    }
+    if (!_cp2CcReq) _cp2CcReq = cp2NewReqId();
+    btn.disabled = true; btn.textContent = 'Charging…';
+    try {
+      const jwt = await _staffJwt();
+      if (!jwt) throw new Error('You are signed out — sign in again. Nothing was charged.');
+      const res = await fetch(`${SUPA_URL}/functions/v1/charge-custom`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, 'Authorization': `Bearer ${jwt}` },
+        body: JSON.stringify({ customerId: custId, amount: amt, reason, requestId: _cp2CcReq }),
+      });
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      if (!res.ok || !data.success) throw new Error(data.error || `Charge failed (${res.status})`);
+      _cp2CcReq = null;
+      if (data.ledgerError) {
+        showToast(`Card charged ${fmtMoney(amt)}, but the payment record didn't save (${data.ledgerError}). Stripe id ${data.paymentIntentId} — tell David.`, 'error');
+      } else {
+        showToast(`Charged ${fmtMoney(amt)} to ${data.card || cp2CardLabel(card)}${data.texted ? ' · receipt texted' : ''} ✓`, 'success');
+      }
+      document.getElementById('cp2-custom-charge').style.display = 'none';
+      if (panelCustomerId === custId) { cp2SetSec('payments', true); loadCpTransactions(custId); }
+    } catch (e) {
+      // Keep the same requestId: a retry of a request that actually went through
+      // returns the original charge instead of making a second one.
+      showErr(e.message || String(e));
+    } finally {
+      btn.disabled = false; btn.dataset.armed = ''; btn.textContent = 'Charge card';
+    }
+  }
+
+  // ── Billing settings: each row reads as a sentence; the header line is the summary ──
+  async function cp2RenderBilling() {
+    const c = _panelCustomerData;
+    if (!c) return;
+    const custId = c.id;
+    const set = (id, b, small) => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = `<b>${esc(b)}</b>${small ? esc(small) : ''}`;
+    };
+    // Plan: active subscription name, or pay as you go.
+    if (_cp2.subName === null) {
+      const { data: sub } = await db.from('subscriptions').select('status, subscription_plans(name)')
+        .eq('customer_id', custId).in('status', ['active', 'paused', 'past_due', 'trialing'])
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (panelCustomerId !== custId) return;
+      _cp2.subName = sub ? `${sub.subscription_plans?.name || 'Subscription'}${sub.status !== 'active' ? ' (' + cp2Cap(sub.status === 'trialing' ? 'scheduled' : sub.status) + ')' : ''}` : '';
+    }
+    const planB = _cp2.subName ? _cp2.subName : 'Pay as you go';
+    set('cp2-v-plan', planB, `${c.pricelist || 'Delivery'} price list`);
+
+    const onAcct = c.billing_type === 'on_account';
+    const pmLabel = { credit_card: 'credit card', check: 'check', ach: 'ACH' }[c.payment_method] || 'credit card';
+    let groupName = '';
+    if (onAcct) {
+      const gs = document.getElementById('cpb-billing-group');
+      const opt = gs && gs.selectedIndex >= 0 ? gs.options[gs.selectedIndex] : null;
+      groupName = opt && opt.value ? opt.textContent : '';
+    }
+    set('cp2-v-billing', onAcct ? 'On account' : 'Automatic',
+      onAcct ? `Invoiced${groupName ? ' with ' + groupName : ''} · pays by ${pmLabel}` : 'Card charged after each delivery');
+
+    const card = cp2DefaultCard();
+    const more = Math.max(0, (_cp2.cards || []).length - 1);
+    if (card) {
+      const exp = (card.card_exp_month && card.card_exp_year) ? `Expires ${card.card_exp_month}/${card.card_exp_year}` : '';
+      set('cp2-v-card', cp2CardLabel(card), [exp, more ? `+${more} more on file` : ''].filter(Boolean).join(' · '));
+    } else {
+      set('cp2-v-card', 'No card on file', onAcct ? '' : 'Send a card link from Manage');
+    }
+
+    const ds = document.getElementById('cpb-discount');
+    const dOpt = ds && ds.value ? ds.options[ds.selectedIndex] : null;
+    const dName = dOpt ? dOpt.textContent : '';
+    set('cp2-v-pricing', (dName || c.fee_exempt) ? [dName, c.fee_exempt ? 'No pickup fees' : ''].filter(Boolean).join(' · ') : 'Standard',
+      (dName ? '' : 'No discount · ') + (c.fee_exempt ? 'Fee exempt' : 'Pays pickup fees'));
+
+    const tip = Number(c.default_tip || 0);
+    set('cp2-v-tip', tip > 0 ? (c.default_tip_type === '%' ? `${tip}% per order` : `${fmtMoney(tip)} per order`) : 'None', 'Usually set by the customer in their app');
+
+    const sum = document.getElementById('cp2-billset-sum');
+    if (sum) sum.textContent = [planB, onAcct ? 'On account' : 'Automatic', card ? cp2CardLabel(card) : 'No card on file'].join(' · ');
+  }
+
+  // ── Payments: one row per charge / refund / credit; click a row for details.
+  //    Charges with something left to refund offer an inline refund form. ──
+  let _cp2OpenTxn = null, _cp2RefundTxn = null;
+
+  function renderCpTxns() {
+    const el = document.getElementById('cp-transactions-list');
+    if (!el) return;
+    const rows = _allCpTxns || [];
+    const isCharge = t => t.type === 'charge' || t.type === 'subscription_invoice';
+    const charged  = rows.filter(isCharge).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    const refunded = rows.filter(t => t.type === 'refund').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    const sumEl = document.getElementById('cp-txn-summary');
+    if (sumEl) {
+      sumEl.textContent = rows.length
+        ? [`${rows.length} transaction${rows.length === 1 ? '' : 's'}`, charged > 0 ? `${fmtMoney(charged)} charged` : '', refunded > 0 ? `${fmtMoney(refunded)} refunded` : ''].filter(Boolean).join(' · ')
+        : 'No payments yet';
+    }
+    if (!rows.length) { el.innerHTML = '<div class="cp2-cap" style="padding:10px 16px">No payments yet.</div>'; return; }
+    const refundedByPI = {};
+    rows.filter(t => t.type === 'refund' && t.stripe_payment_intent_id).forEach(t => {
+      refundedByPI[t.stripe_payment_intent_id] = (refundedByPI[t.stripe_payment_intent_id] || 0) + parseFloat(t.amount || 0);
+    });
+    const payWith = t => {
+      if (t.card_last4) return `${t.card_brand ? cp2Cap(t.card_brand) : 'Card'} •••• ${t.card_last4}`;
+      if (t.payment_method === 'ach') return 'ACH';
+      if (t.payment_method === 'check') return 'Check';
+      if (t.payment_method === 'cash') return 'Cash';
+      if (String(t.type).startsWith('credit')) return 'Account credit';
+      return '—';
+    };
+    el.innerHTML = rows.map(t => {
+      const amt = parseFloat(t.amount || 0);
+      const already = t.stripe_payment_intent_id ? (refundedByPI[t.stripe_payment_intent_id] || 0) : 0;
+      const refundableType = isCharge(t);
+      const hasId = !!t.stripe_payment_intent_id || t.type === 'subscription_invoice';
+      const left = Math.round((amt - already) * 100) / 100;
+      const canRefund = refundableType && hasId && left > 0.004;
+      const desc = t.description || '';
+      let label, amtHtml;
+      if (isCharge(t)) {
+        label = esc(desc || (t.type === 'subscription_invoice' ? 'Subscription charge' : 'Charge'))
+          + (already > 0 ? `<span class="cp2-muted">${left <= 0.004 ? ' · refunded' : ' · part refunded'}</span>` : '');
+        amtHtml = `<span class="cp2-ta">${fmtMoney(amt)}</span>`;
+      } else if (t.type === 'refund') {
+        label = esc(desc || 'Refund');
+        amtHtml = `<span class="cp2-ta" style="color:#b45309">−${fmtMoney(amt)}</span>`;
+      } else if (t.type === 'credit_add') {
+        label = `Credit added<span class="cp2-muted"> · account credit</span>`;
+        amtHtml = `<span class="cp2-ta cp2-muted">+${fmtMoney(amt)}</span>`;
+      } else if (t.type === 'credit_remove') {
+        label = `Credit removed<span class="cp2-muted"> · account credit</span>`;
+        amtHtml = `<span class="cp2-ta cp2-muted">−${fmtMoney(amt)}</span>`;
+      } else if (t.type === 'credit_use') {
+        label = `Credit used<span class="cp2-muted">${desc ? ' · ' + esc(desc) : ''}</span>`;
+        amtHtml = `<span class="cp2-ta cp2-muted">${fmtMoney(amt)}</span>`;
+      } else {
+        label = esc(desc || cp2Cap(t.type));
+        amtHtml = `<span class="cp2-ta">${fmtMoney(amt)}</span>`;
+      }
+      const open = _cp2OpenTxn === t.id;
+      const refunding = _cp2RefundTxn === t.id;
+      let det = '';
+      if (open) {
+        const om = desc.match(/#(\d+)/);
+        const orderCell = (t.order_id && om)
+          ? `<a href="#" onclick="event.preventDefault();cpOpenOrder('${escJS(t.order_id)}')" style="color:var(--accent)">#${om[1]}</a>`
+          : (om ? '#' + om[1] : '');
+        det = `<div class="cp2-det">
+          <div class="cp2-dl">
+            <span>When</span><span>${esc(new Date(t.created_at).toLocaleString('en-US', { timeZone: BIZ_TZ, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }))}</span>
+            <span>${t.type === 'refund' ? 'Back to' : 'Paid with'}</span><span>${esc(payWith(t))}</span>
+            ${orderCell ? `<span>Order</span><span>${orderCell}</span>` : ''}
+            ${t.note ? `<span>Note</span><span>${esc(t.note)}</span>` : ''}
+          </div>
+          ${refundableType && already > 0 ? `<div style="margin-top:8px;color:#92400e">${fmtMoney(already)} of ${fmtMoney(amt)} already refunded.${left > 0.004 ? ` ${fmtMoney(left)} left to refund.` : ' Nothing left to refund.'}</div>` : ''}
+          ${canRefund && !refunding ? `<div style="margin-top:10px"><button type="button" class="btn btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="cp2StartRefund('${escJS(t.id)}')">↩ Refund…</button></div>` : ''}
+          ${refunding ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--gray-200)">
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <div><label class="cp-field-label" for="cp2-rf-amt">Amount</label>
+                <input class="cp-input" id="cp2-rf-amt" type="number" min="0.01" step="0.01" max="${left.toFixed(2)}" value="${left.toFixed(2)}" style="width:110px"></div>
+              <div class="cp2-cap" style="padding-bottom:10px">Up to ${fmtMoney(left)}</div>
+            </div>
+            <label class="cp-field-label" for="cp2-rf-why" style="margin-top:10px;display:block">Reason <span style="font-weight:400;color:var(--gray-400)">(optional, sent to the customer)</span></label>
+            <input class="cp-input" id="cp2-rf-why" type="text" maxlength="120" placeholder="e.g. Damaged item, billing error">
+            <div style="font-size:12.5px;color:var(--gray-700);margin-top:8px">Goes back to ${esc(payWith(t))} right away through Stripe and can't be undone. The customer gets a text.</div>
+            <div id="cp2-rf-err" style="display:none;margin-top:6px;color:var(--red);font-size:12.5px"></div>
+            <div class="cp2-actions"><button type="button" class="btn btn-ghost" onclick="cp2StartRefund(null)">Cancel</button>
+              <button type="button" class="btn btn-primary" onclick="cp2SubmitRefund('${escJS(t.id)}', ${left}, this)">Issue refund</button></div>
+          </div>` : ''}
+        </div>`;
+      }
+      return `<button type="button" class="cp2-tx" aria-expanded="${open}" onclick="cp2ToggleTxn('${escJS(t.id)}')">
+          <span class="cp2-td">${esc(cp2Short(t.created_at))}</span><span class="cp2-tn">${label}</span>${amtHtml}
+        </button>${det}`;
+    }).join('');
+  }
+  function cp2ToggleTxn(id) { _cp2OpenTxn = (_cp2OpenTxn === id) ? null : id; _cp2RefundTxn = null; renderCpTxns(); }
+  function cp2StartRefund(id) {
+    _cp2RefundTxn = id;
+    renderCpTxns();
+    if (id) { const a = document.getElementById('cp2-rf-amt'); if (a) a.focus(); }
+  }
+  // Same refund-charge call as the old modal's submitRefund (staff JWT, amount, reason).
+  async function cp2SubmitRefund(txnId, maxLeft, btn) {
+    const errEl = document.getElementById('cp2-rf-err');
+    const showErr = m => { errEl.textContent = m; errEl.style.display = 'block'; };
+    const amt = Math.round(parseFloat(document.getElementById('cp2-rf-amt').value) * 100) / 100;
+    const reason = document.getElementById('cp2-rf-why').value.trim();
+    if (!(amt > 0)) return showErr('Enter a refund amount.');
+    if (amt > maxLeft + 0.005) return showErr(`That's more than is left to refund (${fmtMoney(maxLeft)}).`);
+    const custId = panelCustomerId;
+    btn.disabled = true; btn.textContent = 'Refunding…';
+    try {
+      const { data: { session } = {} } = await db.auth.getSession();
+      if (!session?.access_token) throw new Error('You are signed out — sign in again. Nothing was refunded.');
+      const res = await fetch(`${SUPA_URL}/functions/v1/refund-charge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ transactionId: txnId, amount: amt, reason: reason || undefined }),
+      });
+      const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      if (!res.ok || result.error) throw new Error(result.error || 'Refund failed');
+      showToast(`↩ Refund of ${fmtMoney(amt)} issued`, 'success');
+      _cp2OpenTxn = null; _cp2RefundTxn = null;
+      if (panelCustomerId === custId) loadCpTransactions(custId);
+    } catch (e) {
+      showErr(e.message || String(e));
+      btn.disabled = false; btn.textContent = 'Issue refund';
+    }
+  }
+
+  // ══ Session 329: Orders tab — rhythm + In progress + Past orders ══
+  // "Delivered and paid" is normal, so it carries no badge. Failed pickups read
+  // in words and say "Not charged" (their amount is only an estimate). Skipped,
+  // cancelled and archived orders fold into one "Hidden" line.
+  const CP2_FAIL_REASON = { bags_not_out: 'Bags not out', cant_access: "Can't access", customer_not_home: 'Not home', customer_requested_skip: 'Customer asked to skip', other: 'Other' };
+  let _cp2ShowHidden = false;
+
+  function cp2OrderDate(o) { return o.actual_delivery_at || o.delivery_window_start || o.pickup_window_start || o.created_at; }
+
+  function renderCpOrders(data /* , filter — ignored since session 329 */) {
+    const el = document.getElementById('cp-orders-list');
+    if (!el) return;
+    data = data || [];
+    cp2RenderRhythm(data);
+    if (!data.length) { el.innerHTML = '<div class="cp2-card"><div class="cp2-cap">No orders yet.</div></div>'; return; }
+    const active = data.filter(cpIsActiveOrder)
+      .sort((a, b) => String(a.pickup_window_start || a.created_at).localeCompare(String(b.pickup_window_start || b.created_at)));
+    const isHidden = o => !!o.archived_at || o.status === 'skipped' || o.status === 'cancelled';
+    const past = data.filter(o => !cpIsActiveOrder(o))
+      .sort((a, b) => String(cp2OrderDate(b)).localeCompare(String(cp2OrderDate(a))));
+    const hidden = past.filter(isHidden);
+    const shown = _cp2ShowHidden ? past : past.filter(o => !isHidden(o));
+    const num = o => `<a href="#" onclick="event.preventDefault();event.stopPropagation();cpOpenOrder('${escJS(o.id)}')" title="Open full order">#${o.order_number}</a>`;
+    let html = '';
+
+    if (active.length) {
+      html += `<section class="cp2-card"><div class="cp2-lbl" style="padding-bottom:2px">In progress</div>` + active.map(o => {
+        const chargeable = Number(o.total_amount) > 0 && !o.stripe_payment_intent_id
+          && o.billing_status !== 'paid' && o.billing_status !== 'written_off' && o.status === 'ready_for_delivery';
+        const act = o.stripe_payment_intent_id
+          ? `<button class="btn" style="padding:3px 9px;font-size:11.5px;border:1px solid var(--gray-200)" onclick="event.stopPropagation();sendReceipt('${escJS(o.id)}','${o.order_number}',this)">Email receipt</button>`
+          : chargeable ? `<button class="btn btn-primary" style="padding:3px 9px;font-size:11.5px" onclick="event.stopPropagation();chargeOrder('${escJS(o.id)}','${o.order_number}',this)">Charge</button>` : '';
+        const pill = o.status === 'scheduled'
+          ? `<span class="cp2-pill blue">Scheduled${o.pickup_window_start ? ' · pickup ' + esc(fmtSlot(o.pickup_window_start, o.pickup_window_end)) : ''}</span>`
+          : o.status === 'on_hold' ? `<span class="cp2-pill amber">On hold</span>`
+          : `<span class="cp2-pill blue">${esc(cp2Cap(o.status))}</span>`;
+        return `<div class="cp2-ord" style="${active[0] === o ? 'border-top:none' : ''}" onclick="cpOpenOrder('${escJS(o.id)}')">
+          <div class="cp2-od"><div class="cp2-od1">${esc(cp2DayName(o.pickup_window_start || o.created_at).replace(/^./, s => s.toUpperCase()))}</div>
+          <div class="cp2-od2">${esc(_serviceLabelForOrder(o))} · ${num(o)}</div></div>${pill}${act}</div>`;
+      }).join('') + `</section>`;
+    }
+
+    html += `<section class="cp2-card"><div class="cp2-cardhead" style="padding-bottom:2px"><span class="cp2-lbl">Past orders</span>
+      <button type="button" class="cp2-link" onclick="cp2ToggleSelect()">${cpBillingMode ? 'Done selecting' : 'Select for receipts or billing'}</button></div>`;
+    if (!shown.length) html += `<div class="cp2-cap" style="padding:8px 0">${past.length ? 'Only hidden orders so far.' : 'No past orders yet.'}</div>`;
+    html += shown.map((o, i) => {
+      const isPaid = o.billing_status === 'paid' || !!o.stripe_payment_intent_id;
+      const isFailed = o.status === 'pickup_failed' || o.status === 'delivery_failed';
+      const isWrittenOff = o.billing_status === 'written_off';
+      const deliverable = o.status === 'delivered' || o.status === 'ready_for_delivery';
+      const billable = Number(o.total_amount) > 0 && !isPaid && !isWrittenOff && deliverable;
+      const selectable = deliverable;
+      const checked = selectable && cpBillingSelection.has(o.id);
+      const dateTxt = new Date(cp2OrderDate(o)).toLocaleDateString('en-US', { timeZone: BIZ_TZ, weekday: 'short', month: 'short', day: 'numeric', year: (new Date(cp2OrderDate(o)).getFullYear() !== new Date().getFullYear()) ? 'numeric' : undefined });
+      const svc = esc(_serviceLabelForOrder(o));
+      const cb = (cpBillingMode && selectable)
+        ? `<input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked ? 'checked' : ''} onclick="event.stopPropagation();toggleBillingOrder('${escJS(o.id)}')" aria-label="Select order ${o.order_number}">`
+        : (cpBillingMode ? '<span style="width:15px;flex-shrink:0"></span>' : '');
+      let line2, right, pill = '', icon = '', d1Style = '';
+      if (isFailed) {
+        const reason = o.driver_skip_reason ? (CP2_FAIL_REASON[o.driver_skip_reason] || cp2Cap(o.driver_skip_reason)) : '';
+        icon = CP2_ICON.alert;
+        d1Style = 'color:var(--gray-600)';
+        line2 = `<span style="color:#92400e">${o.status === 'pickup_failed' ? 'Pickup failed' : 'Delivery failed'}${reason ? ' · ' + esc(reason) : ''}</span> · ${num(o)}`;
+        right = `<span class="cp2-cap" title="Estimate was ${fmtMoney(orderChargedTotal(o))}" style="font-size:12.5px">Not charged</span>`;
+      } else if (o.status === 'skipped' || o.status === 'cancelled') {
+        line2 = `${svc} · ${num(o)}`;
+        pill = `<span class="cp2-pill gray">${o.status === 'skipped' ? 'Skipped' : 'Cancelled'}</span>`;
+        right = '';
+        d1Style = 'color:var(--gray-600)';
+      } else {
+        const method = isPaid && o.billing_payment_method && o.billing_payment_method !== 'credit_card'
+          ? ' · paid by ' + esc(o.billing_payment_method.replace(/_/g, ' ')) : '';
+        line2 = `${svc}${o.weight_lbs ? ' · ' + o.weight_lbs + ' lbs' : ''} · ${num(o)}${method}`;
+        if (billable) {
+          const declined = o.billing_status === 'failed';
+          pill = `<span class="cp2-pill red">Unpaid${declined ? ' · card declined' : ''}</span>`;
+          right = `<span class="cp2-ta" style="color:#b91c1c">${fmtMoney(orderChargedTotal(o))}</span>`;
+        } else {
+          if (isWrittenOff) pill = `<span class="cp2-pill gray">Written off</span>`;
+          else if (o.billing_status === 'invoiced') pill = `<span class="cp2-pill gray">Invoiced</span>`;
+          right = `<span class="cp2-ta">${fmtMoney(orderChargedTotal(o))}</span>`;
+        }
+      }
+      if (o.archived_at) {
+        pill += `<span class="cp2-pill gray" title="${esc(o.archived_reason || '')}">Archived</span>`;
+      }
+      return `<div class="cp2-ord${checked ? ' billing-selected' : ''}" id="brow-${o.id}" style="${i === 0 ? 'border-top:none' : ''}" onclick="cpToggleOrderSummary('${escJS(o.id)}')" title="Click for a quick summary">
+          ${cb}${icon}
+          <div class="cp2-od"><div class="cp2-od1" style="${d1Style}">${esc(dateTxt)}</div><div class="cp2-od2">${line2}</div></div>
+          ${pill}${right}
+        </div>
+        <div class="cp-order-summary" id="cpsum-${o.id}" style="display:none;margin:0 -16px"></div>`;
+    }).join('');
+    if (hidden.length) {
+      const counts = {};
+      hidden.forEach(o => { const k = o.archived_at ? 'archived' : o.status; counts[k] = (counts[k] || 0) + 1; });
+      const txt = Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(' · ');
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 2px;border-top:1px solid var(--gray-200);margin-top:4px">
+        <span class="cp2-cap">${_cp2ShowHidden ? 'Showing' : 'Hidden'}: ${esc(txt)}</span>
+        <button type="button" class="cp2-link" onclick="_cp2ShowHidden=!_cp2ShowHidden;renderCpOrders(cpAllOrders)">${_cp2ShowHidden ? 'Hide' : 'Show'}</button></div>`;
+    }
+    html += `</section>`;
+    el.innerHTML = html;
+  }
+
+  function cp2ToggleSelect() {
+    cpBillingMode = !cpBillingMode;
+    if (!cpBillingMode) cpBillingSelection.clear();
+    updateBillingBar();
+    renderCpOrders(cpAllOrders);
+  }
+
+  // Order rhythm: last 26 weeks, one bar per week (delivered orders), the next
+  // open order dashed. Caption states the cadence in words.
+  function cp2RenderRhythm(orders) {
+    const box = document.getElementById('cp2-rhythm');
+    if (!box) return;
+    const dayNum = d => Math.floor(Date.parse(cp2DayKey(d) + 'T00:00:00Z') / 86400000);
+    const delivered = (orders || []).filter(o => o.status === 'delivered').map(cp2OrderDate).filter(Boolean)
+      .sort((a, b) => String(a).localeCompare(String(b)));
+    const nextOrder = (orders || []).filter(cpIsActiveOrder)
+      .map(o => o.pickup_window_start || o.created_at).filter(Boolean).sort()[0] || null;
+    if (!delivered.length && !nextOrder) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    const WEEKS = 26;
+    const today = dayNum(new Date());
+    const dow = (new Date(today * 86400000).getUTCDay() + 6) % 7;       // Monday = 0
+    const start = today - dow - (WEEKS - 1) * 7;
+    const counts = new Array(WEEKS).fill(0);
+    delivered.forEach(d => { const i = Math.floor((dayNum(d) - start) / 7); if (i >= 0 && i < WEEKS) counts[i]++; });
+    let nextIdx = -1;
+    if (nextOrder) { const i = Math.floor((dayNum(nextOrder) - start) / 7); nextIdx = Math.min(WEEKS - 1, Math.max(0, i)); }
+    const cols = `grid-template-columns:repeat(${WEEKS},minmax(0,1fr))`;
+    const bars = counts.map((n, i) => {
+      const wk = new Date((start + i * 7) * 86400000).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+      let bar;
+      if (n > 0) bar = `<div class="cp2-bar" style="height:${n === 1 ? 16 : n === 2 ? 28 : 38}px"></div>`;
+      else if (i === nextIdx) bar = `<div class="cp2-bar next"></div>`;
+      else bar = `<div class="cp2-bar none"></div>`;
+      const tip = n > 0 ? `Week of ${wk} · ${n} order${n > 1 ? 's' : ''}` : (i === nextIdx ? `Week of ${wk} · next order scheduled` : `Week of ${wk} · no orders`);
+      return `<div title="${tip}">${bar}</div>`;
+    }).join('');
+    // Month labels on the week that contains the 1st (plus the first column).
+    const months = [];
+    for (let i = 0; i < WEEKS; i++) {
+      const a = new Date((start + i * 7) * 86400000), b = new Date((start + i * 7 + 6) * 86400000);
+      if (i === 0 || a.getUTCMonth() !== b.getUTCMonth() || a.getUTCDate() === 1) {
+        const m = (i === 0 ? a : b).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short' });
+        if (!months.length || months[months.length - 1].m !== m) months.push({ i, m });
+      }
+    }
+    // Cadence in words, from the last few gaps between delivered orders.
+    const days = delivered.map(dayNum);
+    const gaps = []; for (let k = 1; k < days.length; k++) gaps.push(days[k] - days[k - 1]);
+    const recent = gaps.slice(-4).sort((a, b) => a - b);
+    let cadence = '';
+    if (recent.length >= 2) {
+      const med = recent[Math.floor((recent.length - 1) / 2)];
+      cadence = med <= 9 ? 'About weekly lately.' : `About every ${Math.round(med / 7)} weeks lately.`;
+    } else if (delivered.length === 1) {
+      cadence = 'One delivered order so far.';
+    }
+    const windowGaps = []; for (let k = 1; k < days.length; k++) if (days[k - 1] >= start) windowGaps.push([days[k - 1], days[k]]);
+    const longest = windowGaps.reduce((m, g) => (g[1] - g[0] > (m ? m[1] - m[0] : 0) ? g : m), null);
+    const breakTxt = (longest && longest[1] - longest[0] >= 42)
+      ? ` Longest break: ${Math.round((longest[1] - longest[0]) / 7)} weeks (${new Date(longest[0] * 86400000).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short' })}–${new Date(longest[1] * 86400000).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short' })}).` : '';
+    const last = delivered.length ? ` Last delivered ${cp2Short(delivered[delivered.length - 1])}.` : '';
+    box.innerHTML = `<div class="cp2-cardhead"><span class="cp2-lbl">Order rhythm</span><span class="cp2-cap">last 6 months · one bar per week</span></div>
+      <div class="cp2-bars" style="${cols}">${bars}</div>
+      <div class="cp2-months" style="${cols}">${months.map(x => `<span style="grid-column:${x.i + 1}">${x.m}</span>`).join('')}</div>
+      <div style="margin-top:10px;font-size:13.5px;color:var(--gray-700)">${cadence ? `<strong style="color:var(--gray-900)">${cadence}</strong>` : ''}${breakTxt}${last}</div>`;
+    box.style.display = '';
+  }
+
+  // ══ Session 329: Messages tab — one thread, oldest at the top ══
+  // People get bubbles (staff right, customer left). Automated sends — outbound
+  // with no staff name — shrink to one grey line; click to read the full text.
+  let _cp2MsgLimit = 40;
+  const _cp2OpenSys = new Set();
+  function renderCpEngagement() {
+    const el = document.getElementById('cp-engagement-list');
+    if (!el) return;
+    const all = _allCpMsgs || [];
+    if (!all.length) { el.innerHTML = '<div class="cp2-cap" style="text-align:center;padding:24px 0">No messages yet.</div>'; return; }
+    const msgs = all.slice(0, _cp2MsgLimit).reverse();
+    const parts = [];
+    if (all.length > _cp2MsgLimit) parts.push(`<button type="button" class="cp2-sys" style="color:var(--accent);font-weight:600" onclick="_cp2MsgLimit+=40;renderCpEngagement(true)">Show earlier messages</button>`);
+    let lastDay = '';
+    const thisYear = new Date().toLocaleDateString('en-US', { timeZone: BIZ_TZ, year: 'numeric' });
+    msgs.forEach(m => {
+      const dk = cp2DayKey(m.created_at);
+      if (dk !== lastDay) {
+        lastDay = dk;
+        const yr = new Date(m.created_at).toLocaleDateString('en-US', { timeZone: BIZ_TZ, year: 'numeric' });
+        parts.push(`<div class="cp2-day">${esc(new Date(m.created_at).toLocaleDateString('en-US', { timeZone: BIZ_TZ, weekday: 'short', month: 'short', day: 'numeric', year: yr !== thisYear ? 'numeric' : undefined }))}</div>`);
+      }
+      const isOut = m.direction === 'outbound';
+      const isEmail = m._ch === 'email';
+      const failed = !isEmail && (m.status === 'failed' || m.status === 'undelivered');
+      const t = cp2Time(m.created_at);
+      const text = isEmail ? _cpEmailText(m.body) : (m.body || '');
+      if (isOut && !m.sent_by_name) {
+        const key = m._ch + m.id;
+        const open = _cp2OpenSys.has(key);
+        const sum = isEmail ? `Emailed: ${m.subject || '(no subject)'}` : text.replace(/\s+/g, ' ').slice(0, 70) + (text.length > 70 ? '…' : '');
+        parts.push(`<button type="button" class="cp2-sys" aria-expanded="${open}" onclick="cp2ToggleSys('${escJS(key)}')">${isEmail ? CP2_ICON.mail : CP2_ICON.msg}<span>${esc(sum)}</span><span style="flex-shrink:0">· ${esc(t)}${failed ? ' · <b style="color:var(--red)">not delivered</b>' : ''}</span></button>`);
+        if (open) parts.push(`<div class="cp2-sysbody">${isEmail ? `<b>${esc(m.subject || '(no subject)')}</b>\n` : ''}${esc(text)}</div>`);
+        return;
+      }
+      const cls = isOut ? 'cp2-out' : 'cp2-inb';
+      const bub = isOut ? 'staff' : 'cust';
+      const long = isEmail && text.length > 400;
+      const shownText = long ? text.slice(0, 400) + '…' : text;
+      const content = isEmail ? `<b>${esc(m.subject || '(no subject)')}</b>\n${esc(shownText)}` : esc(shownText);
+      const who = isOut ? `${esc(m.sent_by_name)} · ` : '';
+      parts.push(`<div class="${cls}"><div class="cp2-bub ${bub}${failed ? ' fail' : ''}">${content}</div>
+        <div class="cp2-cap" style="font-size:11.5px">${who}${esc(t)}${isEmail ? ' · Email' : ''}${failed ? ' · <b style="color:var(--red)">not delivered</b>' : ''}</div></div>`);
+    });
+    el.innerHTML = parts.join('');
+    if (!arguments[0]) { const th = document.getElementById('cp2-thread'); if (th) th.scrollTop = th.scrollHeight; }
+  }
+  function cp2ToggleSys(key) {
+    if (_cp2OpenSys.has(key)) _cp2OpenSys.delete(key); else _cp2OpenSys.add(key);
+    renderCpEngagement(true);
+  }
+
+  // ══ Session 329: Issues tab — open first, then history ══
   async function loadCpIssues(customerId) {
     const el = document.getElementById('cp-issues-list');
     if (!el || !customerId) return;
-    el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Loading…</div>';
-    const { data: issues, error } = await db.from('cs_issues')
-      .select('*')
-      .eq('customer_id', customerId)
-      .order('created_at', { ascending: false });
-    if (error) { el.innerHTML = '<div style="padding:16px;color:var(--red);font-size:13px">Could not load issues.</div>'; return; }
-    if (!issues || !issues.length) {
-      el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">No issues logged for this customer yet.</div>';
+    el.innerHTML = '<div class="cp2-cap">Loading…</div>';
+    const { data: issues, error } = await db.from('cs_issues').select('*')
+      .eq('customer_id', customerId).order('created_at', { ascending: false });
+    if (panelCustomerId !== customerId) return;
+    if (error) { el.innerHTML = `<div class="cp2-cap" style="color:var(--red)">Could not load issues: ${esc(error.message)}</div>`; return; }
+    const all = issues || [];
+    const isDone = i => i.status === 'resolved' || i.status === 'closed';
+    const open = all.filter(i => !isDone(i));
+    const done = all.filter(isDone);
+    cp2SetIssueCount(open.length);
+    if (!all.length) {
+      el.innerHTML = '<div class="cp2-card"><div class="cp2-cap">No issues logged for this customer yet. New issues start from the Issue button at the top.</div></div>';
       return;
     }
-    el.innerHTML = issues.map(iss => {
-      const age      = (typeof inboxTimeAgo === 'function') ? inboxTimeAgo(iss.created_at) : fmtDate(iss.created_at);
-      const catLabel = (typeof ISSUE_CATEGORIES === 'object' && ISSUE_CATEGORIES[iss.category]) || iss.category || '';
-      const pri      = iss.priority || 'normal';
-      const resolved = iss.status === 'resolved' || iss.status === 'closed';
-      const statusBadge = resolved
-        ? '<span style="font-size:10px;font-weight:700;color:#166534;background:#dcfce7;padding:1px 7px;border-radius:8px;white-space:nowrap">RESOLVED</span>'
-        : `<span style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;padding:1px 7px;border-radius:8px;white-space:nowrap">${esc((iss.status||'open').replace('_',' ').toUpperCase())}</span>`;
-      const noteSnippet = iss.notes ? `<div style="font-size:12.5px;color:var(--gray-600);margin-top:5px;white-space:pre-wrap;line-height:1.4">${esc(iss.notes)}</div>` : '';
-      return `<div class="issue-row" style="display:block;cursor:pointer;${resolved?'opacity:.8':''}" onclick="openIssueDetail(${iss.id})">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          ${issuePriBadge(iss)}
-          <span class="issue-row-title">${esc(iss.title || '(untitled)')}</span>
-          ${catLabel ? `<span class="issue-cat-badge">${esc(catLabel)}</span>` : ''}
-          ${statusBadge}
-          <span class="issue-row-meta" style="margin-left:auto">${esc(age)}${iss.created_by ? ' · ' + esc(iss.created_by) : ''}</span>
+    const row = iss => {
+      const cat = (typeof ISSUE_CATEGORIES === 'object' && ISSUE_CATEGORIES[iss.category]) || (iss.category ? cp2Cap(iss.category) : '');
+      const when = isDone(iss) ? fmtDate(iss.created_at) : ((typeof inboxTimeAgo === 'function') ? inboxTimeAgo(iss.created_at) : fmtDate(iss.created_at));
+      const pill = isDone(iss) ? '<span class="cp2-pill green">Resolved</span>'
+        : `<span class="cp2-pill amber">${esc(cp2Cap(iss.status || 'open'))}</span>`;
+      const pri = (iss.priority && iss.priority !== 'normal' && typeof issuePriBadge === 'function') ? issuePriBadge(iss) : '';
+      return `<button type="button" class="cp2-iss" onclick="openIssueDetail(${Number(iss.id)})">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+          <div style="min-width:0"><div style="font-weight:600;color:var(--gray-900);font-size:14px">${esc(iss.title || '(untitled)')}</div>
+          <div class="cp2-cap" style="margin-top:1px">${[cat, when, iss.created_by].filter(Boolean).map(esc).join(' · ')}</div></div>
+          <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">${pri}${pill}</div>
         </div>
-        ${noteSnippet}
-      </div>`;
-    }).join('');
+        ${iss.notes ? `<div style="font-size:13px;color:var(--gray-700);margin-top:7px;line-height:1.45;white-space:pre-line;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esc(iss.notes)}</div>` : ''}
+      </button>`;
+    };
+    el.innerHTML = (open.length ? `<div class="cp2-lbl" style="margin:2px 0 8px">Open</div>${open.map(row).join('')}` : '')
+      + (done.length ? `<div class="cp2-lbl" style="margin:${open.length ? '18px' : '2px'} 0 8px">History</div>${done.map(row).join('')}` : '');
   }
 
   /* Session 326: the customer's own referral code + how it's doing, and who
@@ -41968,6 +42881,8 @@ ${oneCopy}
     const el = document.getElementById('cp-referral');
     if (!el) return;
     el.style.display = 'none'; el.innerHTML = '';
+    const refCard = document.getElementById('cp2-ref-card');   // session 329: whole card hides when empty
+    if (refCard) refCard.style.display = 'none';
     const [codeRes, outRes, inRes] = await Promise.all([
       db.from('referral_codes').select('code, active').eq('customer_id', customerId).maybeSingle(),
       db.from('referrals').select('status, referrer_credit_amount').eq('referrer_customer_id', customerId),
@@ -42000,6 +42915,7 @@ ${oneCopy}
       <div style="color:var(--gray-600)">${invited} friend${invited === 1 ? '' : 's'} referred · ${fmtMoney(earned)} earned</div>` : ''}
       ${referredBy}`;
     el.style.display = '';
+    if (refCard) refCard.style.display = '';
   }
 
   async function openCustomerPanel(customerId, startTab) {
@@ -42009,25 +42925,34 @@ ${oneCopy}
     cpBillingMode = false;
     cpBillingSelection.clear();
     updateBillingBar();
-    const tabs = ['contact','preferences','billing','orders','issues'];
-    const activeIdx = startTab ? Math.max(0, tabs.indexOf(startTab)) : 0;
-    document.querySelectorAll('.cp-tab').forEach((t,i)=>{ t.classList.toggle('active', i===activeIdx); });
-    tabs.forEach((n,i)=>{
+    // Session 329: six flat tabs; old names ('contact', 'preferences') map to Overview.
+    const startName = cp2TabName(startTab || 'overview');
+    document.querySelectorAll('#customer-panel .cp-tab').forEach(t => t.classList.toggle('active', t.dataset.cptab === startName));
+    CP2_TABS.forEach(n => {
       const el = document.getElementById('cptab-'+n);
-      if (el) el.style.display = i===activeIdx ? '' : 'none';
+      if (el) el.style.display = n === startName ? '' : 'none';
     });
+    // Reset every per-customer piece of the new panel so nothing carries over.
+    _cp2 = { balRows: [], cards: [], subName: null, prefs: null };
+    _cp2ShowHidden = false; _cp2OpenTxn = null; _cp2RefundTxn = null; _cp2MsgLimit = 40; _cp2OpenSys.clear();
+    cp2ToggleEditDetails(false);
+    cp2TogglePrefsEdit(false);
+    cp2EditRow(null);
+    cp2SetSec('billset', false); cp2SetSec('payments', true);
+    cp2OpenCustomCharge(false);
+    ['cp2-promo-row'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
+    cp2SetIssueCount(0);
+    ['cp2-stats','cp2-balance-body','cp2-balance-actions','cp2-rightnow-body','cp-addresses','cp2-prefs-read','cp-transactions-list','cp-orders-list','cp-engagement-list','cp-issues-list']
+      .forEach(id => { const e = document.getElementById(id); if (e) e.innerHTML = id === 'cp2-stats' || id === 'cp2-balance-actions' ? '' : '<div class="cp2-cap" style="padding:6px 0">Loading…</div>'; });
+    const _rh = document.getElementById('cp2-rhythm'); if (_rh) { _rh.style.display = 'none'; _rh.innerHTML = ''; }
     document.getElementById('customer-panel').classList.add('open');
     document.getElementById('panel-backdrop').classList.add('open');
     // Hide any stale save messages
     ['cp-contact-msg','cp-billing-msg','cp-pref-msg','cp-notes-msg'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
     document.getElementById('cp-add-addr-form').style.display = 'none';
-    // Session 152 — restore last-used Billing sub-tab whether or not the panel
-    // opens on Billing. Calling this on every open keeps the sub-tab in a known
-    // state and avoids a flash of the wrong pane when switching customers.
-    try { cpBillingSubtab(localStorage.getItem('wr-cpb-subtab') || 'plan'); } catch (e) { cpBillingSubtab('plan'); }
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, last_delivered_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id, default_site_id, frozen_at, frozen_reason, cancelled_at, cancelled_reason, cancelled_by')
+      .select('id, created_at, credit_expires_at, profile_id, lifetime_value, total_orders, total_bags, last_order_at, last_delivered_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id, default_site_id, frozen_at, frozen_reason, cancelled_at, cancelled_reason, cancelled_by')
       .eq('id', customerId).single();
     if (!c) return;
     _panelCustomerData = c;  // save for invoice generation
@@ -42042,7 +42967,10 @@ ${oneCopy}
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
     document.getElementById('cp-meta').innerHTML =
       `${phone ? `<a href="tel:${phone}">${phone}</a>` : ''}${phone&&email?' · ':''}${email ? `<a href="mailto:${email}">${email}</a>` : ''}` || '<span style="color:var(--gray-300)">No contact info</span>';
-    document.getElementById('cp-status-badge').innerHTML = custActivityBadge(c);
+    // Session 329: a status chip only when something is wrong (cancelled / frozen).
+    // Recency is shown by the Orders tab's rhythm instead of a "7 days" chip.
+    document.getElementById('cp-status-badge').innerHTML = (c.cancelled_at || c.frozen_at) ? custActivityBadge(c) : '';
+    cp2RenderHeaderStats(c);
     renderCpAccountStatus(c);
     renderCpReferral(customerId);
     // Cancelled accounts are hard-blocked from new orders at the DB level (trg_enforce_not_frozen);
@@ -42170,10 +43098,11 @@ ${oneCopy}
     // so never sum amount_due without it.
     const { data: balOrders } = await db
       .from('v_outstanding_orders')
-      .select('amount_due, bucket, counts_as_due')
+      .select('id, order_number, amount_due, bucket, counts_as_due')
       .eq('customer_id', customerId)
       .eq('counts_as_due', true);
     const balRows = balOrders || [];
+    _cp2.balRows = balRows;   // session 329: balance card + "Charge card again"
     const balance = balRows.reduce((s, o) => s + Number(o.amount_due || 0), 0);
     const balDisplay = document.getElementById('cpb-balance-display');
     const balDetail  = document.getElementById('cpb-balance-detail');
@@ -42192,6 +43121,7 @@ ${oneCopy}
       ? c.customer_payment_methods.slice().sort((a,b) => (b.is_default?1:0)-(a.is_default?1:0))
       : [];
     renderCustomerCards(c.id, c.email_cache||'', cards);
+    _cp2.cards = cards;
 
     // Addresses
     const addrs = Array.isArray(c.addresses) ? c.addresses : (c.addresses ? [c.addresses] : []);
@@ -42200,9 +43130,12 @@ ${oneCopy}
     // Marketing opt-in/out toggles
     populateMarketingToggles(c);
 
-    // Contact tab now has Details / Marketing / Messages sub-tabs (session 184b).
-    // Always reset to Details on open; the Messages history lazy-loads when viewed.
-    cpContactSubtab('details');
+    // Session 329: render the new panel pieces, then load whichever tab is open.
+    cp2RenderBalance();
+    cp2RenderBilling();
+    cp2LoadRightNow(customerId);
+    loadPanelPreferences(customerId);
+    cp2LazyLoad(startName);
 
     // Notes tab replaced by Issues tab (session 173) — these inputs no longer exist
     // in the panel. Guard so opening a customer panel never throws (cpnote-text was
@@ -42219,28 +43152,31 @@ ${oneCopy}
     _cpAddrs = addrs || [];
     const el = document.getElementById('cp-addresses');
     if (!_cpAddrs.length) {
-      el.innerHTML = '<div style="color:var(--gray-300);font-style:italic;font-size:13px;margin-bottom:8px">No addresses on file</div>';
+      el.innerHTML = '<div class="cp2-cap" style="padding-top:8px">No addresses on file.</div>';
       return;
     }
     el.innerHTML = _cpAddrs.map(a => addrCardHTML(a)).join('');
     loadAddrZoneTags(_cpAddrs); // async — populates zone pills after render
   }
 
+  // Session 329: nickname over the street, zone beside it, delivery notes under it.
+  // No notes = an "Add delivery notes" link, not an empty box. Remove lives inside Edit.
   function addrCardHTML(a) {
-    return `<div id="addr-card-${a.id}" style="margin-bottom:8px;padding:12px 16px;background:#fff;border-radius:12px;border:1px solid rgba(0,0,0,.06)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
-        <span style="font-size:11px;font-weight:700;color:var(--gray-400);letter-spacing:0">${esc(a.label||'Address')}${a.is_default?' · <span style="color:var(--green);text-transform:none;font-weight:500">Default</span>':''}</span>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button onclick="editAddress('${a.id}')" style="background:none;border:none;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);padding:0" title="Edit">Edit</button>
-          <button onclick="deleteAddress('${a.id}')" style="background:none;border:none;cursor:pointer;color:var(--gray-300);font-size:15px;padding:0;line-height:1;transition:color .1s" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--gray-300)'" title="Remove">✕</button>
+    const notes = a.delivery_instructions
+      ? `<div class="cp2-note">${CP2_ICON.note}<span>${esc(a.delivery_instructions)}</span></div>`
+      : `<button type="button" class="cp2-link" style="font-size:12.5px" onclick="editAddress('${escJS(a.id)}')">Add delivery notes</button>`;
+    return `<div class="cp2-addr" id="addr-card-${a.id}">
+      ${CP2_ICON.pin}
+      <div style="flex:1;min-width:0">
+        ${(a.label || a.is_default) ? `<div class="cp2-nick">${esc(a.label || '')}${a.is_default ? `<span style="color:var(--green)">${a.label ? ' · ' : ''}Default</span>` : ''}</div>` : ''}
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px">
+          <span style="font-size:14px;font-weight:600;color:var(--gray-900)">${esc(a.line1 || '')}${a.line2 ? ', ' + esc(a.line2) : ''}</span>
+          <span id="addr-zones-${a.id}" style="display:inline-flex;flex-wrap:wrap;gap:4px"></span>
         </div>
+        <div style="font-size:13px;color:var(--gray-600)">${esc(a.city || '')}${a.state ? ', ' + esc(a.state) : ''} ${esc(a.zip || '')}</div>
+        ${notes}
       </div>
-      <div style="font-size:13.5px;color:var(--gray-800);font-weight:500">${esc(a.line1||'')}${a.line2?', '+esc(a.line2):''}</div>
-      <div style="font-size:12.5px;color:var(--gray-500)">${esc(a.city||'')}, ${esc(a.state||'')} ${esc(a.zip||'')}</div>
-      ${a.delivery_instructions?`<div style="font-size:12px;color:var(--gray-500);margin-top:4px">📝 ${esc(a.delivery_instructions)}</div>`:''}
-      <div id="addr-zones-${a.id}" style="margin-top:7px;display:flex;flex-wrap:wrap;gap:4px;min-height:18px">
-        <span style="font-size:11px;color:var(--gray-300)">…</span>
-      </div>
+      <button type="button" class="cp2-link" onclick="editAddress('${escJS(a.id)}')">Edit</button>
     </div>`;
   }
 
@@ -42250,7 +43186,7 @@ ${oneCopy}
       const el = document.getElementById(`addr-zones-${a.id}`);
       if (!el) continue;
       if (!a.lat || !a.lng) {
-        el.innerHTML = `<span style="font-size:11px;color:var(--gray-300);font-style:italic">No coordinates on file</span>`;
+        el.innerHTML = `<span style="font-size:11px;color:var(--gray-500)" title="This address has no map position, so it can't be matched to a zone or routed.">No map position</span>`;
         continue;
       }
       const { data: zones, error } = await db.rpc('get_zones_for_point', {
@@ -42275,9 +43211,10 @@ ${oneCopy}
     if (!a) return;
     const card = document.getElementById('addr-card-' + id);
     if (!card) return;
+    card.className = 'cp2-addr-edit cp2-rowedit';   // session 329: block layout for the form
     card.innerHTML = `
-      <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;letter-spacing:0">Edit Address</div>
-      <div class="cp-field" style="margin-bottom:8px"><input class="cp-input" id="cpea-label-${id}" value="${esc(a.label||'')}" placeholder="Label (e.g. Home, Work)"></div>
+      <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;letter-spacing:0">Edit address</div>
+      <div class="cp-field" style="margin-bottom:8px"><input class="cp-input" id="cpea-label-${id}" value="${esc(a.label||'')}" placeholder="Nickname (e.g. Home, Work)"></div>
       <div class="cp-field wr-addr-wrap" style="margin-bottom:8px"><input class="cp-input" id="cpea-line1-${id}" value="${esc(a.line1||'')}" placeholder="Start typing a street address…" autocomplete="off" oninput="wrAddrInput('${id}')" onblur="wrAddrHide('${id}')"><div class="wr-addr-sugg" id="cpea-suggestions-${id}"></div></div>
       <div class="cp-field" style="margin-bottom:8px"><input class="cp-input" id="cpea-line2-${id}" value="${esc(a.line2||'')}" placeholder="Apt / Unit (optional)"></div>
       <div style="display:grid;grid-template-columns:1fr 70px 80px;gap:8px;margin-bottom:8px">
@@ -42285,13 +43222,14 @@ ${oneCopy}
         <input class="cp-input" id="cpea-state-${id}" value="${esc(a.state||'')}" placeholder="State" maxlength="2">
         <input class="cp-input" id="cpea-zip-${id}" value="${esc(a.zip||'')}" placeholder="ZIP">
       </div>
-      <div class="cp-field" style="margin-bottom:8px"><textarea class="cp-input" id="cpea-instructions-${id}" rows="2" placeholder="Delivery instructions (optional)">${esc(a.delivery_instructions||'')}</textarea></div>
+      <div class="cp-field" style="margin-bottom:8px"><textarea class="cp-input" id="cpea-instructions-${id}" rows="2" placeholder="Delivery notes for the driver (optional)">${esc(a.delivery_instructions||'')}</textarea></div>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray-600);margin-bottom:12px;cursor:pointer">
         <input type="checkbox" id="cpea-default-${id}" ${a.is_default?'checked':''} style="accent-color:var(--accent)"> Set as default address
       </label>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="saveEditAddress('${id}')">Save</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button type="button" style="background:none;border:none;font:inherit;font-size:12.5px;color:var(--gray-500);text-decoration:underline;cursor:pointer;padding:0;margin-right:auto" onclick="deleteAddress('${id}')">Remove address</button>
         <button class="btn btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="cancelEditAddress('${id}')">Cancel</button>
+        <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="saveEditAddress('${id}')">Save</button>
       </div>`;
   }
 
@@ -42299,7 +43237,7 @@ ${oneCopy}
     const a = _cpAddrs.find(x => x.id === id);
     if (!a) return;
     const card = document.getElementById('addr-card-' + id);
-    if (card) card.outerHTML = addrCardHTML(a);
+    if (card) { card.outerHTML = addrCardHTML(a); loadAddrZoneTags([a]); }
   }
 
   async function saveEditAddress(id) {
@@ -42568,9 +43506,10 @@ ${oneCopy}
     _syncCachedAddresses(panelCustomerId, updated?.addresses || []);
   }
 
-  async function saveCustomerContact() {
+  async function saveCustomerContact(btnArg) {
     if (!panelCustomerId) return;
-    const btn = document.querySelector('#cptab-contact .btn-primary');
+    // Session 329: the form lives behind the pencil next to the name.
+    const btn = btnArg || document.getElementById('cp2-save-details');
     const origText = btn.textContent; btn.disabled=true; btn.textContent='Saving…';
     const fn    = document.getElementById('cpe-first').value.trim();
     const ln    = document.getElementById('cpe-last').value.trim();
@@ -42597,6 +43536,9 @@ ${oneCopy}
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
     document.getElementById('cp-meta').innerHTML = `${phone?`<a href="tel:${esc(phone)}">${esc(phone)}</a>`:''}${phone&&email?' · ':''}${email?`<a href="mailto:${esc(email)}">${esc(email)}</a>`:''}`;
+    if (_panelCustomerData) Object.assign(_panelCustomerData, { first_name_cache: fn, last_name_cache: ln, email_cache: email, phone_cache: phone });
+    _panelPhone = phone;
+    cp2ToggleEditDetails(false);
     loadCustomers();
     showToast('Contact info saved', 'success');
   }
@@ -42613,7 +43555,7 @@ ${oneCopy}
   let _cpCreditMode = 'add';
   function showCreditAdjust(mode) {
     _cpCreditMode = mode;
-    document.getElementById('cpb-adjust-label').textContent = mode === 'add' ? 'Add Credits' : 'Remove Credits';
+    document.getElementById('cpb-adjust-label').textContent = mode === 'add' ? 'Add credit' : 'Remove credit';
     document.getElementById('cpb-adjust-amount').value = '';
     document.getElementById('cpb-adjust-note').value = '';
     document.getElementById('cpb-credit-adjust-form').style.display = 'block';
@@ -42648,6 +43590,8 @@ ${oneCopy}
     const actual  = parseFloat(rpcRes?.actual ?? amt);
     document.getElementById('cpb-credits-display').textContent = fmtMoney(newVal);
     hideCreditAdjust();
+    if (_panelCustomerData) { _panelCustomerData.credits = newVal; cp2RenderBalance(); cp2RenderHeaderStats(_panelCustomerData); }
+    if (panelCustomerId) loadCpTransactions(panelCustomerId);
     if (_cpCreditMode === 'remove' && actual < amt) {
       showToast(`Removed ${fmtMoney(actual)} (capped at balance) ✓`, 'success');
     } else {
@@ -42656,9 +43600,12 @@ ${oneCopy}
     loadCustomers();
   }
 
-  async function saveBilling() {
+  async function saveBilling(btnArg) {
     if (!panelCustomerId) return;
-    const btn = document.querySelector('#cptab-billing .cp-save-btn');
+    // Session 329: each Billing-settings row has its own Save; they all write the
+    // full patch below (every field is loaded, so unchanged fields re-save as-is).
+    const btn = btnArg || null;
+    const btnText = btn ? btn.textContent : '';
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     const billingType = document.getElementById('cpb-billing-type').value;
     // Session 151: pricelist moved here from saveCustomerContact (the Price List
@@ -42676,8 +43623,12 @@ ${oneCopy}
       updated_at:       new Date().toISOString(),
     };
     const { error } = await db.from('customers').update(patch).eq('id', panelCustomerId);
-    if (btn) { btn.disabled = false; btn.textContent = 'Save Billing'; }
+    if (btn) { btn.disabled = false; btn.textContent = btnText || 'Save'; }
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    if (_panelCustomerData) Object.assign(_panelCustomerData, patch);
+    cp2EditRow(null);
+    cp2RenderBilling();
+    cp2RenderBalance();
     showToast('Billing settings saved', 'success');
     loadCustomers();
   }
@@ -42792,90 +43743,6 @@ ${oneCopy}
     if (txn.payment_method === 'ach')   return `<span style="color:var(--gray-500);font-size:12px">ACH</span>`;
     if (txn.payment_method === 'check') return `<span style="color:var(--gray-500);font-size:12px">Check</span>`;
     return '';
-  }
-
-  function renderCpTxns() {
-    const el = document.getElementById('cp-transactions-list');
-    if (!el) return;
-    let rows = _allCpTxns;
-    if (_cpTxnDays > 0) {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - _cpTxnDays);
-      rows = rows.filter(t => new Date(t.created_at) >= cutoff);
-    }
-    const chargeTotal  = rows.filter(t => t.type === 'charge').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-    const creditTotal  = rows.filter(t => t.type === 'credit_add').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
-    const sumEl = document.getElementById('cp-txn-summary');
-    if (sumEl) {
-      const parts = [];
-      if (chargeTotal > 0) parts.push(`${fmtMoney(chargeTotal)} charged`);
-      if (creditTotal > 0) parts.push(`${fmtMoney(creditTotal)} credited`);
-      sumEl.textContent = parts.length ? parts.join(' · ') : `${rows.length} entries`;
-    }
-    if (!rows.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">No billing transactions in this period</div>'; return; }
-    // Build a map of how much has already been refunded per payment_intent
-    const refundedByPI = {};
-    rows.filter(t => t.type === 'refund' && t.stripe_payment_intent_id).forEach(t => {
-      refundedByPI[t.stripe_payment_intent_id] = (refundedByPI[t.stripe_payment_intent_id] || 0) + parseFloat(t.amount || 0);
-    });
-
-    el.innerHTML = `
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead>
-          <tr style="border-bottom:1px solid var(--gray-100)">
-            <th style="text-align:left;padding:10px 16px 8px;color:var(--gray-400);font-weight:600;font-size:11px;letter-spacing:0">Date</th>
-            <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;letter-spacing:0">Type</th>
-            <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;letter-spacing:0">Order #</th>
-            <th style="text-align:right;padding:10px 16px 8px;color:var(--gray-400);font-weight:600;font-size:11px;letter-spacing:0">Amount</th>
-            <th style="padding:10px 8px 8px"></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map(t => {
-            const alreadyRefunded = t.stripe_payment_intent_id ? (refundedByPI[t.stripe_payment_intent_id] || 0) : 0;
-            // Session 167: subscription_invoice rows are also refundable. Backfilled rows
-            // may have a NULL stripe_payment_intent_id — the edge function resolves it via
-            // Stripe customer lookup, so allow the button even without a payment_intent for that type.
-            const isRefundableType = t.type === 'charge' || t.type === 'subscription_invoice';
-            const hasIdentifier = !!t.stripe_payment_intent_id || t.type === 'subscription_invoice';
-            const refundable = isRefundableType && hasIdentifier && alreadyRefunded < parseFloat(t.amount || 0);
-            const maxRefund = parseFloat(t.amount || 0) - alreadyRefunded;
-            const amountColor = t.type === 'charge' ? 'var(--gray-900)' : t.type === 'credit_add' ? '#059669' : 'var(--accent)';
-            const amountPrefix = (t.type === 'credit_add' || t.type === 'refund') ? '+' : '';
-            // Session 184b — Description column replaced by Order # (details live in the
-            // order itself). Order number is parsed from the description; the row links
-            // to the order when we have its id. Non-order rows (e.g. manual credit) show —.
-            const _om = (t.description || '').match(/#(\d+)/);
-            const _onum = _om ? _om[1] : null;
-            // Card (or ACH/Check) used, shown under the Type badge (session 184b).
-            let _payLine = '';
-            if (t.card_last4) _payLine = `${t.card_brand ? t.card_brand.charAt(0).toUpperCase()+t.card_brand.slice(1)+' ' : ''}•••• ${t.card_last4}`;
-            else if (t.payment_method === 'ach')   _payLine = 'ACH';
-            else if (t.payment_method === 'check') _payLine = 'Check';
-            const payCell = _payLine ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:3px">${_payLine}</div>` : '';
-            const orderCell = (_onum && t.order_id)
-              ? `<a href="#" onclick="event.preventDefault();cpOpenOrder('${t.order_id}')" style="font-weight:500;color:var(--accent);text-decoration:none" title="Open order #${_onum}">#${_onum}</a>`
-              : _onum
-                ? `<span style="font-weight:500;color:var(--gray-800)">#${_onum}</span>`
-                : `<span style="color:var(--gray-400)">—</span>`;
-            return `
-            <tr style="border-bottom:1px solid var(--gray-100)">
-              <td style="padding:9px 16px;color:var(--gray-500);white-space:nowrap">${fmtDate(t.created_at)}</td>
-              <td style="padding:9px 8px;vertical-align:top">${txnTypeBadge(t.type)}${payCell}</td>
-              <td style="padding:9px 8px">
-                ${orderCell}
-                ${alreadyRefunded > 0 && t.type === 'charge' ? `<div style="font-size:11px;color:var(--accent);margin-top:2px">↩ ${fmtMoney(alreadyRefunded)} refunded</div>` : ''}
-              </td>
-              <td style="padding:9px 16px;text-align:right;font-weight:700;color:${amountColor}">${amountPrefix}${fmtMoney(t.amount || 0)}</td>
-              <td style="padding:9px 8px;text-align:right">
-                ${refundable ? `<button onclick="openRefundModal('${t.id}','${t.description ? esc(t.description) : ''}',${parseFloat(t.amount||0)},${maxRefund},'${t.card_brand||''}','${t.card_last4||''}')"
-                  style="font-size:11px;padding:4px 10px;border-radius:8px;border:1px solid var(--accent-light);background:var(--accent-light);color:var(--accent);cursor:pointer;white-space:nowrap;font-weight:600"
-                  title="Issue a refund for this charge">↩ Refund</button>` : ''}
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>`;
   }
 
   // ── REFUND MODAL ─────────────────────────────────────────────────
@@ -43145,43 +44012,6 @@ ${oneCopy}
     if (lnk) lnk.textContent = open ? 'Show full email' : 'Show less';
   }
 
-  function renderCpEngagement() {
-    const el = document.getElementById('cp-engagement-list');
-    if (!el) return;
-    let msgs = _allCpMsgs;
-    if (_cpEngFilter === 'sms')   msgs = msgs.filter(m => m._ch === 'sms');
-    if (_cpEngFilter === 'email') msgs = msgs.filter(m => m._ch === 'email');
-    if (!msgs.length) {
-      el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:12px 0">${_cpEngFilter === 'email' ? 'No emails yet' : _cpEngFilter === 'sms' ? 'No texts yet' : 'No messages yet'}</div>`;
-      return;
-    }
-    el.innerHTML = msgs.map(m => {
-      const isOut = m.direction === 'outbound';
-      const isEmail = m._ch === 'email';
-      const when = `${fmtDate(m.created_at)} · ${new Date(m.created_at).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase()}`;
-      const who = isOut && m.sent_by_name ? ` · ${esc(m.sent_by_name)}` : '';
-      const failed = !isEmail && (m.status === 'failed' || m.status === 'undelivered');
-      const label = `${isOut ? '↑ Sent' : '↓ Received'}${isEmail ? ' · Email' : ''}${who}`;
-      let content;
-      if (isEmail) {
-        const txt = _cpEmailText(m.body);
-        const long = txt.length > 220;
-        content = `<div style="font-size:13.5px;font-weight:600;color:var(--gray-900);margin-bottom:3px">${esc(m.subject || '(no subject)')}</div>
-          <div id="cpem-${m.id}" data-open="0" style="font-size:13px;color:var(--gray-700);line-height:1.5;white-space:pre-line;overflow:hidden;${long ? 'max-height:4.5em' : ''}">${esc(txt)}</div>
-          ${long ? `<a href="#" id="cpem-l-${m.id}" onclick="event.preventDefault();cpToggleEmail('${m.id}')" style="font-size:12px;color:var(--accent)">Show full email</a>` : ''}`;
-      } else {
-        content = `<div style="font-size:13.5px;color:var(--gray-800);line-height:1.5;white-space:pre-line">${esc(m.body || '')}</div>`;
-      }
-      return `<div style="margin-bottom:10px;padding:10px 12px;border-radius:8px;background:${isOut ? 'var(--gray-50)' : 'white'};border:1px solid ${failed ? 'var(--red)' : 'var(--gray-200)'}">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
-          <span style="font-size:11px;font-weight:700;letter-spacing:0;color:${isOut ? 'var(--accent)' : 'var(--gray-500)'}">${label}${failed ? ' <span style="color:var(--red)">· Not delivered</span>' : ''}</span>
-          <span style="font-size:11.5px;color:var(--gray-400);white-space:nowrap">${when}</span>
-        </div>
-        ${content}
-      </div>`;
-    }).join('');
-  }
-
   // ── Session 327: compose a one-off text / email to the open customer ──
   // Sends to ONE customer only (the panel's customer). Recipient comes from the
   // customer record, never typed. Goes through the existing send-sms / send-email
@@ -43216,6 +44046,7 @@ ${oneCopy}
     const c = _panelCustomerData || {};
     document.getElementById('cpc-ch-sms')?.classList.toggle('active', ch === 'sms');
     document.getElementById('cpc-ch-email')?.classList.toggle('active', ch === 'email');
+    const chSel = document.getElementById('cp2-ch'); if (chSel && chSel.value !== ch) chSel.value = ch;   // session 329
     const subj = document.getElementById('cpc-subject');
     const body = document.getElementById('cpc-body');
     const to   = document.getElementById('cpc-to');
@@ -44142,7 +44973,7 @@ ${oneCopy}
 
   async function loadPanelOrders(customerId) {
     const el = document.getElementById('cp-orders-list');
-    el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
+    el.innerHTML = '<div class="cp2-cap">Loading…</div>';
     // Driver names in the order quick-summary resolve from this cache (session 184b);
     // it's only auto-loaded on the Routes page, so ensure it's ready here.
     if (!allDriversCache.length) { try { await loadAllDriversCache(); } catch (e) {} }
@@ -44153,7 +44984,8 @@ ${oneCopy}
       .select('id, order_number, status, source, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, tip_type, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, delivery_window_start, actual_delivery_at, cancelled_by, driver_skip_reason, created_at, archived_at, archived_reason, folded_at, services:service_id(name), pickup_run:pickup_run_id(id, name), folded_by:folded_by_id(name), route_stops(stop_type, driver_id, proof_photo_url, routes:route_id(driver_id, pickup_driver_id, delivery_driver_id))')
       .eq('customer_id', customerId).order('created_at', { ascending: false });
     cpAllOrders = data || [];
-    if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
+    if (panelCustomerId !== customerId) return;
+    if (!cpAllOrders.length) { renderCpOrders([]); return; }
     // Sync last_order date if stale
     // Completed orders only (skips/cancels don't count) — session 184f.
     const _delivDates = cpAllOrders.filter(o=>o.status==='delivered').map(o=>o.actual_delivery_at||o.delivery_window_start||o.pickup_window_start||o.created_at).filter(Boolean);
@@ -44162,11 +44994,12 @@ ${oneCopy}
     // Default the Orders tab to the Completed section (session 184b). Reset the
     // Days-Previous buttons to 'All' first so a prior customer's selection doesn't
     // carry over; filterCpOrders sets the tab / billing-mode / range-bar state.
-    cpOrdersRangeDays = 0; // 'All'
-    document.querySelectorAll('#cpof-range .cp-range-btn').forEach((b,i,arr) => b.classList.toggle('active', i === arr.length - 1));
-    const completedBtn = document.getElementById('cpof-completed');
-    if (completedBtn) filterCpOrders('completed', completedBtn);
-    else renderCpOrders(cpAllOrders, 'completed');
+    // Session 329: one list (In progress + Past). Selection mode starts off.
+    cpOrdersRangeDays = 0;
+    cpBillingMode = false;
+    cpBillingSelection.clear();
+    updateBillingBar();
+    renderCpOrders(cpAllOrders);
   }
 
   function filterCpOrders(filter, btn) {
@@ -44212,112 +45045,6 @@ ${oneCopy}
   //               into Completed with a 📦 line so nothing is hidden.
   const CP_ACTIVE_STATUSES = ['scheduled','pending_pickup','picked_up','in_transit','washing','drying','folding','processing','ready_for_delivery','out_for_delivery','on_hold'];
   const cpIsActiveOrder = o => !o.archived_at && CP_ACTIVE_STATUSES.includes(o.status);
-
-  function renderCpOrders(data, filter) {
-    let filtered;
-    if (filter === 'active') {
-      filtered = data.filter(cpIsActiveOrder);
-    } else { // completed
-      filtered = data.filter(o => !cpIsActiveOrder(o));
-      // Days-Previous range filter (0 = All). Use the most representative date:
-      // actual delivery → scheduled delivery/pickup window → created_at.
-      if (cpOrdersRangeDays > 0) {
-        const cutoff = Date.now() - cpOrdersRangeDays * 86400000;
-        filtered = filtered.filter(o => {
-          const d = o.actual_delivery_at || o.delivery_window_start || o.pickup_window_start || o.created_at;
-          return d && new Date(d).getTime() >= cutoff;
-        });
-      }
-    }
-
-    const el = document.getElementById('cp-orders-list');
-    if (!filtered.length) {
-      const msg = filter === 'active'
-        ? 'No active orders.'
-        : (cpOrdersRangeDays > 0 ? 'No completed orders in this range.' : 'No completed orders yet.');
-      el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">${msg}</div>`;
-      return;
-    }
-
-    // ACTIVE tab — status badge + amount + per-row Receipt/Charge action; click opens panel.
-    if (filter === 'active') {
-      el.innerHTML = filtered.map(o=>{
-        // Session 175: cash/credit-paid orders have NO Stripe PI (the known paid-status
-        // antipattern) and written_off orders must never grow a Charge button.
-        const chargeable  = Number(o.total_amount)>0 && !o.stripe_payment_intent_id
-          && o.billing_status !== 'paid' && o.billing_status !== 'written_off'
-          && o.status==='ready_for_delivery';
-        const receiptable = !!o.stripe_payment_intent_id;
-        const actionBtn = receiptable
-          ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200)" onclick="event.stopPropagation();sendReceipt('${o.id}','${o.order_number}',this)" title="Email receipt to customer">📧 Receipt</button>`
-          : chargeable
-            ? `<button class="btn btn-primary" style="padding:3px 8px;font-size:11.5px" onclick="event.stopPropagation();chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
-            : '';
-        return `<div class="cp-order-row" style="cursor:pointer" onclick="cpOpenOrder('${o.id}')">
-          <span class="cp-order-num">#${o.order_number}</span>
-          <div class="cp-order-svc">
-            <div style="font-weight:500">${_serviceLabelForOrder(o)}</div>
-            <div style="font-size:11.5px;color:var(--gray-400)">${cpOrderMeta(o)}</div>
-          </div>
-          ${statusBadge(o.status)}
-          <span class="cp-order-amt">${fmtMoney(orderChargedTotal(o))}</span>
-          ${actionBtn}
-        </div>`;
-      }).join('');
-      return;
-    }
-
-    // COMPLETED tab — clicking a row opens the full order panel (times, photos, who
-    // processed, receipt). Billing checkboxes appear ONLY on billable rows
-    // (delivered/ready + unpaid + not written off); skipped/failed/cancelled/archived
-    // show a status badge + reason instead. The checkbox toggles batch-billing
-    // selection without opening the panel.
-    el.innerHTML = filtered.map(o=>{
-      const isPaid = o.billing_status === 'paid' || !!o.stripe_payment_intent_id;
-      const isWrittenOff = o.billing_status === 'written_off';
-      const isFailed = ['skipped','pickup_failed','delivery_failed','cancelled'].includes(o.status);
-      const billable = Number(o.total_amount)>0 && !isPaid && !isWrittenOff
-        && (o.status==='delivered' || o.status==='ready_for_delivery');
-      // Any delivered/ready row (paid or unpaid) is selectable for batch receipt
-      // actions (session 184b); failed/skipped/cancelled are not.
-      const selectable = (o.status==='delivered' || o.status==='ready_for_delivery');
-      const checked = selectable && cpBillingSelection.has(o.id);
-      const amt = orderChargedTotal(o);
-      const dateStr = fmtDate(o.actual_delivery_at || o.delivery_window_start || o.pickup_window_start || o.created_at);
-      const methodLabel = !isPaid ? '' : o.billing_payment_method === 'credit' ? ' (credit)' : o.billing_payment_method === 'check' ? ' (check)' : o.billing_payment_method === 'cash' ? ' (cash)' : '';
-
-      const badge = isFailed
-        ? statusBadge(o.status)
-        : isWrittenOff
-          ? `<span style="font-size:11px;font-weight:600;color:var(--gray-400);white-space:nowrap">✕ Written off</span>`
-          : isPaid
-            ? `<span style="font-size:11px;font-weight:600;color:#059669;white-space:nowrap">✅ Paid${methodLabel}</span>`
-            : `<span style="font-size:11px;font-weight:600;color:#b45309;white-space:nowrap">◻ Outstanding</span>`;
-
-      const reasonLine = (o.driver_skip_reason && isFailed)
-        ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:2px">${esc(o.driver_skip_reason)}</div>` : '';
-      const archLine = o.archived_at
-        ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:2px">📦 Archived ${fmtDate(o.archived_at)}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>` : '';
-
-      const cb = selectable
-        ? `<input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">`
-        : `<span style="width:15px;flex-shrink:0"></span>`;
-
-      return `<div class="cp-order-row${checked?' billing-selected':''}" id="brow-${o.id}" style="cursor:pointer${isFailed?';opacity:0.85':''}" onclick="cpToggleOrderSummary('${o.id}',this)" title="Click for a quick summary">
-        ${cb}
-        <a class="cp-order-num" onclick="event.stopPropagation();cpOpenOrder('${o.id}')" style="cursor:pointer;text-decoration:none" title="Open full order">#${o.order_number}</a>
-        <div class="cp-order-svc">
-          <div style="font-weight:500">${_serviceLabelForOrder(o)}</div>
-          <div style="font-size:11.5px;color:var(--gray-400)">${dateStr}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
-          ${reasonLine}${archLine}
-        </div>
-        ${badge}
-        <span class="cp-order-amt" style="margin-left:auto">${fmtMoney(amt)}</span>
-        <span id="cpchev-${o.id}" style="color:var(--gray-300);font-size:11px;transition:transform .15s;flex-shrink:0;margin-left:8px" aria-hidden="true">▼</span>
-      </div>
-      <div class="cp-order-summary" id="cpsum-${o.id}" style="display:none"></div>`;
-    }).join('');
-  }
 
   function cpOpenOrder(orderId) {
     closeCustomerPanel();
@@ -45004,8 +45731,10 @@ ${oneCopy}
     const notesEl = document.getElementById('cp-pref-notes');
     if (notesEl) notesEl.value = customerSel._notes || '';
 
+    if (panelCustomerId !== customerId) return;
     if (!gPrefs.length) {
       container.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No preferences configured yet. Add them in the Services &amp; Pricing tab.</div>';
+      cp2RenderPrefs([], customerSel);
       return;
     }
 
@@ -45031,11 +45760,12 @@ ${oneCopy}
         }).join('')}
       </div>
     `).join('');
+    cp2RenderPrefs(gPrefs, customerSel);   // session 329: read view + chips
   }
 
-  async function savePanelPreferences() {
+  async function savePanelPreferences(btnArg) {
     if (!panelCustomerId) return;
-    const btn = document.querySelector('#cptab-preferences .btn-primary');
+    const btn = btnArg || document.querySelector('#cp2-prefs-edit .btn-primary');
     const origText = btn.textContent; btn.disabled=true; btn.textContent='Saving…';
     const prefs = {};
     document.querySelectorAll('#cp-global-prefs-list select[data-pref-id]').forEach(sel => {
@@ -45049,6 +45779,9 @@ ${oneCopy}
     const { error } = await db.from('customers').update({ preferences: prefs }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    if (_panelCustomerData) _panelCustomerData.preferences = prefs;
+    if (_cp2.prefs) { _cp2.prefs.sel = prefs; cp2RenderPrefs(_cp2.prefs.gPrefs, prefs); }
+    cp2TogglePrefsEdit(false);
     showToast('Preferences saved', 'success');
   }
 
@@ -45340,6 +46073,11 @@ ${oneCopy}
           <button class="btn" style="flex-shrink:0;padding:6px 14px;font-size:12.5px;color:#ef4444;border-color:#fca5a5" onclick="cancelAccountClick()">Cancel Account</button>
         </div>`;
     }
+    // Session 329: a cancelled account's banner sits at the top of Billing; the
+    // Cancel action itself lives quietly at the end of Billing settings.
+    const top = document.getElementById('cp2-acct-top'), bottom = document.getElementById('cp2-acct-bottom');
+    if (top && bottom) (c.cancelled_at ? top : bottom).appendChild(el);
+    if (!c.cancelled_at) { const card = el.querySelector('.cp-card'); if (card) { card.style.border = 'none'; card.style.padding = '4px 0'; card.style.margin = '0'; card.style.background = 'transparent'; } }
   }
 
   async function cancelAccountClick() {
