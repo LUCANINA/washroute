@@ -20,7 +20,12 @@
   callers fire `send-receipt` with `source:'auto_charge'` (EdgeRuntime.waitUntil). Admin paths unchanged (they send
   their own receipt). No DB change. Both functions verify_jwt=false (probed), deployed by David via CLI with
   `--no-verify-jwt`.
-- **⚠️ Deliverability (open, David's action):** familylaundry.com has **no SPF record**, and `s1/s2._domainkey` CNAME to
+- **✅ Deliverability FIXED same session:** SendGrid Domain Authentication for familylaundry.com (custom DKIM selector `sg`
+  to avoid Wix's s1/s2). David added 3 CNAMEs in Wix: `em6523` → u60129852.wl103.sendgrid.net, `sg._domainkey` /
+  `sg2._domainkey` → sg/sg2.domainkey.u60129852.wl103.sendgrid.net. Verified in SendGrid. Proof: test receipts to
+  info@familylaundry.com before the fix never arrived; after it, landed in INBOX. (Root SPF record still absent — not
+  needed for SendGrid with automated security; consider adding one for Google Workspace mail.)
+- **Background (was open):** familylaundry.com has **no SPF record**, and `s1/s2._domainkey` CNAME to
   Wix (ascendbywix), not SendGrid — so SendGrid mail "from info@familylaundry.com" is not domain-authenticated
   (DMARC p=none). covca.org filters through Barracuda, which commonly junks unauthenticated mail. A test receipt to
   info@familylaundry.com (Google Workspace) was accepted by SendGrid but never appeared in the mailbox. Fix = SendGrid
