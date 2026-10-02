@@ -28646,6 +28646,7 @@ ${noActivityNote}
     document.querySelectorAll('#gen-settings-tabs .filter-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     document.querySelectorAll('.gen-settings-panel').forEach(p => p.style.display = p.id === 'gen-panel-' + tab ? '' : 'none');
     if (tab === 'holidays') loadHolidays();
+    if (tab === 'email') loadGmailCard();
   }
 
   // ── Holidays (General → Holidays) ──
@@ -28692,6 +28693,193 @@ ${noActivityNote}
     loadHolidays();
   }
 
+  // ── Session 327c: Settings → Email (info@ Gmail connection) ──────────────
+  // Returning from Google's sign-in lands on ?gmail=connected or ?gmail_error=…#settings.
+  let _gmailReturn = null;
+  try {
+    const _qp = new URLSearchParams(location.search);
+    if (_qp.has('gmail') || _qp.has('gmail_error')) {
+      _gmailReturn = _qp.get('gmail_error') ? { error: _qp.get('gmail_error') } : { ok: true };
+      _genSettingsTab = 'email';
+      history.replaceState(null, '', location.pathname + (location.hash || '#settings'));
+    }
+  } catch (_) {}
+
+  let _gmailStatus = null;
+  let _gmailBusy = false;
+
+  async function _gmailCall(fn, payload) {
+    const jwt = await _staffJwt();
+    if (!jwt) throw new Error('You are signed out — sign in again.');
+    const res = await fetch(`${SUPA_URL}/functions/v1/${fn}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: JSON.stringify(payload),
+    });
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok || data.ok === false) throw new Error(data.error || `Request failed (${res.status})`);
+    return data;
+  }
+
+  async function loadGmailCard() {
+    const el = document.getElementById('gmail-card-body');
+    if (!el) return;
+    if (_gmailReturn) {
+      const r = _gmailReturn; _gmailReturn = null;
+      if (r.ok) showToast('Gmail connected ✓ — loading the past 90 days next is recommended', 'success');
+      else showToast('Gmail not connected: ' + r.error, 'error');
+    }
+    try {
+      const d = await _gmailCall('gmail-oauth', { action: 'status' });
+      _gmailStatus = d.status;
+    } catch (e) {
+      el.innerHTML = `<div style="color:var(--red);font-size:13px">${esc(e.message)}</div>`;
+      return;
+    }
+    renderGmailCard();
+  }
+
+  function _gmailWhen(ts) {
+    if (!ts) return '—';
+    return `${fmtDate(ts)} · ${new Date(ts).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase()}`;
+  }
+
+  function renderGmailCard(opts = {}) {
+    const el = document.getElementById('gmail-card-body');
+    const st = _gmailStatus;
+    if (!el || !st) return;
+    const lbl = 'font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-500);margin-bottom:6px';
+    const showClientForm = !st.client_configured || opts.editClient;
+    let html = '';
+
+    if (st.connected) {
+      const failing = st.consecutive_failures > 0;
+      html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="width:8px;height:8px;border-radius:50%;background:${failing ? 'var(--red)' : '#059669'}"></span>
+          <span style="font-size:14px;font-weight:600;color:var(--gray-900)">Connected to ${esc(st.account_email || '')}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px;color:var(--gray-700);margin-bottom:14px">
+          <span style="color:var(--gray-500)">Last checked</span><span>${_gmailWhen(st.last_run_at)}</span>
+          <span style="color:var(--gray-500)">Last success</span><span>${_gmailWhen(st.last_success_at)}</span>
+          <span style="color:var(--gray-500)">Emails saved</span><span>${Number(st.saved_total || 0).toLocaleString()}</span>
+          <span style="color:var(--gray-500)">Connected</span><span>${_gmailWhen(st.connected_at)}</span>
+        </div>
+        ${st.last_error ? `<div style="margin-bottom:14px;padding:8px 10px;border:1px solid var(--red);border-radius:8px;font-size:12.5px;color:var(--red)">${esc(st.last_error)}</div>` : ''}
+        <div id="gmail-progress" style="display:none;margin-bottom:12px;font-size:12.5px;color:var(--gray-600)"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="gmail-sync-btn" onclick="gmailSyncNow()" style="font-size:13px">Check now</button>
+          <button class="btn" id="gmail-backfill-btn" onclick="gmailBackfill(90)" style="font-size:13px">Load past 90 days</button>
+          <button class="btn" onclick="gmailConnect()" style="font-size:13px">Reconnect</button>
+          <button class="btn" onclick="gmailDisconnect()" style="font-size:13px;color:var(--red)">Disconnect</button>
+        </div>`;
+    } else if (!showClientForm) {
+      html += `<div style="font-size:13.5px;color:var(--gray-700);margin-bottom:14px;line-height:1.5">
+          Google client saved (${esc(st.client_id_hint || '')}). Next: sign in as <b>info@familylaundry.com</b> and click <b>Allow</b>.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="gmailConnect()" style="font-size:13px">Connect Gmail</button>
+          <button class="btn" onclick="renderGmailCard({editClient:true})" style="font-size:13px">Change client</button>
+        </div>`;
+    }
+
+    if (showClientForm) {
+      html += `<div style="${st.connected ? 'margin-top:18px;padding-top:16px;border-top:1px solid var(--gray-200)' : ''}">
+          <div style="font-size:13px;color:var(--gray-700);margin-bottom:12px;line-height:1.5">Step 1 — paste the Google OAuth client. Its <b>Authorized redirect URI</b> must be exactly:</div>
+          <div style="display:flex;gap:6px;margin-bottom:14px">
+            <input class="form-input" readonly value="${esc(st.redirect_uri)}" style="flex:1;font-size:12px;font-family:monospace" onclick="this.select()">
+            <button class="btn" style="font-size:12.5px" onclick="navigator.clipboard.writeText('${esc(st.redirect_uri)}');showToast('Copied','success')">Copy</button>
+          </div>
+          <div style="margin-bottom:12px"><div style="${lbl}">Client ID</div>
+            <input id="gmail-client-id" class="form-input" type="text" placeholder="….apps.googleusercontent.com" style="width:100%;font-size:13px"></div>
+          <div style="margin-bottom:14px"><div style="${lbl}">Client secret</div>
+            <input id="gmail-client-secret" class="form-input" type="password" autocomplete="off" style="width:100%;font-size:13px"></div>
+          <div id="gmail-client-err" style="display:none;color:var(--red);font-size:12.5px;margin-bottom:10px"></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" id="gmail-client-save" onclick="gmailSaveClient()" style="font-size:13px">Save</button>
+            ${st.client_configured ? `<button class="btn" onclick="renderGmailCard()" style="font-size:13px">Cancel</button>` : ''}
+          </div>
+        </div>`;
+    }
+    el.innerHTML = html;
+  }
+
+  async function gmailSaveClient() {
+    const btn = document.getElementById('gmail-client-save');
+    const err = document.getElementById('gmail-client-err');
+    err.style.display = 'none';
+    if (_gmailStatus?.connected && !confirm('Changing the client disconnects Gmail until you sign in again. Continue?')) return;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const d = await _gmailCall('gmail-oauth', {
+        action: 'save_client',
+        client_id: document.getElementById('gmail-client-id').value,
+        client_secret: document.getElementById('gmail-client-secret').value,
+      });
+      _gmailStatus = d.status;
+      showToast('Google client saved', 'success');
+      renderGmailCard();
+    } catch (e) {
+      err.textContent = e.message; err.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Save';
+    }
+  }
+
+  async function gmailConnect() {
+    try {
+      const d = await _gmailCall('gmail-oauth', { action: 'start' });
+      window.location.href = d.url;
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function gmailDisconnect() {
+    if (!confirm('Stop copying info@ emails into customer history? Emails already saved stay.')) return;
+    try {
+      const d = await _gmailCall('gmail-oauth', { action: 'disconnect' });
+      _gmailStatus = d.status; renderGmailCard();
+      showToast('Gmail disconnected', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function gmailSyncNow() {
+    if (_gmailBusy) return;
+    const btn = document.getElementById('gmail-sync-btn');
+    _gmailBusy = true; if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    try {
+      const d = await _gmailCall('gmail-sync', { action: 'sync' });
+      if (d.status) _gmailStatus = d.status;
+      showToast(d.saved ? `${d.saved} new customer email${d.saved === 1 ? '' : 's'} saved` : 'Up to date — no new customer emails', 'success');
+    } catch (e) {
+      showToast(e.message, 'error');
+      await loadGmailCard();
+    } finally {
+      _gmailBusy = false; renderGmailCard();
+    }
+  }
+
+  async function gmailBackfill(days) {
+    if (_gmailBusy) return;
+    _gmailBusy = true;
+    const btn = document.getElementById('gmail-backfill-btn');
+    const prog = document.getElementById('gmail-progress');
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+    let token = '', scanned = 0, saved = 0, pages = 0;
+    try {
+      do {
+        if (prog) { prog.style.display = 'block'; prog.textContent = `Reading the past ${days} days… ${scanned.toLocaleString()} emails checked, ${saved} customer emails saved`; }
+        const d = await _gmailCall('gmail-sync', { action: 'backfill', days, page_token: token });
+        scanned += d.scanned || 0; saved += d.saved || 0; pages++;
+        if (d.status) _gmailStatus = d.status;
+        token = d.next_page_token || '';
+      } while (token && pages < 200);
+      showToast(`Done — ${saved} customer email${saved === 1 ? '' : 's'} saved from ${scanned.toLocaleString()} checked`, 'success');
+    } catch (e) {
+      showToast(`Stopped: ${e.message} (${saved} saved so far — safe to run again)`, 'error');
+    } finally {
+      _gmailBusy = false; renderGmailCard();
+    }
+  }
+
   function renderSettingsTab() {
     const el = document.getElementById('page-settings');
     if (!el) return;
@@ -28705,6 +28893,18 @@ ${noActivityNote}
           <button class="filter-tab ${_genSettingsTab==='printer'?'active':''}" data-tab="printer" onclick="switchGenSettingsTab('printer')">Printer</button>
           <button class="filter-tab ${_genSettingsTab==='general'?'active':''}" data-tab="general" onclick="switchGenSettingsTab('general')">Reviews</button>
           <button class="filter-tab ${_genSettingsTab==='holidays'?'active':''}" data-tab="holidays" onclick="switchGenSettingsTab('holidays')">Holidays</button>
+          <button class="filter-tab ${_genSettingsTab==='email'?'active':''}" data-tab="email" onclick="switchGenSettingsTab('email')">Email</button>
+        </div>
+      </div>
+
+      <!-- ═══ EMAIL TAB (session 327c: info@ Gmail → customer history) ═══ -->
+      <div id="gen-panel-email" class="gen-settings-panel" style="${_genSettingsTab!=='email'?'display:none':''}">
+        <div class="card" style="max-width:600px">
+          <div class="card-header">
+            <div class="card-title">📧 Customer email from info@ Gmail</div>
+            <div class="card-sub">Copies emails between info@familylaundry.com and customers into each customer's Messages history, every 5 minutes. Read-only: WashRoute can't send, delete or change anything in Gmail. Other mail (vendors, invoices) is ignored.</div>
+          </div>
+          <div id="gmail-card-body" style="padding:20px 24px 24px"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
         </div>
       </div>
 
@@ -28885,6 +29085,7 @@ ${noActivityNote}
           </div>
         </div>
       </div>`;
+    if (_genSettingsTab === 'email') loadGmailCard(); // session 327c
   }
 
   // ── LOAD ALL DATA ──
@@ -29800,7 +30001,7 @@ ${noActivityNote}
       // Accumulate (don't reset) so card-request history built up on other tabs stays intact.
       const [smsRows, emailRows] = await Promise.all([
         batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', cardCustIds, q => q.like('body', '%app.familylaundry.com%')),
-        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', cardCustIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
+        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', cardCustIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance').is('gmail_message_id', null)),
       ]);
       [...smsRows, ...emailRows].forEach(r => {
         const prev = _cardRequestSent.get(r.customer_id);
@@ -30830,7 +31031,7 @@ ${noActivityNote}
       const [cardRows, smsRows, emailRows, archiveRows] = await Promise.all([
         batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds),
         batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.like('body', '%app.familylaundry.com%')),
-        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
+        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance').is('gmail_message_id', null)),
         batchedIn('orders', 'customer_id, order_number, status, archived_at, archived_reason', 'customer_id', custIds, q => q.not('archived_at','is',null).order('archived_at',{ascending:false})),
       ]);
       for (const r of cardRows) {
@@ -42923,6 +43124,9 @@ ${oneCopy}
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n');
     const doc = new DOMParser().parseFromString(src, 'text/html');
+    // Session 327c: replies copied from Gmail carry the whole earlier thread as a
+    // quote — drop it so each card shows only what that email added.
+    doc.querySelectorAll('blockquote, .gmail_quote, .gmail_attr, .gmail_extra, #appendonsend, #divRplyFwdMsg').forEach(n => n.remove());
     return ((doc.body && doc.body.textContent) || '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
   }
 
