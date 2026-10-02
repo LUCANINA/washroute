@@ -1,5 +1,25 @@
 # WashRoute — Project Notes
 
+## Session 327c — Oct 2, 2026: customer emails from info@ Gmail land in customer history
+
+- **What:** Admin → Settings → General → **Email** connects the info@familylaundry.com Gmail (read-only,
+  `gmail.readonly`). `gmail-sync` runs every 5 min (pg_cron `wr-gmail-sync`, jobid 36, x-wr-internal) and copies
+  ONLY mail to/from customers (case-insensitive match on `customers.email_cache`) into `email_messages`
+  (`gmail_message_id` UNIQUE → no duplicates). Staff replies sent from Gmail show as "Gmail (info@)". Vendors,
+  invoices and internal @familylaundry.com mail are dropped, never stored.
+- **Google side:** project "WashRoute Gmail" created while signed in as info@, consent screen **Internal** (so the
+  refresh token does not expire after 7 days), Web client, redirect URI `…/functions/v1/gmail-oauth`. Client id/secret
+  live in `gmail_sync` (service-role only), pasted via the admin card — no Supabase secrets needed.
+- **🔑 Rate limit:** the first 90-day backfill hit Google's per-user "Quota exceeded … per minute" as a **403**, not
+  a 429. `gget` now treats 403 + rate-limit text as retryable (2→32s backoff), concurrency 3, pages of 100.
+  ~35s per 100 emails; ~20% of info@ mail is customer mail.
+- **Failure alert:** 3 consecutive failures → SMS to ALERT_PHONE (max every 12h); status/last error on the card.
+  Mail delivery is never affected — this only reads.
+- Payment-reminder "last sent" lookups now ignore Gmail-copied rows (`gmail_message_id IS NULL`), so a customer's
+  "Re: Action needed: payment" reply can't count as a reminder sent.
+- Customer Messages hides quoted earlier thread (blockquote / .gmail_quote) in each email.
+- Known: automated reports sent from info@ to David also land on David's own customer record (he's a customer too).
+
 ## Session 327 — Oct 2, 2026: send a text or email from the customer panel
 
 - **What:** Customer panel → Contact → Messages now has a compose box (Text / Email toggle, subject for email, Send).

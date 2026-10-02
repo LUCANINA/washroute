@@ -8,7 +8,7 @@
 //   sync      (default; cron every 5 min) — everything new since the saved Gmail
 //             history cursor. Falls back to the last 3 days if Gmail has expired
 //             the cursor (it keeps ~a week), so an outage self-heals.
-//   backfill  { days, page_token } — one page (≤250) of older mail; the admin
+//   backfill  { days, page_token } — one page (≤100) of older mail; the admin
 //             card loops until next_page_token is null. Does not move the cursor.
 //   status    — connection status for the Settings card (never secrets).
 //
@@ -39,16 +39,21 @@ const TIME_BUDGET_MS = 100_000
 const ALERT_AFTER_FAILURES = 3
 const REALERT_HOURS = 12
 
-// ── Gmail HTTP with retry on 429/5xx ────────────────────────────────────────
+// ── Gmail HTTP with retry on rate limits / 5xx ──────────────────────────────
+// Google reports per-user rate limits as 429 OR as 403 "Quota exceeded … per
+// minute" / rateLimitExceeded (hit on the first 90-day backfill, 2026-10-02).
+// Those are "slow down", not "forbidden", so they back off and retry.
+const RATE_LIMIT_RE = /rateLimitExceeded|userRateLimitExceeded|Quota exceeded|Too many concurrent/i
 async function gget(token: string, path: string): Promise<any> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } })
     if (res.ok) return res.json()
-    if ((res.status === 429 || res.status >= 500) && attempt < 3) {
-      await new Promise(r => setTimeout(r, 1000 * 2 ** attempt))
+    const txt = await res.text().catch(() => '')
+    const retryable = res.status === 429 || res.status >= 500 || (res.status === 403 && RATE_LIMIT_RE.test(txt))
+    if (retryable && attempt < 5) {
+      await new Promise(r => setTimeout(r, 2000 * 2 ** attempt)) // 2,4,8,16,32s
       continue
     }
-    const txt = await res.text().catch(() => '')
     const err = new Error(`Gmail ${res.status} on ${path.split('?')[0]}: ${txt.slice(0, 200)}`) as Error & { status?: number }
     err.status = res.status
     throw err
@@ -138,7 +143,7 @@ async function processIds(db: SupabaseClient, token: string, ids: string[]) {
   }
   const fresh = ids.filter(id => !already.has(id))
 
-  const metas = await pool(fresh, 8, async id => {
+  const metas = await pool(fresh, 3, async id => {
     try {
       return await gget(token, `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject`)
     } catch (e) {
@@ -172,7 +177,7 @@ async function processIds(db: SupabaseClient, token: string, ids: string[]) {
     .map(c => ({ ...c, customerId: c.parties.map(p => custByEmail.get(p)).find(Boolean) }))
     .filter(c => c.customerId)
 
-  const rows = (await pool(matched, 5, async c => {
+  const rows = (await pool(matched, 3, async c => {
     let full: any
     try { full = await gget(token, `/messages/${c.id}?format=full`) }
     catch (e) { if ((e as any).status === 404) return null; throw e }
@@ -238,7 +243,7 @@ async function incremental(db: SupabaseClient, s: GmailSyncRow, token: string) {
 
 async function backfill(db: SupabaseClient, token: string, days: number, pageToken: string) {
   const q = encodeURIComponent(`newer_than:${days}d`)
-  const list = await gget(token, `/messages?q=${q}&maxResults=250${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`)
+  const list = await gget(token, `/messages?q=${q}&maxResults=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`)
   const r = await processIds(db, token, (list.messages || []).map((m: any) => m.id))
   return { ...r, next_page_token: list.nextPageToken || null }
 }
