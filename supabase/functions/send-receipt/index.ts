@@ -167,20 +167,17 @@ async function getReferralBlock(db: any, customerId: string, firstName: string |
 
 function buildReferralHtml(r: ReferralBlock | null): string {
   if (!r) return '';
-  const shortLink = r.link.replace(/^https:\/\//, '');
+  // Session 326b: kept deliberately quiet — one small line under the total, not a banner.
+  // The button goes to the customer's OWN invite screen (Rewards › Invite, share sheet),
+  // not to /r/CODE — that link is the friend's landing page ("X gave you $20 off").
+  const inviteUrl = 'https://app.familylaundry.com/?page=invite';
   return `
-          <tr><td style="padding:24px 32px 26px;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;">
-              <tr><td style="padding:18px 20px;text-align:center;">
-                <div style="font-size:17px;font-weight:800;color:#1e3a8a;margin-bottom:6px;">Give ${fmtAmt(r.friend)}, Get ${fmtAmt(r.referrer)}</div>
-                <div style="font-size:13px;color:#1e40af;line-height:1.6;margin-bottom:12px;">
-                  Friends get ${fmtAmt(r.friend)} off their first order with your code, and you get ${fmtAmt(r.referrer)} in credit when they try us.
-                </div>
-                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-bottom:4px;">Your code</div>
-                <div style="font-size:22px;font-weight:900;letter-spacing:.06em;color:#111827;margin-bottom:12px;">${r.code}</div>
-                <a href="${r.link}" style="font-size:13px;color:#1d4ed8;font-weight:600;text-decoration:none;">${shortLink}</a>
-              </td></tr>
-            </table>
+          <tr><td style="padding:20px 32px 16px;">
+            <div style="padding-top:6px;font-size:12.5px;color:#6b7280;line-height:1.6;text-align:center;">
+              <strong style="color:#374151;">Give ${fmtAmt(r.friend)}, get ${fmtAmt(r.referrer)}.</strong>
+              Send a friend your code <strong style="color:#111827;letter-spacing:.04em;">${r.code}</strong> &mdash; they save ${fmtAmt(r.friend)} on their first order, and you get ${fmtAmt(r.referrer)} once they&rsquo;ve tried us.
+              <a href="${inviteUrl}" style="color:#1d4ed8;text-decoration:none;font-weight:600;white-space:nowrap;">Invite a friend &rarr;</a>
+            </div>
           </td></tr>`;
 }
 
