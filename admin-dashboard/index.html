@@ -43124,10 +43124,15 @@ ${oneCopy}
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n');
     const doc = new DOMParser().parseFromString(src, 'text/html');
+    const tidy = d => ((d.body && d.body.textContent) || '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
+    const full = tidy(doc);
     // Session 327c: replies copied from Gmail carry the whole earlier thread as a
-    // quote — drop it so each card shows only what that email added.
+    // quote — drop it (and the trailing "On <date>, X wrote:" line) so each card
+    // shows only what that email added. If nothing is left (customer typed only a
+    // subject, e.g. "Please close gate — now"), keep the full text instead.
     doc.querySelectorAll('blockquote, .gmail_quote, .gmail_attr, .gmail_extra, #appendonsend, #divRplyFwdMsg').forEach(n => n.remove());
-    return ((doc.body && doc.body.textContent) || '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
+    const fresh = tidy(doc).replace(/\n*On [^\n]{3,300}wrote:\s*$/i, '').trim();
+    return fresh || full;
   }
 
   function cpToggleEmail(id) {
