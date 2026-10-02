@@ -7837,8 +7837,25 @@
     </style>
     </div><!-- /cpc-pane-marketing -->
 
-    <!-- Messages sub-tab — read-only SMS/email history. -->
+    <!-- Messages sub-tab — compose (session 327) + SMS/email history. -->
     <div class="cpc-pane" id="cpc-pane-messages" style="display:none">
+    <!-- Session 327: send a one-off text or email to THIS customer only. -->
+    <div id="cp-compose" style="margin-bottom:18px;padding:12px;border:1px solid var(--gray-200);border-radius:10px;background:white">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
+        <div style="display:flex;gap:4px;background:var(--gray-100);padding:3px;border-radius:8px">
+          <button type="button" class="filter-tab active" id="cpc-ch-sms" onclick="cpComposeChannel('sms')">Text</button>
+          <button type="button" class="filter-tab" id="cpc-ch-email" onclick="cpComposeChannel('email')">Email</button>
+        </div>
+        <div id="cpc-to" style="font-size:12px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0"></div>
+      </div>
+      <input id="cpc-subject" type="text" placeholder="Subject" maxlength="150" style="display:none;width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13.5px;font-family:inherit">
+      <textarea id="cpc-body" rows="3" placeholder="Type a text message…" oninput="cpComposeCount()" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13.5px;font-family:inherit;line-height:1.45;resize:vertical"></textarea>
+      <div id="cpc-error" style="display:none;margin-top:6px;color:var(--red);font-size:12.5px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;gap:8px">
+        <span id="cpc-count" style="font-size:11.5px;color:var(--gray-400)"></span>
+        <button type="button" id="cpc-send" onclick="cpComposeSend()" style="padding:7px 16px;border:none;border-radius:8px;background:var(--accent);color:white;font-weight:600;font-size:13px;cursor:pointer">Send text</button>
+      </div>
+    </div>
     <div style="display:flex;gap:6px;margin-bottom:14px">
       <button class="filter-tab active" onclick="filterCpEngagement('all',this)" id="cpeng-all">All</button>
       <button class="filter-tab" onclick="filterCpEngagement('sms',this)" id="cpeng-sms">SMS</button>
@@ -42835,44 +42852,212 @@ ${oneCopy}
   async function loadCpEngagement(customerId, phone) {
     const el = document.getElementById('cp-engagement-list');
     if (el) el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
-    // Fetch SMS messages for this customer
-    let q = db.from('sms_messages').select('id, direction, body, created_at, from_number, to_number').order('created_at', { ascending: false }).limit(100);
-    if (customerId) q = q.eq('customer_id', customerId);
-    const { data, error } = await q;
-    if (error) { if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px">${error.message}</div>`; return; }
-    _allCpMsgs = data || [];
+    cpComposeReset(customerId);
+    if (!customerId) { _allCpMsgs = []; renderCpEngagement(); return; }
+    // Session 327: SMS and email side by side. Both tables are written by the
+    // send-sms / send-email edge functions (and inbound SMS by twilio-webhook).
+    const [smsRes, emailRes] = await Promise.all([
+      db.from('sms_messages').select('id, direction, body, created_at, from_number, to_number, status, sent_by_name')
+        .eq('customer_id', customerId).order('created_at', { ascending: false }).limit(100),
+      db.from('email_messages').select('id, direction, subject, body, created_at, to_email, sent_by_name')
+        .eq('customer_id', customerId).order('created_at', { ascending: false }).limit(50),
+    ]);
+    if (customerId !== panelCustomerId) return; // panel moved on while loading
+    const err = smsRes.error || emailRes.error;
+    if (err) { if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px">${esc(err.message)}</div>`; return; }
+    _allCpMsgs = [
+      ...(smsRes.data || []).map(m => ({ ...m, _ch: 'sms' })),
+      ...(emailRes.data || []).map(m => ({ ...m, _ch: 'email' })),
+    ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
     renderCpEngagement();
   }
 
   function filterCpEngagement(type, btn) {
     _cpEngFilter = type;
-    document.querySelectorAll('#cpc-pane-messages .filter-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#cpc-pane-messages .filter-tab[id^="cpeng-"]').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
     renderCpEngagement();
+  }
+
+  // Email bodies are full HTML documents — show them as plain text in the panel.
+  function _cpEmailText(html) {
+    if (!html) return '';
+    // DOMParser, not innerHTML on a temp div: a detached div still fires
+    // <img onerror> handlers, a DOMParser document never runs anything.
+    const src = String(html)
+      .replace(/<(style|script|head)[^>]*>[\s\S]*?<\/\1>/gi, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n');
+    const doc = new DOMParser().parseFromString(src, 'text/html');
+    return ((doc.body && doc.body.textContent) || '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
+  }
+
+  function cpToggleEmail(id) {
+    const el = document.getElementById('cpem-' + id);
+    if (!el) return;
+    const open = el.dataset.open === '1';
+    el.dataset.open = open ? '0' : '1';
+    el.style.maxHeight = open ? '4.5em' : 'none';
+    const lnk = document.getElementById('cpem-l-' + id);
+    if (lnk) lnk.textContent = open ? 'Show full email' : 'Show less';
   }
 
   function renderCpEngagement() {
     const el = document.getElementById('cp-engagement-list');
     if (!el) return;
     let msgs = _allCpMsgs;
-    if (_cpEngFilter === 'sms') msgs = msgs.filter(m => true); // all are SMS for now
-    if (_cpEngFilter === 'email') msgs = []; // email not implemented yet
+    if (_cpEngFilter === 'sms')   msgs = msgs.filter(m => m._ch === 'sms');
+    if (_cpEngFilter === 'email') msgs = msgs.filter(m => m._ch === 'email');
     if (!msgs.length) {
-      el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:12px 0">${_cpEngFilter === 'email' ? 'Email history coming soon' : 'No messages yet'}</div>`;
+      el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:12px 0">${_cpEngFilter === 'email' ? 'No emails yet' : _cpEngFilter === 'sms' ? 'No texts yet' : 'No messages yet'}</div>`;
       return;
     }
     el.innerHTML = msgs.map(m => {
       const isOut = m.direction === 'outbound';
-      return `<div style="margin-bottom:10px;padding:10px 12px;border-radius:8px;background:${isOut ? 'var(--gray-50)' : 'white'};border:1px solid var(--gray-200)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="font-size:11px;font-weight:700;letter-spacing:0;color:${isOut ? 'var(--accent)' : 'var(--gray-500)'}">
-            ${isOut ? '↑ Sent' : '↓ Received'}
-          </span>
-          <span style="font-size:11.5px;color:var(--gray-400)">${fmtDate(m.created_at)} · ${new Date(m.created_at).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase()}</span>
+      const isEmail = m._ch === 'email';
+      const when = `${fmtDate(m.created_at)} · ${new Date(m.created_at).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase()}`;
+      const who = isOut && m.sent_by_name ? ` · ${esc(m.sent_by_name)}` : '';
+      const failed = !isEmail && (m.status === 'failed' || m.status === 'undelivered');
+      const label = `${isOut ? '↑ Sent' : '↓ Received'}${isEmail ? ' · Email' : ''}${who}`;
+      let content;
+      if (isEmail) {
+        const txt = _cpEmailText(m.body);
+        const long = txt.length > 220;
+        content = `<div style="font-size:13.5px;font-weight:600;color:var(--gray-900);margin-bottom:3px">${esc(m.subject || '(no subject)')}</div>
+          <div id="cpem-${m.id}" data-open="0" style="font-size:13px;color:var(--gray-700);line-height:1.5;white-space:pre-line;overflow:hidden;${long ? 'max-height:4.5em' : ''}">${esc(txt)}</div>
+          ${long ? `<a href="#" id="cpem-l-${m.id}" onclick="event.preventDefault();cpToggleEmail('${m.id}')" style="font-size:12px;color:var(--accent)">Show full email</a>` : ''}`;
+      } else {
+        content = `<div style="font-size:13.5px;color:var(--gray-800);line-height:1.5;white-space:pre-line">${esc(m.body || '')}</div>`;
+      }
+      return `<div style="margin-bottom:10px;padding:10px 12px;border-radius:8px;background:${isOut ? 'var(--gray-50)' : 'white'};border:1px solid ${failed ? 'var(--red)' : 'var(--gray-200)'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:11px;font-weight:700;letter-spacing:0;color:${isOut ? 'var(--accent)' : 'var(--gray-500)'}">${label}${failed ? ' <span style="color:var(--red)">· Not delivered</span>' : ''}</span>
+          <span style="font-size:11.5px;color:var(--gray-400);white-space:nowrap">${when}</span>
         </div>
-        <div style="font-size:13.5px;color:var(--gray-800);line-height:1.5">${esc(m.body || '')}</div>
+        ${content}
       </div>`;
     }).join('');
+  }
+
+  // ── Session 327: compose a one-off text / email to the open customer ──
+  // Sends to ONE customer only (the panel's customer). Recipient comes from the
+  // customer record, never typed. Goes through the existing send-sms / send-email
+  // edge functions, which check the staff login and log the message with the
+  // sender's name, so it appears in this history and in the SMS inbox.
+  let _cpComposeCh = 'sms';
+  let _cpComposeCust = null;
+  let _cpComposeBusy = false;
+
+  function cpComposeReset(customerId) {
+    if (customerId !== _cpComposeCust) {
+      _cpComposeCust = customerId;
+      const b = document.getElementById('cpc-body');    if (b) b.value = '';
+      const sj = document.getElementById('cpc-subject'); if (sj) sj.value = '';
+      _cpComposeCh = 'sms';
+    }
+    cpComposeChannel(_cpComposeCh);
+  }
+
+  function cpComposeChannel(ch) {
+    _cpComposeCh = ch;
+    const c = _panelCustomerData || {};
+    document.getElementById('cpc-ch-sms')?.classList.toggle('active', ch === 'sms');
+    document.getElementById('cpc-ch-email')?.classList.toggle('active', ch === 'email');
+    const subj = document.getElementById('cpc-subject');
+    const body = document.getElementById('cpc-body');
+    const to   = document.getElementById('cpc-to');
+    const btn  = document.getElementById('cpc-send');
+    if (subj) subj.style.display = ch === 'email' ? '' : 'none';
+    if (body) body.placeholder = ch === 'email' ? 'Write your email…' : 'Type a text message…';
+    const addr = ch === 'email' ? (c.email_cache || '') : (c.phone_cache || '');
+    if (to) {
+      to.textContent = addr ? `To ${addr}` : (ch === 'email' ? 'No email on file' : 'No phone on file');
+      to.style.color = addr ? 'var(--gray-500)' : 'var(--red)';
+    }
+    if (btn && !_cpComposeBusy) btn.textContent = ch === 'email' ? 'Send email' : 'Send text';
+    const errEl = document.getElementById('cpc-error'); if (errEl) errEl.style.display = 'none';
+    cpComposeCount();
+  }
+
+  function cpComposeCount() {
+    const el = document.getElementById('cpc-count');
+    const body = document.getElementById('cpc-body');
+    if (!el || !body) return;
+    const n = body.value.length;
+    if (_cpComposeCh === 'sms') {
+      const segs = n === 0 ? 0 : Math.ceil(n / 153) || 1;
+      el.textContent = n ? `${n} characters${n > 160 ? ` · ${segs} texts` : ''}` : '';
+      el.style.color = n > 1000 ? 'var(--red)' : 'var(--gray-400)';
+    } else {
+      el.textContent = '';
+    }
+  }
+
+  function _cpEmailHtml(firstName, text) {
+    const paras = esc(text).split(/\n{2,}/).map(p => `<p style="margin:0 0 14px">${p.replace(/\n/g, '<br>')}</p>`).join('');
+    return `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#111827;max-width:520px;margin:0 auto;padding:32px 20px">
+        <div style="font-size:22px;font-weight:900;letter-spacing:0;margin-bottom:2px">Family Laundry</div>
+        <div style="font-size:12px;color:#9ca3af;margin-bottom:24px">2609 Foothill Blvd · Oakland, CA 94601</div>
+        ${paras}
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+        <div style="font-size:12px;color:#9ca3af;text-align:center">
+          Questions? Reply to this email or visit app.familylaundry.com<br>
+          Family Laundry · 2609 Foothill Blvd, Oakland CA 94601
+        </div>
+      </body></html>`;
+  }
+
+  async function cpComposeSend() {
+    if (_cpComposeBusy) return;
+    const errEl = document.getElementById('cpc-error');
+    const showErr = (msg) => { errEl.textContent = msg; errEl.style.display = 'block'; };
+    errEl.style.display = 'none';
+    const custId = panelCustomerId;
+    const c = _panelCustomerData;
+    if (!custId || !c || c.id !== custId) return showErr('Customer not loaded — close and reopen the panel.');
+    const ch = _cpComposeCh;
+    const bodyEl = document.getElementById('cpc-body');
+    const subjEl = document.getElementById('cpc-subject');
+    const text = bodyEl.value.trim();
+    const subject = subjEl.value.trim();
+    if (!text) return showErr('Write a message first.');
+    let payload, fn;
+    if (ch === 'sms') {
+      if (!c.phone_cache) return showErr('This customer has no phone number on file.');
+      if (text.length > 1000) return showErr('Text is too long (1,000 characters max).');
+      fn = 'send-sms';
+      payload = { to: c.phone_cache, body: text, customer_id: custId };
+    } else {
+      if (!c.email_cache) return showErr('This customer has no email address on file.');
+      if (!subject) return showErr('Add a subject line.');
+      fn = 'send-email';
+      payload = { to_email: c.email_cache, customer_id: custId, subject, body: _cpEmailHtml(c.first_name_cache, text) };
+    }
+    const btn = document.getElementById('cpc-send');
+    _cpComposeBusy = true;
+    btn.disabled = true; btn.style.opacity = '.6'; btn.textContent = 'Sending…';
+    try {
+      const jwt = await _staffJwt();
+      if (!jwt) throw new Error('You are signed out — sign in again and retry.');
+      const res = await fetch(`${SUPA_URL}/functions/v1/${fn}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+        body: JSON.stringify(payload),
+      });
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      if (!res.ok || data.ok === false || data.error) throw new Error(data.error || `Send failed (${res.status})`);
+      bodyEl.value = ''; subjEl.value = '';
+      cpComposeCount();
+      showToast(ch === 'sms' ? 'Text sent ✓' : 'Email sent ✓', 'success');
+      if (panelCustomerId === custId) loadCpEngagement(custId, c.phone_cache);
+    } catch (e) {
+      showErr(e.message || String(e));
+    } finally {
+      _cpComposeBusy = false;
+      btn.disabled = false; btn.style.opacity = '';
+      btn.textContent = _cpComposeCh === 'email' ? 'Send email' : 'Send text';
+    }
   }
 
   // Global discounts cache
