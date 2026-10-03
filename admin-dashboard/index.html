@@ -43602,8 +43602,8 @@ ${oneCopy}
 
   async function saveBilling(btnArg) {
     if (!panelCustomerId) return;
-    // Session 329: each Billing-settings row has its own Save; they all write the
-    // full patch below (every field is loaded, so unchanged fields re-save as-is).
+    // Session 329: each Billing-settings row has its own Save. Session 331: the patch is
+    // trimmed to changed fields before writing (see below).
     const btn = btnArg || null;
     const btnText = btn ? btn.textContent : '';
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -43620,8 +43620,27 @@ ${oneCopy}
       discount_id:      document.getElementById('cpb-discount').value || null,
       billing_group_id: billingType === 'on_account' ? (document.getElementById('cpb-billing-group').value || null) : null,
       pricelist:        pricelist,
-      updated_at:       new Date().toISOString(),
     };
+    // Session 331: send ONLY the fields that differ from what the panel loaded. Writing the
+    // full patch let a panel opened before a background change overwrite it: Kimberly Rowe
+    // subscribed at 9:18:56, the Stripe webhook flipped her to 'Subscription', and a billing
+    // Save from a panel loaded minutes earlier wrote 'Delivery' back 4 seconds later. Her
+    // orders then priced (and were re-created three times) as pay-as-you-go.
+    const _same = (a, b) => {
+      if (typeof a === 'boolean' || typeof b === 'boolean') return !!a === !!b;
+      const na = parseFloat(a), nb = parseFloat(b);
+      if (!isNaN(na) && !isNaN(nb) && String(a).trim() !== '' && String(b).trim() !== '') return na === nb;
+      return String(a ?? '') === String(b ?? '');
+    };
+    const _loaded = _panelCustomerData || {};
+    Object.keys(patch).forEach(k => { if (_panelCustomerData && _same(patch[k], _loaded[k])) delete patch[k]; });
+    if (!Object.keys(patch).length) {
+      if (btn) { btn.disabled = false; btn.textContent = btnText || 'Save'; }
+      cp2EditRow(null);
+      showToast('No changes to save', 'info');
+      return;
+    }
+    patch.updated_at = new Date().toISOString();
     const { error } = await db.from('customers').update(patch).eq('id', panelCustomerId);
     if (btn) { btn.disabled = false; btn.textContent = btnText || 'Save'; }
     if (error) { showToast('Error: ' + error.message, 'error'); return; }

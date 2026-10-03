@@ -1,5 +1,22 @@
 # WashRoute — Project Notes
 
+## Session 331 — Oct 3, 2026: Kimberly Rowe subscribed but orders priced pay-as-you-go — stale Billing-settings Save
+
+- **Report:** Kimberly Rowe opted into the subscription today; her picked-up order kept processing at normal prices; staff also couldn't add Air Dry.
+- **Root cause:** 9:18:56 AM the stripe-webhook created the sub and flipped `customers.pricelist` → 'Subscription' (logged OK). At 9:19:00 a
+  staff browser that had her customer panel open from before sent a **Billing-settings Save** — `saveBilling()` wrote the FULL patch,
+  including `pricelist` from the dropdown loaded minutes earlier ('Delivery'). `link_subscription_on_order_fn` only links when
+  pricelist='Subscription', so every order since stayed unlinked. Staff then deleted + re-created the order 3× (11:06–11:25 AM via
+  `delete_orders` / `create_order_for_customer`); each copy priced as Delivery. Live order = **#16664**. Only customer affected (103 subs checked).
+- **Air Dry:** was already on #16664 when investigated — Blanca re-intaked at 1:44 PM, Air Dry × 4 = $60 (same as Sep #14140). Air Dry
+  (`pricing_type` flat, Delivery pricelist) passes the per_bag→'Delivery' guard, so it still bills on subscription orders.
+- **Fix — data:** `customers.pricelist` → 'Subscription' for Kimberly (one row, guarded on an active sub). Team to re-run Intake on #16664
+  (re-intake resets Air Dry qty to bag count — set 4 again).
+- **Fix — code:** `saveBilling()` now sends only fields that differ from what the panel loaded (`_panelCustomerData`), so a stale panel
+  can't overwrite a background change. "No changes to save" toast when nothing differs.
+- **Fix — audit:** daily_audit.sql check **29** = live subscription but pricelist ≠ 'Subscription' (mirror of L10). 0 rows after fix.
+- **Lesson:** any "save the whole form" write races background writers (webhooks, triggers). Write the diff.
+
 ## Session 330 — Oct 2, 2026: Covenant House receipts (again) — auto-charge never emailed receipts; session 219's PDF fix had been wiped
 
 - **Report:** Covenant House (medge@covca.org) not receiving email receipts / invoices. Same complaint as session 219.

@@ -894,3 +894,26 @@ WHERE o.status IN ('scheduled','picked_up','processing','folding',
       AND rs.status NOT IN ('skipped', 'failed')
   )
 ORDER BY o.updated_at DESC;
+
+-- @check id=29 name="Paying subscriber not on the Subscription pricelist" priority=P1
+-- 29. The mirror of check L10 (session 331). Expected: 0 rows. Any output = a customer
+-- has a live subscription (paying monthly) but customers.pricelist is NOT 'Subscription',
+-- so link_subscription_on_order_fn never links their orders and every order bills
+-- pay-as-you-go ON TOP of the plan. Kimberly Rowe 2026-10-03: the webhook flipped her
+-- at 9:18:56, a stale admin Billing-settings Save wrote 'Delivery' back 4 s later.
+-- Fix: confirm the subscription is real in Stripe, then set pricelist='Subscription'
+-- and re-run Intake on any open order.
+SELECT c.id AS customer_id,
+       c.first_name_cache || ' ' || COALESCE(c.last_name_cache, '') AS customer,
+       c.pricelist,
+       s.status AS sub_status,
+       (s.created_at AT TIME ZONE 'America/Los_Angeles')::text AS sub_created_pt,
+       (SELECT count(*) FROM orders o
+         WHERE o.customer_id = c.id AND o.subscription_id IS NULL
+           AND o.created_at >= s.created_at
+           AND o.status NOT IN ('cancelled')) AS unlinked_orders_since_signup
+FROM subscriptions s
+JOIN customers c ON c.id = s.customer_id
+WHERE s.status IN ('active', 'past_due', 'paused')
+  AND c.pricelist IS DISTINCT FROM 'Subscription'
+ORDER BY s.created_at DESC;
