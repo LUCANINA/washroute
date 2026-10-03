@@ -166,13 +166,24 @@
     wrong, and the query above is the check that disproves it:
       SELECT tablename, policyname FROM pg_policies
        WHERE schemaname='public' AND cmd IN ('SELECT','ALL') AND qual ~* '\morders\M';
-  - **Latent, not currently burning — `driver_stop_customer_ids()` has no date bound.** It returns
-    every customer a driver has EVER served (790 for our busiest driver, vs 42 actually on today's
-    routes) and took 2,982 ms in the plan. It backs `driver_read_stop_customers` on `customers`.
-    It only showed up in this plan because the sms policy dragged the customers RLS in with it;
-    once 328b lands, it leaves this hot path. The driver app never reads `customers` directly, so
-    today it is a landmine rather than a live cost. Narrowing it to recent dates would remove a
-    driver's access to past customers — a product decision, not a mechanical fix.
+  - **APPLIED (328c) — `driver_stop_customer_ids()` bounded to the same day.** It had no date
+    bound, returning every customer a driver had EVER served (790 for the busiest driver vs 42 on
+    today's routes) at 2,982 ms. David, asked directly, said: *"In practice there's no need for any
+    driver to look up anything past that same day."* That product answer is what made it fixable —
+    narrowing the window REMOVES access, so only the operator could authorise it.
+    Measured across all 17 drivers: visibility grants **5,784 -> 167**, busiest driver **790 -> 43**,
+    and 10 of 17 drivers now see 0 (they are not on a route today — intended, and invisible in the
+    app because the driver app reads routes/stops/addresses through SECURITY DEFINER RPCs and never
+    queries `customers` directly). Only the date dimension changed; the four-way driver match
+    (rs.driver_id / r.driver_id / r.pickup_driver_id / r.delivery_driver_id) was preserved exactly,
+    so this can only tighten the boundary, never widen it.
+    **Effect on the Messages query, with 328b still NOT applied: 6,607 ms -> 2,999 ms.**
+    The function scan inside it: 2,982 ms -> 21 ms.
+  - **Remaining cost is SubPlan 8 — 2,344 ms** — `driver_read_assigned_orders` on `orders`, which
+    seq-scans route_stops (26,010) and routes (2,161) inline. It only runs here because the
+    sms_messages policy reads `orders` at all, which is exactly what **328b** removes. Apply 328b
+    and this whole branch disappears from the plan. 3.0s is under the 8s timeout but not
+    comfortably so under concurrency, which is the case for still landing 328b.
   - `sms_messages` has two permissive policies for authenticated/SELECT; both run on every read.
 
 ## Session 327c — Oct 2, 2026: customer emails from info@ Gmail land in customer history
