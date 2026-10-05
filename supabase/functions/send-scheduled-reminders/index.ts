@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { rateLink as signedRateLink } from '../_shared/rate-token.ts';
 
 const SUPABASE_URL        = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -277,8 +278,11 @@ async function runReorder(): Promise<number> {
 
 /**
  * Rating request (2026-09-16 — replaces the old direct review-link text).
- * Morning run. Texts a link to rate the order in the app:
- *   https://app.familylaundry.com/?rate=<order id>
+ * Morning run. Texts a link to rate the order:
+ *   https://app.familylaundry.com/rate?o=<order id>&t=<signed token>
+ * Session 333: the link is signed, so it works WITHOUT signing in (customers who
+ * book by text/phone have no app login and could never rate via the old
+ * https://app.familylaundry.com/?rate=<order id> link — 0 ratings from ~225 asks).
  * The app offers the public review link to EVERY rater, whatever the score
  * (no review gating). Rules:
  *   - order delivered 12–60h ago, not billed as failed, not rated yet
@@ -409,7 +413,7 @@ async function runReviewRequest(): Promise<number> {
     if (rated?.length || recent?.length) { await markDone(order.id); continue; }
     if (openIssue?.length) continue;                            // ask later if the issue is resolved in time
 
-    const rateLink = `https://app.familylaundry.com/?rate=${order.id}`;
+    const rateLink = await signedRateLink(order.id);
     const vars = {
       first_name:   cust.first_name_cache || 'there',
       order_number: String(order.order_number ?? ''),

@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "has": [{ "type": "host", "value": "app.familylaundry.com" }],    "source": "/rate", "destination": "/customer-app/rate.html" },
     { "has": [{ "type": "host", "value": "app.familylaundry.com" }],    "source": "/(.*)", "destination": "/customer-app/index.html" },
     { "has": [{ "type": "host", "value": "driver.familylaundry.com" }], "source": "/(.*)", "destination": "/driver-app/index.html" },
     { "has": [{ "type": "host", "value": "admin.familylaundry.com" }],  "source": "/(.*)", "destination": "/admin-dashboard/index.html" },

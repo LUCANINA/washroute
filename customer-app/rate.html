@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Rate your order · Family Laundry</title>
+  <meta name="robots" content="noindex" />
+  <meta name="referrer" content="no-referrer" />  <!-- the link carries a token; never leak it to Google etc. -->
+  <link rel="apple-touch-icon" sizes="180x180" href="../assets/icon-customer-180.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="../assets/icon-customer.png" />
+  <link rel="preload" href="../assets/fonts/dmsans-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <!-- Session 333: rate an order from the signed link in the rating text/email.
+       Works WITHOUT signing in — the ?t= token proves the link came from us.
+       Talks only to the rate-order edge function. Mirrors the app's rating sheet. -->
+  <style>
+    @font-face { font-family:'DM Sans'; font-style:normal; font-weight:100 1000; font-display:swap;
+      src:url(../assets/fonts/dmsans-latin.woff2) format('woff2'); }
+    :root {
+      --navy:#0f2744; --accent:#2a6fc9; --text:#1a1a2e;
+      --gray-200:#e2e8f0; --gray-500:#6b7280; --gray-600:#64748b;
+      --font-ui:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    }
+    * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+    body { font-family:var(--font-ui); background:#e8ecf0; color:var(--text); min-height:100vh;
+      padding:max(20px, env(safe-area-inset-top)) 16px 32px; }
+    input, textarea, button { font-family:inherit; }
+    .card { max-width:440px; margin:0 auto; background:white; border-radius:14px; overflow:hidden; box-shadow:0 2px 16px rgba(0,0,0,.08); }
+    .head { background:var(--navy); color:white; padding:18px 22px; font-size:20px; font-weight:700; }
+    .body { padding:22px; }
+    h1 { font-size:20px; font-weight:700; color:var(--navy); line-height:1.3; }
+    .sub { font-size:15px; color:var(--gray-600); margin-top:6px; line-height:1.5; }
+    .stars { display:flex; justify-content:center; gap:6px; margin:18px 0 6px; }
+    .star { background:none; border:none; padding:4px; cursor:pointer; font-size:44px; line-height:1; color:var(--gray-200); transition:transform .1s, color .1s; }
+    .star.on { color:#f59e0b; }
+    .star:active { transform:scale(.9); }
+    .hint { text-align:center; font-size:14px; color:var(--gray-500); min-height:18px; margin-bottom:12px; }
+    textarea { width:100%; min-height:90px; padding:10px 12px; border:1.5px solid var(--gray-200); border-radius:10px; font-size:16px; resize:vertical; outline:none; }
+    textarea:focus { border-color:var(--accent); }
+    .btn { display:block; width:100%; margin-top:12px; padding:14px; background:var(--navy); color:white; border:none; border-radius:10px;
+      font-size:17px; font-weight:700; cursor:pointer; text-align:center; text-decoration:none; }
+    .btn[disabled] { opacity:.5; cursor:default; }
+    .btn-plain { display:block; width:100%; margin-top:8px; padding:12px; background:none; border:none; color:var(--gray-600);
+      font-size:15px; font-weight:600; cursor:pointer; text-align:center; text-decoration:none; }
+    .err { display:none; background:#fef2f2; color:#b91c1c; border-radius:8px; padding:10px 12px; font-size:14px; margin-top:12px; }
+    .center { text-align:center; }
+    .big { font-size:44px; line-height:1; }
+    .loading { text-align:center; color:var(--gray-500); padding:30px 0; font-size:15px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">Family Laundry</div>
+    <div class="body" id="main"><div class="loading">Loading…</div></div>
+  </div>
+
+<script>
+(function () {
+  const FN = 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/rate-order';
+  const APP = 'https://app.familylaundry.com/';
+  const WORDS = ['', 'Poor', 'Not great', 'Okay', 'Good', 'Great'];
+  const qs = new URLSearchParams(location.search);
+  const o = (qs.get('o') || '').toLowerCase();
+  const t = qs.get('t') || '';
+  const pre = Math.max(0, Math.min(5, parseInt(qs.get('s') || '0', 10) || 0));   // optional preselected stars
+  const main = document.getElementById('main');
+  let stars = 0, info = null;
+
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  async function call(action, extra) {
+    const r = await fetch(FN, { method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(Object.assign({ action, o, t }, extra || {})) });
+    let j = null; try { j = await r.json(); } catch (_) {}
+    return j || { ok:false, message:'Something went wrong. Please try again.' };
+  }
+
+  function showMessage(icon, title, text) {
+    main.innerHTML = `<div class="center">
+      <div class="big">${icon}</div>
+      <h1 style="margin-top:10px">${esc(title)}</h1>
+      ${text ? `<p class="sub">${text}</p>` : ''}
+      <a class="btn" href="${APP}">Open the Family Laundry app</a></div>`;
+  }
+
+  function setStars(n) {
+    stars = n;
+    document.querySelectorAll('.star').forEach(b => b.classList.toggle('on', Number(b.dataset.n) <= n));
+    document.getElementById('hint').textContent = n ? WORDS[n] : 'Tap a star';
+    document.getElementById('note').placeholder = n && n <= 3 ? 'What went wrong? We read every one.' : 'Anything we should know? (optional)';
+    document.getElementById('send').disabled = !n;
+  }
+
+  function renderForm() {
+    const name = info.first_name ? `Hi ${esc(info.first_name)}, how` : 'How';
+    const editing = info.rating != null;
+    main.innerHTML = `
+      <h1>${name} did we do on order #${esc(info.order_number)}?</h1>
+      <p class="sub">${editing ? 'You already rated this order — you can change it below.' : 'Tap a star — it takes a few seconds.'}</p>
+      <div class="stars">${[1,2,3,4,5].map(n => `<button class="star" data-n="${n}" aria-label="${n} star${n>1?'s':''}">★</button>`).join('')}</div>
+      <div class="hint" id="hint"></div>
+      <textarea id="note" maxlength="2000"></textarea>
+      <div class="err" id="err"></div>
+      <button class="btn" id="send">Send</button>`;
+    main.querySelectorAll('.star').forEach(b => b.addEventListener('click', () => setStars(Number(b.dataset.n))));
+    document.getElementById('send').addEventListener('click', submit);
+    if (editing && info.comment) document.getElementById('note').value = info.comment;
+    setStars(pre || info.rating || 0);
+  }
+
+  async function submit() {
+    if (!stars) return;
+    const btn = document.getElementById('send'), err = document.getElementById('err');
+    err.style.display = 'none'; btn.disabled = true; btn.textContent = 'Sending…';
+    let data;
+    try { data = await call('submit', { rating: stars, comment: document.getElementById('note').value || '' }); }
+    catch (_) { data = { ok:false, message:'No connection. Please try again.' }; }
+    if (!data.ok) {
+      err.textContent = data.message || 'Could not send your rating.'; err.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Send'; return;
+    }
+    const link = data.review_link;
+    const isGoogle = /g\.page|google\./i.test(link || '');
+    main.innerHTML = `
+      <div class="center">
+        <div class="big">${data.low ? '🙏' : '💙'}</div>
+        <h1 style="margin-top:10px">${esc(data.message)}</h1>
+        ${link ? `<p class="sub" style="margin-top:10px">${data.low ? 'You’re also welcome to share your experience publicly.' : `Would you share it${isGoogle ? ' on Google' : ''}? It helps neighbors find us.`}</p>` : ''}
+      </div>
+      ${link ? `<a class="btn" id="review" href="${esc(link)}" target="_blank" rel="noopener">${isGoogle ? 'Write a Google review' : 'Write a review'}</a>` : ''}
+      <a class="${link ? 'btn-plain' : 'btn'}" href="${APP}">Open the Family Laundry app</a>`;
+    const rv = document.getElementById('review');
+    if (rv) rv.addEventListener('click', () => { call('clicked').catch(() => {}); });
+  }
+
+  (async function start() {
+    if (!o || !t) { showMessage('🔗', 'This link is incomplete', 'You can rate any delivered order in the app.'); return; }
+    let data;
+    try { data = await call('load'); }
+    catch (_) { main.innerHTML = '<div class="loading">No connection. Please check your signal and reload.</div>'; return; }
+    if (!data.ok) {
+      showMessage('🔗', data.code === 'bad_link' ? 'This link isn’t valid anymore' : (data.message || 'Something went wrong'),
+        'You can rate any delivered order in the app.');
+      return;
+    }
+    info = data;
+    if (!info.delivered && (info.status === 'cancelled' || info.status === 'skipped')) {
+      showMessage('🧺', `Order #${info.order_number} was ${info.status === 'skipped' ? 'skipped' : 'cancelled'}`, 'There’s nothing to rate on this one.'); return;
+    }
+    if (!info.delivered) { showMessage('🧺', `Order #${info.order_number} isn’t delivered yet`, 'You can rate it once it’s back with you.'); return; }
+    if (info.rating != null && !info.can_edit) {
+      showMessage('💙', 'Thanks — you already rated this order', `You gave it ${info.rating} star${info.rating > 1 ? 's' : ''}.`); return;
+    }
+    renderForm();
+  })();
+})();
+</script>
+</body>
+</html>

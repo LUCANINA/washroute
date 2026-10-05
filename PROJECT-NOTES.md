@@ -1,5 +1,22 @@
 # WashRoute — Project Notes
 
+## Session 333 — Oct 5, 2026: rating link works without signing in
+
+**Why:** Ellen Konnert (46 orders, no app login) replied "Can't get through to rate you!". The rating text/email
+opened `app.familylaundry.com/?rate=<id>`, which needs a sign-in. Since Sep 17, ~225 asks to customers with no app
+login (`customers.profile_id` null) produced **0** ratings; customers with a login produced 77.
+
+- **Signed link:** `https://app.familylaundry.com/rate?o=<order id>&t=<token>` — token = HMAC-SHA256 of the order id,
+  keyed from the service-role key (`supabase/functions/_shared/rate-token.ts`, 22 chars). Optional `&s=1..5` preselects stars.
+- **Page:** `customer-app/rate.html` (standalone, no supabase-js, no sign-in), routed by a `/rate` rewrite on the app
+  host in `vercel.json`. Mirrors the app rating sheet; Google link shown to EVERY rater (no gating); `no-referrer`.
+- **Edge function `rate-order` (verify_jwt FALSE, token-guarded):** `load` / `submit` / `clicked`; `make_link` is
+  staff (admin/manager/attendant JWT) or internal (`x-wr-internal`) only — use it to resend a link by hand.
+- **Migration `session_333_rating_link`:** `order_feedback.source` accepts `'link'`; `submit_order_feedback` lets
+  `service_role` submit (all other callers unchanged — tested a stranger still gets "Not authorized").
+- **send-scheduled-reminders:** rating text/email now uses the signed link. Old `?rate=` links still work for app users.
+- Deploy ORDER matters: page (Vercel push) must be live before the function sends `/rate` links.
+
 ## Session 331 — Oct 3, 2026: Kimberly Rowe subscribed but orders priced pay-as-you-go — stale Billing-settings Save
 
 - **Report:** Kimberly Rowe opted into the subscription today; her picked-up order kept processing at normal prices; staff also couldn't add Air Dry.
