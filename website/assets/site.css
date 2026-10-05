@@ -370,3 +370,83 @@ strong { font-weight: 700; }
 .sv-plans + .sv-price { margin-top: 24px !important; }
 
 .nowrap { white-space: nowrap; }
+
+/* ── Footer accordions: always open on desktop, tap-to-open on phones ── */
+.foot-col summary { list-style: none; cursor: default; }
+.foot-col summary::-webkit-details-marker { display: none; }
+@media (min-width: 601px) { .foot-col summary { pointer-events: none; } }
+@media (max-width: 600px) {
+  .foot-grid { grid-template-columns: 1fr; gap: 0; }
+  .foot-brand { padding-bottom: 20px; }
+  .foot-col { border-top: 1px solid #2a2a2a; }
+  .foot-col summary { cursor: pointer; padding: 16px 0; position: relative; }
+  .foot-col summary h4 { margin: 0; padding: 0; font-size: 14px; }
+  .foot-col summary h4::after { display: none; }
+  .foot-col summary::after { content: '+'; position: absolute; right: 2px; top: 10px; font-size: 22px; color: #fff; font-weight: 300; }
+  .foot-col[open] summary::after { content: '–'; }
+  .foot-col a { padding: 8px 0; margin: 0; font-size: 16px; }
+  .foot-col[open] { padding-bottom: 12px; }
+}
+
+/* ── Phone layout (Oct 5: Rinse-inspired) — desktop untouched ──────────── */
+@media (max-width: 820px) {
+  body { font-weight: 400; font-size: 17px; }
+  /* hero: photo on top, copy on a white card that slides up over it */
+  .h-hero-img { height: 340px; }
+  .h-hero-copy { margin-top: -36px; background: #fff; border-radius: 24px 24px 0 0; padding: 30px 20px 36px; }
+  .h-kicker { font-size: 32px; }
+  .h-hero h1 { font-size: 26px; font-weight: 600; margin-bottom: 14px; }
+  .h-hero-sub { font-size: 17px; margin-bottom: 16px; }
+  .h-btn-lg { font-size: 19px; padding: 15px 24px; }
+  .h-stamp { position: absolute; width: 92px; right: 14px; top: -64px; margin: 0; filter: drop-shadow(0 4px 10px rgba(0,0,0,.15)); }
+  /* van: a rounded pink card instead of a full-width block */
+  .h-van-art { margin: 8px 16px 0; border-radius: 24px; padding: 32px 20px 26px; }
+  .h-van-art img { width: 78%; }
+  .h-arrow { height: 34px; margin: 12px 0 10px; }
+  .h-electric { font-size: 15px; }
+  .h-van-copy { padding: 28px 20px 8px; }
+  .h-van-copy h2 { font-size: 26px; line-height: 1.25; margin-bottom: 16px; }
+  .h-van-copy p { font-size: 17px; line-height: 1.55; }
+  /* pricing: two swipeable cards */
+  .h-pricing { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 28px 16px 8px; scrollbar-width: none; }
+  .h-pricing::-webkit-scrollbar { display: none; }
+  .h-tile { flex: 0 0 84%; scroll-snap-align: center; border-radius: 24px; padding: 30px 20px 28px; }
+  .h-tile h2 { font-size: 30px; margin-bottom: 8px; }
+  .h-note { font-size: 15px; margin-bottom: 12px; }
+  .h-bags { height: 110px; margin-bottom: 16px; }
+  .h-bags-1 { gap: 22px; padding-top: 14px; } .h-bags-1 img:first-child { width: 90px; } .h-bags-1 img:last-child { width: 96px; }
+  .h-curve { width: 46px; height: 20px; left: 42%; }
+  .h-bags-2 img { width: 84px; } .h-bags-2 img:nth-child(2) { top: 34px; } .h-bags-2 img:nth-child(3) { top: 34px; } .h-bags-2 img:nth-child(4) { top: 44px; }
+  .h-dots { font-size: 16px; line-height: 1.6; }
+  .h-fine { font-size: 13px; }
+  .h-tile-cta .btn { width: 100%; min-width: 0; }
+  /* how we clean: compact rows */
+  .h-clean { padding: 44px 20px 40px; }
+  .h-clean h2, .h-story h2, .h-contact h2 { font-size: 32px; margin-bottom: 16px; }
+  .h-clean > p { font-size: 17px; }
+  .h-steps { gap: 0; margin-top: 24px; text-align: left; }
+  .h-steps > div { display: grid; grid-template-columns: 64px 1fr; column-gap: 16px; align-items: start; padding: 16px 0; border-top: 1px solid var(--line); }
+  .h-steps img { width: 64px; height: 64px; margin: 0; grid-row: span 2; }
+  .h-steps h3 { font-size: 18px; margin: 4px 0 4px; }
+  .h-steps p { font-size: 16px; max-width: none; margin: 0; }
+  /* ozone: calmer type */
+  .h-bubbles { min-height: 0; margin: 0 16px; border-radius: 24px; }
+  .h-bubbles-copy { padding: 36px 24px; }
+  .h-bubbles h2 { font-size: 30px; margin-bottom: 12px; }
+  .h-bubbles p { font-size: 18px; font-weight: 600; line-height: 1.5; }
+  /* reviews: swipeable cards */
+  .h-own { padding-top: 36px; }
+  .h-quotes { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 16px 16px 8px; scrollbar-width: none; }
+  .h-quotes::-webkit-scrollbar { display: none; }
+  .h-quotes figure { flex: 0 0 84%; scroll-snap-align: center; border-radius: 24px; padding: 26px 22px; text-align: left; }
+  .h-qmark { font-size: 84px; height: 44px; }
+  .h-quotes figcaption { font-size: 17px; font-weight: 700; margin: 6px 0 10px; }
+  .h-quotes blockquote { font-size: 16px; font-weight: 400; line-height: 1.6; max-width: none; }
+  .h-story { padding: 48px 20px 24px; }
+  .h-story p { font-size: 16px; }
+  .h-video { border-radius: 16px; overflow: hidden; }
+  .h-contact { padding: 32px 20px 48px; }
+  .h-contact .form input, .h-contact .form textarea { border-radius: 12px; }
+  .h-contact .form p:last-child { text-align: left; }
+  .h-contact .form .btn { width: 100%; }
+}

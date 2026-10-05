@@ -58,30 +58,31 @@ function footer(v) {
       ${ownRating(v)}
       <p>${s.phone ? `<a href="${esc(telHref(s.phone))}">${esc(s.phone)}</a><br>` : ''}${s.email ? `<a href="mailto:${esc(s.email)}">${esc(s.email)}</a>` : ''}</p>
     </div>
-    <div>
-      <h4>Get started</h4>
+    <details class="foot-col" open>
+      <summary><h4>Get started</h4></summary>
       <a href="${APP}">Schedule a pickup</a>
       ${footLinks('Getting started', [['/laundry-service-cost', 'What it costs'], ['/faq', 'FAQ'], ['/download', 'Get the app'], ['/gifts-cards', 'Gift cards']])}
-    </div>
-    <div>
-      <h4>Residential</h4>
+    </details>
+    <details class="foot-col" open>
+      <summary><h4>Residential</h4></summary>
       ${footLinks('Residential', [['/laundry-delivery-services', 'All services & prices']])}
-    </div>
-    <div>
-      <h4>Commercial</h4>
+    </details>
+    <details class="foot-col" open>
+      <summary><h4>Commercial</h4></summary>
       ${footLinks('Commercial', [['/commercial-laundry', 'All commercial laundry']])}
-    </div>
-    <div>
-      <h4>Areas</h4>
+    </details>
+    <details class="foot-col" open>
+      <summary><h4>Areas</h4></summary>
       ${cities.map(([href, label]) => `<a href="${href}">${esc(label)}</a>`).join('')}
       <a href="/service-map">Full service area</a>
-    </div>
-    <div>
-      <h4>Company</h4>
+    </details>
+    <details class="foot-col" open>
+      <summary><h4>Company</h4></summary>
       <a href="/about-us">About us</a><a href="/blog">Our story</a><a href="/community">Community</a>
       <a href="/privacy-policy">Privacy policy</a><a href="/terms-conditions">Terms &amp; conditions</a>
-    </div>
+    </details>
   </div>
+  <script>if(matchMedia('(max-width:600px)').matches)document.querySelectorAll('.foot-col').forEach(d=>d.open=false)</script>
   <div class="wrap foot-legal">©${new Date().getFullYear()} Young &amp; Foolish LLC dba Family Laundry</div>
 </footer>`;
 }

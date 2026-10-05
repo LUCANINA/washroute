@@ -175,3 +175,6 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   - Ratings simplified (David picked option A): one line "★★★★★ 4.8 from 500+ reviews on Google & Yelp" (count =
     Google + Yelp, rounded down to the hundred). Own rating shown as "4.9 ★ average customer rating" above the
     homepage quotes and in every footer, which keeps the rating markup visible on each page.
+  - Phone layout reworked after studying rinse.com on mobile (desktop unchanged): hero copy on a rounded card over
+    the photo, stamp tucked on the photo, swipeable price and review cards, compact How-we-clean rows, rounded
+    pink/ozone cards, regular (not light) text weight on phones, full-width buttons, footer as tap-to-open sections.
