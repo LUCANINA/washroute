@@ -18,8 +18,6 @@ function cta(label = 'Schedule a pickup') {
 
 // ── Home ────────────────────────────────────────────────────────────────
 function home(v) {
-  const fee = (v.fee || {});
-  const sameDayPerBag = C.money(Number(fee['Delivery Fee'] || 0) + Number(fee['Same-Day Surcharge'] || 0));
   const reviews = [
     ['Kether A, Alameda', 'The way my laundry was returned was so neat and organized that it only took a few minutes to put away. It made me happy, as silly as it seems. The prices seem very fair and the folks were most kind and helpful. You should try it.'],
     ['Chimed D, Oakland', 'Amazing, a godsend, the bomb, so helpful, artistic and beautiful presentation of returned laundry - impressive!!! 5 shining stars!'],
@@ -62,9 +60,10 @@ function home(v) {
     <ul class="h-dots">
       <li>25 lbs Wash &amp; Fold (about 2–3 loads)*</li>
       <li>Next-day Delivery: ${mdi('{fee:Delivery Fee}', v)}</li>
-      <li>Same-day Delivery: ${esc(sameDayPerBag)}</li>
+      <li>Same-day Delivery: +${mdi('{fee:Same-Day Surcharge}', v)}</li>
     </ul>
     <p class="h-fine">*Bags weighing more than 25 lbs are an extra ${mdi('{site:overweight_rate}', v)}.</p>
+    <p class="h-tile-cta"><a class="btn" href="${APP}">Book one bag</a></p>
   </div>
   <div class="h-tile h-tile-2">
     <h2>Subscribe<br>${mdi('{plan:price}', v)}/month</h2>
@@ -80,6 +79,7 @@ function home(v) {
       <li>No minimum lbs. per order</li>
     </ul>
     <p class="h-fine">*Usage above ${mdi('{plan:lbs}', v)} lbs per month is ${mdi('{plan:overage}', v)} per lb.</p>
+    <p class="h-tile-cta"><a class="btn" href="${APP}">Subscribe</a></p>
   </div>
 </section>
 
@@ -134,15 +134,21 @@ ${contactBlock(v)}`;
   };
 }
 
-// Google rating badge: shown only when site_info.google_rating + google_reviews are set (Admin → App Content → Business info).
+// Google/Yelp rating badge: each shown only when its site_info rating + review count are set (Admin → App Content → Business info).
 function ratingBadge(v) {
   const s = v.site || {};
   const own = ownRating(v);
   const google = s.google_rating && s.google_reviews
     ? `<strong>${esc(s.google_rating)} ★</strong> on Google · ${esc(s.google_reviews)} reviews` : '';
   const g = google && s.google_reviews_url ? `<a href="${esc(s.google_reviews_url)}" rel="noopener">${google}</a>` : google;
-  const o = own ? `<span class="rating-own"><strong>${esc(own.avg.toFixed(1))} ★</strong> from ${esc(own.count.toLocaleString('en-US'))} customer ratings after delivery</span>` : '';
-  return g || o ? `<p class="rating">${[g, o].filter(Boolean).join('<br>')}</p>` : '';
+  // Yelp line: site_info.yelp_rating + yelp_reviews (+ optional yelp_url). Shown on the same line as Google.
+  const yelp = s.yelp_rating && s.yelp_reviews ? `<strong>${esc(s.yelp_rating)} ★</strong> on Yelp · ${esc(s.yelp_reviews)} reviews` : '';
+  const y = yelp && s.yelp_url ? `<a href="${esc(s.yelp_url)}" rel="noopener">${yelp}</a>` : yelp;
+  const o = own ? `<strong>${esc(own.avg.toFixed(1))} ★</strong> from ${esc(own.count.toLocaleString('en-US'))} ratings after delivery` : '';
+  // Google is the headline; Yelp and our own after-delivery rating sit on a smaller second line.
+  const main = g || y || o;
+  const rest = [g ? y : '', g || y ? o : ''].filter(Boolean).join(' &nbsp;·&nbsp; ');
+  return main ? `<p class="rating"><span class="rating-main">${main}</span>${rest ? `<br><span class="rating-own">${rest}</span>` : ''}</p>` : '';
 }
 
 // Our own after-delivery ratings (site_public_values().ratings, from order_feedback). Shown once there are 20+.
@@ -458,6 +464,7 @@ function topic(t, v) {
   <h1>${esc(t.h1)}</h1>
   <p class="lead">${esc(t.lead)}</p>
   ${ratingBadge(v)}
+  ${t.photo ? `<figure class="about-photo"><img src="/assets/img/${esc(t.photo.src)}" alt="${esc(t.photo.alt)}" width="${t.photo.w}" height="${t.photo.h}"><figcaption>${esc(t.photo.caption)}</figcaption></figure>` : ''}
   ${t.sections.map(s => `<h2>${esc(s.h)}</h2>\n  ${md(s.md, v)}`).join('\n  ')}
   ${ctaBlock}
   ${faqs.length ? `<h2>Questions</h2>
@@ -561,6 +568,8 @@ function about(v) {
     <figcaption>Inside our Oakland facility.</figcaption></figure>
   <h2>Our own facility in Oakland</h2>
   <p>Every load is washed in our commercial machines with Free &amp; Clear hypoallergenic detergent and ozone: no fragrance, no bleach and no softener. Your order is folded, socks balled, and bagged in Family Laundry bags that are yours to keep.</p>
+  <figure class="about-photo"><img src="/assets/img/bag-deck.jpg" alt="A zipped Family Laundry bag on a sunny deck" width="1400" height="883" loading="lazy">
+    <figcaption>Every customer gets their own Family Laundry bags.</figcaption></figure>
   <figure class="about-photo"><img src="/assets/img/vans.jpg" alt="Family Laundry electric Ford E-Transit vans parked in a row" width="1144" height="907" loading="lazy">
     <figcaption>Our electric delivery vans.</figcaption></figure>
   <h2>Our own electric vans</h2>

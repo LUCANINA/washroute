@@ -103,9 +103,15 @@ WashRoute apps don't change when only `website/` changes (the build-version hook
 
 Domain registered at **GoDaddy**; DNS currently run by **Wix** (ns6/ns7.wixdns.net).
 
-- **Tuesday Oct 6:** add familylaundry.com + www to the Vercel project; copy the 30 records into Vercel DNS
-  (full list with values in the fixes & city SEO plan doc). Nothing changes for customers yet.
-- **Wednesday Oct 7, morning:** GoDaddy → Nameservers → ns1.vercel-dns.com, ns2.vercel-dns.com. Then: test
+- **DONE Mon Oct 5 (moved up from Tuesday):** Vercel DNS enabled for familylaundry.com (team LUCANINA / slug
+  family-laundry). 25 records added and checked against live Wix DNS: 5 Google MX, 2 google-site-verification
+  TXT, 3 `_dmarc*` TXT, `_twilio` TXT, 11 SendGrid + 3 ActiveCampaign CNAMEs. App subdomains need no records:
+  they're on the `washroute` project in the same team, served by Vercel's automatic `@`/`*` ALIAS. Project
+  `familylaundry-website` has www.familylaundry.com (primary) + familylaundry.com (308 → www).
+- **DONE Mon Oct 5, 3:57 pm:** David switched GoDaddy nameservers to Vercel (registry showed NS1/NS2.VERCEL-DNS.COM
+  at 3:58 pm). Vercel issued the www/apex certificate by 4:00 pm; site, redirects, sitemap (39 URLs) and
+  admin/driver/pos all verified on Vercel. Resolvers drop the cached Wix answers within ~24h.
+- **Was planned for Wednesday Oct 7, morning:** GoDaddy → Nameservers → ns1.vercel-dns.com, ns2.vercel-dns.com. Then: test
   email to info@, open app/admin/driver/pos, load the site, confirm SendGrid domain auth still verified,
   submit `https://www.familylaundry.com/sitemap.xml` in Search Console, request indexing of the SF, Oakland
   and Berkeley pages.
@@ -133,7 +139,9 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
 - [ ] More Google reviews quoted on city pages (David to paste favorites that mention a city)
 - [ ] Open the 15 hidden city pages a few a week as they get local content
 - [ ] SF and Oakland neighborhood pages (2ULaundry has ~90; ours need real local content first)
-- [ ] Decide: "Neighborhood Laundry Day" discount for booking on the route's usual day (2ULaundry's best idea)
+- [ ] PARKED Oct 5 (David likes it, not now): "Neighborhood Laundry Day" — one discounted pickup day per ZIP.
+  Why: Monday has 2–3x the pickups of Tue/Thu in most ZIPs; same-day neighbors = denser routes. Open choices:
+  discount (free delivery vs $5), subscribers, pilot ZIPs (e.g. 94610, 94611, Alameda).
 - [ ] App store links (`site_info.app_ios_url`, `app_android_url` empty)
 - [ ] Admin → App Content editor for FAQ + site info (phase 1 of the original plan)
 
@@ -156,4 +164,8 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   - 2ULaundry (Houston) studied: they win with many narrow pages (one per service, business type, question and
     neighborhood) tied together by a big footer. Added 12 topic pages, the cost page and the footer hub;
     sitemap now 38 pages (was 25).
-  - About us page added with David's team, facility and van photos.
+  - About us page added with David's team, facility and van photos. Bag-on-deck photo (`bag-deck.jpg`) on
+    About us and the comforter, first-order and leaving-laundry-out pages (topic `photo` field).
+  - Design critique fixes: dark text on yellow buttons (white failed contrast at 1.5:1), "Book" button in the phone
+    header, blue "Book one bag" / "Subscribe" buttons under the prices, same-day shown as +surcharge everywhere,
+    Google rating as the headline with Yelp + own ratings smaller, contact Send button in the standard style.

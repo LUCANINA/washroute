@@ -22,6 +22,7 @@ function header(path, v) {
   <div class="wrap head-row">
     <a class="logo" href="/" aria-label="Family Laundry home"><img src="/assets/img/logo.png" alt="Family Laundry" width="56" height="56"></a>
     ${phone ? `<a class="head-phone" href="${esc(telHref(phone))}">${esc(phone)}</a>` : ''}
+    <a class="btn btn-sm head-book" href="${APP}">Book</a>
     <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Menu">
     <label for="nav-toggle" class="nav-burger" aria-hidden="true"><span></span></label>
     <nav class="nav">${links}<a class="btn btn-sm" href="${APP}">Schedule pickup</a></nav>

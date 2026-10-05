@@ -8,6 +8,7 @@ module.exports = [
   {
     path: '/comforter-cleaning', group: 'Residential', nav: 'Comforters & bedding', cta: 'pickup',
     service: 'Comforter and bedding laundry',
+    photo: { src: 'bag-deck.jpg', w: 1400, h: 883, alt: 'A zipped Family Laundry bag waiting on a sunny deck', caption: 'Bags close with a zipper and are yours to keep.' },
     title: 'Comforter & Bedding Laundry Service with Pickup | Family Laundry',
     description: 'Comforters, duvets, blankets, pillows and sleeping bags washed fragrance-free in our own Oakland facility, picked up and delivered across the East Bay and San Francisco.',
     h1: 'Comforter and bedding laundry',
@@ -193,6 +194,7 @@ module.exports = [
   // ── Getting started ──────────────────────────────────────────────────────────────────────────────────
   {
     path: '/first-laundry-pickup', group: 'Getting started', nav: 'Your first order', cta: 'pickup',
+    photo: { src: 'bag-deck.jpg', w: 1400, h: 883, alt: 'A zipped Family Laundry bag waiting on a sunny deck', caption: 'Bags close with a zipper and are yours to keep.' },
     title: 'What to Expect From Your First Laundry Pickup | Family Laundry',
     description: 'How your first Family Laundry order works: booking, packing your laundry, pickup, how we wash it, and what comes back the next day.',
     h1: 'What to expect from your first order',
@@ -213,6 +215,7 @@ module.exports = [
   },
   {
     path: '/leaving-laundry-out-for-pickup', group: 'Getting started', nav: 'Leaving laundry out', cta: 'pickup',
+    photo: { src: 'bag-deck.jpg', w: 1400, h: 883, alt: 'A zipped Family Laundry bag waiting on a sunny deck', caption: 'Bags close with a zipper and are yours to keep.' },
     title: 'Leaving Your Laundry Out for Pickup: Tips | Family Laundry',
     description: 'Where to leave your laundry bag for pickup, how to give drivers instructions in apartments and gated buildings, and how to avoid a missed pickup.',
     h1: 'Leaving your laundry out for pickup',
