@@ -8,7 +8,7 @@ const REDIRECTS = {
   '/home': '/',
   '/pricing': '/#pricing',
   '/about-us': '/#story',
-  '/blog': '/',            // TODO(phase 4): blog
+  '/services-4': '/commercial-laundry',
 };
 
 function isProductionHost(host) {
@@ -19,14 +19,12 @@ module.exports = async (req, res) => {
   const url = new URL(req.url, 'http://x');
   let path = url.searchParams.get('p') || url.pathname || '/';
   path = ('/' + path.replace(/^\/+/, '')).replace(/\/+$/, '') || '/';
+  try { path = decodeURIComponent(path); } catch (_) {}
   path = path.toLowerCase();
   const indexable = isProductionHost(req.headers['x-forwarded-host'] || req.headers.host);
 
   if (REDIRECTS[path]) {
     res.statusCode = 301; res.setHeader('Location', REDIRECTS[path]); return res.end();
-  }
-  if (path.startsWith('/post/')) {           // TODO(phase 4): blog posts
-    res.statusCode = 302; res.setHeader('Location', '/'); return res.end();
   }
 
   let data;
@@ -47,7 +45,7 @@ module.exports = async (req, res) => {
   }
   if (path === '/sitemap.xml') {
     const urls = Object.keys(ROUTES).filter(p => p !== '/thankyou')
-      .map(p => `<url><loc>${ORIGIN}${p === '/' ? '' : p}</loc></url>`).join('');
+      .map(p => `<url><loc>${ORIGIN}${p === '/' ? '' : encodeURI(p)}</loc></url>`).join('');
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Cache-Control', 'public, s-maxage=3600');
     return res.end(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`);

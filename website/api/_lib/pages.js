@@ -10,7 +10,7 @@ const md = (text, v) => C.renderContent(text, v).html;
 // Inline (no <p>) version for headings / list items.
 const mdi = (text, v) => md(text, v).replace(/^<p>|<\/p>$/g, '');
 
-const DEFAULT_DESC = "Wash & fold laundry pickup and delivery for busy Bay Area households. Free & Clear detergents, our own facilities in Oakland, next-day and same-day service.";
+const DEFAULT_DESC = "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free in our own facilities, never outsourced, and back the next day.";
 
 function cta(label = 'Schedule a pickup') {
   return `<a class="btn" href="${APP}">${esc(label)}</a>`;
@@ -29,12 +29,22 @@ function home(v) {
 <section class="hero">
   <div class="wrap hero-grid">
     <div class="hero-copy">
-      <h1><span class="kicker">Family Laundry</span>Wash &amp; Fold for Busy Households</h1>
-      <p class="lead">We pick up your laundry, wash and fold it in our own Oakland facilities, and bring it back the next day. Serving San Francisco, Oakland and the East Bay, ${mdi('{site:service_days}', v)}.</p>
+      <h1><span class="kicker">Family Laundry</span>Fresh, fragrance-free laundry, washed by our own team</h1>
+      <p class="lead">We pick up your laundry, wash it in our own Oakland facilities (never outsourced) and bring it back folded the next day. Pickup and delivery ${mdi('{site:service_days}', v)} across Oakland, the East Bay and San Francisco.</p>
+      ${ratingBadge(v)}
       <div class="row">${cta('Get started')}<a class="btn btn-ghost" href="#pricing">See pricing</a></div>
       <img class="stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="150" height="150">
     </div>
     <img class="hero-img" src="/assets/img/hero.jpg" alt="A woman smelling freshly cleaned laundry" width="700" height="624">
+  </div>
+</section>
+
+<section class="wrap section">
+  <div class="why">
+    <div><h3>Cleaned in-house</h3><p>Our team, our machines, start to finish. We never send your laundry to someone else.</p></div>
+    <div><h3>Clean, not perfumed</h3><p>Free &amp; Clear detergent and ozone. No fragrance, bleach or softener, ever.</p></div>
+    <div><h3>Back the next day</h3><p>Picked up today, washed and folded, back at your door tomorrow.</p></div>
+    <div><h3>Local and family-owned</h3><p>An Oakland family business with more than 30 employees.</p></div>
   </div>
 </section>
 
@@ -45,7 +55,7 @@ function home(v) {
       <p class="eyebrow">I'm electric</p>
       <h2>Delivering the freshest laundry in the Bay since ${esc(v.site?.founded || '2019')}.</h2>
       <p>Imagine a service that picks up your dirty laundry, then returns it perfectly washed and folded. Within a day. Like magic. That's Family Laundry.</p>
-      <p>We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities (we never, ever outsource) and our own delivery vehicles. It's 100% Family Laundry, satisfaction guaranteed.</p>
+      <p>We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities and we never, ever outsource the washing. Not happy with an order? Tell us and we'll make it right.</p>
       <p>${cta('Create an account')}</p>
     </div>
   </div>
@@ -123,17 +133,42 @@ function home(v) {
 ${contactBlock(v)}`;
   return {
     path: '/',
-    title: 'Family Laundry | laundry pickup and delivery | San Francisco Bay Area, CA, USA',
-    description: "Family Laundry is the Bay Area's #1 best-rated wash and fold delivery service. We process your laundry in our own facilities in Oakland, CA, with Free & Clear detergents only. Serving San Francisco, Oakland and the East Bay, Monday through Saturday, with same-day pickup and delivery in most areas.",
+    title: 'Laundry Pickup & Delivery in Oakland & the East Bay | Family Laundry',
+    description: "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free in our own facilities, never outsourced, and back the next day. Serving Oakland, Berkeley, the East Bay and San Francisco, Monday to Saturday.",
     body,
     jsonld: {
       '@context': 'https://schema.org', '@type': 'LaundryOrDryCleaning', name: 'Family Laundry',
       url: 'https://www.familylaundry.com', telephone: v.site?.phone, email: v.site?.email,
       image: 'https://www.familylaundry.com/assets/img/logo.png',
-      address: { '@type': 'PostalAddress', streetAddress: '5215 Genoa St', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94608', addressCountry: 'US' },
-      areaServed: v.cities || [],
+      address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
+      areaServed: (v.cities || []).map(c => ({ '@type': 'City', name: c })),
+      ...(v.site?.google_rating && v.site?.google_reviews ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: v.site.google_rating, reviewCount: v.site.google_reviews } } : {}),
     },
   };
+}
+
+// Google rating badge: shown only when site_info.google_rating + google_reviews are set (Admin → App Content → Business info).
+function ratingBadge(v) {
+  const s = v.site || {};
+  if (!s.google_rating || !s.google_reviews) return '';
+  const inner = `<strong>${esc(s.google_rating)} ★</strong> on Google · ${esc(s.google_reviews)} reviews`;
+  return `<p class="rating">${s.google_reviews_url ? `<a href="${esc(s.google_reviews_url)}" rel="noopener">${inner}</a>` : inner}</p>`;
+}
+
+const FORM_URL = 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/website-contact';
+function contactForm(kind) {
+  const biz = kind === 'commercial';
+  return `<form class="form" method="post" action="${FORM_URL}" data-contact>
+  <input type="hidden" name="kind" value="${kind}"><input type="hidden" name="t" value="">
+  <div class="hp" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off"></label></div>
+  <div class="two"><label>Name <input name="name" required autocomplete="name"></label>
+  ${biz ? '<label>Business or school <input name="business" autocomplete="organization"></label>' : '<label>Phone (optional) <input name="phone" type="tel" autocomplete="tel"></label>'}</div>
+  <div class="two"><label>Email <input name="email" type="email" required autocomplete="email"></label>
+  ${biz ? '<label>Phone <input name="phone" type="tel" autocomplete="tel"></label>' : ''}</div>
+  <label>${biz ? 'What do you need washed, and how much per week?' : 'Message'} <textarea name="message" required maxlength="5000"></textarea></label>
+  <p class="form-msg" role="status"></p>
+  <p><button class="btn" type="submit">Send</button></p>
+</form>`;
 }
 
 function contactBlock(v) {
@@ -147,13 +182,17 @@ function contactBlock(v) {
       ${s.phone ? `<p><a class="big" href="tel:${esc(tel)}">${esc(s.phone)}</a><br><span class="muted">Leave a message and we'll call you back the same day.</span></p>` : ''}
       ${s.email ? `<p><a class="big" href="mailto:${esc(s.email)}">${esc(s.email)}</a></p>` : ''}
       <p class="muted">Customers can also reply to our last text.</p>
-    </div>
-    <div class="card">
-      <h3>Drop-off location</h3>
+      <div class="card" style="margin-top:24px">
+        <h3>Drop-off location</h3>
       <p><strong>${esc(s.dropoff_address || '')}</strong><br>Open ${esc(s.dropoff_hours || '')}</p>
       <p class="muted">Pickup and delivery runs ${esc(s.service_days || '')}; the drop-off counter is open every day.</p>
       <p class="muted">${esc(s.dropoff_cutoff || '')}</p>
       <p>Drop-off wash &amp; fold: ${mdi('{retail:Wash & Fold}', v)}</p>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Send us a message</h3>
+      ${contactForm('contact')}
     </div>
   </div>
 </section>`;
@@ -245,22 +284,21 @@ function services(v) {
 // ── Commercial ──────────────────────────────────────────────────────────
 function commercial(v) {
   const s = v.site || {};
-  const subject = encodeURIComponent('Commercial laundry quote');
-  const bodyTxt = encodeURIComponent('Business name:\nType of business:\nAddress:\nApproximate laundry volume (lbs or bags per week):\nPickup days/times:\nContact name and phone:\n');
   return {
-    path: '/services-4',
-    title: 'Commercial Laundry Service | Family Laundry',
-    description: 'Commercial laundry pickup and delivery for Bay Area businesses: Airbnb hosts, hotels, gyms, salons, offices and schools. Custom plans for your volume and schedule.',
+    path: '/commercial-laundry',
+    title: 'Commercial Laundry Service for Schools, Daycares & Businesses | Family Laundry',
+    description: 'Commercial laundry pickup and delivery for East Bay schools, daycares and businesses: nap mats, bibs, towels, uniforms and linens. Washed in our own Oakland facility on a schedule that fits yours.',
     body: `<section class="wrap section narrow">
   <h1>Commercial laundry</h1>
-  <p class="lead">Known as the Bay's favorite residential laundry service, Family Laundry is also a trusted partner for dozens of Bay Area businesses.</p>
-  <p>From gyms and hotels to corporate offices and schools, nearly every business generates laundry, and we're here to handle it. We'll build a custom plan that fits your volume, schedule and needs, so you can focus on running your business.</p>
+  <p class="lead">Schools, daycares and businesses across the East Bay trust us with their laundry every week.</p>
+  <p><strong>Schools and daycares:</strong> nap-time bedding, bibs, smocks, towels and cloth napkins, picked up and returned on your schedule. Everything is washed with Free &amp; Clear detergent and ozone, with no fragrance, which matters for little ones with sensitive skin.</p>
+  <p><strong>Businesses:</strong> gyms, salons, clinics, offices and Airbnb hosts. We'll build a plan around your volume and schedule, so you can focus on running your business. Monthly invoicing is available.</p>
   <p class="price">Commercial pricing starts at ${mdi('{commercial:Wash & Fold}', v)}</p>
   <div class="logos">${[1, 2, 3, 4, 5, 6].map(n => `<img src="/assets/img/client-${n}.${[3, 4].includes(n) ? 'jpg' : 'png'}" alt="" loading="lazy">`).join('')}</div>
   <div class="card">
     <h2>Get a quote</h2>
-    <p>Tell us about your laundry needs (the more details the better). We'll be in touch within 24 hours.</p>
-    ${s.email ? `<p><a class="btn" href="mailto:${esc(s.email)}?subject=${subject}&amp;body=${bodyTxt}">Email us for a quote</a></p>` : ''}
+    <p>Tell us about your laundry needs (the more details the better). We'll be in touch within one business day.</p>
+    ${contactForm('commercial')}
     ${s.phone ? `<p class="muted">Or call ${esc(s.phone)}.</p>` : ''}
   </div>
 </section>`,
@@ -272,11 +310,12 @@ function serviceMap(v) {
   return {
     path: '/service-map',
     title: 'Laundry Delivery Area | Family Laundry',
-    description: `Family Laundry picks up and delivers in ${C.list(v.cities || [])}.`,
+    description: `Family Laundry picks up and delivers in ${C.list(CITIES.map(c => c.name))}.`,
     body: `<section class="wrap section">
   <h1>Service area</h1>
   <p class="lead">Family Laundry is headquartered in Oakland and serves most of the East Bay and San Francisco.</p>
-  <p>We currently serve <strong>${esc(C.list(v.cities || []))}</strong>. Not sure about your street? Enter your address in the app and we'll tell you right away.</p>
+  <p>Not sure about your street? Enter your address in the app and we'll tell you right away.</p>
+  <ul class="city-list">${CITIES.map(c => `<li><a href="${cityPath(c)}">${esc(c.name)}</a></li>`).join('')}</ul>
   <p class="muted">We pick up and deliver ${mdi('{site:service_days}', v)}.</p>
   <p>${cta('Check my address')}</p>
   <img class="map" src="/assets/img/delivery-map.png" alt="Map of the Family Laundry delivery area" loading="lazy">
@@ -285,35 +324,81 @@ function serviceMap(v) {
 }
 
 // ── City pages ──────────────────────────────────────────────────────────
-function city(key, v) {
-  const src = wix[key];
-  const DROP = /^(Pickup\/Delivery (days|windows)|Turnaround:|Same-day service available|Ready to Experience)/i;
-  // Wix copy says "7 days a week" in places; we run Monday–Saturday.
-  const fix = t => t.replace(/,?\s*7 days a week/gi, '')
-                    .replace(/Available 7 days a week with expedient turnarounds \(except Sundays\)/i,
-                             'Available Monday through Saturday with quick turnarounds')
-                    .replace(/\s{2,}/g, ' ').replace(/ \./g, '.').trim();
-  const blocks = src.blocks.filter(b => !DROP.test(b.x)).map(b => ({ ...b, x: fix(b.x) }));
-  const names = { '/laundry-delivery-oakland': 'Oakland', '/laundry-delivery-berkeley': 'Berkeley', '/laundry-delivery-alameda': 'Alameda', '/laundry-delivery-sf': 'San Francisco' };
-  const name = names[key];
+// One page per entry in content/cities.js. Old Wix city URLs (oakland, berkeley,
+// alameda, sf) keep their addresses; the stale Wix copy is no longer used.
+const CITIES = require('../../content/cities.js');
+const cityPath = c => `/laundry-delivery-${c.slug}`;
+
+// Live pickup windows for a city, from site_public_values().zones (route_templates).
+// Returns [] until that key exists, so pages simply omit the windows block.
+function cityWindows(c, v) {
+  const zones = Array.isArray(v.zones) ? v.zones : [];
+  const z = zones.find(x => (x.cities || []).includes(c.name)) || zones.find(x => x.name === c.zone);
+  if (!z) return [];
+  const hm = t => { const [h, m] = String(t).split(':').map(Number); return { h, m }; };
+  const part = ({ h, m }) => `${((h + 11) % 12) + 1}${m ? ':' + String(m).padStart(2, '0') : ''}`;
+  const ap = h => (h < 12 ? 'am' : 'pm');
+  return (z.windows || []).map(w => {
+    const a = hm(w.start), b = hm(w.end);
+    const range = ap(a.h) === ap(b.h) ? `${part(a)}–${part(b)} ${ap(b.h)}` : `${part(a)} ${ap(a.h)}–${part(b)} ${ap(b.h)}`;
+    const label = a.h < 12 ? 'Morning' : a.h < 17 ? 'Midday' : 'Evening';
+    return { label, range };
+  });
+}
+
+function city(c, v) {
+  const name = c.name;
+  const hoods = c.hoods.length ? `<p>We pick up all over ${esc(name)}, including ${esc(C.list(c.hoods))}.</p>` : '';
+  const nearby = CITIES.filter(o => o.region === c.region && o.slug !== c.slug).slice(0, 6);
+  const wins = cityWindows(c, v);
+  const winText = wins.map(w => `${w.label.toLowerCase()} (${w.range})`);
+  const days = C.renderPlain('{site:service_days}', v);
+  const faqs = [
+    [`Do you pick up laundry in ${name}?`, wins.length
+      ? `Yes. Family Laundry picks up and delivers in ${name} ${days}, with ${wins.length > 1 ? `${C.list(winText)} windows` : `${/^[aeiou]/.test(winText[0]) ? 'an' : 'a'} ${winText[0]} window`}. Pick yours when you book in the app.`
+      : `Yes. Family Laundry picks up and delivers in ${name} ${days}. Enter your address in the app to see the pickup windows for your street.`],
+    ['When do I get my laundry back?', 'Standard turnaround is next day: we pick it up, wash and fold it in our own Oakland facility, and bring it back within 24 hours.'],
+    ['Do I need to be home?', "No. Leave your bag at the door, with your building's front desk, or wherever you tell us in the app."],
+    ['What detergent do you use?', 'Free & Clear (hypoallergenic, no fragrance) plus ozone. No bleach, no softener, no fragrance, ever.'],
+  ];
   return {
-    path: key,
-    title: src.title,
-    description: src.description.replace(/,? ?7 days a week\.?/i, '.').replace(/\.\./g, '.'),
+    path: cityPath(c),
+    title: `Laundry Pickup & Delivery in ${name} | Family Laundry`,
+    description: `Wash & fold laundry pickup and delivery in ${name}. Washed fragrance-free in our own Oakland facility, never outsourced, and back the next day.`,
     body: `<section class="wrap section narrow">
-  <h1>Laundry delivery in ${esc(name)}</h1>
-  ${renderBlocks(blocks, { skipFirstIfTitle: true })}
+  <h1>Laundry pickup &amp; delivery in ${esc(name)}</h1>
+  <p class="lead">${esc(c.intro)}</p>
+  ${ratingBadge(v)}
+  ${hoods}
+  ${wins.length ? `<div class="card">
+    <h2>Pickup windows in ${esc(name)}</h2>
+    <ul class="ticks">${wins.map(w => `<li><strong>${esc(w.label)}:</strong> ${esc(w.range)}</li>`).join('')}</ul>
+    <p class="muted">${esc(days)}. Choose your window when you book; we text you when the driver is on the way.</p>
+  </div>` : ''}
+  <div class="why why-2">
+    <div><h3>Cleaned in-house</h3><p>Washed by our own team in our Oakland facility. Never outsourced.</p></div>
+    <div><h3>Fragrance-free</h3><p>Free &amp; Clear detergent and ozone. Nothing that lingers on skin.</p></div>
+    <div><h3>Back the next day</h3><p>Folded neatly, socks balled, bundled by family member.</p></div>
+    <div><h3>No need to be home</h3><p>Leave your bag at the door. We text you when we're on the way.</p></div>
+  </div>
   <div class="card">
-    <h2>How it works in ${esc(name)}</h2>
+    <h2>Pricing in ${esc(name)}</h2>
     <ul class="ticks">
-      <li>We run ${mdi('{site:service_days}', v)}. Pick a window in the app: morning, midday or evening, depending on your neighborhood.</li>
-      <li>Leave your bag at your door. No need to be home.</li>
-      <li>Get it back washed and folded, usually the next day. Same-day is available in most areas for +${mdi('{fee:Same-Day Surcharge}', v)}.</li>
-      <li>${mdi('{price:Wash & Fold}', v)} per bag + ${mdi('{fee:Delivery Fee}', v)} delivery, or ${mdi('{plan:price}', v)}/month with a subscription.</li>
+      <li>Per bag: ${mdi('{price:Wash & Fold}', v)} for up to 25 lbs, plus ${mdi('{fee:Delivery Fee}', v)} delivery</li>
+      <li>Subscription: ${mdi('{plan:price}', v)}/month for ${mdi('{plan:lbs}', v)} lbs, delivery included</li>
     </ul>
     <p>${cta()}</p>
   </div>
+  <h2>Schools, daycares and businesses in ${esc(name)}</h2>
+  <p>We also handle laundry for schools, daycares, gyms, clinics and offices. <a href="/commercial-laundry">See commercial laundry</a>.</p>
+  <h2>Questions from ${esc(name)} customers</h2>
+  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}
+  ${nearby.length ? `<p class="muted nearby">We also serve ${nearby.map(o => `<a href="${cityPath(o)}">${esc(o.name)}</a>`).join(', ')}. <a href="/service-map">See the full service area</a>.</p>` : ''}
 </section>`,
+    jsonld: {
+      '@context': 'https://schema.org', '@type': 'FAQPage',
+      mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
+    },
   };
 }
 
@@ -329,6 +414,56 @@ function renderBlocks(blocks, { skipFirstIfTitle } = {}) {
   });
   if (inList) out += '</ul>';
   return out;
+}
+
+// ── Our story (blog) ────────────────────────────────────────────────────
+// Posts copied from Wix (content/posts.json). Same /post/<slug> URLs, no dates shown.
+const POSTS = require('../../content/posts.json');
+const postPath = p => `/post/${p.slug}`;
+
+function postBody(blocks) {
+  let out = '', list = false;
+  for (const b of blocks) {
+    if (b.t === 'li') { if (!list) { out += '<ul>'; list = true; } out += `<li>${esc(b.x)}</li>`; continue; }
+    if (list) { out += '</ul>'; list = false; }
+    if (b.t === 'img') out += `<img src="${esc(b.x)}" alt="" loading="lazy">`;
+    else if (/^h[2-4]$/.test(b.t)) out += `<${b.t}>${esc(b.x)}</${b.t}>`;
+    else if (b.t === 'blockquote') out += `<blockquote>${esc(b.x)}</blockquote>`;
+    else out += `<p>${esc(b.x).replace(/\n/g, '<br>')}</p>`;
+  }
+  return out + (list ? '</ul>' : '');
+}
+
+function blogIndex() {
+  return {
+    path: '/blog',
+    title: 'Our Story | Family Laundry',
+    description: 'How an Oakland laundromat became a family-run laundry delivery service, and the people and partners behind it.',
+    body: `<section class="wrap section narrow">
+  <h1>Our story</h1>
+  <p class="lead">How a run-down East Oakland laundromat became Family Laundry, and the people and partners behind it.</p>
+  <div class="post-list">${POSTS.map(p => `<a href="${esc(postPath(p))}" lang="${p.lang}">
+    ${p.image ? `<img src="${esc(p.image)}" alt="" loading="lazy">` : '<span></span>'}
+    <div><h2 style="font-size:24px;margin:0 0 6px">${esc(p.title)}</h2><p class="muted" style="margin:0">${esc(p.description)}</p></div>
+  </a>`).join('')}</div>
+</section>`,
+  };
+}
+
+function post(p) {
+  return {
+    path: postPath(p),
+    title: `${p.title} | Family Laundry`,
+    description: p.description,
+    body: `<article class="wrap section narrow post-body" lang="${p.lang}">
+  <p class="muted"><a href="/blog">← Our story</a></p>
+  <h1>${esc(p.title)}</h1>
+  ${postBody(p.blocks)}
+  <p>${cta()}</p>
+</article>`,
+    jsonld: { '@context': 'https://schema.org', '@type': 'BlogPosting', headline: p.title, inLanguage: p.lang,
+      author: { '@type': 'Organization', name: 'Family Laundry' }, ...(p.image ? { image: 'https://www.familylaundry.com' + p.image } : {}) },
+  };
 }
 
 // ── Plain text pages from the Wix export ────────────────────────────────
@@ -408,15 +543,14 @@ function notFound() {
 }
 
 const ROUTES = {
+  '/blog': blogIndex,
+  ...Object.fromEntries(POSTS.map(p => [postPath(p), () => post(p)])),
+  ...Object.fromEntries(CITIES.map(c => [cityPath(c), v => city(c, v)])),
   '/': home,
   '/faq': faq,
   '/laundry-delivery-services': services,
-  '/services-4': commercial,
+  '/commercial-laundry': commercial,
   '/service-map': serviceMap,
-  '/laundry-delivery-oakland': v => city('/laundry-delivery-oakland', v),
-  '/laundry-delivery-berkeley': v => city('/laundry-delivery-berkeley', v),
-  '/laundry-delivery-alameda': v => city('/laundry-delivery-alameda', v),
-  '/laundry-delivery-sf': v => city('/laundry-delivery-sf', v),
   '/community': community,
   '/privacy-policy': () => exported('/privacy-policy', 'Privacy Policy | Family Laundry', 'How Family Laundry collects, uses and protects your information.', 'Privacy policy'),
   '/terms-conditions': () => exported('/terms-conditions', 'Terms & Conditions | Family Laundry', 'Terms and conditions for Family Laundry services.', 'Terms & conditions'),
@@ -426,4 +560,4 @@ const ROUTES = {
   '/thankyou': thankYou,
 };
 
-module.exports = { ROUTES, notFound, DEFAULT_DESC };
+module.exports = { ROUTES, notFound, DEFAULT_DESC, CITIES, cityPath };

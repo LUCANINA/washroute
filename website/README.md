@@ -17,10 +17,18 @@ with **Root Directory = `website`**. No build step, no dependencies.
 `{price:Wash & Fold}` `{retail:…}` `{commercial:…}` `{fee:Delivery Fee}`
 `{plan:price|lbs|overage}` `{referral:friend|referrer}` `{site:phone}` `{zones:cities}`
 
+## Pages
+- City pages: one per entry in `content/cities.js` → `/laundry-delivery-<slug>` (old Wix URLs kept). Pickup windows
+  render live from `site_public_values().zones` (session 332), never typed.
+- Blog: `content/posts.json` (copied from Wix Oct 5, 2026), `/blog` = "Our story", `/post/<slug>`, no dates.
+- Forms: contact (every page) + commercial quote (`/commercial-laundry`, old `/services-4` 301s) post to the
+  `website-contact` edge function (verify_jwt false): emails info@ and saves to the matching customer's history.
+- Google rating badge appears when `site_info` has `google_rating` + `google_reviews` (+ optional `google_reviews_url`).
+
 ## Not done yet
-- Admin → App Content editor (edit FAQ + site info) — phase 1
-- Contact / commercial quote forms (mailto for now) — phase 4
-- Blog (5 posts; `/blog` and `/post/*` redirect home for now) — phase 4
+- Google rating badge: add `google_rating`, `google_reviews`, `google_reviews_url` to site_info.
 - Gift Up widget on `/gifts-cards` — needs the Gift Up company id
 - App store links (`site_info.app_ios_url`, `app_android_url` are empty)
-- Domain switch — phase 5, see the migration plan doc. Do NOT touch DNS without the checklist.
+- Vercel project (Root Directory `website`) + domain switch. DNS is run by Wix today (GoDaddy registrar);
+  every record must be recreated in Vercel DNS before the nameserver change. Checklist in the plan doc:
+  https://claude.ai/code/artifact/02c6f193-aad5-4b26-a664-507348cb464f

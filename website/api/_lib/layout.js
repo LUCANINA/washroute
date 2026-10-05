@@ -2,21 +2,26 @@ const { esc } = require('../../assets/fl-content.js');
 
 const ORIGIN = 'https://www.familylaundry.com';
 const APP = 'https://app.familylaundry.com';
+// Written exactly as on the Google Business Profile (name/address/phone must match everywhere).
+const ADDRESS = '2609 Foothill Blvd, Oakland, CA 94601';
+const telHref = phone => 'tel:' + String(phone || '').replace(/[^\d+]/g, '');
 
 const NAV = [
   ['/', 'Home'],
   ['/laundry-delivery-services', 'Services'],
   ['/#pricing', 'Pricing'],
   ['/faq', 'FAQ'],
-  ['/services-4', 'Commercial'],
+  ['/commercial-laundry', 'Commercial'],
 ];
 
-function header(path) {
+function header(path, v) {
+  const phone = (v && v.site && v.site.phone) || '';
   const links = NAV.map(([href, label]) =>
     `<a href="${href}"${href === path ? ' aria-current="page"' : ''}>${label}</a>`).join('');
   return `<header class="site-head">
   <div class="wrap head-row">
     <a class="logo" href="/" aria-label="Family Laundry home"><img src="/assets/img/logo.png" alt="Family Laundry" width="56" height="56"></a>
+    ${phone ? `<a class="head-phone" href="${esc(telHref(phone))}">${esc(phone)}</a>` : ''}
     <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Menu">
     <label for="nav-toggle" class="nav-burger" aria-hidden="true"><span></span></label>
     <nav class="nav">${links}<a class="btn btn-sm" href="${APP}">Schedule pickup</a></nav>
@@ -30,17 +35,18 @@ function footer(v) {
   <div class="wrap foot-grid">
     <div>
       <img src="/assets/img/logo.png" alt="" width="64" height="64" loading="lazy">
-      <p>Wash &amp; fold pickup and delivery.<br>Oakland family business since ${esc(s.founded || '2019')}.</p>
-      <p>${s.phone ? `<a href="tel:${esc(s.phone.replace(/[^\d+]/g, ''))}">${esc(s.phone)}</a><br>` : ''}${s.email ? `<a href="mailto:${esc(s.email)}">${esc(s.email)}</a>` : ''}</p>
+      <p>Wash &amp; fold pickup and delivery.<br>Family-owned since 2018, delivering since ${esc(s.founded || '2019')}.</p>
+      <p>Family Laundry<br>${esc(ADDRESS)}</p>
+      <p>${s.phone ? `<a href="${esc(telHref(s.phone))}">${esc(s.phone)}</a><br>` : ''}${s.email ? `<a href="mailto:${esc(s.email)}">${esc(s.email)}</a>` : ''}</p>
     </div>
     <div>
       <h4>Company</h4>
-      <a href="/#story">About us</a><a href="/service-map">Service area</a><a href="/faq">FAQ</a>
+      <a href="/blog">Our story</a><a href="/service-map">Service area</a><a href="/faq">FAQ</a>
       <a href="/community">Community</a><a href="/gifts-cards">Gift cards</a>
     </div>
     <div>
       <h4>Services</h4>
-      <a href="/laundry-delivery-services">Wash &amp; fold</a><a href="/services-4">Commercial laundry</a>
+      <a href="/laundry-delivery-services">Wash &amp; fold</a><a href="/commercial-laundry">Commercial laundry</a>
       <a href="/laundry-delivery-oakland">Oakland</a><a href="/laundry-delivery-berkeley">Berkeley</a>
       <a href="/laundry-delivery-alameda">Alameda</a><a href="/laundry-delivery-sf">San Francisco</a>
     </div>
@@ -81,13 +87,14 @@ ${page.jsonld ? `<script type="application/ld+json">${JSON.stringify(page.jsonld
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-${header(page.path)}
+${header(page.path, values)}
 <main id="main">
 ${page.body}
 </main>
 ${footer(values)}
+<script src="/assets/forms.js" defer></script>
 </body>
 </html>`;
 }
 
-module.exports = { layout, ORIGIN, APP };
+module.exports = { layout, ORIGIN, APP, ADDRESS };
