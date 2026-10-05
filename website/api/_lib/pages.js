@@ -231,53 +231,58 @@ function topicLinks(group, heading, extra = []) {
 }
 
 function services(v) {
+  // One type family, two weights (400 text, 700 names and prices), one tile style for every picture (David, Oct 5:
+  // the old Wix layout mixed too many sizes and weights).
+  const addon = (img, alt, name, desc, price, unit) => `<div class="sv-addon">
+      <div class="sv-tile"><img src="/assets/img/${img}" alt="${esc(alt)}" loading="lazy"></div>
+      <div><h3>${name}</h3><p>${desc}</p><p class="sv-price">${price} <span>${unit}</span></p></div>
+    </div>`;
+  const extra = (name, desc, price, unit) => `<div class="sv-extra"><h3>${name}</h3><p>${desc}</p><p class="sv-price">${price} <span>${unit}</span></p></div>`;
   return {
     path: '/laundry-delivery-services',
     title: 'Family Laundry | Laundry Services for Pickup & Delivery',
     description: wix['/laundry-delivery-services'].description,
-    body: `<section class="wrap section">
-  <h1>Services</h1>
-  <p class="lead">Thank you for trusting us with your laundry.</p>
-  <div class="svc">
-    <img src="/assets/img/svc-washfold.png" alt="A bag full of clean laundry" loading="lazy">
+    body: `<section class="wrap section sv">
+  <p class="eyebrow">Services &amp; prices</p>
+  <h1>Wash &amp; fold, done for you</h1>
+  <p class="sv-lead">Picked up at your door, washed fragrance-free in our own Oakland facility, and back folded the next day.</p>
+
+  <div class="sv-main">
+    <div class="sv-tile sv-tile-lg"><img src="/assets/img/svc-washfold-cut.png" alt="A Family Laundry bag of clean, folded laundry"></div>
     <div>
       <h2>Wash &amp; Fold</h2>
-      <p>Household laundry: it's what put us on the map, our bread and butter, our raison d'être. "Wash &amp; Fold" doesn't quite do the service justice, but you get the point. We just want to do your laundry.</p>
-      <p class="price">${mdi('{price:Wash & Fold}', v)} <small>per bag (up to 25 lbs) + ${mdi('{fee:Delivery Fee}', v)} delivery</small></p>
-      <p class="fine">Bags over 25 lbs are an extra ${mdi('{site:overweight_rate}', v)}.</p>
-      <p>Or subscribe: ${mdi('{plan:lbs}', v)} lbs a month for ${mdi('{plan:price}', v)}, delivery included. <a href="/#pricing">Compare plans</a></p>
+      <p>Your everyday household laundry: clothes, towels and sheets. Washed warm with Free &amp; Clear detergent and ozone, dried on medium, then folded and bundled by family member.</p>
+      <div class="sv-plans">
+        <div class="sv-plan">
+          <h3>Per bag</h3>
+          <p class="sv-price">${mdi('{price:Wash & Fold}', v)} <span>per bag, up to 25 lbs</span></p>
+          <p>+ ${mdi('{fee:Delivery Fee}', v)} delivery. Over 25 lbs: ${mdi('{site:overweight_rate}', v)}.</p>
+        </div>
+        <div class="sv-plan">
+          <h3>Subscription</h3>
+          <p class="sv-price">${mdi('{plan:price}', v)} <span>per month</span></p>
+          <p>${mdi('{plan:lbs}', v)} lbs, delivery included. Extra: ${mdi('{plan:overage}', v)}/lb.</p>
+        </div>
+      </div>
+      <p><a href="/laundry-service-cost">Which is cheaper for me?</a></p>
     </div>
   </div>
-  <div class="svc">
-    <img src="/assets/img/svc-delicates.png" alt="Mesh delicates bag" loading="lazy">
-    <div>
-      <h2>Air Dry (for delicates)</h2>
-      <p>Undergarments, lingerie, workout gear… some items need a little extra care. Put them in a separate bag and choose Air Dry when you book.</p>
-      <p class="price">+${mdi('{price:Air Dry}', v)} <small>per delicates bag</small></p>
-    </div>
+
+  <h2 class="sv-h">Add-ons</h2>
+  <div class="sv-addons">
+    ${addon('svc-delicates-cut.png', 'A mesh delicates bag', 'Air Dry', 'For delicates, lingerie and workout gear. Put them in a separate bag and choose Air Dry when you book.', '+' + mdi('{price:Air Dry}', v), 'per delicates bag')}
+    ${addon('svc-shirt-cut.png', 'A hand-steamed shirt on a hanger', 'Shirt service', 'Shirts and blouses laundered, hand-steamed and delivered on hangers.', '+' + mdi('{price:Shirt Service}', v), 'per shirt')}
   </div>
-  <div class="svc">
-    <img src="/assets/img/svc-shirt.png" alt="A hand-steamed blue shirt" loading="lazy">
-    <div>
-      <h2>Shirt service (blouses too!)</h2>
-      <p>For that sharp, professional touch: your shirts are laundered, hand-steamed and delivered on hangers.</p>
-      <p class="price">+${mdi('{price:Shirt Service}', v)} <small>per shirt</small></p>
-    </div>
+  <div class="sv-extras">
+    ${extra('Vinegar rinse', 'Helps soften fabric and lift detergent residue.', '+' + mdi('{price:Vinegar}', v), 'per bag')}
+    ${extra('Oxi', 'Our bleach alternative, for brighter whites.', '+' + mdi('{price:Oxi}', v), 'per bag')}
+    ${extra('Double Wash', 'A second full wash, for very dirty loads or pet beds.', '+' + mdi('{price:Double Wash}', v), 'per bag')}
+    ${extra('Same-day', 'Back the same day, in most areas.', '+' + mdi('{fee:Same-Day Surcharge}', v), 'per order')}
   </div>
-  <div class="svc svc-plain">
-    <div>
-      <h2>Extras</h2>
-      <ul class="ticks">
-        <li>Vinegar rinse: ${mdi('{price:Vinegar}', v)} per bag</li>
-        <li>Oxi (bleach alternative): ${mdi('{price:Oxi}', v)} per bag</li>
-        <li>Double wash: ${mdi('{price:Double Wash}', v)} per bag</li>
-        <li>Same-day delivery: +${mdi('{fee:Same-Day Surcharge}', v)}</li>
-      </ul>
-    </div>
-  </div>
+
   ${topicLinks('Residential', 'Guides by situation')}
   ${topicLinks('Getting started', 'New to Family Laundry?', [['/laundry-service-cost', 'What laundry service costs']])}
-  <p class="center">${cta()}</p>
+  <p class="center sv-cta">${cta()}</p>
 </section>`,
   };
 }
@@ -285,20 +290,31 @@ function services(v) {
 // ── Commercial ──────────────────────────────────────────────────────────
 function commercial(v) {
   const s = v.site || {};
+  const logos = [1, 2, 3, 4, 5, 6].map(n => `<img src="/assets/img/client-${n}-trim.png" alt="" loading="lazy">`).join('');
   return {
     path: '/commercial-laundry',
     title: 'Commercial Laundry Service for Schools, Daycares & Businesses | Family Laundry',
-    description: 'Commercial laundry pickup and delivery for East Bay schools, daycares and businesses: nap mats, bibs, towels, uniforms and linens. Washed in our own Oakland facility on a schedule that fits yours.',
-    body: `<section class="wrap section narrow">
+    description: 'Commercial laundry pickup and delivery for schools, daycares and businesses in San Francisco and the East Bay: nap mats, bibs, towels, uniforms and linens. Washed in our own Oakland facility on a schedule that fits yours.',
+    body: `<section class="wrap section narrow sv">
+  <p class="eyebrow">Commercial</p>
   <h1>Commercial laundry</h1>
-  <p class="lead">Schools, daycares and businesses across the East Bay trust us with their laundry every week.</p>
-  <p><strong>Schools and daycares:</strong> nap-time bedding, bibs, smocks, towels and cloth napkins, picked up and returned on your schedule. Everything is washed with Free &amp; Clear detergent and ozone, with no fragrance, which matters for little ones with sensitive skin.</p>
-  <p><strong>Businesses:</strong> gyms, salons, clinics, offices and Airbnb hosts. We'll build a plan around your volume and schedule, so you can focus on running your business. Monthly invoicing is available.</p>
-  <p class="price">Commercial pricing starts at ${mdi('{commercial:Wash & Fold}', v)}</p>
-  <div class="logos">${[1, 2, 3, 4, 5, 6].map(n => `<img src="/assets/img/client-${n}.${[3, 4].includes(n) ? 'jpg' : 'png'}" alt="" loading="lazy">`).join('')}</div>
+  <p class="sv-lead">Schools, daycares and businesses in San Francisco and the East Bay trust us with their laundry every week.</p>
+  <div class="sv-plans">
+    <div class="sv-plan">
+      <h3>Schools &amp; daycares</h3>
+      <p>Nap-time bedding, bibs, smocks, towels and cloth napkins, picked up and returned on your schedule. Washed fragrance-free with Free &amp; Clear and ozone, for sensitive skin. <a href="/daycare-laundry-service">More</a></p>
+    </div>
+    <div class="sv-plan">
+      <h3>Businesses</h3>
+      <p>Gyms, salons, clinics, offices and Airbnb hosts. We build a plan around your volume and schedule, with monthly invoicing. <a href="/airbnb-laundry-service">Airbnb</a> · <a href="/gym-towel-laundry-service">Gyms</a> · <a href="/salon-spa-laundry-service">Salons</a></p>
+    </div>
+  </div>
+  <p class="sv-price">From ${mdi('{commercial:Wash & Fold}', v)} <span>commercial wash &amp; fold, monthly invoicing available</span></p>
+  <p class="logos-label">Trusted by</p>
+  <div class="logos">${logos}</div>
   <div class="card">
     <h2>Get a quote</h2>
-    <p>Tell us about your laundry needs (the more details the better). We'll be in touch within one business day.</p>
+    <p>Tell us what you need washed and roughly how much per week. We reply within one business day.</p>
     ${contactForm('commercial')}
     ${s.phone ? `<p class="muted">Or call ${esc(s.phone)}.</p>` : ''}
   </div>

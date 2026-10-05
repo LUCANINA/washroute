@@ -169,3 +169,6 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   - Design critique fixes: dark text on yellow buttons (white failed contrast at 1.5:1), "Book" button in the phone
     header, blue "Book one bag" / "Subscribe" buttons under the prices, same-day shown as +surcharge everywhere,
     Google rating as the headline with Yelp + own ratings smaller, contact Send button in the standard style.
+  - Services + Commercial pages redone (David: too many fonts). Rule for these pages (`.sv`): Nunito Sans only,
+    weights 400 text / 700 names + prices, one cream tile for every picture (cut-out images `*-cut.png`), logos
+    trimmed (`client-N-trim.png`) and shown on one row. Commercial lead now says San Francisco and the East Bay.
