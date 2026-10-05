@@ -288,3 +288,5 @@ strong { font-weight: 700; }
 .city-quote { margin: 36px 0; padding: 28px 32px; background: var(--cream); border-radius: var(--radius); }
 .city-quote blockquote { margin: 0 0 10px; font-size: 20px; line-height: 1.6; }
 .city-quote figcaption { font-weight: 700; font-size: 15px; }
+
+.rating-own { color: var(--ink-2); }

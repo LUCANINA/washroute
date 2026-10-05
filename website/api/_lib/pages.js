@@ -2,7 +2,7 @@
 // Marketing copy comes from the former Wix site; every price is a live token.
 const C = require('../../assets/fl-content.js');
 const wix = require('../../content/wix-export.json');
-const { APP } = require('./layout.js');
+const { APP, ORIGIN } = require('./layout.js');
 const { esc } = C;
 
 // Render a short content string (tokens + light markdown) to HTML.
@@ -126,7 +126,9 @@ ${contactBlock(v)}`;
       image: 'https://www.familylaundry.com/assets/img/logo.png',
       address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
       areaServed: (v.cities || []).map(c => ({ '@type': 'City', name: c })),
-      ...(v.site?.google_rating && v.site?.google_reviews ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: v.site.google_rating, reviewCount: v.site.google_reviews } } : {}),
+      // Rating markup = our OWN after-delivery ratings (order_feedback), never Google's numbers: Google's rules
+      // forbid marking up ratings copied from another site. The same figure is shown visibly (ratingBadge).
+      ...ownRatingLd(v),
     },
   };
 }
@@ -134,9 +136,23 @@ ${contactBlock(v)}`;
 // Google rating badge: shown only when site_info.google_rating + google_reviews are set (Admin → App Content → Business info).
 function ratingBadge(v) {
   const s = v.site || {};
-  if (!s.google_rating || !s.google_reviews) return '';
-  const inner = `<strong>${esc(s.google_rating)} ★</strong> on Google · ${esc(s.google_reviews)} reviews`;
-  return `<p class="rating">${s.google_reviews_url ? `<a href="${esc(s.google_reviews_url)}" rel="noopener">${inner}</a>` : inner}</p>`;
+  const own = ownRating(v);
+  const google = s.google_rating && s.google_reviews
+    ? `<strong>${esc(s.google_rating)} ★</strong> on Google · ${esc(s.google_reviews)} reviews` : '';
+  const g = google && s.google_reviews_url ? `<a href="${esc(s.google_reviews_url)}" rel="noopener">${google}</a>` : google;
+  const o = own ? `<span class="rating-own"><strong>${esc(own.avg.toFixed(1))} ★</strong> from ${esc(own.count.toLocaleString('en-US'))} customer ratings after delivery</span>` : '';
+  return g || o ? `<p class="rating">${[g, o].filter(Boolean).join('<br>')}</p>` : '';
+}
+
+// Our own after-delivery ratings (site_public_values().ratings, from order_feedback). Shown once there are 20+.
+function ownRating(v) {
+  const r = v.ratings || {};
+  const avg = Number(r.avg), count = Number(r.count);
+  return count >= 20 && avg > 0 ? { avg, count } : null;
+}
+function ownRatingLd(v) {
+  const r = ownRating(v);
+  return r ? { aggregateRating: { '@type': 'AggregateRating', ratingValue: r.avg, ratingCount: r.count, bestRating: 5, worstRating: 1 } } : {};
 }
 
 const FORM_URL = 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/website-contact';
@@ -380,8 +396,16 @@ function city(c, v) {
   ${nearby.length ? `<p class="muted nearby">We also serve ${nearby.map(o => `<a href="${cityPath(o)}">${esc(o.name)}</a>`).join(', ')}. <a href="/service-map">See the full service area</a>.</p>` : ''}
 </section>`,
     jsonld: {
-      '@context': 'https://schema.org', '@type': 'FAQPage',
-      mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
+      '@context': 'https://schema.org',
+      '@graph': [
+        { '@type': 'FAQPage',
+          mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
+        { '@type': 'LaundryOrDryCleaning', name: 'Family Laundry', url: ORIGIN + cityPath(c), telephone: v.site?.phone,
+          image: ORIGIN + '/assets/img/logo.png',
+          address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
+          areaServed: { '@type': 'City', name },
+          ...ownRatingLd(v) },
+      ],
     },
   };
 }
