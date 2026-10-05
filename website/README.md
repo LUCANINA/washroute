@@ -18,6 +18,9 @@ with **Root Directory = `website`**. No build step, no dependencies.
 `{plan:price|lbs|overage}` `{referral:friend|referrer}` `{site:phone}` `{zones:cities}`
 
 ## Pages
+- Gift cards: Gift Up checkout on `/gifts-cards`, company id in `site_info.giftup_site_id`.
+- Ratings: Google badge from `site_info.google_*`; our own after-delivery ratings (`order_feedback`, via
+  `site_public_values().ratings`) are shown and marked up for Google (never Google's numbers in markup).
 - City pages: one per entry in `content/cities.js` → `/laundry-delivery-<slug>` (old Wix URLs kept). Pickup windows
   render live from `site_public_values().zones` (session 332), never typed.
 - Blog: `content/posts.json` (copied from Wix Oct 5, 2026), `/blog` = "Our story", `/post/<slug>`, no dates.
@@ -27,7 +30,6 @@ with **Root Directory = `website`**. No build step, no dependencies.
 
 ## Not done yet
 - Google rating badge: add `google_rating`, `google_reviews`, `google_reviews_url` to site_info.
-- Gift Up widget on `/gifts-cards` — needs the Gift Up company id
 - App store links (`site_info.app_ios_url`, `app_android_url` are empty)
 - Vercel project (Root Directory `website`) + domain switch. DNS is run by Wix today (GoDaddy registrar);
   every record must be recreated in Vercel DNS before the nameserver change. Checklist in the plan doc:

@@ -511,6 +511,16 @@ function download(v) {
   };
 }
 
+// Gift Up checkout (company id = site_info.giftup_site_id, Admin → App Content). The script fills the
+// .gift-up-target div; the link underneath is the no-JS fallback to Gift Up's hosted checkout.
+function giftUp(s) {
+  const id = String(s.giftup_site_id || '').trim();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return '';
+  return `<div class="gift-up-target" data-site-id="${esc(id)}" data-platform="Other"></div>
+  <script>(function (g, i, f, t, u, p, s) { g[u] = g[u] || function () { (g[u].q = g[u].q || []).push(arguments); }; p = i.createElement(f); p.async = 1; p.src = t; s = i.getElementsByTagName(f)[0]; s.parentNode.insertBefore(p, s); })(window, document, 'script', 'https://cdn.giftup.app/dist/gift-up.js', 'giftup');</script>
+  <noscript><p><a class="btn" href="https://giftup.app/place-order/${esc(id)}?platform=hosted">Buy a gift card</a></p></noscript>`;
+}
+
 function giftCards(v) {
   const s = v.site || {};
   return {
@@ -519,8 +529,8 @@ function giftCards(v) {
   <h1>Gift cards</h1>
   <p class="lead">Give the gift of clean, folded laundry.</p>
   <p>The recipient creates a Family Laundry account and enters the gift card code at checkout.</p>
-  <!-- TODO(launch): embed the Gift Up checkout widget here (company id from the Gift Up dashboard). -->
-  ${s.email ? `<p>To buy a gift card now, email <a href="mailto:${esc(s.email)}?subject=Gift%20card">${esc(s.email)}</a>.</p>` : ''}
+  ${giftUp(s)}
+  ${s.email ? `<p class="muted">Questions about a gift card? Email <a href="mailto:${esc(s.email)}?subject=Gift%20card">${esc(s.email)}</a>.</p>` : ''}
 </section>`,
   };
 }
