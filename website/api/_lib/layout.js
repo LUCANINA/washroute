@@ -68,7 +68,7 @@ function footer(v) {
     </div>
     <div>
       <h4>Company</h4>
-      <a href="/blog">Our story</a><a href="/community">Community</a>
+      <a href="/about-us">About us</a><a href="/blog">Our story</a><a href="/community">Community</a>
       <a href="/privacy-policy">Privacy policy</a><a href="/terms-conditions">Terms &amp; conditions</a>
     </div>
   </div>

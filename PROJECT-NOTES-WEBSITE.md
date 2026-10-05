@@ -88,6 +88,8 @@ WashRoute apps don't change when only `website/` changes (the build-version hook
   daycares & schools, Airbnb hosts, gyms & studios, salons/spas/massage; Getting started — first order, leaving
   laundry out. Each has FAQ + Service markup and links to related pages. Plus **`/laundry-service-cost`**, a
   per-bag vs subscription table computed from the live price list.
+- **About us** (`/about-us`, was a redirect to the homepage story): team, facility and electric-van photos
+  (`team.jpg`, `facility.jpg`, `vans.jpg`), founders, AboutPage markup. Linked from the footer and homepage story.
 - **Footer = link hub**: Get started / Residential / Commercial / Areas (the 8 open cities) / Company, built
   from `topics.js` and `cities.js`, so every page links to every important page.
 - **Contact form** (every page) emails info@ with Reply-To = visitor and saves the message to the customer's
@@ -132,7 +134,6 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
 - [ ] Open the 15 hidden city pages a few a week as they get local content
 - [ ] SF and Oakland neighborhood pages (2ULaundry has ~90; ours need real local content first)
 - [ ] Decide: "Neighborhood Laundry Day" discount for booking on the route's usual day (2ULaundry's best idea)
-- [ ] Team & facility page (photos of the Oakland plant and the team) — needs David's photos
 - [ ] App store links (`site_info.app_ios_url`, `app_android_url` empty)
 - [ ] Admin → App Content editor for FAQ + site info (phase 1 of the original plan)
 
@@ -155,3 +156,4 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   - 2ULaundry (Houston) studied: they win with many narrow pages (one per service, business type, question and
     neighborhood) tied together by a big footer. Added 12 topic pages, the cost page and the footer hub;
     sitemap now 38 pages (was 25).
+  - About us page added with David's team, facility and van photos.

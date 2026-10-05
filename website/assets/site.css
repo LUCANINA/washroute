@@ -309,3 +309,9 @@ strong { font-weight: 700; }
 .price-table th, .price-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e5e5e5; }
 .price-table th { background: var(--cream); font-weight: 700; }
 .price-table td.best { font-weight: 800; color: var(--blue); }
+
+/* About us */
+.about-photo { margin: 28px 0; }
+.about-photo img { width: 100%; height: auto; border-radius: 12px; display: block; }
+.about-photo figcaption { font-size: 14px; color: var(--ink-2); margin-top: 8px; }
+.about h2 { margin-top: 1.2em; font-size: 26px; }

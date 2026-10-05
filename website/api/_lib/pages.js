@@ -112,6 +112,7 @@ function home(v) {
   <p>We run Family Laundry the way we think all companies should be run: we put employees first, we actively engage with the communities we operate in, and we do our part to reduce our impact on the environment.</p>
   <p>Thank you for trusting us with your laundry.</p>
   <p>Laura Guevara &amp; David Macquart-Moulin</p>
+  <p><a href="/about-us">Meet the team →</a></p>
 </section>
 
 ${contactBlock(v)}`;
@@ -539,6 +540,54 @@ function renderBlocks(blocks, { skipFirstIfTitle } = {}) {
   return out;
 }
 
+// ── About us: the team, the facility, the vans (David's photos, Oct 5 2026) ──
+// Google rewards proof of a real local business; visitors want to see who handles their laundry.
+function about(v) {
+  const img = f => `${ORIGIN}/assets/img/${f}`;
+  return {
+    path: '/about-us',
+    title: 'About Us: an Oakland Family Business | Family Laundry',
+    description: 'Meet Family Laundry: an Oakland family business since 2018 with more than 30 employees. We wash every order in our own facility and deliver it in our own electric vans.',
+    body: `<section class="wrap section narrow about">
+  <p class="eyebrow">About us</p>
+  <h1>The people who do your laundry</h1>
+  <p class="lead">Family Laundry is an Oakland family business. We started in early 2018, the day we closed on our first laundromat, and began pickup and delivery in 2019.</p>
+  ${ratingBadge(v)}
+  <figure class="about-photo"><img src="/assets/img/team.jpg" alt="The Family Laundry team in aprons at the Oakland facility" width="1078" height="588">
+    <figcaption>Part of the Family Laundry team in Oakland.</figcaption></figure>
+  <h2>Our own team, never outsourced</h2>
+  <p>We have more than 30 employees, and every order is washed, dried and folded by them. Your laundry never goes to a third party. When you call or text, you reach the same team.</p>
+  <figure class="about-photo"><img src="/assets/img/facility.jpg" alt="A Family Laundry team member in front of the commercial washers" width="1140" height="766" loading="lazy">
+    <figcaption>Inside our Oakland facility.</figcaption></figure>
+  <h2>Our own facility in Oakland</h2>
+  <p>Every load is washed in our commercial machines with Free &amp; Clear hypoallergenic detergent and ozone: no fragrance, no bleach and no softener. Your order is folded, socks balled, and bagged in Family Laundry bags that are yours to keep.</p>
+  <figure class="about-photo"><img src="/assets/img/vans.jpg" alt="Family Laundry electric Ford E-Transit vans parked in a row" width="1144" height="907" loading="lazy">
+    <figcaption>Our electric delivery vans.</figcaption></figure>
+  <h2>Our own electric vans</h2>
+  <p>Our drivers pick up and deliver ${mdi('{site:service_days}', v)} in our own electric Ford E-Transit vans, across Oakland, Berkeley, San Francisco and much of the East Bay. <a href="/service-map">See the full service area</a>.</p>
+  <h2>How we run the business</h2>
+  <p>We put employees first, we take part in the communities we serve (<a href="/community">see our community program</a>), and we do our part to reduce our impact on the environment.</p>
+  <p>Thank you for trusting us with your laundry.<br><strong>Laura Guevara &amp; David Macquart-Moulin</strong>, founders</p>
+  <div class="card">
+    <h2>Try us</h2>
+    <p>Per bag: ${mdi('{price:Wash & Fold}', v)} plus ${mdi('{fee:Delivery Fee}', v)} delivery, or ${mdi('{plan:price}', v)}/month with a subscription.</p>
+    <p>${cta()}</p>
+  </div>
+</section>`,
+    jsonld: {
+      '@context': 'https://schema.org', '@type': 'AboutPage', url: ORIGIN + '/about-us',
+      mainEntity: {
+        '@type': 'LaundryOrDryCleaning', name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
+        foundingDate: '2018', founder: [{ '@type': 'Person', name: 'Laura Guevara' }, { '@type': 'Person', name: 'David Macquart-Moulin' }],
+        numberOfEmployees: { '@type': 'QuantitativeValue', minValue: 30 },
+        image: [img('team.jpg'), img('facility.jpg'), img('vans.jpg')],
+        address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
+        ...ownRatingLd(v),
+      },
+    },
+  };
+}
+
 // ── Our story (blog) ────────────────────────────────────────────────────
 // Posts copied from Wix (content/posts.json). Same /post/<slug> URLs, no dates shown.
 const POSTS = require('../../content/posts.json');
@@ -676,6 +725,7 @@ function notFound() {
 }
 
 const ROUTES = {
+  '/about-us': about,
   '/blog': blogIndex,
   ...Object.fromEntries(POSTS.map(p => [postPath(p), () => post(p)])),
   ...Object.fromEntries(CITIES.map(c => [cityPath(c), v => city(c, v)])),

@@ -7,7 +7,6 @@ const { ROUTES, notFound } = require('./_lib/pages.js');
 const REDIRECTS = {
   '/home': '/',
   '/pricing': '/#pricing',
-  '/about-us': '/#story',
   '/services-4': '/commercial-laundry',
 };
 
