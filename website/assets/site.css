@@ -149,9 +149,11 @@ strong { font-weight: 700; }
 .site-foot h4 { font-family: var(--body); font-weight: 300; text-transform: uppercase; letter-spacing: .1em; font-size: 13px; color: #fff; padding-bottom: 14px; position: relative; }
 .site-foot h4::after { content: ''; position: absolute; left: 0; bottom: 0; width: 28px; height: 1px; background: #fff; }
 .site-foot img { border-radius: 50%; margin-bottom: 12px; }
-.foot-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 32px; }
+.foot-grid { display: grid; grid-template-columns: 1.5fr repeat(5, 1fr); gap: 28px; }
+.foot-grid a { font-size: 14px; }
 .foot-legal { border-top: 1px solid #333; margin-top: 36px; padding-top: 18px; font-size: 13px; color: #999; }
-@media (max-width: 820px) { .foot-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 1000px) { .foot-grid { grid-template-columns: 1fr 1fr 1fr; } .foot-brand { grid-column: 1 / -1; } }
+@media (max-width: 560px) { .foot-grid { grid-template-columns: 1fr 1fr; } }
 
 /* Why-us strip (home + city pages) */
 .why { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
@@ -290,3 +292,20 @@ strong { font-weight: 700; }
 .city-quote figcaption { font-weight: 700; font-size: 15px; }
 
 .rating-own { color: var(--ink-2); }
+
+/* Topic pages + cost page */
+.eyebrow { text-transform: uppercase; letter-spacing: .1em; font-size: 13px; font-weight: 700; color: var(--blue); margin-bottom: 6px; }
+.topic h2 { margin-top: 1.5em; font-size: 26px; }
+.topic ul { padding-left: 1.2em; }
+.topic ul li { margin: 4px 0; }
+.topic .card { margin: 36px 0; }
+.related { margin-top: 40px; border-top: 3px solid var(--yellow); padding-top: 16px; }
+.related h2 { margin-top: 0; font-size: 20px; }
+.related ul { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.related a { display: inline-block; padding: 8px 14px; border: 1px solid var(--blue); border-radius: 999px; text-decoration: none; font-size: 15px; }
+.related a:hover { background: var(--blue); color: #fff; }
+.table-wrap { overflow-x: auto; margin: 20px 0; }
+.price-table { width: 100%; border-collapse: collapse; font-size: 16px; min-width: 520px; }
+.price-table th, .price-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e5e5e5; }
+.price-table th { background: var(--cream); font-weight: 700; }
+.price-table td.best { font-weight: 800; color: var(--blue); }

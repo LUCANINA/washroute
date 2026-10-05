@@ -217,6 +217,12 @@ ${contactBlock(v)}`,
 }
 
 // ── Services ────────────────────────────────────────────────────────────
+// Pill links to the topic pages of one group (content/topics.js), for the Services and Commercial pages.
+function topicLinks(group, heading, extra = []) {
+  const links = [...require('../../content/topics.js').filter(t => t.group === group).map(t => [t.path, t.nav]), ...extra];
+  return `<div class="related"><h2>${esc(heading)}</h2><ul>${links.map(([h, l]) => `<li><a href="${esc(h)}">${esc(l)}</a></li>`).join('')}</ul></div>`;
+}
+
 function services(v) {
   return {
     path: '/laundry-delivery-services',
@@ -262,6 +268,8 @@ function services(v) {
       </ul>
     </div>
   </div>
+  ${topicLinks('Residential', 'Guides by situation')}
+  ${topicLinks('Getting started', 'New to Family Laundry?', [['/laundry-service-cost', 'What laundry service costs']])}
   <p class="center">${cta()}</p>
 </section>`,
   };
@@ -287,6 +295,7 @@ function commercial(v) {
     ${contactForm('commercial')}
     ${s.phone ? `<p class="muted">Or call ${esc(s.phone)}.</p>` : ''}
   </div>
+  ${topicLinks('Commercial', 'Laundry by business type')}
 </section>`,
   };
 }
@@ -407,6 +416,112 @@ function city(c, v) {
           ...ownRatingLd(v) },
       ],
     },
+  };
+}
+
+// ── Topic pages (services, business types, guides) ─────────────────────────
+const TOPICS = require('../../content/topics.js');
+const SERVICE_AREA = v => (v.cities || []).map(c => ({ '@type': 'City', name: c }));
+
+function relatedLinks(paths) {
+  const label = p => (TOPICS.find(t => t.path === p) || {}).nav
+    || ({ '/laundry-service-cost': 'How much laundry service costs', '/commercial-laundry': 'Commercial laundry',
+          '/laundry-delivery-services': 'Wash & fold service', '/faq': 'FAQ', '/laundry-delivery-oakland': 'Laundry delivery in Oakland' })[p] || p;
+  return paths && paths.length ? `<div class="related"><h2>Related</h2><ul>${paths.map(p => `<li><a href="${esc(p)}">${esc(label(p))}</a></li>`).join('')}</ul></div>` : '';
+}
+
+function topic(t, v) {
+  const faqs = (t.faqs || []).map(([q, a]) => [q, C.renderPlain(a, v)]);
+  const ctaBlock = t.cta === 'quote'
+    ? `<div class="card" id="quote">
+    <h2>Get a quote</h2>
+    <p>Tell us what you need washed and roughly how much per week. We reply within one business day.</p>
+    ${contactForm('commercial')}
+    ${v.site?.phone ? `<p class="muted">Or call ${esc(v.site.phone)}.</p>` : ''}
+  </div>`
+    : `<div class="card">
+    <h2>Ready when you are</h2>
+    <p>Pickup and delivery ${mdi('{site:service_days}', v)}. Per bag: ${mdi('{price:Wash & Fold}', v)} plus ${mdi('{fee:Delivery Fee}', v)} delivery, or ${mdi('{plan:price}', v)}/month with a subscription.</p>
+    <p>${cta()}</p>
+  </div>`;
+  const graph = [];
+  if (faqs.length) graph.push({ '@type': 'FAQPage', mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) });
+  if (t.service) graph.push({ '@type': 'Service', name: t.h1, serviceType: t.service, url: ORIGIN + t.path, areaServed: SERVICE_AREA(v),
+    provider: { '@type': 'LaundryOrDryCleaning', name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
+      address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
+      ...ownRatingLd(v) } });
+  return {
+    path: t.path, title: t.title, description: t.description,
+    body: `<section class="wrap section narrow topic">
+  <p class="eyebrow">${esc(t.group)}</p>
+  <h1>${esc(t.h1)}</h1>
+  <p class="lead">${esc(t.lead)}</p>
+  ${ratingBadge(v)}
+  ${t.sections.map(s => `<h2>${esc(s.h)}</h2>\n  ${md(s.md, v)}`).join('\n  ')}
+  ${ctaBlock}
+  ${faqs.length ? `<h2>Questions</h2>
+  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}` : ''}
+  ${relatedLinks(t.related)}
+</section>`,
+    jsonld: graph.length ? { '@context': 'https://schema.org', '@graph': graph } : undefined,
+  };
+}
+
+// "How much does laundry service cost?" — every number computed from the live price list.
+function cost(v) {
+  const n = x => Number(x || 0);
+  const bag = n(v.price?.['Wash & Fold']?.amount), del = n(v.fee?.['Delivery Fee']), same = n(v.fee?.['Same-Day Surcharge']);
+  const plan = n(v.plan?.price), lbs = n(v.plan?.lbs), over = n(v.plan?.overage), retail = n(v.retail?.['Wash & Fold']?.amount);
+  const m = C.money;
+  const perOrder = bag + del;
+  const rows = [1, 2, 4, 6].map(bags => {
+    const pounds = bags * 25, perBag = bags * perOrder;
+    const sub = plan + Math.max(0, pounds - lbs) * over;
+    const best = sub < perBag ? 'Subscription' : 'Per bag';
+    return `<tr><td>${bags} bag${bags > 1 ? 's' : ''} (about ${pounds} lbs)</td><td>${esc(m(perBag))}</td><td>${esc(m(sub))}</td><td class="best">${best}</td></tr>`;
+  }).join('');
+  const faqs = [
+    ['How much is laundry pickup and delivery per pound?', `A ${m(bag)} bag holds up to 25 lbs, about ${m(bag / 25)} per lb before delivery. Drop-off wash & fold at our Oakland counter is ${m(retail)}/lb.`],
+    ['Is a laundry subscription worth it?', `It pays off from about four bags a month. One bag a month costs ${m(perOrder)} per bag; four separate bags cost ${m(4 * perOrder)}, against ${m(plan)} for the subscription.`],
+    ['Is there a minimum?', `One bag: ${m(bag)} plus ${m(del)} delivery. Subscribers have no minimum per order.`],
+  ];
+  return {
+    path: '/laundry-service-cost',
+    title: 'How Much Does Laundry Service Cost in the Bay Area? | Family Laundry',
+    description: `Wash & fold pickup and delivery costs ${m(bag)} per 25-lb bag plus ${m(del)} delivery, or ${m(plan)}/month for ${lbs} lbs. See what a month of laundry costs and which option is cheaper.`,
+    body: `<section class="wrap section narrow topic">
+  <p class="eyebrow">Getting started</p>
+  <h1>How much does laundry service cost?</h1>
+  <p class="lead">Pickup and delivery wash &amp; fold in the Bay Area with Family Laundry costs ${esc(m(bag))} per bag (up to 25 lbs) plus ${esc(m(del))} delivery, or ${esc(m(plan))} a month for ${esc(String(lbs))} lbs with delivery included.</p>
+  ${ratingBadge(v)}
+  <h2>Our prices</h2>
+  <ul>
+    <li><strong>Per bag:</strong> ${esc(m(bag))} for up to 25 lbs (about 2–3 loads), plus ${esc(m(del))} delivery per order. Over 25 lbs: ${mdi('{site:overweight_rate}', v)}.</li>
+    <li><strong>Subscription:</strong> ${esc(m(plan))}/month for ${esc(String(lbs))} lbs, unlimited pickups, free next-day delivery, no minimum per order. Above ${esc(String(lbs))} lbs: ${esc(m(over))}/lb.</li>
+    <li><strong>Drop-off</strong> at ${mdi('{site:dropoff_address}', v)}: ${esc(m(retail))}/lb wash &amp; fold. <a href="/drop-off-laundry-oakland">Drop-off details</a>.</li>
+    <li><strong>Add-ons:</strong> Air Dry ${mdi('{price:Air Dry}', v)} per delicates bag, shirts ${mdi('{price:Shirt Service}', v)} each, Vinegar or Oxi ${mdi('{price:Oxi}', v)} per bag, Double Wash ${mdi('{price:Double Wash}', v)} per bag, same-day delivery +${esc(m(same))}.</li>
+    <li><strong>Businesses:</strong> from ${mdi('{commercial:Wash & Fold}', v)}. <a href="/commercial-laundry">Commercial laundry</a>.</li>
+  </ul>
+  <h2>What a month of laundry costs</h2>
+  <p>Assuming 25 lbs per bag and one bag per pickup:</p>
+  <div class="table-wrap"><table class="price-table">
+    <thead><tr><th>Laundry per month</th><th>Per bag</th><th>Subscription</th><th>Cheaper</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>
+  <p class="muted">Sending two bags in one pickup saves a delivery fee. Prices update automatically from our price list.</p>
+  <h2>What's included either way</h2>
+  <ul>
+    <li>Pickup and delivery to your door ${mdi('{site:service_days}', v)}, back the next service day</li>
+    <li>Washed in our own Oakland facility by our own team, never outsourced</li>
+    <li>Free &amp; Clear hypoallergenic detergent and ozone: no fragrance, bleach or softener</li>
+    <li>Folded, socks balled, bundled by family member, in bags that are yours to keep</li>
+  </ul>
+  <div class="card"><h2>Try it</h2><p>New customers: your friend's referral code takes ${mdi('{referral:friend}', v)} off your first order.</p><p>${cta()}</p></div>
+  <h2>Questions</h2>
+  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}
+  ${relatedLinks(['/first-laundry-pickup', '/laundry-delivery-services', '/drop-off-laundry-oakland'])}
+</section>`,
+    jsonld: { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
   };
 }
 
@@ -564,6 +679,8 @@ const ROUTES = {
   '/blog': blogIndex,
   ...Object.fromEntries(POSTS.map(p => [postPath(p), () => post(p)])),
   ...Object.fromEntries(CITIES.map(c => [cityPath(c), v => city(c, v)])),
+  ...Object.fromEntries(TOPICS.map(t => [t.path, v => topic(t, v)])),
+  '/laundry-service-cost': cost,
   '/': home,
   '/faq': faq,
   '/laundry-delivery-services': services,

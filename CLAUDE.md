@@ -30,6 +30,7 @@ give step-by-step instructions, and don't assume command-line fluency.
 Notes files (large — grep them, don't read them whole):
 - `PROJECT-NOTES.md` — laundry app history through today. Sessions are logged newest-first at the top.
 - `PROJECT-NOTES-BOOKKEEPING.md` — Bookkeeping module only, from session 218 onward.
+- `PROJECT-NOTES-WEBSITE.md` — the public website (familylaundry.com, `website/`): rules, publishing, DNS cutover, SEO.
 - `PROJECT-NOTES-ARCHIVE.md` — older history.
 - `TECH-STACK.md`, `MONITORING.md` — stack and alerting.
 

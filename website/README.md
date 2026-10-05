@@ -1,5 +1,7 @@
 # familylaundry.com (website)
 
+Project notes, decisions, publishing steps and DNS cutover: `../PROJECT-NOTES-WEBSITE.md`.
+
 Server-rendered website for Family Laundry, replacing Wix. Separate Vercel project
 with **Root Directory = `website`**. No build step, no dependencies.
 
@@ -29,7 +31,6 @@ with **Root Directory = `website`**. No build step, no dependencies.
 - Google rating badge appears when `site_info` has `google_rating` + `google_reviews` (+ optional `google_reviews_url`).
 
 ## Not done yet
-- Google rating badge: add `google_rating`, `google_reviews`, `google_reviews_url` to site_info.
 - App store links (`site_info.app_ios_url`, `app_android_url` are empty)
 - Vercel project (Root Directory `website`) + domain switch. DNS is run by Wix today (GoDaddy registrar);
   every record must be recreated in Vercel DNS before the nameserver change. Checklist in the plan doc:

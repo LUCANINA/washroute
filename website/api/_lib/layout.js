@@ -29,30 +29,46 @@ function header(path, v) {
 </header>`;
 }
 
+// Footer link hub (the 2ULaundry pattern): every topic page and every open city page is one click from
+// any page, so Google finds them and visitors can jump straight to their situation.
+const TOPICS = require('../../content/topics.js');
+const CITIES = require('../../content/cities.js');
+const footLinks = (group, extra = []) => [
+  ...TOPICS.filter(t => t.group === group).map(t => [t.path, t.nav]), ...extra,
+].map(([href, label]) => `<a href="${href}">${esc(label)}</a>`).join('');
+
 function footer(v) {
   const s = (v && v.site) || {};
+  const cities = CITIES.filter(c => c.index).map(c => [`/laundry-delivery-${c.slug}`, c.name]);
   return `<footer class="site-foot">
   <div class="wrap foot-grid">
-    <div>
+    <div class="foot-brand">
       <img src="/assets/img/logo.png" alt="" width="64" height="64" loading="lazy">
       <p>Wash &amp; fold pickup and delivery.<br>Family-owned since 2018, delivering since ${esc(s.founded || '2019')}.</p>
       <p>Family Laundry<br>${esc(ADDRESS)}</p>
       <p>${s.phone ? `<a href="${esc(telHref(s.phone))}">${esc(s.phone)}</a><br>` : ''}${s.email ? `<a href="mailto:${esc(s.email)}">${esc(s.email)}</a>` : ''}</p>
     </div>
     <div>
-      <h4>Company</h4>
-      <a href="/blog">Our story</a><a href="/service-map">Service area</a><a href="/faq">FAQ</a>
-      <a href="/community">Community</a><a href="/gifts-cards">Gift cards</a>
-    </div>
-    <div>
-      <h4>Services</h4>
-      <a href="/laundry-delivery-services">Wash &amp; fold</a><a href="/commercial-laundry">Commercial laundry</a>
-      <a href="/laundry-delivery-oakland">Oakland</a><a href="/laundry-delivery-berkeley">Berkeley</a>
-      <a href="/laundry-delivery-alameda">Alameda</a><a href="/laundry-delivery-sf">San Francisco</a>
-    </div>
-    <div>
       <h4>Get started</h4>
-      <a href="${APP}">Schedule a pickup</a><a href="/download">Get the app</a>
+      <a href="${APP}">Schedule a pickup</a>
+      ${footLinks('Getting started', [['/laundry-service-cost', 'What it costs'], ['/faq', 'FAQ'], ['/download', 'Get the app'], ['/gifts-cards', 'Gift cards']])}
+    </div>
+    <div>
+      <h4>Residential</h4>
+      ${footLinks('Residential', [['/laundry-delivery-services', 'All services & prices']])}
+    </div>
+    <div>
+      <h4>Commercial</h4>
+      ${footLinks('Commercial', [['/commercial-laundry', 'All commercial laundry']])}
+    </div>
+    <div>
+      <h4>Areas</h4>
+      ${cities.map(([href, label]) => `<a href="${href}">${esc(label)}</a>`).join('')}
+      <a href="/service-map">Full service area</a>
+    </div>
+    <div>
+      <h4>Company</h4>
+      <a href="/blog">Our story</a><a href="/community">Community</a>
       <a href="/privacy-policy">Privacy policy</a><a href="/terms-conditions">Terms &amp; conditions</a>
     </div>
   </div>
