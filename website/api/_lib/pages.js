@@ -28,7 +28,7 @@ function home(v) {
 <section class="h-hero">
   <img class="h-hero-img" src="/assets/img/hero-wide.jpg" alt="A woman smelling freshly cleaned laundry" width="1920" height="984">
   <div class="wrap h-hero-copy">
-    <h1><span class="h-kicker">Family Laundry</span>Wash &amp; Fold for Busy Households</h1>
+    <h1><span class="h-kicker">Family Laundry</span>Premium Wash &amp; Fold for Busy Households</h1>
     <p class="h-hero-sub">Picked up, washed in our own Oakland facilities and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
     ${ratingBadge(v)}
     <a class="h-btn h-btn-lg" href="${APP}">Get started</a>
@@ -146,7 +146,7 @@ function ratingBadge(v) {
   const total = g + y;
   const count = total >= 100 ? `${Math.floor(total / 100) * 100}+` : String(total);
   const where = [g && 'Google', y && 'Yelp'].filter(Boolean).join(' &amp; ');
-  const text = `<span class="rating-stars" aria-hidden="true">★★★★★</span> <strong>${esc(rating)}</strong> from ${count} reviews on ${where}`;
+  const text = `<span class="rating-stars" aria-hidden="true">★★★★★</span> <strong>${esc(rating)}</strong> from ${count} reviews <span class="nowrap">on ${where}</span>`;
   return `<p class="rating">${s.google_reviews_url ? `<a href="${esc(s.google_reviews_url)}" rel="noopener">${text}</a>` : text}</p>`;
 }
 function ownRatingLine(v) {

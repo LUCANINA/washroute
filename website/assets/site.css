@@ -368,3 +368,5 @@ strong { font-weight: 700; }
 .sv .card h2 { font-size: 28px; }
 .sv .card { margin-top: 8px; }
 .sv-plans + .sv-price { margin-top: 24px !important; }
+
+.nowrap { white-space: nowrap; }

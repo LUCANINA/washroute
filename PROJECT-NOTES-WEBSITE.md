@@ -25,7 +25,7 @@ bottom.
 - **Facts that must stay right:** family-owned since 2018, delivering since 2019. Address
   2609 Foothill Blvd, Oakland, CA 94601. Phone (510) 588-4102. Pickup and delivery Monday–Saturday;
   drop-off counter open 7 days.
-- **Homepage keeps the original Wix look** (David's call): "FAMILY LAUNDRY / Wash & Fold for Busy Households",
+- **Homepage keeps the original Wix look** (David's call): "FAMILY LAUNDRY / Premium Wash & Fold for Busy Households" (matches the app),
   pink van block, yellow pricing tiles, How we clean, Bubble Power, quote cards, Our story video, contact form.
 - **Reviews:** never ask only happy customers for reviews; never reward reviews. Quote reviews with first name
   + last initial only (David OK'd quoting Google reviews, Oct 5 2026).
