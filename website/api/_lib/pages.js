@@ -25,109 +25,93 @@ function home(v) {
     ['Chimed D, Oakland', 'Amazing, a godsend, the bomb, so helpful, artistic and beautiful presentation of returned laundry - impressive!!! 5 shining stars!'],
     ['Frisbee G, San Francisco', 'I cannot emphasize enough how quality this experience was in action [...] My items came back clean, neatly folded, and smelling better than when they were new, which is to say delightfully scent free.'],
   ];
+  // Layout and look follow the original Wix homepage (David prefers it); copy and prices are the corrected, live versions.
   const body = `
-<section class="hero">
-  <div class="wrap hero-grid">
-    <div class="hero-copy">
-      <h1><span class="kicker">Family Laundry</span>Fresh, fragrance-free laundry, washed by our own team</h1>
-      <p class="lead">We pick up your laundry, wash it in our own Oakland facilities (never outsourced) and bring it back folded the next day. Pickup and delivery ${mdi('{site:service_days}', v)} across Oakland, the East Bay and San Francisco.</p>
-      ${ratingBadge(v)}
-      <div class="row">${cta('Get started')}<a class="btn btn-ghost" href="#pricing">See pricing</a></div>
-      <img class="stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="150" height="150">
+<section class="h-hero">
+  <img class="h-hero-img" src="/assets/img/hero-wide.jpg" alt="A woman smelling freshly cleaned laundry" width="1920" height="984">
+  <div class="wrap h-hero-copy">
+    <h1><span class="h-kicker">Family Laundry</span>Wash &amp; Fold for Busy Households</h1>
+    <p class="h-hero-sub">Picked up, washed in our own Oakland facilities and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
+    ${ratingBadge(v)}
+    <a class="h-btn h-btn-lg" href="${APP}">Get started</a>
+    <img class="h-stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="236" height="236">
+  </div>
+</section>
+
+<section class="h-van">
+  <div class="h-van-art">
+    <img src="/assets/img/electric-truck-trim.png" alt="Family Laundry electric delivery van" loading="lazy">
+    <span class="h-arrow" aria-hidden="true"></span>
+    <p class="h-electric">I'm electric</p>
+  </div>
+  <div class="h-van-copy">
+    <h2>Delivering the freshest laundry in the Bay since ${esc(v.site?.founded || '2019')}.</h2>
+    <p>Imagine a service that picks up your dirty laundry, then returns it to you perfectly washed and folded. Within a day. Like magic. That's Family Laundry (learn more about what makes us <a href="/post/premium-laundry-delivery-at-your-doorstep">stand out</a>).</p>
+    <p>We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities (we never, ever outsource) and delivery vehicles. It's 100% Family Laundry. Not happy with an order? Tell us and we'll make it right.</p>
+    <p>Let us take care of your laundry. <a href="${APP}">Create an account</a> and book your first pickup.</p>
+  </div>
+</section>
+
+<section class="h-pricing" id="pricing">
+  <div class="h-tile h-tile-1">
+    <h2>Per Bag<br>${mdi('{price:Wash & Fold}', v)} + Delivery</h2>
+    <p class="h-note">(Great for occasional users).</p>
+    <div class="h-bags h-bags-1" aria-hidden="true">
+      <img src="/assets/img/two-bags-trim.png" alt="" loading="lazy"><span class="h-curve"></span><img src="/assets/img/fl-bag-trim.png" alt="" loading="lazy">
     </div>
-    <img class="hero-img" src="/assets/img/hero.jpg" alt="A woman smelling freshly cleaned laundry" width="700" height="624">
+    <ul class="h-dots">
+      <li>25 lbs Wash &amp; Fold (about 2–3 loads)*</li>
+      <li>Next-day Delivery: ${mdi('{fee:Delivery Fee}', v)}</li>
+      <li>Same-day Delivery: ${esc(sameDayPerBag)}</li>
+    </ul>
+    <p class="h-fine">*Bags weighing more than 25 lbs are an extra ${mdi('{site:overweight_rate}', v)}.</p>
   </div>
-</section>
-
-<section class="wrap section">
-  <div class="why">
-    <div><h3>Cleaned in-house</h3><p>Our team, our machines, start to finish. We never send your laundry to someone else.</p></div>
-    <div><h3>Clean, not perfumed</h3><p>Free &amp; Clear detergent and ozone. No fragrance, bleach or softener, ever.</p></div>
-    <div><h3>Back the next day</h3><p>Picked up today, washed and folded, back at your door tomorrow.</p></div>
-    <div><h3>Local and family-owned</h3><p>An Oakland family business with more than 30 employees.</p></div>
-  </div>
-</section>
-
-<section class="band">
-  <div class="wrap split">
-    <img src="/assets/img/electric-truck.png" alt="Family Laundry electric delivery truck" width="450" height="348" loading="lazy">
-    <div>
-      <p class="eyebrow">I'm electric</p>
-      <h2>Delivering the freshest laundry in the Bay since ${esc(v.site?.founded || '2019')}.</h2>
-      <p>Imagine a service that picks up your dirty laundry, then returns it perfectly washed and folded. Within a day. Like magic. That's Family Laundry.</p>
-      <p>We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities and we never, ever outsource the washing. Not happy with an order? Tell us and we'll make it right.</p>
-      <p>${cta('Create an account')}</p>
+  <div class="h-tile h-tile-2">
+    <h2>Subscribe<br>${mdi('{plan:price}', v)}/month</h2>
+    <p class="h-note">(Best value).</p>
+    <div class="h-bags h-bags-2" aria-hidden="true">
+      <img src="/assets/img/fl-bag-trim.png" alt="" loading="lazy"><img src="/assets/img/fl-bag-trim.png" alt="" loading="lazy"><img src="/assets/img/fl-bag-trim.png" alt="" loading="lazy"><img src="/assets/img/fl-bag-trim.png" alt="" loading="lazy">
     </div>
+    <ul class="h-dots">
+      <li>${mdi('{plan:lbs}', v)} lbs Wash &amp; Fold*</li>
+      <li>Unlimited pickups</li>
+      <li>Next-day Delivery: FREE</li>
+      <li>Same-day Delivery: +${mdi('{fee:Same-Day Surcharge}', v)}</li>
+      <li>No minimum lbs. per order</li>
+    </ul>
+    <p class="h-fine">*Usage above ${mdi('{plan:lbs}', v)} lbs per month is ${mdi('{plan:overage}', v)} per lb.</p>
   </div>
 </section>
 
-<section id="pricing" class="wrap section">
-  <h2 class="center">Pricing</h2>
-  <div class="cards">
-    <article class="card">
-      <h3>Per Bag</h3>
-      <p class="price">${mdi('{price:Wash & Fold}', v)} <small>+ delivery</small></p>
-      <p class="muted">Great for occasional users.</p>
-      <ul class="ticks">
-        <li>25 lbs wash &amp; fold (about 2–3 loads)*</li>
-        <li>Next-day delivery: ${mdi('{fee:Delivery Fee}', v)}</li>
-        <li>Same-day delivery: ${esc(sameDayPerBag)}</li>
-      </ul>
-      <p class="fine">*Bags weighing more than 25 lbs are an extra ${mdi('{site:overweight_rate}', v)}.</p>
-      ${cta('Book a bag')}
-    </article>
-    <article class="card card-best">
-      <p class="badge">Best value</p>
-      <h3>Subscribe</h3>
-      <p class="price">${mdi('{plan:price}', v)}<small>/month</small></p>
-      <p class="muted">For regular laundry.</p>
-      <ul class="ticks">
-        <li>${mdi('{plan:lbs}', v)} lbs wash &amp; fold*</li>
-        <li>Unlimited pickups</li>
-        <li>Next-day delivery: FREE</li>
-        <li>Same-day delivery: +${mdi('{fee:Same-Day Surcharge}', v)}</li>
-        <li>No minimum per order</li>
-      </ul>
-      <p class="fine">*Usage above ${mdi('{plan:lbs}', v)} lbs per month is ${mdi('{plan:overage}', v)} per lb.</p>
-      ${cta('Subscribe')}
-    </article>
-  </div>
-  <p class="center muted">Add-ons: Air Dry ${mdi('{price:Air Dry}', v)} · Shirt service ${mdi('{price:Shirt Service}', v)}/shirt · Vinegar or Oxi ${mdi('{price:Oxi}', v)}/bag · Double wash ${mdi('{price:Double Wash}', v)}/bag</p>
-</section>
-
-<section class="band">
-  <div class="wrap section">
-    <h2 class="center">How we clean</h2>
-    <p class="center narrow">We use only hypoallergenic Free &amp; Clear detergents and ozone. No fragrances, no bleach, no softeners, no dry-cleaning solvents, ever. The result is a neutral, clean smell with no detergent residue.</p>
-    <div class="steps">
-      <div><img src="/assets/img/step-prep.jpg" alt="Laundry basket full of clothes" loading="lazy"><h3>Prep</h3><p>We empty all pockets and separate lights and darks.</p></div>
-      <div><img src="/assets/img/step-wash.jpg" alt="Laundry in a washing machine" loading="lazy"><h3>Wash, sanitize, dry</h3><p>Warm water, Free &amp; Clear detergent only, dried on medium.</p></div>
-      <div><img src="/assets/img/step-fold.png" alt="A neatly folded shirt" loading="lazy"><h3>Fold</h3><p>We fold neatly, ball socks, and bundle laundry by family member.</p></div>
-    </div>
+<section class="h-clean">
+  <h2>How we clean</h2>
+  <p>We use only hypoallergenic detergents (free and clear) and Ozone when washing your laundry. No fragrances, no bleach, no softeners, no dry cleaning solvents, ever.</p>
+  <p>The result is a neutral, clean laundry smell with no noticeable detergent or conditioner residue.</p>
+  <div class="h-steps">
+    <div><img src="/assets/img/step-prep.jpg" alt="" width="121" height="121" loading="lazy"><h3>Prep</h3><p>We empty all pockets and separate lights and darks.</p></div>
+    <div><img src="/assets/img/step-wash.jpg" alt="" width="121" height="121" loading="lazy"><h3>Wash, Sanitize, Dry</h3><p>By default, we wash your laundry in warm water using Free &amp; Clear detergent only. We dry on Medium.</p></div>
+    <div><img src="/assets/img/step-fold.png" alt="" width="121" height="121" loading="lazy"><h3>Fold</h3><p>We neatly fold your laundry, ball socks, and bundle your laundry by family member.</p></div>
   </div>
 </section>
 
-<section class="wrap section split">
-  <div>
-    <h2>Bubble power</h2>
-    <p>Our facilities use ozone water-injection systems that sanitize your laundry (and our machines as they run) while boosting the cleaning power of our detergents.</p>
-  </div>
-  <img src="/assets/img/bubbles.jpg" alt="Bubbles" loading="lazy">
-</section>
-
-<section class="band">
-  <div class="wrap section">
-    <h2 class="center">What customers say</h2>
-    <div class="quotes">${reviews.map(([who, q]) => `<figure><blockquote>“${esc(q)}”</blockquote><figcaption>${esc(who)}</figcaption></figure>`).join('')}</div>
+<section class="h-bubbles">
+  <div class="h-bubbles-copy">
+    <h2>Bubble Power</h2>
+    <p>Our facilities are equipped with state-of-the-art Ozone water-injection systems that sanitize your laundry (and our washing machines as they run), while boosting the cleaning power of our detergents.</p>
   </div>
 </section>
 
-<section id="story" class="wrap section narrow">
+<section class="h-quotes" aria-label="What customers say">
+  ${reviews.map(([who, q]) => `<figure><span class="h-qmark" aria-hidden="true">&ldquo;</span><figcaption>${esc(who)}</figcaption><blockquote>"${esc(q)}"</blockquote></figure>`).join('')}
+</section>
+
+<section id="story" class="h-story">
   <h2>Our story</h2>
-  <p>Our Family Laundry adventure began in early 2018, the day we closed on our first laundromat in Oakland. Our backgrounds didn't make us laundry delivery experts from the get-go, but we got our hands dirty and learned along the way.</p>
+  <div class="h-video"><iframe src="https://www.youtube-nocookie.com/embed/342c6q6Ly-I" title="Family Laundry - Laundry service for busy households" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
+  <p>Our Family Laundry adventure began in early 2018, the day we closed on our first laundromat in Oakland. Our respective backgrounds didn't make us laundry delivery experts from the get-go, but we got our hands dirty and learned along the way.</p>
   <p>We run Family Laundry the way we think all companies should be run: we put employees first, we actively engage with the communities we operate in, and we do our part to reduce our impact on the environment.</p>
   <p>Thank you for trusting us with your laundry.</p>
-  <p class="sig">Laura Guevara &amp; David Macquart-Moulin</p>
+  <p>Laura Guevara &amp; David Macquart-Moulin</p>
 </section>
 
 ${contactBlock(v)}`;
@@ -163,8 +147,7 @@ function contactForm(kind) {
   <div class="hp" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off"></label></div>
   <div class="two"><label>Name <input name="name" required autocomplete="name"></label>
   ${biz ? '<label>Business or school <input name="business" autocomplete="organization"></label>' : '<label>Phone (optional) <input name="phone" type="tel" autocomplete="tel"></label>'}</div>
-  <div class="two"><label>Email <input name="email" type="email" required autocomplete="email"></label>
-  ${biz ? '<label>Phone <input name="phone" type="tel" autocomplete="tel"></label>' : ''}</div>
+  ${biz ? '<div class="two"><label>Email <input name="email" type="email" required autocomplete="email"></label><label>Phone <input name="phone" type="tel" autocomplete="tel"></label></div>' : '<label>Email <input name="email" type="email" required autocomplete="email"></label>'}
   <label>${biz ? 'What do you need washed, and how much per week?' : 'Message'} <textarea name="message" required maxlength="5000"></textarea></label>
   <p class="form-msg" role="status"></p>
   <p><button class="btn" type="submit">Send</button></p>
@@ -174,26 +157,13 @@ function contactForm(kind) {
 function contactBlock(v) {
   const s = v.site || {};
   const tel = s.phone ? s.phone.replace(/[^\d+]/g, '') : '';
-  return `<section class="band" id="contact">
-  <div class="wrap section contact">
-    <div>
-      <h2>Contact us</h2>
-      <p>Questions? We're happy to help.</p>
-      ${s.phone ? `<p><a class="big" href="tel:${esc(tel)}">${esc(s.phone)}</a><br><span class="muted">Leave a message and we'll call you back the same day.</span></p>` : ''}
-      ${s.email ? `<p><a class="big" href="mailto:${esc(s.email)}">${esc(s.email)}</a></p>` : ''}
-      <p class="muted">Customers can also reply to our last text.</p>
-      <div class="card" style="margin-top:24px">
-        <h3>Drop-off location</h3>
-      <p><strong>${esc(s.dropoff_address || '')}</strong><br>Open ${esc(s.dropoff_hours || '')}</p>
-      <p class="muted">Pickup and delivery runs ${esc(s.service_days || '')}; the drop-off counter is open every day.</p>
-      <p class="muted">${esc(s.dropoff_cutoff || '')}</p>
-      <p>Drop-off wash &amp; fold: ${mdi('{retail:Wash & Fold}', v)}</p>
-      </div>
-    </div>
-    <div class="card">
-      <h3>Send us a message</h3>
-      ${contactForm('contact')}
-    </div>
+  return `<section class="h-contact" id="contact">
+  <h2>Contact us</h2>
+  <div class="h-contact-form">${contactForm('contact')}</div>
+  <div class="h-contact-info">
+    ${s.phone ? `<p><strong>Call or text</strong><br><a href="tel:${esc(tel)}">${esc(s.phone)}</a><br><span class="muted">Leave a message and we'll call you back the same day. Customers can also reply to our last text.</span></p>` : ''}
+    ${s.email ? `<p><strong>Email</strong><br><a href="mailto:${esc(s.email)}">${esc(s.email)}</a></p>` : ''}
+    <p><strong>Drop-off</strong><br>${esc(s.dropoff_address || '')}<br>Open ${esc(s.dropoff_hours || '')}<br><span class="muted">${esc(s.dropoff_cutoff || '')} Drop-off wash &amp; fold: ${mdi('{retail:Wash & Fold}', v)}.</span></p>
   </div>
 </section>`;
 }
