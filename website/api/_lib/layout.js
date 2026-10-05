@@ -38,6 +38,14 @@ const footLinks = (group, extra = []) => [
   ...TOPICS.filter(t => t.group === group).map(t => [t.path, t.nav]), ...extra,
 ].map(([href, label]) => `<a href="${href}">${esc(label)}</a>`).join('');
 
+// Our own after-delivery rating (site_public_values().ratings), shown once there are 20+. It is visible in the footer
+// of every page because the pages' rating markup uses it.
+function ownRating(v) {
+  const r = (v && v.ratings) || {};
+  const avg = Number(r.avg), count = Number(r.count);
+  return count >= 20 && avg > 0 ? `<p class="foot-rating"><strong>${esc(avg.toFixed(1))} ★</strong> average customer rating</p>` : '';
+}
+
 function footer(v) {
   const s = (v && v.site) || {};
   const cities = CITIES.filter(c => c.index).map(c => [`/laundry-delivery-${c.slug}`, c.name]);
@@ -47,6 +55,7 @@ function footer(v) {
       <img src="/assets/img/logo.png" alt="" width="64" height="64" loading="lazy">
       <p>Wash &amp; fold pickup and delivery.<br>Family-owned since 2018, delivering since ${esc(s.founded || '2019')}.</p>
       <p>Family Laundry<br>${esc(ADDRESS)}</p>
+      ${ownRating(v)}
       <p>${s.phone ? `<a href="${esc(telHref(s.phone))}">${esc(s.phone)}</a><br>` : ''}${s.email ? `<a href="mailto:${esc(s.email)}">${esc(s.email)}</a>` : ''}</p>
     </div>
     <div>

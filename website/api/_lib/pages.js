@@ -101,6 +101,7 @@ function home(v) {
   </div>
 </section>
 
+${ownRatingLine(v) ? `<p class="h-own">${ownRatingLine(v)}</p>` : ''}
 <section class="h-quotes" aria-label="What customers say">
   ${reviews.map(([who, q]) => `<figure><span class="h-qmark" aria-hidden="true">&ldquo;</span><figcaption>${esc(who)}</figcaption><blockquote>"${esc(q)}"</blockquote></figure>`).join('')}
 </section>
@@ -136,19 +137,21 @@ ${contactBlock(v)}`;
 
 // Google/Yelp rating badge: each shown only when its site_info rating + review count are set (Admin → App Content → Business info).
 function ratingBadge(v) {
+  // One line (David, Oct 5): "★★★★★ 4.8 from 500+ reviews on Google & Yelp". Our own after-delivery rating is shown
+  // in the footer (and above the homepage quotes), which keeps the page's rating markup visible to visitors.
   const s = v.site || {};
-  const own = ownRating(v);
-  const google = s.google_rating && s.google_reviews
-    ? `<strong>${esc(s.google_rating)} ★</strong> on Google · ${esc(s.google_reviews)} reviews` : '';
-  const g = google && s.google_reviews_url ? `<a href="${esc(s.google_reviews_url)}" rel="noopener">${google}</a>` : google;
-  // Yelp line: site_info.yelp_rating + yelp_reviews (+ optional yelp_url). Shown on the same line as Google.
-  const yelp = s.yelp_rating && s.yelp_reviews ? `<strong>${esc(s.yelp_rating)} ★</strong> on Yelp · ${esc(s.yelp_reviews)} reviews` : '';
-  const y = yelp && s.yelp_url ? `<a href="${esc(s.yelp_url)}" rel="noopener">${yelp}</a>` : yelp;
-  const o = own ? `<strong>${esc(own.avg.toFixed(1))} ★</strong> from ${esc(own.count.toLocaleString('en-US'))} ratings after delivery` : '';
-  // Google is the headline; Yelp and our own after-delivery rating sit on a smaller second line.
-  const main = g || y || o;
-  const rest = [g ? y : '', g || y ? o : ''].filter(Boolean).join(' &nbsp;·&nbsp; ');
-  return main ? `<p class="rating"><span class="rating-main">${main}</span>${rest ? `<br><span class="rating-own">${rest}</span>` : ''}</p>` : '';
+  const g = Number(s.google_reviews) || 0, y = Number(s.yelp_reviews) || 0;
+  const rating = s.google_rating || s.yelp_rating;
+  if (!rating || !(g + y)) return '';
+  const total = g + y;
+  const count = total >= 100 ? `${Math.floor(total / 100) * 100}+` : String(total);
+  const where = [g && 'Google', y && 'Yelp'].filter(Boolean).join(' &amp; ');
+  const text = `<span class="rating-stars" aria-hidden="true">★★★★★</span> <strong>${esc(rating)}</strong> from ${count} reviews on ${where}`;
+  return `<p class="rating">${s.google_reviews_url ? `<a href="${esc(s.google_reviews_url)}" rel="noopener">${text}</a>` : text}</p>`;
+}
+function ownRatingLine(v) {
+  const r = ownRating(v);
+  return r ? `<strong>${esc(r.avg.toFixed(1))} ★</strong> average customer rating` : '';
 }
 
 // Our own after-delivery ratings (site_public_values().ratings, from order_feedback). Shown once there are 20+.

@@ -167,9 +167,12 @@ strong { font-weight: 700; }
 .why-2 { grid-template-columns: repeat(2, 1fr); margin: 28px 0; }
 @media (max-width: 820px) { .why { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { .why, .why-2 { grid-template-columns: 1fr; } }
-.rating { font-size: 15px; margin: 4px 0 18px; line-height: 1.7; }
-.rating-main { font-size: 18px; }
-.rating-main strong { font-size: 20px; }
+.rating { font-size: 17px; margin: 4px 0 20px; }
+.rating a { color: inherit; }
+.rating-stars { color: var(--yellow-dk); letter-spacing: 2px; margin-right: 4px; }
+.h-own { text-align: center; font-size: 17px; margin: 0; padding: 28px 16px 0; }
+.foot-rating { color: #fff; }
+@media (max-width: 420px) { .rating { font-size: 15px; } .rating-stars { letter-spacing: 0; margin-right: 2px; } }
 .rating a { text-decoration: none; }
 .city-list { columns: 3; list-style: none; padding: 0; margin: 18px 0 28px; }
 .city-list li { margin: 0 0 6px; break-inside: avoid; }
