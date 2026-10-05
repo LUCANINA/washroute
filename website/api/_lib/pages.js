@@ -297,6 +297,7 @@ function serviceMap(v) {
 // One page per entry in content/cities.js. Old Wix city URLs (oakland, berkeley,
 // alameda, sf) keep their addresses; the stale Wix copy is no longer used.
 const CITIES = require('../../content/cities.js');
+const DETAILS = require('../../content/city-details.js');
 const cityPath = c => `/laundry-delivery-${c.slug}`;
 
 // Live pickup windows for a city, from site_public_values().zones (route_templates).
@@ -318,33 +319,46 @@ function cityWindows(c, v) {
 
 function city(c, v) {
   const name = c.name;
-  const hoods = c.hoods.length ? `<p>We pick up all over ${esc(name)}, including ${esc(C.list(c.hoods))}.</p>` : '';
+  const d = DETAILS[c.slug] || {};
+  const hoodList = d.hoods || c.hoods;
+  const plain = t => C.renderPlain(t, v);
   const nearby = CITIES.filter(o => o.region === c.region && o.slug !== c.slug).slice(0, 6);
   const wins = cityWindows(c, v);
   const winText = wins.map(w => `${w.label.toLowerCase()} (${w.range})`);
-  const days = C.renderPlain('{site:service_days}', v);
+  const days = plain('{site:service_days}');
   const faqs = [
     [`Do you pick up laundry in ${name}?`, wins.length
       ? `Yes. Family Laundry picks up and delivers in ${name} ${days}, with ${wins.length > 1 ? `${C.list(winText)} windows` : `${/^[aeiou]/.test(winText[0]) ? 'an' : 'a'} ${winText[0]} window`}. Pick yours when you book in the app.`
       : `Yes. Family Laundry picks up and delivers in ${name} ${days}. Enter your address in the app to see the pickup windows for your street.`],
-    ['When do I get my laundry back?', 'Standard turnaround is next day: we pick it up, wash and fold it in our own Oakland facility, and bring it back within 24 hours.'],
+    ...(d.faqs || []).map(([q, a]) => [q, plain(a)]),
+    ['When do I get my laundry back?', 'Standard turnaround is next day: we pick it up, wash and fold it in our own Oakland facility, and bring it back the next day.'],
     ['Do I need to be home?', "No. Leave your bag at the door, with your building's front desk, or wherever you tell us in the app."],
     ['What detergent do you use?', 'Free & Clear (hypoallergenic, no fragrance) plus ozone. No bleach, no softener, no fragrance, ever.'],
   ];
+  const hoodsBlock = !hoodList.length ? '' : d.hoods
+    ? `<h2>Neighborhoods we serve in ${esc(name)}</h2>
+  <ul class="city-list">${hoodList.map(h => `<li>${esc(h.replace(/^the /, 'The '))}</li>`).join('')}</ul>
+  <p class="muted">Not sure about your street? <a href="${APP}">Enter your address in the app</a> and we'll tell you right away.</p>`
+    : `<p>We pick up all over ${esc(name)}, including ${esc(C.list(hoodList))}.</p>`;
   return {
     path: cityPath(c),
+    noindex: !c.index,
     title: `Laundry Pickup & Delivery in ${name} | Family Laundry`,
     description: `Wash & fold laundry pickup and delivery in ${name}. Washed fragrance-free in our own Oakland facility, never outsourced, and back the next day.`,
     body: `<section class="wrap section narrow">
   <h1>Laundry pickup &amp; delivery in ${esc(name)}</h1>
   <p class="lead">${esc(c.intro)}</p>
   ${ratingBadge(v)}
-  ${hoods}
+  ${(d.about || []).map(p => `<p>${esc(p)}</p>`).join('\n  ')}
+  ${d.households ? `<p class="city-stat"><strong>${esc(d.households.charAt(0).toUpperCase() + d.households.slice(1))} ${esc(name)} households</strong> used Family Laundry in the past year.</p>` : ''}
   ${wins.length ? `<div class="card">
     <h2>Pickup windows in ${esc(name)}</h2>
     <ul class="ticks">${wins.map(w => `<li><strong>${esc(w.label)}:</strong> ${esc(w.range)}</li>`).join('')}</ul>
     <p class="muted">${esc(days)}. Choose your window when you book; we text you when the driver is on the way.</p>
   </div>` : ''}
+  ${d.photo ? `<figure class="city-photo"><img src="/assets/img/${esc(d.photo)}" alt="A Family Laundry bag of folded, bundled laundry delivered to a doorstep" width="900" height="1200" loading="lazy"><figcaption>Back at your door, folded and bundled by family member.</figcaption></figure>` : ''}
+  ${hoodsBlock}
+  ${d.review ? `<figure class="city-quote"><blockquote>“${esc(d.review.text)}”</blockquote><figcaption>${esc(d.review.who)}</figcaption></figure>` : ''}
   <div class="why why-2">
     <div><h3>Cleaned in-house</h3><p>Washed by our own team in our Oakland facility. Never outsourced.</p></div>
     <div><h3>Fragrance-free</h3><p>Free &amp; Clear detergent and ozone. Nothing that lingers on skin.</p></div>

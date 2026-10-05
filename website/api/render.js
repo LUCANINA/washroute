@@ -44,7 +44,9 @@ module.exports = async (req, res) => {
     return res.end(indexable ? `User-agent: *\nAllow: /\nSitemap: ${ORIGIN}/sitemap.xml\n` : 'User-agent: *\nDisallow: /\n');
   }
   if (path === '/sitemap.xml') {
-    const urls = Object.keys(ROUTES).filter(p => p !== '/thankyou')
+    // Only pages open to Google: a page that sets noindex (thank-you, thin city pages) stays out.
+    const listed = p => { try { return !ROUTES[p](data.values, data.faq).noindex; } catch (e) { return false; } };
+    const urls = Object.keys(ROUTES).filter(listed)
       .map(p => `<url><loc>${ORIGIN}${p === '/' ? '' : encodeURI(p)}</loc></url>`).join('');
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Cache-Control', 'public, s-maxage=3600');

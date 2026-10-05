@@ -279,3 +279,12 @@ strong { font-weight: 700; }
 .h-contact-info p { margin: 0; }
 .h-contact-info a { text-decoration: none; font-weight: 700; }
 @media (max-width: 600px) { .h-contact-info { grid-template-columns: 1fr; } }
+
+/* City pages: local detail */
+.city-stat { font-size: 19px; border-left: 3px solid var(--yellow); padding-left: 14px; }
+.city-photo { margin: 32px 0; }
+.city-photo img { width: 100%; max-height: 520px; object-fit: cover; border-radius: var(--radius); }
+.city-photo figcaption { font-size: 15px; color: var(--muted); margin-top: 8px; }
+.city-quote { margin: 36px 0; padding: 28px 32px; background: var(--cream); border-radius: var(--radius); }
+.city-quote blockquote { margin: 0 0 10px; font-size: 20px; line-height: 1.6; }
+.city-quote figcaption { font-weight: 700; font-size: 15px; }

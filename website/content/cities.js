@@ -3,23 +3,26 @@
 // Keep claims general (no same-day promises). Pickup windows are NOT typed here: they render live from
 // site_public_values().zones. `zone` is only needed for cities inside another city's zone (Piedmont, Emeryville).
 // region groups cities for the "nearby" links.
+// index: true = open to Google (in the sitemap). Leave it off until the page has real local content
+// (neighborhoods, local reviews, photos, FAQs): near-identical city pages drag the whole site down.
+// Pages without it stay live for visitors but carry noindex and are left out of the sitemap.
 module.exports = [
-  { name: 'Oakland', slug: 'oakland', region: 'core',
+  { name: 'Oakland', slug: 'oakland', index: true, region: 'core',
     intro: "Oakland is home. Our laundry facilities are in East Oakland, near Fruitvale, so Oakland customers are never far from the people washing their clothes.",
     hoods: ['Rockridge', 'Temescal', 'Fruitvale', 'Lake Merritt', 'Grand Lake', 'Glenview', 'Dimond', 'Montclair', 'Uptown', 'Jack London Square', 'West Oakland', 'Maxwell Park'] },
-  { name: 'Berkeley', slug: 'berkeley', region: 'core',
+  { name: 'Berkeley', slug: 'berkeley', index: true, region: 'core',
     intro: "Busy Berkeley households, grad students and UC staff use us to get their weekends back. We pick up across the city, from the flats to the hills.",
     hoods: ['North Berkeley', 'Elmwood', 'Claremont', 'Downtown', 'Southside', 'West Berkeley', 'Thousand Oaks', 'the Berkeley Hills'] },
-  { name: 'Alameda', slug: 'alameda', region: 'core',
+  { name: 'Alameda', slug: 'alameda', index: true, region: 'core',
     intro: "Our drivers are in Alameda every service day. Leave your bag on the porch and it comes back washed, folded and bundled by family member.",
     hoods: ['the East End', 'the West End', 'Park Street', 'Webster Street', 'Fernside', 'Bay Farm Island'] },
-  { name: 'Piedmont', slug: 'piedmont', region: 'core', zone: 'Oakland',
+  { name: 'Piedmont', slug: 'piedmont', index: true, region: 'core', zone: 'Oakland',
     intro: "Piedmont sits right in the middle of our Oakland routes, so pickups here are quick and convenient.",
     hoods: [] },
-  { name: 'Emeryville', slug: 'emeryville', region: 'core', zone: 'Oakland',
+  { name: 'Emeryville', slug: 'emeryville', index: true, region: 'core', zone: 'Oakland',
     intro: "Emeryville apartments and condos are a short hop from our Oakland facility. Leave your bag with the front desk or at your door.",
     hoods: ['the Watergate', 'Bay Street', 'the Park Avenue district'] },
-  { name: 'Albany', slug: 'albany', region: 'core',
+  { name: 'Albany', slug: 'albany', index: true, region: 'core',
     intro: "Albany families get the same next-day service as their Berkeley neighbors, picked up from the door.",
     hoods: ['Solano Avenue', 'Albany Hill', 'University Village'] },
   { name: 'El Cerrito', slug: 'el-cerrito', region: 'core',
@@ -28,7 +31,7 @@ module.exports = [
   { name: 'Kensington', slug: 'kensington', region: 'core',
     intro: "Kensington is right next door to Berkeley. Steep driveway? Leave the bag wherever is easiest and tell us in the app.",
     hoods: [] },
-  { name: 'San Leandro', slug: 'san-leandro', region: 'south',
+  { name: 'San Leandro', slug: 'san-leandro', index: true, region: 'south',
     intro: "San Leandro is just down Foothill Boulevard from our facility, one of the closest cities we serve.",
     hoods: ['Estudillo Estates', 'Broadmoor', 'Bay-O-Vista', 'Washington Manor', 'the Marina'] },
   { name: 'San Lorenzo', slug: 'san-lorenzo', region: 'south',
@@ -70,7 +73,7 @@ module.exports = [
   { name: 'Martinez', slug: 'martinez', region: 'lamorinda',
     intro: "Martinez households can hand off laundry day: we pick up, wash, fold and deliver.",
     hoods: [] },
-  { name: 'San Francisco', slug: 'sf', region: 'sf',
+  { name: 'San Francisco', slug: 'sf', index: true, region: 'sf',
     intro: "We cross the Bay Bridge for San Francisco customers. Your laundry is still washed in our own Oakland facility, never handed to a third party.",
     hoods: ['the Mission', 'Noe Valley', 'Bernal Heights', 'SoMa', 'Mission Bay', 'Potrero Hill', 'Dogpatch', 'Hayes Valley', 'Pacific Heights', 'the Marina', 'the Richmond', 'the Sunset'] },
 ];

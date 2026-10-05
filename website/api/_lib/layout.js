@@ -63,7 +63,10 @@ function footer(v) {
 // page: { path, title, description, body, jsonld?, noindex? }
 function layout(page, values, { indexable }) {
   const canonical = ORIGIN + (page.path === '/' ? '' : page.path);
-  const robots = (!indexable || page.noindex) ? '<meta name="robots" content="noindex, nofollow">' : '';
+  // Preview hosts: hidden entirely. A noindex page on the real site (thin city page, thank-you): kept out of
+// Google, but its links are still followed so the pages it links to keep their credit.
+  const robots = !indexable ? '<meta name="robots" content="noindex, nofollow">'
+    : page.noindex ? '<meta name="robots" content="noindex, follow">' : '';
   return `<!doctype html>
 <html lang="en">
 <head>
