@@ -227,3 +227,6 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   unused). Download page says web app (no iOS/Android app). City intros no longer repeat their body paragraphs.
   11 FAQ answers updated in `faq_items` (also shown in the customer app); old text saved in
   `archive/faq-snapshot-2026-10-06.json`. Website code not yet committed.
+  Follow-up (David): no longer uses Puretergent; delivery vans are all electric; Double Wash $15 delivery vs $5
+  drop-off is intentional. Puretergent posts left as they are (David's call); doorstep post says vans are all
+  electric and no longer says "We source detergents locally".
