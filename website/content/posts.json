@@ -57,7 +57,7 @@
   "lang": "en",
   "title": "We bought a laundromat. What happened next blew our minds :-)",
   "description": "In 2018 Laura and I bought a run-down laundromat in East Oakland and renamed it Family Laundry. What we initially saw as a “passive” (ha!) investment for…",
-  "image": "/assets/img/blog/31e1f9_fd472a68f4c948fa9f902fc954e88686.png",
+  "image": "/assets/img/electric-truck.png",
   "blocks": [
    {
     "t": "p",
@@ -73,39 +73,11 @@
    },
    {
     "t": "p",
-    "x": "How we did in 2021 (figures rounded). Overall revenue grew 40% to $1.4 million, following a wild 80% growth in 2020 during the thick of Covid lockdowns. Our wash & fold delivery business grew 60% and topped $1 million for the first time, while retail (drop-off) sales were flat at around $400K. Average spending per delivery order was about $80, and gross margins were 34%. Operating income was -$100,000. We’re not yet profitable, but we’re getting there."
-   },
-   {
-    "t": "p",
     "x": "We had to put the breaks on online ads & marketing spending this year. As a business with relatively high fixed costs (think facilities, vehicles, repairs & maintenance, full-time employees, debt payments) and no external investors, there came a point last year where we had trouble just keeping up with our bills, never-mind splurging on more Google Ads."
    },
    {
     "t": "p",
     "x": "Thankfully we were able to iron out our working capital issues thanks to a long-term loan from the Small Business Administration (SBA). As of this writing, we have a solid amount of financial cushion to help us continue investing in our operations and accelerate growth in the coming months."
-   },
-   {
-    "t": "img",
-    "x": "/assets/img/blog/31e1f9_fd472a68f4c948fa9f902fc954e88686.png"
-   },
-   {
-    "t": "p",
-    "x": "Forecast: current year (2022) and beyond. Our aim this year is to continue building on the momentum in our delivery business (+60% last year). Marketing expenses were less than 2% of our revenue in 2021. By contrast, we are bumping ads + marketing spending 5x to about 10% of revenue this year. We’re also expanding to new Bay Area markets, including San Francisco and Silicon Valley. If the opportunities arise, we may acquire smaller high quality wash & fold laundry businesses (e.g. Launderbot acquisition in 2019)."
-   },
-   {
-    "t": "p",
-    "x": "We expect to hit sales of $2.2 million in 2022 and break even on a cash-flow basis."
-   },
-   {
-    "t": "p",
-    "x": "We believe we can keep growing at least 50% annually through the following three to five years, reaching at least $5 million in sales by 2024 ( >$1 million EBITDA) and, with a little luck, $10 million by 2026."
-   },
-   {
-    "t": "p",
-    "x": "Inflation is undoubtedly affecting our margins so far this year, and we may consider price increases to get us to our target gross margins of >40%."
-   },
-   {
-    "t": "p",
-    "x": "We're operating at roughly 30% capacity, meaning we could - in theory - triple our current monthly production volume with our existing facilities in Oakland (and hire many more people in the neighborhood). We hope to identify and close on at least one new processing facility by the end of this year or early 2023."
    },
    {
     "t": "p",
@@ -145,15 +117,7 @@
    },
    {
     "t": "p",
-    "x": "We create good service jobs. If we were to name our special sauce, it would be our employees. They are the reason our service is so highly-rated, and we do everything we can to provide them with competitive wages and stability. Including tips, starting salaries (as of May 2022):"
-   },
-   {
-    "t": "p",
-    "x": "Launderers & Folders: $18/hr"
-   },
-   {
-    "t": "p",
-    "x": "Drivers: $23.5/hr"
+    "x": "We create good service jobs. If we were to name our special sauce, it would be our employees. They are the reason our service is so highly-rated, and we do everything we can to provide them with competitive wages and stability."
    },
    {
     "t": "p",
@@ -161,11 +125,11 @@
    },
    {
     "t": "p",
-    "x": "Accumulated paid time off (10 days vacation annually for FT)"
+    "x": "Accumulated paid time off"
    },
    {
     "t": "p",
-    "x": "Health Insurance (80% pre-tax company contribution, optional)"
+    "x": "Health insurance"
    },
    {
     "t": "p",
@@ -173,7 +137,7 @@
    },
    {
     "t": "p",
-    "x": "$300 professional development stipend (annual)"
+    "x": "Professional development stipend"
    },
    {
     "t": "p",
@@ -352,7 +316,7 @@
   "lang": "es",
   "title": "Compramos una lavandería. Lo que pasó después nos sorprendió :-)",
   "description": "En 2018, Laura y yo decidimos comprar  una lavandería en East Oakland. Las condiciones del local no eran óptimas y era evidente que necesitaba mejorar. La…",
-  "image": "/assets/img/blog/31e1f9_fd472a68f4c948fa9f902fc954e88686.png",
+  "image": "/assets/img/electric-truck.png",
   "blocks": [
    {
     "t": "p",
@@ -368,39 +332,11 @@
    },
    {
     "t": "p",
-    "x": "¿Cómo Family Laundry funcionó durante el 2021?  Aunque las cifras están redondeadas, podemos ver que los  ingresos crecieron un 40% a $1,4 millón ya que crecimos un 80% debido a la alta demanda que generó el toque de queda por Covid en el 2020. Nuestro servicio al domicilio creció un 60% y alcanzó $1 millón por primera vez. Los ingresos de ventas directas al cliente (drop-off) se mantuvieron estables con un valor de $400 mil. El promedio de cada venta por el servicio a domicilio fue de $80 y el porcentaje de ganancia bruta fue de un 34%. Sin embargo, los ingresos de operaciones fueron de  -$100,000 . Aún no somos rentables en este punto, pero estamos muy cerca de serlo."
-   },
-   {
-    "t": "p",
     "x": "En el 2021 no invertimos mucho en avisos en línea y marketing. Esto es debido a que nuestra empresa tiene muchos gastos fijos (dos lavanderías, camiones, reparaciones, mantenimiento, empleados de tiempo completo y pagos de deuda) además de que no tenemos inversionistas externos. Como resultado fue un reto pagar las cuentas y ello no nos permitió invertir mucho en marketing."
    },
    {
     "t": "p",
     "x": "Afortunadamente recibimos un préstamo de largo tiempo a través de Small Business Administration (SBA). Actualmente, estamos en una buena situación financiera, lo cual nos permite  acelerar nuestro crecimiento e invertir en operaciones en los próximos meses."
-   },
-   {
-    "t": "img",
-    "x": "/assets/img/blog/31e1f9_fd472a68f4c948fa9f902fc954e88686.png"
-   },
-   {
-    "t": "p",
-    "x": "Pronóstico: el año actual (2022) y el futuro. Nuestra meta es seguir creciendo en el servicio a domicilio (+ 60% el año pasado). Los gastos de marketing representaron el 2% de nuestros ingresos en el 2021. Pero ahora, estamos invirtiendo en marketing, más en los avisos, lo cual nos permitiría una ascensión de 5 veces más. Esto representa aproximadamente el 10% de los ingresos del año pasado. Hemos ampliado nuestro servicio en San Francisco y pronto estaremos en Silicon Valley. Con esta  oportunidad en perspectiva, planeamos  adquirir otra empresa de entrega a domicilio (ex. adquisición de LaunderBot 2019)."
-   },
-   {
-    "t": "p",
-    "x": "Con esto esperamos alcanzar $2,2 millón en ventas en 2022 y cubrir todo gasto en efectivo."
-   },
-   {
-    "t": "p",
-    "x": "Tenemos confianza que vamos a crecer en un  50% anualmente en los próximos 3-5 años y alcanzaremos $5 millón en ventas en 2024 (>$1 millón EBITDA) y con un poquito de suerte, $10 millones en 2026."
-   },
-   {
-    "t": "p",
-    "x": "A pesar de estos progresos positivos, estamos conscientes que la inflación actual en el mercado está afectando el margen de ingresos y estamos considerando subir los precios para llegar a nuestro objetivo con  un margen bruto de > 40%."
-   },
-   {
-    "t": "p",
-    "x": "Actualmente estamos operando a una capacidad de 30% lo que significa - en teoría - que podemos producir el triple de lo que hacemos ahora con las dos lavanderías de East Oakland. Esto significará contratar más personal de la comunidad. Esperamos adquirir una tercera lavandería para finales del 2023."
    },
    {
     "t": "p",
@@ -440,15 +376,7 @@
    },
    {
     "t": "p",
-    "x": "Creamos buenos trabajos. El ingrediente mágico de Family Laundry es nuestro personal. Ellos son la razón por la cual tenemos el servicio más codiciado en el East Bay y hacemos todo lo posible para brindarles salarios competitivos y estabilidad laboral. Incluimos propinas, y salarios competitivos. Las cifras siguientes incluyen propinas (mayo 2022):"
-   },
-   {
-    "t": "p",
-    "x": "Launderers & folders: $18 la hora"
-   },
-   {
-    "t": "p",
-    "x": "Choferes: $23.50 la hora"
+    "x": "Creamos buenos trabajos. El ingrediente mágico de Family Laundry es nuestro personal. Ellos son la razón por la cual tenemos el servicio más codiciado en el East Bay y hacemos todo lo posible para brindarles salarios competitivos y estabilidad laboral."
    },
    {
     "t": "p",
@@ -456,11 +384,11 @@
    },
    {
     "t": "p",
-    "x": "Acumulación de tiempo libre (10 días anualmente para empleados a  tiempo completo)"
+    "x": "Acumulación de tiempo libre"
    },
    {
     "t": "p",
-    "x": "Seguro médico (80% antes de impuestos, opcional)"
+    "x": "Seguro médico"
    },
    {
     "t": "p",
@@ -468,7 +396,7 @@
    },
    {
     "t": "p",
-    "x": "Becas de $300 anuales  para desarrollo profesional o personal"
+    "x": "Becas para desarrollo profesional o personal"
    },
    {
     "t": "p",

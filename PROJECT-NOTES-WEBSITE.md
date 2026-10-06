@@ -185,3 +185,8 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
     yet. Saved, unlinked, in `website/assets/theme-app.css` (header comment says how to switch it on).
   - Circle logo redone from the EPS: the main yellow-diamond logo inside a navy-ringed white circle with a little breathing room (David picked it), no "Oakland
     Calif." (`logo-circle.svg` + 32/180/512 PNGs). Used in header (64px, 52px on phones), footer and browser icon.
+- **Tue Oct 6, 2026** — Rating stars in Google: the business markup used `LaundryOrDryCleaning`, which is not a
+  schema.org type, so Google ignored the 4.9 rating. Renamed to `DryCleaningOrLaundry` (the real type; rinse.com
+  uses it and shows 4.6 ★ in results) on the homepage, city pages, service provider and About page
+  (`website/api/_lib/pages.js`). Checked locally: homepage + city pages emit AggregateRating 4.9 / 77. Stars are
+  Google's call (own-site ratings for a local business aren't guaranteed); expect 1–4 weeks after re-crawl.

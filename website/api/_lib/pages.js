@@ -123,7 +123,7 @@ ${contactBlock(v)}`;
     description: "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free in our own facilities, never outsourced, and back the next day. Serving Oakland, Berkeley, the East Bay and San Francisco, Monday to Saturday.",
     body,
     jsonld: {
-      '@context': 'https://schema.org', '@type': 'LaundryOrDryCleaning', name: 'Family Laundry',
+      '@context': 'https://schema.org', '@type': 'DryCleaningOrLaundry', name: 'Family Laundry',
       url: 'https://www.familylaundry.com', telephone: v.site?.phone, email: v.site?.email,
       image: 'https://www.familylaundry.com/assets/img/logo-circle-512.png', logo: 'https://www.familylaundry.com/assets/img/logo-circle-512.png',
       address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
@@ -435,7 +435,7 @@ function city(c, v) {
       '@graph': [
         { '@type': 'FAQPage',
           mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
-        { '@type': 'LaundryOrDryCleaning', name: 'Family Laundry', url: ORIGIN + cityPath(c), telephone: v.site?.phone,
+        { '@type': 'DryCleaningOrLaundry', name: 'Family Laundry', url: ORIGIN + cityPath(c), telephone: v.site?.phone,
           image: ORIGIN + '/assets/img/logo-circle-512.png',
           address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
           areaServed: { '@type': 'City', name },
@@ -473,7 +473,7 @@ function topic(t, v) {
   const graph = [];
   if (faqs.length) graph.push({ '@type': 'FAQPage', mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) });
   if (t.service) graph.push({ '@type': 'Service', name: t.h1, serviceType: t.service, url: ORIGIN + t.path, areaServed: SERVICE_AREA(v),
-    provider: { '@type': 'LaundryOrDryCleaning', name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
+    provider: { '@type': 'DryCleaningOrLaundry', name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
       address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
       ...ownRatingLd(v) } });
   return {
@@ -605,7 +605,7 @@ function about(v) {
     jsonld: {
       '@context': 'https://schema.org', '@type': 'AboutPage', url: ORIGIN + '/about-us',
       mainEntity: {
-        '@type': 'LaundryOrDryCleaning', name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
+        '@type': 'DryCleaningOrLaundry', name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
         foundingDate: '2018', founder: [{ '@type': 'Person', name: 'Laura Guevara' }, { '@type': 'Person', name: 'David Macquart-Moulin' }],
         numberOfEmployees: { '@type': 'QuantitativeValue', minValue: 30 },
         image: [img('team.jpg'), img('facility.jpg'), img('vans.jpg')],
