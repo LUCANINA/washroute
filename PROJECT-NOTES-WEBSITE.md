@@ -134,13 +134,12 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
 ## Open items
 
 - [x] Cutover done Mon Oct 5; sitemap submitted + re-indexing requested Oct 6
-- [ ] Google Business Profile name "Family Laundry: Premium Wash & Fold Delivery" breaks Google's no-tagline
-      rule — David to decide
+- [x] Google Business Profile renamed to "Family Laundry" (David, Oct 6)
 - [ ] Google reviews still missing on Piedmont, Albany, El Cerrito, Castro Valley, San Lorenzo, Fremont, Newark (no
       matching 5-star review in the Oct 6 export). Re-run with a fresh Google Takeout (Business Profile) every few months.
-- [ ] Open the 9 hidden city pages a few a week as they get local content (Oct 6: opened Hayward, Castro Valley,
-      El Cerrito, San Lorenzo, Fremont, Newark; next by customer count: Walnut Creek 3, Kensington 3, then Union City,
-      Concord and the Lamorinda cities, which have almost no customers yet)
+- [ ] Hidden city pages left: Concord, Lafayette, Moraga, Pleasant Hill, Martinez (0–1 customers each, Oct 2026).
+- [ ] El Sobrante: customers there, but outside every `service_zones` polygon. Widen the Berkeley zone in WashRoute
+      first, then add the page (same pattern as Richmond).
 - [ ] SF and Oakland neighborhood pages (2ULaundry has ~90; ours need real local content first)
 - [ ] PARKED Oct 5 (David likes it, not now): "Neighborhood Laundry Day" — one discounted pickup day per ZIP.
   Why: Monday has 2–3x the pickups of Tue/Thu in most ZIPs; same-day neighbors = denser routes. Open choices:
@@ -213,3 +212,7 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   WashRoute customer and that customer's address city. Added: Kimberly R (Berkeley), Loren L (Emeryville),
   Joyce P (San Leandro), Nicole B (Hayward). Rules kept: 5-star, first name + initial, no health details
   (trimmed with [...]), nothing about the pandemic or same-day. The export stays on David's Desktop, not in the repo.
+- **Tue Oct 6, 2026 (active-customers check)** — Checked David's list of customers from the past 3 months against the
+  city pages. Opened Kensington, Walnut Creek, Orinda and Union City, and added a new Richmond page (`zone: 'Berkeley'`
+  in `cities.js`; its addresses sit inside the Berkeley polygon). El Sobrante held back (outside every zone). Sitemap
+  now 50 URLs; 19 of 24 city pages open.

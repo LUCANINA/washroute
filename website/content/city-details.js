@@ -193,4 +193,67 @@ module.exports = {
       ['Is there a plan for big family loads?', 'Yes. The subscription is {plan:price} a month for {plan:lbs} lbs, with unlimited pickups and free next-day delivery.'],
     ],
   },
+  // Opened Oct 6, 2026 (Kensington, Walnut Creek, Orinda, Union City, Richmond) after David's active-customers list.
+  // Richmond has no zone of its own: 94801/94804/94805 addresses sit inside the Berkeley polygon (checked Oct 6).
+  // El Sobrante is NOT inside any service_zones polygon, so it has no page until the zone covers it.
+  kensington: {
+    photo: 'porch-bag-1.jpg',
+    about: [
+      "Kensington shares our Berkeley routes, so it gets the same pickup windows as Berkeley, Albany and El Cerrito.",
+      "Most of Kensington is houses on steep, winding streets above Berkeley and Albany. Leave the bag wherever is easiest: at the door, at the top of the driveway or by the curb, and tell us in the app.",
+    ],
+    hoods: ['Arlington Avenue', 'Colusa Circle', 'Kensington Park', 'the Berkeley border', 'the Albany border'],
+    faqs: [
+      ['My street is steep. Where should I leave the bag?', 'Wherever is easiest for you: the door, the top of the driveway or the curb. Add a note in the app and the driver will find it.'],
+      ['Is the price the same in Kensington?', 'Yes. Every city we serve pays the same price, with no extra fee for Kensington.'],
+    ],
+  },
+  'walnut-creek': {
+    photo: 'porch-bag-2.jpg',
+    about: [
+      "Walnut Creek is on our Contra Costa route, which also covers Concord, Pleasant Hill, Lafayette, Orinda, Moraga and Martinez. Pickups there run in the morning.",
+      "We pick up from downtown apartments and condos as well as houses out toward Northgate and Rossmoor. Your laundry comes through the tunnel to our own facility in East Oakland, is washed by our team and comes back folded.",
+    ],
+    hoods: ['Downtown Walnut Creek', 'Northgate', 'Rossmoor', 'Saranap', 'Parkmead', 'Ygnacio Valley'],
+    faqs: [
+      ['Why are Walnut Creek pickups only in the morning?', 'Walnut Creek is on our morning Contra Costa route. Pick the morning window in the app; we text you when the driver is on the way.'],
+      ['Is the price the same in Walnut Creek?', 'Yes. Every city we serve pays the same price, with no extra fee for Walnut Creek.'],
+    ],
+  },
+  orinda: {
+    photo: 'porch-bag-1.jpg',
+    about: [
+      "Orinda is on our Contra Costa route, just through the Caldecott Tunnel from Oakland. Pickups there run in the morning.",
+      "Many Orinda homes sit on hillside lots with long driveways. Leave the bag at the door, by the garage or at the top of the driveway, and note it in the app.",
+    ],
+    hoods: ['Orinda Village', 'the Crossroads', 'Glorietta', 'Sleepy Hollow', 'El Toyonal', 'Orinda Downs'],
+    faqs: [
+      ['Is there a plan for big family loads?', 'Yes. The subscription is {plan:price} a month for {plan:lbs} lbs, with unlimited pickups and free next-day delivery.'],
+      ['Is the price the same in Orinda?', 'Yes. Every city we serve pays the same price, with no extra fee for Orinda.'],
+    ],
+  },
+  'union-city': {
+    photo: 'porch-bag-2.jpg',
+    about: [
+      "Union City is on our south routes with Hayward, Fremont and Newark, so it gets the same pickup windows as its neighbors.",
+      "We pick up across the city, from Alvarado and Decoto to the neighborhoods around Union Landing. Leave the bag at the door or with your building's front desk, and it comes back washed by our own team and folded.",
+    ],
+    hoods: ['Alvarado', 'Decoto', 'Union Landing', 'the Mission Boulevard area', 'the Union City BART area'],
+    faqs: [
+      ['Do you pick up from apartments and townhomes?', 'Yes. Leave your bag at your door, with the front desk or wherever your complex allows, and add the details in the app.'],
+      ['Is the price the same in Union City?', 'Yes. Every city we serve pays the same price, with no extra fee for Union City.'],
+    ],
+  },
+  richmond: {
+    photo: 'porch-bag-1.jpg',
+    about: [
+      "Richmond is on our Berkeley routes, so it gets the same pickup windows as El Cerrito and Albany.",
+      "Our Richmond customers are in the southern half of the city: Point Richmond, Marina Bay, the Richmond Annex and Richmond Heights. Further north? Enter your address in the app to check your street.",
+    ],
+    hoods: ['Point Richmond', 'Marina Bay', 'the Richmond Annex', 'Panhandle Annex', 'Richmond Heights', 'Downtown Richmond'],
+    faqs: [
+      ['Do you serve all of Richmond?', 'We serve most of south and central Richmond. Enter your address in the app to see whether your street is covered and which pickup windows it gets.'],
+      ['Is the price the same in Richmond?', 'Yes. Every city we serve pays the same price, with no extra fee for Richmond.'],
+    ],
+  },
 };
