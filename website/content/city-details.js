@@ -8,7 +8,6 @@ module.exports = {
     households: 'more than 600',
     photo: 'porch-bag-1.jpg',
     about: [
-      "Our laundry facilities are on Foothill Boulevard in East Oakland, so Oakland laundry never crosses a bridge. It is washed by our own team, a few miles from your door.",
       "Oakland is our biggest city. Most of our Oakland customers live around Lake Merritt, Grand Lake, Rockridge, Temescal and Glenview, but our vans cover the whole city, from West Oakland to the hills.",
     ],
     hoods: ['Grand Lake', 'Lakeshore', 'Adams Point', 'Crocker Highlands', 'Trestle Glen', 'Piedmont Avenue', 'Rockridge', 'Temescal', 'Longfellow', 'Montclair', 'Glenview', 'Dimond', 'Oakmore', 'Redwood Heights', 'Laurel', 'Millsmont', 'Clinton', 'San Antonio', 'Eastlake', 'Fruitvale', 'Jingletown', 'Uptown', 'Downtown', 'Lake Merritt', 'Jack London Square', 'West Oakland'],
@@ -24,7 +23,7 @@ module.exports = {
     photo: 'porch-bag-2.jpg',
     about: [
       "Berkeley is our second-busiest city. Customers stretch from the Elmwood and Claremont up into the hills and down to West Berkeley, with a lot of students, faculty and staff around campus.",
-      "Your laundry is washed in our own facility in East Oakland, about 20 minutes away, and comes back folded and bundled by family member.",
+      "Your laundry is washed in our own plant in East Oakland, about 20 minutes away, and comes back folded and bundled by family member.",
     ],
     hoods: ['Elmwood', 'Claremont', 'Southside', 'Downtown Berkeley', 'Northside', 'North Berkeley', 'the Gourmet Ghetto', 'Thousand Oaks', 'the Berkeley Hills', 'South Berkeley', 'Lorin', 'Le Conte', 'West Berkeley', 'the UC Berkeley campus area'],
     review: { who: "Kimberly R, Berkeley", text: "Their customer service is supreme! They are extremely attentive and helpful! And it is such a joy to have fresh, beautifully cared for laundry without it being perfumed." },
@@ -38,7 +37,7 @@ module.exports = {
     households: 'more than 100',
     photo: 'porch-bag-1.jpg',
     about: [
-      "Alameda is right across the Fruitvale Bridge from our East Oakland facility, so it is one of the quickest trips our vans make.",
+      "Alameda is right across the Fruitvale Bridge from our East Oakland plant, so it is one of the quickest trips our vans make.",
       "We serve the whole island, from the East End to the West End, plus Bay Farm Island and Harbor Bay.",
     ],
     hoods: ['the East End', 'the West End', 'Park Street', 'Webster Street', 'Fernside', 'the Gold Coast', 'Alameda Point', 'Bay Farm Island', 'Harbor Bay'],
@@ -51,7 +50,6 @@ module.exports = {
   'san-leandro': {
     photo: 'porch-bag-2.jpg',
     about: [
-      "San Leandro is just down Foothill Boulevard from our facility, one of the closest cities we serve.",
       "Customers here are spread across Downtown, Estudillo Estates, Broadmoor and Washington Manor, and we pick up across the whole city.",
     ],
     hoods: ['Downtown San Leandro', 'Estudillo Estates', 'Broadmoor', 'Bancroft', 'Bay-O-Vista', 'Floresta', 'Washington Manor', 'Mulford Gardens', 'the Marina'],
@@ -101,8 +99,7 @@ module.exports = {
     households: 'more than 100',
     photo: 'porch-bag-2.jpg',
     about: [
-      "We have served San Francisco since 2022, when we acquired Sudzee, the city's laundry delivery pioneer founded in 2011.",
-      "San Francisco pickups and deliveries run in the evening. Your laundry crosses the Bay Bridge to our own facility in East Oakland, is washed by our team and comes back folded.",
+      "We have served San Francisco since 2022, when we acquired Sudzee, the city's laundry delivery pioneer founded in 2011. Our Oakland drop-off laundromat carries the Sudzee name too.",
       "Our San Francisco customers are spread across the city, with the most in the Mission and Bernal Heights, Nob Hill and Russian Hill, Pacific Heights and Japantown, and the Inner Richmond.",
     ],
     hoods: ['the Mission', 'Bernal Heights', 'Nob Hill', 'Russian Hill', 'Polk Gulch', 'Pacific Heights', 'Japantown', 'Lower Pacific Heights', 'the Western Addition', 'Laurel Heights', 'the Inner Richmond', 'the Outer Richmond', 'Hayes Valley', 'Civic Center', 'SoMa', 'Rincon Hill', 'the Financial District', 'Haight-Ashbury', 'Cole Valley', 'NoPa', 'the Marina', 'Cow Hollow', 'the Inner Sunset', 'the Outer Sunset', 'Parkside', 'Glen Park', 'Noe Valley', 'the Castro', 'Twin Peaks', 'West Portal', 'Potrero Hill', 'Dogpatch', 'Mission Bay', 'North Beach', 'Chinatown', 'Union Square', 'the Presidio', 'the Excelsior', 'Visitacion Valley', 'Lake Merced', 'Treasure Island'],
@@ -124,7 +121,7 @@ module.exports = {
     hoods: ['Downtown Hayward', 'Upper B Street', 'Prospect Hill', 'Burbank', 'the Hayward Hills', 'Hayward Highlands', 'the Cal State East Bay area', 'Fairway Park', 'Harder-Tennyson', 'Tennyson-Alquire', 'Mount Eden', 'Southgate', 'West Hayward'],
     review: { who: "Nicole B, Hayward", text: "They are very communicative about delivery pick-up's & drop off's, and they bring your clothes back to you folded nicely with a personal touch." },
     faqs: [
-      ['Do you pick up near Cal State East Bay?', 'Yes. The Hayward Hills get the same pickup windows as the rest of Hayward. Leave your bag wherever your building allows and add the details in the app.'],
+      ['Do you pick up near Cal State East Bay?', 'Yes. The Cal State East Bay area and the rest of the Hayward Hills get the same pickup windows as the rest of Hayward. Leave your bag at your door or wherever your building allows, and add the details in the app.'],
       ['Can I drop my laundry off instead?', 'Yes. Our drop-off counter is at {site:dropoff_address}, a short drive up I-580, open {site:dropoff_hours}.'],
       ['Is the price the same in Hayward?', 'Yes. Every city we serve pays the same price, with no extra fee for Hayward.'],
     ],
@@ -132,7 +129,7 @@ module.exports = {
   'castro-valley': {
     photo: 'porch-bag-2.jpg',
     about: [
-      "Castro Valley is on our south routes, a quick trip out I-580 from our facility in East Oakland.",
+      "Castro Valley is on our south routes, a quick trip out I-580 from our plant in East Oakland.",
       "Most of our Castro Valley customers live up in Five Canyons and the Palomares Hills, east of I-580. The rest are around Castro Valley Boulevard and the center of town, and we pick up everywhere in between.",
     ],
     hoods: ['Five Canyons', 'the Palomares Hills', 'Jensen Ranch', 'Columbia', 'Crow Canyon', 'the Lake Chabot area', 'Castro Valley Boulevard', 'Downtown Castro Valley'],
@@ -146,7 +143,7 @@ module.exports = {
     photo: 'porch-bag-1.jpg',
     about: [
       "El Cerrito shares our Berkeley routes, so it gets the same pickup windows as Berkeley, Albany and Kensington.",
-      "Houses up in the hills or apartments near El Cerrito Plaza and El Cerrito del Norte: leave the bag at the door, the curb or the front desk. Everything is washed by our own team in East Oakland and comes back folded.",
+      "In the hills or in an apartment near El Cerrito Plaza or El Cerrito del Norte, leave the bag at the door, the curb or the front desk. Everything is washed by our own team in East Oakland and comes back folded.",
     ],
     hoods: ['the El Cerrito Hills', 'Mira Vista', 'Arlington Park', 'Fairmont', 'the San Pablo Avenue corridor', 'El Cerrito Plaza', 'El Cerrito del Norte'],
     faqs: [
@@ -160,7 +157,7 @@ module.exports = {
   'san-lorenzo': {
     photo: 'porch-bag-2.jpg',
     about: [
-      "San Lorenzo is on our south routes, right between San Leandro and Hayward, a short drive down I-880 from our facility in East Oakland.",
+      "San Lorenzo is on our south routes, right between San Leandro and Hayward, a short drive down I-880 from our plant in East Oakland.",
       "Leave the bag on the porch or by the front door. It is washed by our own team, never handed to a third party, and comes back folded and bundled by family member.",
     ],
     hoods: ['San Lorenzo Village', 'Ashland', 'Hesperian Boulevard', 'Lewelling Boulevard', 'the Grant Avenue area'],
@@ -200,7 +197,7 @@ module.exports = {
     photo: 'porch-bag-1.jpg',
     about: [
       "Kensington shares our Berkeley routes, so it gets the same pickup windows as Berkeley, Albany and El Cerrito.",
-      "Most of Kensington is houses on steep, winding streets above Berkeley and Albany. Leave the bag wherever is easiest: at the door, at the top of the driveway or by the curb, and tell us in the app.",
+      "Most of Kensington is houses on steep, winding streets above Berkeley and Albany.",
     ],
     hoods: ['Arlington Avenue', 'Colusa Circle', 'Kensington Park', 'the Berkeley border', 'the Albany border'],
     faqs: [
@@ -212,7 +209,7 @@ module.exports = {
     photo: 'porch-bag-2.jpg',
     about: [
       "Walnut Creek is on our Contra Costa route, which also covers Concord, Pleasant Hill, Lafayette, Orinda, Moraga and Martinez. Pickups there run in the morning.",
-      "We pick up from downtown apartments and condos as well as houses out toward Northgate and Rossmoor. Your laundry comes through the tunnel to our own facility in East Oakland, is washed by our team and comes back folded.",
+      "We pick up from downtown apartments and condos as well as houses out toward Northgate and Rossmoor. Your laundry comes through the tunnel to our own plant in East Oakland, is washed by our team and comes back folded.",
     ],
     hoods: ['Downtown Walnut Creek', 'Northgate', 'Rossmoor', 'Saranap', 'Parkmead', 'Ygnacio Valley'],
     faqs: [
@@ -263,7 +260,7 @@ module.exports = {
     photo: 'porch-bag-2.jpg',
     about: [
       "Concord is the hub of our Contra Costa route, which also covers Walnut Creek, Pleasant Hill, Martinez, Lafayette, Orinda and Moraga. Pickups there run in the morning.",
-      "Your bag rides back through the Caldecott Tunnel to our own facility in East Oakland, where our team washes it fragrance-free, folds it and bundles it by family member, then brings it back to your door the next day.",
+      "Your bag rides back through the Caldecott Tunnel to our own plant in East Oakland, where our team washes it fragrance-free, folds it and bundles it by family member, then brings it back to your door the next day.",
     ],
     hoods: ['Downtown Concord', 'Todos Santos Plaza', 'Ygnacio Valley', 'Dana Estates', 'Sun Terrace', 'Holbrook Heights', 'Crystal Ranch', 'the Concord BART area'],
     faqs: [
@@ -275,8 +272,8 @@ module.exports = {
   lafayette: {
     photo: 'porch-bag-1.jpg',
     about: [
-      "Lafayette is on our morning Contra Costa route, one exit past the Caldecott Tunnel from our facility in East Oakland.",
-      "School clothes, sports kits, towels and sheets: hand off the whole week. Everything comes back folded and bundled by family member, so putting it away takes minutes.",
+      "Lafayette is on our morning Contra Costa route, one exit past the Caldecott Tunnel from our plant in East Oakland.",
+      "Hand off the whole week: school clothes, sports kits, towels and sheets. Everything comes back folded and bundled by family member, so putting it away takes minutes.",
     ],
     hoods: ['Downtown Lafayette', 'Happy Valley', 'Burton Valley', 'Reliez Valley', 'Acalanes Ridge', 'Springhill'],
     faqs: [
@@ -288,7 +285,7 @@ module.exports = {
   moraga: {
     photo: 'porch-bag-2.jpg',
     about: [
-      "Moraga is on our morning Contra Costa route, just over the hills from our facility in East Oakland.",
+      "Moraga is on our morning Contra Costa route, just over the hills from our plant in East Oakland.",
       "We pick up from family homes across Moraga and from apartments near Saint Mary's College. Your laundry is washed by our own team in East Oakland, never handed to a third party, and comes back folded the next day.",
     ],
     hoods: ['Moraga Center', 'Rheem Valley', 'Campolindo', 'Sanders Ranch', 'the Moraga Country Club area', "around Saint Mary's College"],

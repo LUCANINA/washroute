@@ -43,7 +43,7 @@ const footLinks = (group, extra = []) => [
 function ownRating(v) {
   const r = (v && v.ratings) || {};
   const avg = Number(r.avg), count = Number(r.count);
-  return count >= 20 && avg > 0 ? `<p class="foot-rating"><strong>${esc(avg.toFixed(1))} ★</strong> from ${esc(String(count))} customer ratings</p>` : '';
+  return count >= 20 && avg > 0 ? `<p class="foot-rating"><strong>${esc(avg.toFixed(1))} ★</strong> from ${esc(String(count))} ratings left after delivery</p>` : '';
 }
 
 function footer(v) {

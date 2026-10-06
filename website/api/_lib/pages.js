@@ -10,7 +10,7 @@ const md = (text, v) => C.renderContent(text, v).html;
 // Inline (no <p>) version for headings / list items.
 const mdi = (text, v) => md(text, v).replace(/^<p>|<\/p>$/g, '');
 
-const DEFAULT_DESC = "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free in our own facilities, never outsourced, and back the next day.";
+const DEFAULT_DESC = "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free at our own plant in East Oakland, never outsourced, and back the next day.";
 
 function cta(label = 'Schedule a pickup') {
   return `<a class="btn" href="${APP}">${esc(label)}</a>`;
@@ -29,7 +29,7 @@ function home(v) {
   <img class="h-hero-img" src="/assets/img/hero-wide.jpg" alt="A woman smelling freshly cleaned laundry" width="1920" height="984">
   <div class="wrap h-hero-copy">
     <h1><span class="h-kicker">Family Laundry</span>Premium Wash &amp; Fold for Busy Households</h1>
-    <p class="h-hero-sub">Picked up, washed in our own Oakland facilities and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
+    <p class="h-hero-sub">Picked up, washed at our own plant in East Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
     ${ratingBadge(v)}
     <a class="h-btn h-btn-lg" href="${APP}">Get started</a>
     <img class="h-stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="236" height="236">
@@ -43,9 +43,9 @@ function home(v) {
     <p class="h-electric">I'm electric</p>
   </div>
   <div class="h-van-copy">
-    <h2>Delivering the freshest laundry in the Bay since ${esc(v.site?.founded || '2019')}.</h2>
-    <p>Imagine a service that picks up your dirty laundry, then returns it to you perfectly washed and folded. Within a day. Like magic. That's Family Laundry (learn more about what makes us <a href="/post/premium-laundry-delivery-at-your-doorstep">stand out</a>).</p>
-    <p>We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities (we never, ever outsource) and delivery vehicles. It's 100% Family Laundry. Not happy with an order? Tell us and we'll make it right.</p>
+    <h2>Delivering laundry across the Bay since ${esc(v.site?.founded || '2019')}.</h2>
+    <p>We pick up your laundry, wash it ourselves and bring it back folded the next day. <a href="/post/premium-laundry-delivery-at-your-doorstep">What makes us different</a>.</p>
+    <p>We're an Oakland family business with more than 30 employees. We run our own wash &amp; fold plant and our own delivery vans, and we never outsource. Not happy with an order? Tell us and we'll make it right.</p>
     <p>Let us take care of your laundry. <a href="${APP}">Create an account</a> and book your first pickup.</p>
   </div>
 </section>
@@ -60,7 +60,7 @@ function home(v) {
     <ul class="h-dots">
       <li>25 lbs Wash &amp; Fold (about 2–3 loads)*</li>
       <li>Next-day Delivery: ${mdi('{fee:Delivery Fee}', v)}</li>
-      <li>Same-day Delivery: +${mdi('{fee:Same-Day Surcharge}', v)}</li>
+      <li>Same-day Delivery: +${mdi('{fee:Same-Day Surcharge}', v)} (where available)</li>
     </ul>
     <p class="h-fine">*Bags weighing more than 25 lbs are an extra ${mdi('{site:overweight_rate}', v)}.</p>
     <p class="h-tile-cta"><a class="btn" href="${APP}">Book one bag</a></p>
@@ -75,7 +75,7 @@ function home(v) {
       <li>${mdi('{plan:lbs}', v)} lbs Wash &amp; Fold*</li>
       <li>Unlimited pickups</li>
       <li>Next-day Delivery: FREE</li>
-      <li>Same-day Delivery: +${mdi('{fee:Same-Day Surcharge}', v)}</li>
+      <li>Same-day Delivery: +${mdi('{fee:Same-Day Surcharge}', v)} (where available)</li>
       <li>No minimum lbs. per order</li>
     </ul>
     <p class="h-fine">*Usage above ${mdi('{plan:lbs}', v)} lbs per month is ${mdi('{plan:overage}', v)} per lb.</p>
@@ -85,11 +85,11 @@ function home(v) {
 
 <section class="h-clean">
   <h2>How we clean</h2>
-  <p>We use only hypoallergenic detergents (free and clear) and Ozone when washing your laundry. No fragrances, no bleach, no softeners, no dry cleaning solvents, ever.</p>
-  <p>The result is a neutral, clean laundry smell with no noticeable detergent or conditioner residue.</p>
+  <p>We wash with Free &amp; Clear hypoallergenic detergent and ozone. We never use fragrance, bleach, softener or dry-cleaning solvents.</p>
+  <p>Your laundry comes back with a neutral, clean smell and no detergent or softener residue.</p>
   <div class="h-steps">
     <div><img src="/assets/img/step-prep.jpg" alt="" width="121" height="121" loading="lazy"><h3>Prep</h3><p>We empty all pockets and separate lights and darks.</p></div>
-    <div><img src="/assets/img/step-wash.jpg" alt="" width="121" height="121" loading="lazy"><h3>Wash, Sanitize, Dry</h3><p>By default, we wash your laundry in warm water using Free &amp; Clear detergent only. We dry on Medium.</p></div>
+    <div><img src="/assets/img/step-wash.jpg" alt="" width="121" height="121" loading="lazy"><h3>Wash, Sanitize, Dry</h3><p>We wash in warm water with Free &amp; Clear detergent and ozone, then dry on medium.</p></div>
     <div><img src="/assets/img/step-fold.png" alt="" width="121" height="121" loading="lazy"><h3>Fold</h3><p>We neatly fold your laundry, ball socks, and bundle your laundry by family member.</p></div>
   </div>
 </section>
@@ -97,7 +97,7 @@ function home(v) {
 <section class="h-bubbles">
   <div class="h-bubbles-copy">
     <h2>Bubble Power</h2>
-    <p>Our facilities are equipped with state-of-the-art Ozone water-injection systems that sanitize your laundry (and our washing machines as they run), while boosting the cleaning power of our detergents.</p>
+    <p>The washers at our plant run on ozone-injected water. Ozone sanitizes your laundry (and the machines as they run) and helps a mild detergent clean better.</p>
   </div>
 </section>
 
@@ -120,7 +120,7 @@ ${contactBlock(v)}`;
   return {
     path: '/',
     title: 'Laundry Pickup & Delivery in Oakland & the East Bay | Family Laundry',
-    description: "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free in our own facilities, never outsourced, and back the next day. Serving Oakland, Berkeley, the East Bay and San Francisco, Monday to Saturday.",
+    description: "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free at our own plant in East Oakland, never outsourced, and back the next day. Serving Oakland, Berkeley, the East Bay and San Francisco, Monday to Saturday.",
     body,
     jsonld: {
       '@context': 'https://schema.org', '@type': 'DryCleaningOrLaundry', '@id': BIZ_ID, name: 'Family Laundry',
@@ -159,7 +159,7 @@ function ratingBlock(v) {
 const BIZ_ID = ORIGIN + '/#business';
 function ownRatingLine(v) {
   const r = ownRating(v);
-  return r ? `<strong>${esc(r.avg.toFixed(1))} ★</strong> from ${esc(String(r.count))} customer ratings` : '';
+  return r ? `<strong>${esc(r.avg.toFixed(1))} ★</strong> from ${esc(String(r.count))} ratings left after delivery` : '';
 }
 
 // Our own after-delivery ratings (site_public_values().ratings, from order_feedback). Shown once there are 20+.
@@ -251,12 +251,12 @@ function services(v) {
   const extra = (name, desc, price, unit) => `<div class="sv-extra"><h3>${name}</h3><p>${desc}</p><p class="sv-price">${price} <span>${unit}</span></p></div>`;
   return {
     path: '/laundry-delivery-services',
-    title: 'Family Laundry | Laundry Services for Pickup & Delivery',
-    description: wix['/laundry-delivery-services'].description,
+    title: 'Laundry Services & Prices: Wash & Fold Pickup and Delivery | Family Laundry',
+    description: 'Wash & fold pickup and delivery, plus Air Dry, shirt service, Vinegar, Oxi and Double Wash. Washed fragrance-free at our own plant in East Oakland. Serving the East Bay and San Francisco.',
     body: `<section class="wrap section sv">
   <p class="eyebrow">Services &amp; prices</p>
   <h1>Wash &amp; fold, done for you</h1>
-  <p class="sv-lead">Picked up at your door, washed fragrance-free in our own Oakland facility, and back folded the next day.</p>
+  <p class="sv-lead">Picked up at your door, washed fragrance-free at our own plant in East Oakland, and back folded the next day.</p>
 
   <div class="sv-main">
     <div class="sv-tile sv-tile-lg"><img src="/assets/img/svc-washfold-cut.png" alt="A Family Laundry bag of clean, folded laundry"></div>
@@ -285,10 +285,10 @@ function services(v) {
     ${addon('svc-shirt-cut.png', 'A hand-steamed shirt on a hanger', 'Shirt service', 'Shirts and blouses laundered, hand-steamed and delivered on hangers.', '+' + mdi('{price:Shirt Service}', v), 'per shirt')}
   </div>
   <div class="sv-extras">
-    ${extra('Vinegar rinse', 'Helps soften fabric and lift detergent residue.', '+' + mdi('{price:Vinegar}', v), 'per bag')}
-    ${extra('Oxi', 'Our bleach alternative, for brighter whites.', '+' + mdi('{price:Oxi}', v), 'per bag')}
+    ${extra('Vinegar rinse', 'Softens fabric and rinses out detergent residue.', '+' + mdi('{price:Vinegar}', v), 'per bag')}
+    ${extra('Oxi', 'Brighter whites without bleach.', '+' + mdi('{price:Oxi}', v), 'per bag')}
     ${extra('Double Wash', 'A second full wash, for very dirty loads or pet beds.', '+' + mdi('{price:Double Wash}', v), 'per bag')}
-    ${extra('Same-day', 'Back the same day, in most areas.', '+' + mdi('{fee:Same-Day Surcharge}', v), 'per order')}
+    ${extra('Same-day', 'Back the same day, where available. Enter your address in the app to check.', '+' + mdi('{fee:Same-Day Surcharge}', v), 'per order')}
   </div>
 
   ${topicLinks('Residential', 'Guides by situation')}
@@ -305,7 +305,7 @@ function commercial(v) {
   return {
     path: '/commercial-laundry',
     title: 'Commercial Laundry Service for Schools, Daycares & Businesses | Family Laundry',
-    description: 'Commercial laundry pickup and delivery for schools, daycares and businesses in San Francisco and the East Bay: nap mats, bibs, towels, uniforms and linens. Washed in our own Oakland facility on a schedule that fits yours.',
+    description: 'Commercial laundry pickup and delivery for schools, daycares and businesses in San Francisco and the East Bay: nap mats, bibs, towels, uniforms and linens. Washed at our own plant in East Oakland on a schedule that fits yours.',
     body: `<section class="wrap section narrow sv">
   <p class="eyebrow">Commercial</p>
   <h1>Commercial laundry</h1>
@@ -390,9 +390,9 @@ function city(c, v) {
       ? `Yes. Family Laundry picks up and delivers in ${name} ${days}, with ${wins.length > 1 ? `${C.list(winText)} windows` : `${/^[aeiou]/.test(winText[0]) ? 'an' : 'a'} ${winText[0]} window`}. Pick yours when you book in the app.`
       : `Yes. Family Laundry picks up and delivers in ${name} ${days}. Enter your address in the app to see the pickup windows for your street.`],
     ...(d.faqs || []).map(([q, a]) => [q, plain(a)]),
-    ['When do I get my laundry back?', 'Standard turnaround is next day: we pick it up, wash and fold it in our own Oakland facility, and bring it back the next day.'],
+    ['When do I get my laundry back?', 'The next service day. We wash and fold it at our own plant in East Oakland, so a Saturday pickup comes back Monday.'],
     ['Do I need to be home?', "No. Leave your bag at the door, with your building's front desk, or wherever you tell us in the app."],
-    ['What detergent do you use?', 'Free & Clear (hypoallergenic, no fragrance) plus ozone. No bleach, no softener, no fragrance, ever.'],
+    ['What detergent do you use?', 'Free & Clear hypoallergenic detergent and ozone. We never use bleach, softener or fragrance.'],
   ];
   const hoodsBlock = !hoodList.length ? '' : d.hoods
     ? `<h2>Neighborhoods we serve in ${esc(name)}</h2>
@@ -403,7 +403,7 @@ function city(c, v) {
     path: cityPath(c),
     noindex: !c.index,
     title: `Laundry Pickup & Delivery in ${name} | Family Laundry`,
-    description: `Wash & fold laundry pickup and delivery in ${name}. Washed fragrance-free in our own Oakland facility, never outsourced, and back the next day.`,
+    description: `Wash & fold laundry pickup and delivery in ${name}. Washed fragrance-free at our own plant in East Oakland, never outsourced, and back the next day.`,
     body: `<section class="wrap section narrow">
   <h1>Laundry pickup &amp; delivery in ${esc(name)}</h1>
   <p class="lead">${esc(c.intro)}</p>
@@ -419,7 +419,7 @@ function city(c, v) {
   ${hoodsBlock}
   ${d.review ? `<figure class="city-quote"><blockquote>“${esc(d.review.text)}”</blockquote><figcaption>${esc(d.review.who)}</figcaption></figure>` : ''}
   <div class="why why-2">
-    <div><h3>Cleaned in-house</h3><p>Washed by our own team in our Oakland facility. Never outsourced.</p></div>
+    <div><h3>Cleaned in-house</h3><p>Washed by our own team at our East Oakland plant. Never outsourced.</p></div>
     <div><h3>Fragrance-free</h3><p>Free &amp; Clear detergent and ozone. Nothing that lingers on skin.</p></div>
     <div><h3>Back the next day</h3><p>Folded neatly, socks balled, bundled by family member.</p></div>
     <div><h3>No need to be home</h3><p>Leave your bag at the door. We text you when we're on the way.</p></div>
@@ -475,7 +475,7 @@ function topic(t, v) {
     ${v.site?.phone ? `<p class="muted">Or call ${esc(v.site.phone)}.</p>` : ''}
   </div>`
     : `<div class="card">
-    <h2>Ready when you are</h2>
+    <h2>Book a pickup</h2>
     <p>Pickup and delivery ${mdi('{site:service_days}', v)}. Per bag: ${mdi('{price:Wash & Fold}', v)} plus ${mdi('{fee:Delivery Fee}', v)} delivery, or ${mdi('{plan:price}', v)}/month with a subscription.</p>
     <p>${cta()}</p>
   </div>`;
@@ -518,7 +518,7 @@ function cost(v) {
   }).join('');
   const faqs = [
     ['How much is laundry pickup and delivery per pound?', `A ${m(bag)} bag holds up to 25 lbs, about ${m(bag / 25)} per lb before delivery. Drop-off wash & fold at our Oakland counter is ${m(retail)}/lb.`],
-    ['Is a laundry subscription worth it?', `It pays off from about four bags a month. One bag a month costs ${m(perOrder)} per bag; four separate bags cost ${m(4 * perOrder)}, against ${m(plan)} for the subscription.`],
+    ['Is a laundry subscription worth it?', `From about four bags a month. Each bag costs ${m(perOrder)} with delivery, so four bags cost ${m(4 * perOrder)}, against ${m(plan)} for the subscription.`],
     ['Is there a minimum?', `One bag: ${m(bag)} plus ${m(del)} delivery. Subscribers have no minimum per order.`],
   ];
   return {
@@ -535,7 +535,7 @@ function cost(v) {
     <li><strong>Per bag:</strong> ${esc(m(bag))} for up to 25 lbs (about 2–3 loads), plus ${esc(m(del))} delivery per order. Over 25 lbs: ${mdi('{site:overweight_rate}', v)}.</li>
     <li><strong>Subscription:</strong> ${esc(m(plan))}/month for ${esc(String(lbs))} lbs, unlimited pickups, free next-day delivery, no minimum per order. Above ${esc(String(lbs))} lbs: ${esc(m(over))}/lb.</li>
     <li><strong>Drop-off</strong> at ${mdi('{site:dropoff_address}', v)}: ${esc(m(retail))}/lb wash &amp; fold. <a href="/drop-off-laundry-oakland">Drop-off details</a>.</li>
-    <li><strong>Add-ons:</strong> Air Dry ${mdi('{price:Air Dry}', v)} per delicates bag, shirts ${mdi('{price:Shirt Service}', v)} each, Vinegar or Oxi ${mdi('{price:Oxi}', v)} per bag, Double Wash ${mdi('{price:Double Wash}', v)} per bag, same-day delivery +${esc(m(same))}.</li>
+    <li><strong>Add-ons:</strong> Air Dry ${mdi('{price:Air Dry}', v)} per delicates bag, shirts ${mdi('{price:Shirt Service}', v)} each, Vinegar or Oxi ${mdi('{price:Oxi}', v)} per bag, Double Wash ${mdi('{price:Double Wash}', v)} per bag, same-day delivery +${esc(m(same))} where available.</li>
     <li><strong>Businesses:</strong> from ${mdi('{commercial:Wash & Fold}', v)}. <a href="/commercial-laundry">Commercial laundry</a>.</li>
   </ul>
   <h2>What a month of laundry costs</h2>
@@ -548,8 +548,8 @@ function cost(v) {
   <h2>What's included either way</h2>
   <ul>
     <li>Pickup and delivery to your door ${mdi('{site:service_days}', v)}, back the next service day</li>
-    <li>Washed in our own Oakland facility by our own team, never outsourced</li>
-    <li>Free &amp; Clear hypoallergenic detergent and ozone: no fragrance, bleach or softener</li>
+    <li>Washed at our own plant in East Oakland by our own team, never outsourced</li>
+    <li>Free &amp; Clear hypoallergenic detergent and ozone, with no fragrance, bleach or softener</li>
     <li>Folded, socks balled, bundled by family member, in bags that are yours to keep</li>
   </ul>
   <div class="card"><h2>Try it</h2><p>New customers: your friend's referral code takes ${mdi('{referral:friend}', v)} off your first order.</p><p>${cta()}</p></div>
@@ -582,20 +582,21 @@ function about(v) {
   return {
     path: '/about-us',
     title: 'About Us: an Oakland Family Business | Family Laundry',
-    description: 'Meet Family Laundry: an Oakland family business since 2018 with more than 30 employees. We wash every order in our own facility and deliver it in our own electric vans.',
+    description: 'Meet Family Laundry: an Oakland family business since 2018 with more than 30 employees. We wash every delivery order at our own plant in East Oakland and deliver it in our own electric vans.',
     body: `<section class="wrap section narrow about">
   <p class="eyebrow">About us</p>
   <h1>The people who do your laundry</h1>
   <p class="lead">Family Laundry is an Oakland family business. We started in early 2018, the day we closed on our first laundromat, and began pickup and delivery in 2019.</p>
   ${ratingBlock(v)}
-  <figure class="about-photo"><img src="/assets/img/team.jpg" alt="The Family Laundry team in aprons at the Oakland facility" width="1078" height="588">
+  <figure class="about-photo"><img src="/assets/img/team.jpg" alt="The Family Laundry team in aprons in East Oakland" width="1078" height="588">
     <figcaption>Part of the Family Laundry team in Oakland.</figcaption></figure>
   <h2>Our own team, never outsourced</h2>
   <p>We have more than 30 employees, and every order is washed, dried and folded by them. Your laundry never goes to a third party. When you call or text, you reach the same team.</p>
   <figure class="about-photo"><img src="/assets/img/facility.jpg" alt="A Family Laundry team member in front of the commercial washers" width="1140" height="766" loading="lazy">
-    <figcaption>Inside our Oakland facility.</figcaption></figure>
-  <h2>Our own facility in Oakland</h2>
-  <p>Every load is washed in our commercial machines with Free &amp; Clear hypoallergenic detergent and ozone: no fragrance, no bleach and no softener. Your order is folded, socks balled, and bagged in Family Laundry bags that are yours to keep.</p>
+    <figcaption>Our commercial washers in East Oakland.</figcaption></figure>
+  <h2>Our own plant in East Oakland</h2>
+  <p>Every delivery order is washed at our own plant in East Oakland, in commercial machines with Free &amp; Clear hypoallergenic detergent and ozone. We never use fragrance, bleach or softener. Your order is folded, socks balled, and bagged in Family Laundry bags that are yours to keep.</p>
+  <p>Drop-off orders are washed at our laundromat, Sudzee Wash &amp; Fold, at 2609 Foothill Boulevard. It shares its name with Sudzee, the San Francisco delivery company we acquired in 2022.</p>
   <figure class="about-photo"><img src="/assets/img/bag-deck.jpg" alt="A zipped Family Laundry bag on a sunny deck" width="1400" height="883" loading="lazy">
     <figcaption>Every customer gets their own Family Laundry bags.</figcaption></figure>
   <figure class="about-photo"><img src="/assets/img/vans.jpg" alt="Family Laundry electric Ford E-Transit vans parked in a row" width="1144" height="907" loading="lazy">
@@ -688,11 +689,48 @@ function exported(key, title, description, heading, extra = '') {
   };
 }
 
+// Rewritten Oct 6 2026 from the old Wix page (frozen in 2019–2020): same facts, dated, past tense.
 function community() {
   const pics = ['community-clinic.jpg', 'community-1.jpg', 'community-2.jpg', 'community-3.jpg', 'community-wash-read.jpg', 'community-lot.jpg']
     .map(f => `<img src="/assets/img/${f}" alt="" loading="lazy">`).join('');
-  const p = exported('/community', 'Family Laundry - Community Program', null, 'Community', `<div class="gallery">${pics}</div>`);
-  return p;
+  const quotes = [
+    ['They offer very good services, especially because they are focused on children and families in general.', 'Graduate of an ESL class held at Family Laundry'],
+    ['The people here are loving. It’s family oriented.', 'Customer who lives nearby'],
+    ['The people who come here are happy. They like the space for kids.', 'Benita, Family Laundry worker'],
+  ];
+  const press = [
+    ['Want Kids to Learn the Joy of Reading? Barbershops and Laundromats Can Help', 'The New York Times', 'July 2, 2019'],
+    ['Want in at the Bay Area’s hottest dance party? You’ll need to bring a baby', 'Los Angeles Times', 'October 16, 2019'],
+    ['Oakland laundromat promotes love of reading, offering story-time for children', 'KTVU', 'October 22, 2019'],
+    ['Oaklanders Learn Reading at the Laundromat', 'Oakland Magazine', 'November 3, 2019'],
+  ];
+  return {
+    path: '/community',
+    title: 'Community | Family Laundry',
+    description: 'Family Laundry in the East Oakland community: a reading room with Libraries Without Borders, library story time, free English classes and pandemic relief for neighbors.',
+    body: `<section class="wrap section narrow prose">
+  <h1>Community</h1>
+  <p class="lead">Family Laundry started in 2018 as a neighborhood laundromat in East Oakland. Here is what we have done with that space, and with our partners, since then.</p>
+  <h2>Reading and classes at the laundromat (2018–2020)</h2>
+  <ul>
+    <li>In 2018 we turned a small store in our building into a free reading room with the nonprofit Libraries Without Borders. Kids read while their parents did laundry.</li>
+    <li>Librarians from the Oakland Public Library held story time at the laundromat every Thursday morning.</li>
+    <li>Customers asked for English classes, so we hosted free ESL classes in our community room, taught by professional instructors. In a survey of graduates, 83% said they would take a class here again.</li>
+    <li>In November 2019 we dedicated the community room to Alma Soraya and Angel Garcia Vasquez.</li>
+  </ul>
+  <h2>During the pandemic (2020–2021)</h2>
+  <p>We closed the community room on March 16, 2020, and put the grant money to new use: 265 free laundry orders for seniors 60 and over, internet hotspots for 44 students at ICS and Garfield Elementary, and supermarket gift cards for 40 families who needed food.</p>
+  <p>On April 16, 2021, we turned our parking lot into a vaccination clinic with the Alameda County Public Health Department.</p>
+  <h2>What neighbors said</h2>
+  ${quotes.map(([q, who]) => `<blockquote>“${esc(q)}”<br><span class="muted">${esc(who)}</span></blockquote>`).join('\n  ')}
+  <h2>In the news</h2>
+  <ul>${press.map(([t, src, d]) => `<li>“${esc(t)}”, ${esc(src)}, ${esc(d)}</li>`).join('')}</ul>
+  <h2>How we run the business</h2>
+  <p>We put employees first, we take part in the communities we serve, and we work to reduce our impact on the environment. Thank you to Libraries Without Borders, the Oakland Public Library and Alameda County for working with us.</p>
+  <p>Laura, David and the Family Laundry team</p>
+  <div class="gallery">${pics}</div>
+</section>`,
+  };
 }
 
 function download(v) {
@@ -702,12 +740,12 @@ function download(v) {
     s.app_android_url ? `<a class="btn" href="${esc(s.app_android_url)}">Download for Android</a>` : '',
   ].join(' ');
   return {
-    path: '/download', title: 'Download the Family Laundry App', description: 'Schedule pickups, track orders and manage your Family Laundry account.',
+    path: '/download', title: 'The Family Laundry App', description: 'Schedule pickups, track orders and manage your Family Laundry account in the web app, on your phone or computer.',
     body: `<section class="wrap section narrow center">
-  <h1>Get the Family Laundry app</h1>
-  <p class="lead">Schedule pickups, track your order and manage your account.</p>
+  <h1>The Family Laundry app</h1>
+  <p class="lead">Schedule pickups, track your order and manage your account at app.familylaundry.com. It runs in the browser on your phone or computer, with nothing to download.</p>
   <p>${stores}</p>
-  <p>${cta('Use it on the web')}</p>
+  <p>${cta('Open the app')}</p>
 </section>`,
   };
 }

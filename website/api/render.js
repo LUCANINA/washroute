@@ -1,7 +1,11 @@
 // familylaundry.com — one server-rendered page per request, cached at Vercel's edge.
 const { load } = require('./_lib/data.js');
 const { layout, ORIGIN } = require('./_lib/layout.js');
-const { ROUTES, notFound } = require('./_lib/pages.js');
+const { ROUTES, notFound, CITIES } = require('./_lib/pages.js');
+
+// One service-area list everywhere: the zone cities from WashRoute plus every city page (Emeryville, Piedmont
+// and Richmond sit inside other zones, so the zone list alone left them out of the FAQ answer).
+const withCities = v => ({ ...v, cities: [...new Set([...(v.cities || []), ...CITIES.map(c => c.name)])].sort() });
 
 // Old Wix URLs that moved (keep links and Google rankings working).
 const REDIRECTS = {
@@ -29,6 +33,7 @@ module.exports = async (req, res) => {
   let data;
   try {
     data = await load();
+    data = { ...data, values: withCities(data.values) };
   } catch (e) {
     console.error('content load failed', e);
     res.statusCode = 503;

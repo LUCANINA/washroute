@@ -220,3 +220,10 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   now 50 URLs; 19 of 24 city pages open.
 - **Tue Oct 6, 2026 (Contra Costa)** — Opened Concord, Lafayette, Moraga, Pleasant Hill and Martinez (David wants to
   grow these areas). Morning-only windows (Concord zone). All 24 city pages now open; sitemap 55 URLs.
+- **Tue Oct 6, 2026 (copy audit)** — Fixed contradictions and AI-sounding copy across the site (David's calls: same-day
+  stays as an add-on "where available"; wording is "our own plant in East Oakland" for delivery orders and "our
+  laundromat, Sudzee Wash & Fold" for drop-off). Service-area list is now one list everywhere (`render.js` merges zone
+  cities with every city page). Community page rewritten in `pages.js` as a dated, past-tense summary (old Wix blocks
+  unused). Download page says web app (no iOS/Android app). City intros no longer repeat their body paragraphs.
+  11 FAQ answers updated in `faq_items` (also shown in the customer app); old text saved in
+  `archive/faq-snapshot-2026-10-06.json`. Website code not yet committed.
