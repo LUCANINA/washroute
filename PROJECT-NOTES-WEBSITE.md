@@ -136,8 +136,8 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
 - [x] Cutover done Mon Oct 5; sitemap submitted + re-indexing requested Oct 6
 - [ ] Google Business Profile name "Family Laundry: Premium Wash & Fold Delivery" breaks Google's no-tagline
       rule — David to decide
-- [ ] More Google reviews quoted on city pages (David to paste favorites that mention a city)
-      (Oct 6: Google Maps' signed-out view shows only 3 reviews and no search, so they can't be pulled automatically)
+- [ ] Google reviews still missing on Piedmont, Albany, El Cerrito, Castro Valley, San Lorenzo, Fremont, Newark (no
+      matching 5-star review in the Oct 6 export). Re-run with a fresh Google Takeout (Business Profile) every few months.
 - [ ] Open the 9 hidden city pages a few a week as they get local content (Oct 6: opened Hayward, Castro Valley,
       El Cerrito, San Lorenzo, Fremont, Newark; next by customer count: Walnut Creek 3, Kensington 3, then Union City,
       Concord and the Lamorinda cities, which have almost no customers yet)
@@ -207,3 +207,9 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   now 42 URLs.
 - **Tue Oct 6, 2026 (later)** — Opened San Lorenzo, Fremont and Newark the same way (local copy, neighborhoods, FAQs).
   Sitemap now 45 URLs; 14 city pages open, 9 hidden.
+
+- **Tue Oct 6, 2026 (reviews)** — David exported Google reviews via Google Takeout (Business Profile → reviews*.json,
+  326 reviews). Only 2 mention a city in the text, so the city comes from matching the reviewer's name to exactly one
+  WashRoute customer and that customer's address city. Added: Kimberly R (Berkeley), Loren L (Emeryville),
+  Joyce P (San Leandro), Nicole B (Hayward). Rules kept: 5-star, first name + initial, no health details
+  (trimmed with [...]), nothing about the pandemic or same-day. The export stays on David's Desktop, not in the repo.

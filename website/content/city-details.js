@@ -27,6 +27,7 @@ module.exports = {
       "Your laundry is washed in our own facility in East Oakland, about 20 minutes away, and comes back folded and bundled by family member.",
     ],
     hoods: ['Elmwood', 'Claremont', 'Southside', 'Downtown Berkeley', 'Northside', 'North Berkeley', 'the Gourmet Ghetto', 'Thousand Oaks', 'the Berkeley Hills', 'South Berkeley', 'Lorin', 'Le Conte', 'West Berkeley', 'the UC Berkeley campus area'],
+    review: { who: "Kimberly R, Berkeley", text: "Their customer service is supreme! They are extremely attentive and helpful! And it is such a joy to have fresh, beautifully cared for laundry without it being perfumed." },
     faqs: [
       ['Do you pick up from student apartments near UC Berkeley?', 'Yes. Leave your bag with the front desk or wherever your building allows, and add the details in the app so the driver knows where to look.'],
       ['Do you serve the Berkeley Hills?', 'Yes, including Thousand Oaks and the streets above Euclid. Steep stairs? Leave the bag at the curb or wherever is easiest.'],
@@ -54,6 +55,7 @@ module.exports = {
       "Customers here are spread across Downtown, Estudillo Estates, Broadmoor and Washington Manor, and we pick up across the whole city.",
     ],
     hoods: ['Downtown San Leandro', 'Estudillo Estates', 'Broadmoor', 'Bancroft', 'Bay-O-Vista', 'Floresta', 'Washington Manor', 'Mulford Gardens', 'the Marina'],
+    review: { who: "Joyce P, San Leandro", text: "I would recommend Family Laundry in a heartbeat. They provide outstanding service, respond promptly to your questions always polite." },
     faqs: [
       ['Do you serve all of San Leandro?', 'Yes, from the hills to the Marina. Enter your address in the app to see your pickup windows.'],
       ['Can I drop off instead of booking a pickup?', 'Yes. Our drop-off counter at {site:dropoff_address} is a short drive up Foothill Boulevard, open {site:dropoff_hours}.'],
@@ -66,6 +68,7 @@ module.exports = {
       "Emeryville is on our Oakland routes, so it gets the same pickup windows as Oakland.",
     ],
     hoods: ['the Watergate', 'Bay Street', 'the Park Avenue district', 'the Triangle neighborhood', 'Emery Station'],
+    review: { who: "Loren L, Emeryville", text: "So prompt with pick up and delivery. My clothes are fresh and clean without fragrances [...] and the clothes come bundled and tied with string." },
     faqs: [
       ['Can you pick up from my apartment building?', 'Yes. Leave the bag with the front desk or in the spot your building allows, and add instructions in the app.'],
       ['Do you serve Emeryville offices and gyms?', 'Yes. Our commercial service handles towels, uniforms and linens for Emeryville businesses on a regular schedule.'],
@@ -119,6 +122,7 @@ module.exports = {
       "Most of our Hayward customers live in north Hayward and around downtown, but we pick up across the city, from the Hayward Hills and Cal State East Bay down to Tennyson-Alquire and West Hayward.",
     ],
     hoods: ['Downtown Hayward', 'Upper B Street', 'Prospect Hill', 'Burbank', 'the Hayward Hills', 'Hayward Highlands', 'the Cal State East Bay area', 'Fairway Park', 'Harder-Tennyson', 'Tennyson-Alquire', 'Mount Eden', 'Southgate', 'West Hayward'],
+    review: { who: "Nicole B, Hayward", text: "They are very communicative about delivery pick-up's & drop off's, and they bring your clothes back to you folded nicely with a personal touch." },
     faqs: [
       ['Do you pick up near Cal State East Bay?', 'Yes. The Hayward Hills get the same pickup windows as the rest of Hayward. Leave your bag wherever your building allows and add the details in the app.'],
       ['Can I drop my laundry off instead?', 'Yes. Our drop-off counter is at {site:dropoff_address}, a short drive up I-580, open {site:dropoff_hours}.'],
