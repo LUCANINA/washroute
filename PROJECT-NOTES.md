@@ -1,5 +1,44 @@
 # WashRoute — Project Notes
 
+## Session 334 — Oct 6, 2026: intake could re-price an already-charged order down to $0
+
+- **Report:** daily bug check flagged 11 orders on check 26 and 3 on check 25. Investigating them
+  found one live bug, four classes already fixed, and 44 flagged orders that were never money errors.
+- **The bug — #14859 Morgan Connolly, Sep 18.** Charged $30.00 at 18:26 (correct: $15 service +
+  $15 tip). Tech moved the order back to Intake at 18:49; the re-save re-priced it to $0.00 service
+  at 18:50. No warning, no refund, no `billing_discrepancy`. She was out $15.00 until today.
+- **Root cause:** `record_order_intake` had no guard against lowering `total_amount` on an order that
+  has already been charged. **Session 281 built exactly this guard — on `opSaveDetails`.** Intake Save
+  is a second branch reaching the same write and never got one. Session 175 covered the OPPOSITE
+  direction on this same path (total raised after a $0 order was marked paid). Downward was never covered.
+- **Fix — migration `session_334_intake_blocks_downward_reprice_after_charge`.** The RPC now refuses
+  when net card collected > new total + tip. Downward only (David's call): an upward weight correction
+  still works and still charges the difference. Card money only — credit is excluded because
+  `refund_order_credits()` is the function's own first act, so counting credit would block every
+  re-intake of a credit-paid order. The tip term is required: `total_amount` is pre-tip. Error message
+  is written for a laundry tech at the counter; both callers (admin `saveIntake`, POS intake) already
+  surface `error.message` and re-enable the button. Review record: `migrations/session_334_review-notes.md`.
+- **Validated before applying:** replayed the condition over 5,839 charged orders / 120 days — it fires
+  on 5, and they are #14859 plus session 281's own documented overcharges (#13302, #12036) and two older
+  ones (#8619, #7630, not previously known). 0.086%, no risk to normal work. Then tested the live function
+  in a self-aborting transaction: the downward case blocked with the intended message; the equal-to-charge
+  and credit-only cases passed the guard and stopped later at `enforce_caller_owns_order` (the MCP carries
+  no staff JWT), proving the guard let them through.
+- **Audit check 30 added** — record drift: line items must sum to `total_amount`. Checks 25 and 26 both
+  compare the record against the money, so both go quiet when the record is self-consistent but was
+  rewritten after the fact. Scoped to 7 days deliberately: there is a standing historical backlog of this
+  shape (17 orders / $171.80 in 45 days, nearly all the already-fixed session-281 and session-292 classes),
+  and an unbounded window would return double digits every morning forever. Reads 0 rows today.
+- **Money:** $39.06 owed back on cards (#14859 $15.00, #13302 $13.75, #14685 $6.60, #12228 $3.71) plus
+  $9.95 of credit to Kate Roberts (#14666). $23.00 uncollected recommended for write-off. Full per-order
+  list in `docs/BILLING-REMEDIATION-2026-10-06.md`.
+- **Lesson, twice in one session.** A naive "line items don't sum to total_amount" test matched 48 orders;
+  44 were fine, because `total_amount` is net of credit and the test wasn't. Then two orders read as double
+  charges until the tip was added back. `total_amount` is **pre-tip and post-credit** — any reconciliation
+  that drops either term produces a confident wrong answer with a plausible row count. Session 281 wrote
+  this lesson down after hitting it three times; hitting it twice more here is the argument for check 26
+  staying the reference implementation and new checks being validated against it.
+
 ## Session 333 — Oct 5, 2026: rating link works without signing in
 
 **Why:** Ellen Konnert (46 orders, no app login) replied "Can't get through to rate you!". The rating text/email

@@ -917,3 +917,57 @@ JOIN customers c ON c.id = s.customer_id
 WHERE s.status IN ('active', 'past_due', 'paused')
   AND c.pricelist IS DISTINCT FROM 'Subscription'
 ORDER BY s.created_at DESC;
+
+-- @check id=30 name="Record drift: line items don't equal total_amount (last 7 days)" priority=P1
+-- Added 2026-10-06. Checks 25 and 26 both compare the RECORD against the MONEY, and both
+-- are therefore quiet when the record is self-consistent but was rewritten after the fact.
+-- This check compares the record against ITSELF: every line item (credit lines included,
+-- tax excluded since tax_amount carries it) must sum to total_amount. Nothing else here
+-- tests that invariant directly.
+--
+-- Two real incidents it would have caught the same morning instead of weeks later:
+--   * #14666 Kate Roberts (session 292) — her plan cancelled between booking and weigh-in,
+--     so delivery resolved from the stale 'Delivery' pricelist and $12.95 of credit was
+--     taken for a $3.00 order. link_subscription_on_order_fn then rewrote the stored line
+--     to "Delivery — included" at $0 and dropped total_amount, so the receipt looked right
+--     and the wrong credit transaction stayed put. Record consistent → checks 25/26 quiet.
+--   * #14859 Morgan Connolly — actor 'System' set total_amount $15.00 → $0.00 twenty-four
+--     minutes AFTER a correct $30.00 charge. Session 281's opSaveDetails guard only covers
+--     a human pressing Save, so a System write slides straight past it.
+--
+-- WHY SEVEN DAYS, and do not widen it without reading this. The audit file's own rule is
+-- that a check firing on the happy path trains you to ignore it. There is a standing
+-- historical backlog of this shape — 17 orders / $171.80 in the 45 days before this check
+-- was written, nearly all of them the session-281 Commercial phantom-line class (Vinegar
+-- and Oxi itemised for per-lb customers who are deliberately not billed for them, fixed
+-- 2026-09-08) and the session-292 pricelist class (fixed). Those rows never self-heal, so
+-- an unbounded window would return double digits every morning forever. Scoped to 7 days
+-- this check reads 0 rows today and fires only on NEW breakage, which is the whole point.
+-- To audit the backlog deliberately, widen the interval by hand for that one run.
+--
+-- Cancelled and archived orders are excluded: both are legitimately left mid-edit.
+WITH record_drift AS (
+  SELECT o.order_number, o.status, o.source, o.billing_status,
+         (o.created_at AT TIME ZONE 'America/Los_Angeles')::date AS created_pt,
+         o.total_amount,
+         COALESCE(o.tax_amount, 0) AS tax_amount,
+         ROUND(COALESCE(SUM(CASE WHEN (li->>'type') <> 'tax'
+                                 THEN (li->>'amount')::numeric END), 0), 2) AS line_items_sum
+  FROM orders o, LATERAL jsonb_array_elements(o.line_items) li
+  WHERE jsonb_typeof(o.line_items) = 'array'
+    AND jsonb_array_length(o.line_items) > 0
+    AND o.status <> 'cancelled'
+    AND o.archived_at IS NULL
+    AND o.created_at > now() - interval '7 days'
+  GROUP BY o.order_number, o.status, o.source, o.billing_status,
+           o.created_at, o.total_amount, o.tax_amount
+)
+SELECT order_number, status, source, billing_status, created_pt,
+       line_items_sum, tax_amount, total_amount,
+       ROUND(line_items_sum + tax_amount - total_amount, 2) AS drift,
+       CASE WHEN line_items_sum + tax_amount > total_amount
+            THEN 'total_amount is LOW — itemised more than it charges'
+            ELSE 'total_amount is HIGH — charges more than it itemises' END AS direction
+FROM record_drift
+WHERE ABS(line_items_sum + tax_amount - total_amount) > 0.01
+ORDER BY ABS(line_items_sum + tax_amount - total_amount) DESC;
