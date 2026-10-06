@@ -133,16 +133,18 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
 
 ## Open items
 
-- [ ] Tuesday/Wednesday cutover (above)
+- [x] Cutover done Mon Oct 5; sitemap submitted + re-indexing requested Oct 6
 - [ ] Google Business Profile name "Family Laundry: Premium Wash & Fold Delivery" breaks Google's no-tagline
       rule — David to decide
 - [ ] More Google reviews quoted on city pages (David to paste favorites that mention a city)
-- [ ] Open the 15 hidden city pages a few a week as they get local content
+      (Oct 6: Google Maps' signed-out view shows only 3 reviews and no search, so they can't be pulled automatically)
+- [ ] Open the 12 hidden city pages a few a week as they get local content (Oct 6: opened Hayward, Castro Valley,
+      El Cerrito; next by customer count: San Lorenzo 6, Fremont 5, Newark 3, Walnut Creek 3, Kensington 3)
 - [ ] SF and Oakland neighborhood pages (2ULaundry has ~90; ours need real local content first)
 - [ ] PARKED Oct 5 (David likes it, not now): "Neighborhood Laundry Day" — one discounted pickup day per ZIP.
   Why: Monday has 2–3x the pickups of Tue/Thu in most ZIPs; same-day neighbors = denser routes. Open choices:
   discount (free delivery vs $5), subscribers, pilot ZIPs (e.g. 94610, 94611, Alameda).
-- [ ] App store links (`site_info.app_ios_url`, `app_android_url` empty)
+- [x] App store links: not needed, there is no iPhone/Android app, only the web app (David, Oct 6)
 - [ ] Admin → App Content editor for FAQ + site info (phase 1 of the original plan)
 
 ## Log (oldest first)
@@ -198,3 +200,7 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   Markup now uses one business `@id` (`https://www.familylaundry.com/#business`) on home, About and service
   pages; each city page has its own `…/laundry-delivery-<city>#business` with `parentOrganization` → the main
   `@id` (same pattern as rinse.com).
+- **Tue Oct 6, 2026** — Opened Hayward, Castro Valley and El Cerrito to Google (`index: true`) with local copy,
+  neighborhoods and FAQs in `city-details.js`. Mix of neighborhoods taken from delivered orders by ZIP (Hayward mostly
+  94541; Castro Valley mostly 94552, Five Canyons/Palomares). Household counts too small to show, left out. Sitemap
+  now 42 URLs.

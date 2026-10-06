@@ -110,4 +110,45 @@ module.exports = {
       ['Do you pick up from apartment buildings with a doorman or lobby?', 'Yes. Leave the bag with the doorman or front desk, or in your lobby if the building allows, and add instructions in the app.'],
     ],
   },
+  // Opened Oct 6, 2026 (Hayward, Castro Valley, El Cerrito). Neighborhood mix from delivered orders by ZIP,
+  // Oct 2025 – Oct 2026. Customer counts are too small to show (left out on purpose).
+  hayward: {
+    photo: 'porch-bag-1.jpg',
+    about: [
+      "Hayward is on our south routes, which also cover San Leandro, San Lorenzo, Castro Valley, Union City, Fremont and Newark. Your laundry is washed by our own team in East Oakland and comes back folded and bundled by family member.",
+      "Most of our Hayward customers live in north Hayward and around downtown, but we pick up across the city, from the Hayward Hills and Cal State East Bay down to Tennyson-Alquire and West Hayward.",
+    ],
+    hoods: ['Downtown Hayward', 'Upper B Street', 'Prospect Hill', 'Burbank', 'the Hayward Hills', 'Hayward Highlands', 'the Cal State East Bay area', 'Fairway Park', 'Harder-Tennyson', 'Tennyson-Alquire', 'Mount Eden', 'Southgate', 'West Hayward'],
+    faqs: [
+      ['Do you pick up near Cal State East Bay?', 'Yes. The Hayward Hills get the same pickup windows as the rest of Hayward. Leave your bag wherever your building allows and add the details in the app.'],
+      ['Can I drop my laundry off instead?', 'Yes. Our drop-off counter is at {site:dropoff_address}, a short drive up I-580, open {site:dropoff_hours}.'],
+      ['Is the price the same in Hayward?', 'Yes. Every city we serve pays the same price, with no extra fee for Hayward.'],
+    ],
+  },
+  'castro-valley': {
+    photo: 'porch-bag-2.jpg',
+    about: [
+      "Castro Valley is on our south routes, a quick trip out I-580 from our facility in East Oakland.",
+      "Most of our Castro Valley customers live up in Five Canyons and the Palomares Hills, east of I-580. The rest are around Castro Valley Boulevard and the center of town, and we pick up everywhere in between.",
+    ],
+    hoods: ['Five Canyons', 'the Palomares Hills', 'Jensen Ranch', 'Columbia', 'Crow Canyon', 'the Lake Chabot area', 'Castro Valley Boulevard', 'Downtown Castro Valley'],
+    faqs: [
+      ['Do you pick up in Five Canyons and the Palomares Hills?', 'Yes. Leave your bag at the door, on the porch or wherever is easiest up the driveway, and note it in the app.'],
+      ['Is there a plan for big family loads?', 'Yes. The subscription is {plan:price} a month for {plan:lbs} lbs, with unlimited pickups and free next-day delivery.'],
+      ['Can I drop my laundry off instead?', 'Yes. Our drop-off counter is at {site:dropoff_address}, open {site:dropoff_hours}.'],
+    ],
+  },
+  'el-cerrito': {
+    photo: 'porch-bag-1.jpg',
+    about: [
+      "El Cerrito shares our Berkeley routes, so it gets the same pickup windows as Berkeley, Albany and Kensington.",
+      "Houses up in the hills or apartments near El Cerrito Plaza and El Cerrito del Norte: leave the bag at the door, the curb or the front desk. Everything is washed by our own team in East Oakland and comes back folded.",
+    ],
+    hoods: ['the El Cerrito Hills', 'Mira Vista', 'Arlington Park', 'Fairmont', 'the San Pablo Avenue corridor', 'El Cerrito Plaza', 'El Cerrito del Norte'],
+    faqs: [
+      ['Do you pick up in the El Cerrito Hills?', 'Yes. Steep street or long stairs? Leave the bag at the curb or wherever is easiest, and tell us in the app.'],
+      ['Do you pick up from apartments near the BART stations?', 'Yes. Leave your bag with the front desk or wherever your building allows, and add the details in the app.'],
+      ['Is the price the same in El Cerrito?', 'Yes. Every city we serve pays the same price, with no extra fee for El Cerrito.'],
+    ],
+  },
 };
