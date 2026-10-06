@@ -137,9 +137,11 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
 - [x] Google Business Profile renamed to "Family Laundry" (David, Oct 6)
 - [ ] Google reviews still missing on Piedmont, Albany, El Cerrito, Castro Valley, San Lorenzo, Fremont, Newark (no
       matching 5-star review in the Oct 6 export). Re-run with a fresh Google Takeout (Business Profile) every few months.
-- [ ] Hidden city pages left: Concord, Lafayette, Moraga, Pleasant Hill, Martinez (0–1 customers each, Oct 2026).
-- [ ] El Sobrante: customers there, but outside every `service_zones` polygon. Widen the Berkeley zone in WashRoute
-      first, then add the page (same pattern as Richmond).
+- [ ] El Sobrante: not bookable (outside every polygon AND not in any zone's `cities` list). Add 'El Sobrante' (and
+      'Richmond', for north Richmond) to the Berkeley zone's cities, then add the page.
+- How booking decides coverage: `get_zone_for_point(lat, lng, p_city)` = polygon match first, then the zone's
+  `cities` list by city name. Polygons alone under-cover (Albany, Kensington, Fremont, Newark, Union City, south
+  Hayward, downtown Concord, Martinez are outside every polygon); the city list is what makes them bookable.
 - [ ] SF and Oakland neighborhood pages (2ULaundry has ~90; ours need real local content first)
 - [ ] PARKED Oct 5 (David likes it, not now): "Neighborhood Laundry Day" — one discounted pickup day per ZIP.
   Why: Monday has 2–3x the pickups of Tue/Thu in most ZIPs; same-day neighbors = denser routes. Open choices:
@@ -216,3 +218,5 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   city pages. Opened Kensington, Walnut Creek, Orinda and Union City, and added a new Richmond page (`zone: 'Berkeley'`
   in `cities.js`; its addresses sit inside the Berkeley polygon). El Sobrante held back (outside every zone). Sitemap
   now 50 URLs; 19 of 24 city pages open.
+- **Tue Oct 6, 2026 (Contra Costa)** — Opened Concord, Lafayette, Moraga, Pleasant Hill and Martinez (David wants to
+  grow these areas). Morning-only windows (Concord zone). All 24 city pages now open; sitemap 55 URLs.

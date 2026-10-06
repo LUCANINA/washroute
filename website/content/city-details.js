@@ -256,4 +256,69 @@ module.exports = {
       ['Is the price the same in Richmond?', 'Yes. Every city we serve pays the same price, with no extra fee for Richmond.'],
     ],
   },
+  // Opened Oct 6, 2026 (Concord, Lafayette, Moraga, Pleasant Hill, Martinez): David wants to grow Contra Costa.
+  // Few customers yet, so no customer-based claims. All five are bookable through the Concord zone's city list
+  // (get_zone_for_point falls back to the city name when an address is outside the polygon).
+  concord: {
+    photo: 'porch-bag-2.jpg',
+    about: [
+      "Concord is the hub of our Contra Costa route, which also covers Walnut Creek, Pleasant Hill, Martinez, Lafayette, Orinda and Moraga. Pickups there run in the morning.",
+      "Your bag rides back through the Caldecott Tunnel to our own facility in East Oakland, where our team washes it fragrance-free, folds it and bundles it by family member, then brings it back to your door the next day.",
+    ],
+    hoods: ['Downtown Concord', 'Todos Santos Plaza', 'Ygnacio Valley', 'Dana Estates', 'Sun Terrace', 'Holbrook Heights', 'Crystal Ranch', 'the Concord BART area'],
+    faqs: [
+      ['Why are Concord pickups only in the morning?', 'Concord is on our morning Contra Costa route. Pick the morning window in the app; we text you when the driver is on the way.'],
+      ['Do you pick up from apartments near downtown and BART?', 'Yes. Leave your bag with the front desk, in the package room or at your door, and add the details in the app.'],
+      ['Is the price the same in Concord?', 'Yes. Every city we serve pays the same price, with no extra fee for Concord.'],
+    ],
+  },
+  lafayette: {
+    photo: 'porch-bag-1.jpg',
+    about: [
+      "Lafayette is on our morning Contra Costa route, one exit past the Caldecott Tunnel from our facility in East Oakland.",
+      "School clothes, sports kits, towels and sheets: hand off the whole week. Everything comes back folded and bundled by family member, so putting it away takes minutes.",
+    ],
+    hoods: ['Downtown Lafayette', 'Happy Valley', 'Burton Valley', 'Reliez Valley', 'Acalanes Ridge', 'Springhill'],
+    faqs: [
+      ['Is there a plan for big family loads?', 'Yes. The subscription is {plan:price} a month for {plan:lbs} lbs, with unlimited pickups and free next-day delivery.'],
+      ['Do you sort by family member?', 'Yes. Every load is folded and bundled by family member.'],
+      ['Is the price the same in Lafayette?', 'Yes. Every city we serve pays the same price, with no extra fee for Lafayette.'],
+    ],
+  },
+  moraga: {
+    photo: 'porch-bag-2.jpg',
+    about: [
+      "Moraga is on our morning Contra Costa route, just over the hills from our facility in East Oakland.",
+      "We pick up from family homes across Moraga and from apartments near Saint Mary's College. Your laundry is washed by our own team in East Oakland, never handed to a third party, and comes back folded the next day.",
+    ],
+    hoods: ['Moraga Center', 'Rheem Valley', 'Campolindo', 'Sanders Ranch', 'the Moraga Country Club area', "around Saint Mary's College"],
+    faqs: [
+      ['Do you pick up near Saint Mary\'s College?', 'Yes, from apartments and houses around campus. Leave your bag at the door or wherever your building allows, and add the details in the app.'],
+      ['Is the price the same in Moraga?', 'Yes. Every city we serve pays the same price, with no extra fee for Moraga.'],
+    ],
+  },
+  'pleasant-hill': {
+    photo: 'porch-bag-1.jpg',
+    about: [
+      "Pleasant Hill sits between Walnut Creek, Concord and Martinez on our morning Contra Costa route.",
+      "Leave your bag on the porch or with your building's front desk. It is washed fragrance-free with Free & Clear and ozone by our own team in East Oakland, folded, and back at your door the next day.",
+    ],
+    hoods: ['Downtown Pleasant Hill', 'Gregory Gardens', 'Poets Corner', 'the Pleasant Hill BART area', 'around Diablo Valley College'],
+    faqs: [
+      ['Do you pick up from apartments near BART and Diablo Valley College?', 'Yes. Leave your bag with the front desk or wherever your building allows, and add the details in the app.'],
+      ['Is the price the same in Pleasant Hill?', 'Yes. Every city we serve pays the same price, with no extra fee for Pleasant Hill.'],
+    ],
+  },
+  martinez: {
+    photo: 'porch-bag-2.jpg',
+    about: [
+      "Martinez is the northern end of our morning Contra Costa route, which runs through Pleasant Hill and Concord.",
+      "From the historic downtown and the waterfront to the Alhambra Valley and the hills, leave your bag at the door and get it back washed by our own team, folded and bundled by family member.",
+    ],
+    hoods: ['Downtown Martinez', 'the waterfront', 'Alhambra Valley', 'Muir Oaks', 'Virginia Hills'],
+    faqs: [
+      ['Why are Martinez pickups only in the morning?', 'Martinez is on our morning Contra Costa route. Pick the morning window in the app; we text you when the driver is on the way.'],
+      ['Is the price the same in Martinez?', 'Yes. Every city we serve pays the same price, with no extra fee for Martinez.'],
+    ],
+  },
 };
