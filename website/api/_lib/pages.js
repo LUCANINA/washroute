@@ -125,7 +125,7 @@ ${contactBlock(v)}`;
     jsonld: {
       '@context': 'https://schema.org', '@type': 'LaundryOrDryCleaning', name: 'Family Laundry',
       url: 'https://www.familylaundry.com', telephone: v.site?.phone, email: v.site?.email,
-      image: 'https://www.familylaundry.com/assets/img/logo.png',
+      image: 'https://www.familylaundry.com/assets/img/logo-circle-512.png', logo: 'https://www.familylaundry.com/assets/img/logo-circle-512.png',
       address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
       areaServed: (v.cities || []).map(c => ({ '@type': 'City', name: c })),
       // Rating markup = our OWN after-delivery ratings (order_feedback), never Google's numbers: Google's rules
@@ -436,7 +436,7 @@ function city(c, v) {
         { '@type': 'FAQPage',
           mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
         { '@type': 'LaundryOrDryCleaning', name: 'Family Laundry', url: ORIGIN + cityPath(c), telephone: v.site?.phone,
-          image: ORIGIN + '/assets/img/logo.png',
+          image: ORIGIN + '/assets/img/logo-circle-512.png',
           address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
           areaServed: { '@type': 'City', name },
           ...ownRatingLd(v) },

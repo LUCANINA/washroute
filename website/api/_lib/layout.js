@@ -20,7 +20,7 @@ function header(path, v) {
     `<a href="${href}"${href === path ? ' aria-current="page"' : ''}>${label}</a>`).join('');
   return `<header class="site-head">
   <div class="wrap head-row">
-    <a class="logo" href="/" aria-label="Family Laundry home"><img src="/assets/img/logo.png" alt="Family Laundry" width="56" height="56"></a>
+    <a class="logo" href="/" aria-label="Family Laundry home"><img src="/assets/img/logo-circle.svg" alt="Family Laundry" width="64" height="64"></a>
     ${phone ? `<a class="head-phone" href="${esc(telHref(phone))}">${esc(phone)}</a>` : ''}
     <a class="btn btn-sm head-book" href="${APP}">Book</a>
     <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Menu">
@@ -52,7 +52,7 @@ function footer(v) {
   return `<footer class="site-foot">
   <div class="wrap foot-grid">
     <div class="foot-brand">
-      <img src="/assets/img/logo.png" alt="" width="64" height="64" loading="lazy">
+      <img src="/assets/img/logo-circle.svg" alt="" width="84" height="84" loading="lazy">
       <p>Wash &amp; fold pickup and delivery.<br>Family-owned since 2018, delivering since ${esc(s.founded || '2019')}.</p>
       <p>Family Laundry<br>${esc(ADDRESS)}</p>
       ${ownRating(v)}
@@ -108,7 +108,9 @@ ${robots}
 <meta property="og:description" content="${esc(page.description || '')}">
 <meta property="og:url" content="${canonical}">
 <meta property="og:image" content="${ORIGIN}/assets/img/hero.jpg">
-<link rel="icon" href="/assets/img/logo.png">
+<link rel="icon" href="/assets/img/logo-circle.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/img/logo-circle-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/assets/img/logo-circle-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@800&family=Nunito+Sans:wght@300;400;600;700;800&display=swap" rel="stylesheet">

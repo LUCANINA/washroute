@@ -178,3 +178,10 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   - Phone layout reworked after studying rinse.com on mobile (desktop unchanged): hero copy on a rounded card over
     the photo, stamp tucked on the photo, swipeable price and review cards, compact How-we-clean rows, rounded
     pink/ozone cards, regular (not light) text weight on phones, full-width buttons, footer as tap-to-open sections.
+  - New crisp logo from David's Illustrator EPS files (now in `assets/FamilyLaundry_main.eps` and
+    `_circle.eps`): `logo-main.svg` in the header (navy #223562, yellow #fccb1d), `logo-circle.svg` in the footer and
+    as the browser icon, PNGs at 32/180/512 px for icons and Google. Old blurry `logo.png` no longer used.
+  - App-brand look (navy/pink/cream, DM Sans, white logo in navy circle) mocked up and PARKED: David not convinced
+    yet. Saved, unlinked, in `website/assets/theme-app.css` (header comment says how to switch it on).
+  - Circle logo redone from the EPS: the main yellow-diamond logo inside a navy-ringed white circle with a little breathing room (David picked it), no "Oakland
+    Calif." (`logo-circle.svg` + 32/180/512 PNGs). Used in header (64px, 52px on phones), footer and browser icon.
