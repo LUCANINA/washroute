@@ -151,4 +151,42 @@ module.exports = {
       ['Is the price the same in El Cerrito?', 'Yes. Every city we serve pays the same price, with no extra fee for El Cerrito.'],
     ],
   },
+  // Opened Oct 6, 2026 (San Lorenzo, Fremont, Newark). Same rules: neighborhoods from delivered orders by ZIP
+  // (Fremont: 94536, 94538, 94539, 94555), counts too small to show.
+  'san-lorenzo': {
+    photo: 'porch-bag-2.jpg',
+    about: [
+      "San Lorenzo is on our south routes, right between San Leandro and Hayward, a short drive down I-880 from our facility in East Oakland.",
+      "Leave the bag on the porch or by the front door. It is washed by our own team, never handed to a third party, and comes back folded and bundled by family member.",
+    ],
+    hoods: ['San Lorenzo Village', 'Ashland', 'Hesperian Boulevard', 'Lewelling Boulevard', 'the Grant Avenue area'],
+    faqs: [
+      ['Can I drop my laundry off instead?', 'Yes. Our drop-off counter is at {site:dropoff_address}, open {site:dropoff_hours}.'],
+      ['Is the price the same in San Lorenzo?', 'Yes. Every city we serve pays the same price, with no extra fee for San Lorenzo.'],
+    ],
+  },
+  fremont: {
+    photo: 'porch-bag-1.jpg',
+    about: [
+      "Fremont is at the far end of our south routes, which run down through San Leandro, Hayward and Union City. Your laundry is washed by our own team in East Oakland and comes back the next day, folded and bundled by family member.",
+      "We pick up across Fremont's districts, from Centerville and Niles to Ardenwood, Irvington, Mission San Jose and Warm Springs.",
+    ],
+    hoods: ['Centerville', 'Niles', 'Ardenwood', 'Northgate', 'Cabrillo', 'Central Fremont', 'Irvington', 'Glenmoor', 'Mission San Jose', 'Warm Springs'],
+    faqs: [
+      ['Is the price the same in Fremont?', 'Yes. Every city we serve pays the same price, with no extra fee for Fremont, even though it is one of our longest drives.'],
+      ['Do you pick up from apartments and townhomes?', 'Yes. Leave your bag at your door, with the front desk or wherever your complex allows, and add the details in the app.'],
+    ],
+  },
+  newark: {
+    photo: 'porch-bag-2.jpg',
+    about: [
+      "Newark is on our south routes with Fremont and Union City, so it gets the same pickup windows as its neighbors.",
+      "Leave your bag at the door, on the porch or with your building's front desk. It is washed by our own team in East Oakland, never handed to a third party, and comes back folded and bundled by family member.",
+    ],
+    hoods: ['Old Town Newark', 'Lakeshore', 'the NewPark Mall area', 'Thornton Avenue', 'Cedar Boulevard'],
+    faqs: [
+      ['Is the price the same in Newark?', 'Yes. Every city we serve pays the same price, with no extra fee for Newark.'],
+      ['Is there a plan for big family loads?', 'Yes. The subscription is {plan:price} a month for {plan:lbs} lbs, with unlimited pickups and free next-day delivery.'],
+    ],
+  },
 };

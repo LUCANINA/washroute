@@ -138,8 +138,9 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
       rule — David to decide
 - [ ] More Google reviews quoted on city pages (David to paste favorites that mention a city)
       (Oct 6: Google Maps' signed-out view shows only 3 reviews and no search, so they can't be pulled automatically)
-- [ ] Open the 12 hidden city pages a few a week as they get local content (Oct 6: opened Hayward, Castro Valley,
-      El Cerrito; next by customer count: San Lorenzo 6, Fremont 5, Newark 3, Walnut Creek 3, Kensington 3)
+- [ ] Open the 9 hidden city pages a few a week as they get local content (Oct 6: opened Hayward, Castro Valley,
+      El Cerrito, San Lorenzo, Fremont, Newark; next by customer count: Walnut Creek 3, Kensington 3, then Union City,
+      Concord and the Lamorinda cities, which have almost no customers yet)
 - [ ] SF and Oakland neighborhood pages (2ULaundry has ~90; ours need real local content first)
 - [ ] PARKED Oct 5 (David likes it, not now): "Neighborhood Laundry Day" — one discounted pickup day per ZIP.
   Why: Monday has 2–3x the pickups of Tue/Thu in most ZIPs; same-day neighbors = denser routes. Open choices:
@@ -204,3 +205,5 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   neighborhoods and FAQs in `city-details.js`. Mix of neighborhoods taken from delivered orders by ZIP (Hayward mostly
   94541; Castro Valley mostly 94552, Five Canyons/Palomares). Household counts too small to show, left out. Sitemap
   now 42 URLs.
+- **Tue Oct 6, 2026 (later)** — Opened San Lorenzo, Fremont and Newark the same way (local copy, neighborhoods, FAQs).
+  Sitemap now 45 URLs; 14 city pages open, 9 hidden.
