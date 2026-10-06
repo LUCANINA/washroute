@@ -109,13 +109,13 @@ module.exports = [
     h1: 'Drop-off laundry in Oakland',
     lead: "Drop your laundry at the counter of our East Oakland laundromat and pick it up washed and folded. No machines to babysit.",
     sections: [
-      { h: 'Where and when', md: "**{site:dropoff_address}**, near Fruitvale. Open {site:dropoff_hours}.\n\n{site:dropoff_cutoff}" },
+      { h: 'Where and when', md: "**{site:dropoff_address}**, near Fruitvale. Open {site:dropoff_hours}, with self-service washers and dryers as well as the drop-off counter. [sudzee.com](https://www.sudzee.com)\n\n{site:dropoff_cutoff}" },
       { h: 'Price', md: "- Wash & fold: {retail:Wash & Fold}\n- Wash & dry (no folding): {retail:Wash & Dry}\n- Add-ons: Vinegar {retail:Vinegar}, Oxi {retail:Oxi}, Double Wash {retail:Double Wash}" },
       { h: 'How we wash it', md: "Our own staff wash drop-off orders here at the laundromat with the same Free & Clear detergent we use for delivery. No fragrance, bleach or softener.\n\nThe laundromat's machines are open to the public, so they may hold traces of other customers' products. If you're highly sensitive to fragrance, choose pickup and delivery. Those orders are washed separately at our own plant." },
       { h: "Don't want to drive?", md: "We also pick up and deliver {site:service_days}, all over Oakland and the East Bay. [See pickup and delivery in Oakland](/laundry-delivery-oakland)." },
     ],
     faqs: [
-      ['Is this a self-service laundromat?', 'No. You drop off, our team does the washing and folding, and you pick it up when it is ready.'],
+      ['Is this a self-service laundromat?', "Both. Sudzee has self-service washers and dryers, or you can drop off at the counter and our team does the washing and folding."],
       ['Can I get it back the same day?', '{site:dropoff_cutoff}'],
     ],
     related: ['/laundry-delivery-oakland', '/laundry-service-cost', '/fragrance-free-laundry-service'],

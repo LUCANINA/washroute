@@ -15,8 +15,11 @@ const REDIRECTS = {
 };
 
 function isProductionHost(host) {
-  return /^(www\.)?familylaundry\.com$/i.test(String(host || '').split(':')[0]);
+  return /^(www\.)?(familylaundry|sudzee)\.com$/i.test(String(host || '').split(':')[0]);
 }
+// sudzee.com (our laundromat) is one page from the same project. On preview hosts, add ?site=sudzee to see it.
+const sudzee = require('./_lib/sudzee.js');
+const isSudzeeHost = host => /^(www\.)?sudzee\.com$/i.test(String(host || '').split(':')[0]);
 
 module.exports = async (req, res) => {
   const url = new URL(req.url, 'http://x');
@@ -24,7 +27,30 @@ module.exports = async (req, res) => {
   path = ('/' + path.replace(/^\/+/, '')).replace(/\/+$/, '') || '/';
   try { path = decodeURIComponent(path); } catch (_) {}
   path = path.toLowerCase();
-  const indexable = isProductionHost(req.headers['x-forwarded-host'] || req.headers.host);
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const indexable = isProductionHost(host);
+  const onSudzee = isSudzeeHost(host) || (!indexable && url.searchParams.get('site') === 'sudzee');
+
+  if (onSudzee) {
+    if (path === '/robots.txt') {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.end(indexable ? `User-agent: *\nAllow: /\nSitemap: ${sudzee.ORIGIN}/sitemap.xml\n` : 'User-agent: *\nDisallow: /\n');
+    }
+    if (path === '/sitemap.xml') {
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      return res.end(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${sudzee.ORIGIN}/</loc></url></urlset>`);
+    }
+    if (path !== '/') { res.statusCode = 301; res.setHeader('Location', '/'); return res.end(); }
+    let d;
+    try { d = await load(); } catch (e) {
+      console.error('content load failed', e); res.statusCode = 503;
+      return res.end('Sudzee Laundry, 2609 Foothill Blvd, Oakland. Please try again in a minute.');
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=86400');
+    if (!indexable) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    return res.end(sudzee.page(d.values, { indexable }));
+  }
 
   if (REDIRECTS[path]) {
     res.statusCode = 301; res.setHeader('Location', REDIRECTS[path]); return res.end();

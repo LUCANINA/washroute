@@ -230,3 +230,12 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   Follow-up (David): no longer uses Puretergent; delivery vans are all electric; Double Wash $15 delivery vs $5
   drop-off is intentional. Puretergent posts left as they are (David's call); doorstep post says vans are all
   electric and no longer says "We source detergents locally".
+- **Tue Oct 6, 2026 (sudzee.com)** — Replacing the one-page Wix site for Sudzee (our laundromat, 2609 Foothill) with
+  one page from this same project: `api/_lib/sudzee.js`, picked by host in `render.js` (preview: add `?site=sudzee`).
+  Hours, prices and cutoff are live tokens. David: hours 7 am – 8 pm (the Wix page said 8 am); Sudzee has
+  self-service machines plus drop-off; @sudzee.com email (Google Workspace) must keep working.
+  sudzee.com: registrar GoDaddy (expires 2027-03-05), DNS on Wix (ns6/ns7.wixdns.net). Records to recreate in Vercel
+  DNS: 5 Google MX (aspmx 10, alt1 20, alt2 30, alt3 40, alt4 50), TXT `v=spf1 include:_spf.google.com ~all`, TXT
+  `google-site-verification=3njeOMOK6UxW8hSA2cwEDmI9kR9-oobOFKwxcgPEutc`. Check the Wix DNS panel for anything else
+  before switching. The Vercel connector has no access to the LUCANINA team (403), so domain + DNS steps are done
+  by David in the Vercel dashboard. Domains: www.sudzee.com (primary) + sudzee.com (308 → www).
