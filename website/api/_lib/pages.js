@@ -123,7 +123,7 @@ ${contactBlock(v)}`;
     description: "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free in our own facilities, never outsourced, and back the next day. Serving Oakland, Berkeley, the East Bay and San Francisco, Monday to Saturday.",
     body,
     jsonld: {
-      '@context': 'https://schema.org', '@type': 'DryCleaningOrLaundry', name: 'Family Laundry',
+      '@context': 'https://schema.org', '@type': 'DryCleaningOrLaundry', '@id': BIZ_ID, name: 'Family Laundry',
       url: 'https://www.familylaundry.com', telephone: v.site?.phone, email: v.site?.email,
       image: 'https://www.familylaundry.com/assets/img/logo-circle-512.png', logo: 'https://www.familylaundry.com/assets/img/logo-circle-512.png',
       address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
@@ -149,9 +149,17 @@ function ratingBadge(v) {
   const text = `<span class="rating-stars" aria-hidden="true">★★★★★</span> <strong>${esc(rating)}</strong> from ${count} reviews <span class="nowrap">on ${where}</span>`;
   return `<p class="rating">${s.google_reviews_url ? `<a href="${esc(s.google_reviews_url)}" rel="noopener">${text}</a>` : text}</p>`;
 }
+// Google/Yelp line plus our own rating with its count, high on the page. The own figure is what the page's
+// rating markup says, and Google trusts markup more when the same numbers are prominent on the page (Oct 6).
+function ratingBlock(v) {
+  const own = ownRatingLine(v);
+  return ratingBadge(v) + (own ? `\n  <p class="rating-own">${own}</p>` : '');
+}
+// One @id for the business, so every page's markup points at the same entity (Oct 6).
+const BIZ_ID = ORIGIN + '/#business';
 function ownRatingLine(v) {
   const r = ownRating(v);
-  return r ? `<strong>${esc(r.avg.toFixed(1))} ★</strong> average customer rating` : '';
+  return r ? `<strong>${esc(r.avg.toFixed(1))} ★</strong> from ${esc(String(r.count))} customer ratings` : '';
 }
 
 // Our own after-delivery ratings (site_public_values().ratings, from order_feedback). Shown once there are 20+.
@@ -399,7 +407,7 @@ function city(c, v) {
     body: `<section class="wrap section narrow">
   <h1>Laundry pickup &amp; delivery in ${esc(name)}</h1>
   <p class="lead">${esc(c.intro)}</p>
-  ${ratingBadge(v)}
+  ${ratingBlock(v)}
   ${(d.about || []).map(p => `<p>${esc(p)}</p>`).join('\n  ')}
   ${d.households ? `<p class="city-stat"><strong>${esc(d.households.charAt(0).toUpperCase() + d.households.slice(1))} ${esc(name)} households</strong> used Family Laundry in the past year.</p>` : ''}
   ${wins.length ? `<div class="card">
@@ -435,7 +443,8 @@ function city(c, v) {
       '@graph': [
         { '@type': 'FAQPage',
           mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
-        { '@type': 'DryCleaningOrLaundry', name: 'Family Laundry', url: ORIGIN + cityPath(c), telephone: v.site?.phone,
+        { '@type': 'DryCleaningOrLaundry', '@id': ORIGIN + cityPath(c) + '#business', parentOrganization: { '@id': BIZ_ID },
+          name: 'Family Laundry', url: ORIGIN + cityPath(c), telephone: v.site?.phone,
           image: ORIGIN + '/assets/img/logo-circle-512.png',
           address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
           areaServed: { '@type': 'City', name },
@@ -473,7 +482,7 @@ function topic(t, v) {
   const graph = [];
   if (faqs.length) graph.push({ '@type': 'FAQPage', mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) });
   if (t.service) graph.push({ '@type': 'Service', name: t.h1, serviceType: t.service, url: ORIGIN + t.path, areaServed: SERVICE_AREA(v),
-    provider: { '@type': 'DryCleaningOrLaundry', name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
+    provider: { '@type': 'DryCleaningOrLaundry', '@id': BIZ_ID, name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
       address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
       ...ownRatingLd(v) } });
   return {
@@ -482,7 +491,7 @@ function topic(t, v) {
   <p class="eyebrow">${esc(t.group)}</p>
   <h1>${esc(t.h1)}</h1>
   <p class="lead">${esc(t.lead)}</p>
-  ${ratingBadge(v)}
+  ${ratingBlock(v)}
   ${t.photo ? `<figure class="about-photo"><img src="/assets/img/${esc(t.photo.src)}" alt="${esc(t.photo.alt)}" width="${t.photo.w}" height="${t.photo.h}"><figcaption>${esc(t.photo.caption)}</figcaption></figure>` : ''}
   ${t.sections.map(s => `<h2>${esc(s.h)}</h2>\n  ${md(s.md, v)}`).join('\n  ')}
   ${ctaBlock}
@@ -520,7 +529,7 @@ function cost(v) {
   <p class="eyebrow">Getting started</p>
   <h1>How much does laundry service cost?</h1>
   <p class="lead">Pickup and delivery wash &amp; fold in the Bay Area with Family Laundry costs ${esc(m(bag))} per bag (up to 25 lbs) plus ${esc(m(del))} delivery, or ${esc(m(plan))} a month for ${esc(String(lbs))} lbs with delivery included.</p>
-  ${ratingBadge(v)}
+  ${ratingBlock(v)}
   <h2>Our prices</h2>
   <ul>
     <li><strong>Per bag:</strong> ${esc(m(bag))} for up to 25 lbs (about 2–3 loads), plus ${esc(m(del))} delivery per order. Over 25 lbs: ${mdi('{site:overweight_rate}', v)}.</li>
@@ -578,7 +587,7 @@ function about(v) {
   <p class="eyebrow">About us</p>
   <h1>The people who do your laundry</h1>
   <p class="lead">Family Laundry is an Oakland family business. We started in early 2018, the day we closed on our first laundromat, and began pickup and delivery in 2019.</p>
-  ${ratingBadge(v)}
+  ${ratingBlock(v)}
   <figure class="about-photo"><img src="/assets/img/team.jpg" alt="The Family Laundry team in aprons at the Oakland facility" width="1078" height="588">
     <figcaption>Part of the Family Laundry team in Oakland.</figcaption></figure>
   <h2>Our own team, never outsourced</h2>
@@ -605,7 +614,7 @@ function about(v) {
     jsonld: {
       '@context': 'https://schema.org', '@type': 'AboutPage', url: ORIGIN + '/about-us',
       mainEntity: {
-        '@type': 'DryCleaningOrLaundry', name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
+        '@type': 'DryCleaningOrLaundry', '@id': BIZ_ID, name: 'Family Laundry', url: ORIGIN, telephone: v.site?.phone,
         foundingDate: '2018', founder: [{ '@type': 'Person', name: 'Laura Guevara' }, { '@type': 'Person', name: 'David Macquart-Moulin' }],
         numberOfEmployees: { '@type': 'QuantitativeValue', minValue: 30 },
         image: [img('team.jpg'), img('facility.jpg'), img('vans.jpg')],

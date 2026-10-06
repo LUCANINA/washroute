@@ -97,7 +97,7 @@ WashRoute apps don't change when only `website/` changes (the build-version hook
 - **Gift cards**: Gift Up checkout (company id `2017a1d8-10dc-4d23-7124-08dc6b5e520e` in
   `site_info.giftup_site_id`). The Gift Up artwork says "same-day"; David chose to leave it.
 - **Ratings**: "4.8 ★ on Google · 327 reviews" (from `site_info.google_rating/google_reviews`, update by hand)
-  and "4.9 ★ from N customer ratings after delivery" (live, shown once there are 20+).
+  and "4.9 ★ from N customer ratings" (live, shown once there are 20+).
 
 ## Cutover from Wix (DNS)
 
@@ -190,3 +190,11 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   uses it and shows 4.6 ★ in results) on the homepage, city pages, service provider and About page
   (`website/api/_lib/pages.js`). Checked locally: homepage + city pages emit AggregateRating 4.9 / 77. Stars are
   Google's call (own-site ratings for a local business aren't guaranteed); expect 1–4 weeks after re-crawl.
+- **Oct 6, 2026:** Public DNS confirmed on Vercel (MX unchanged). Sitemap shows in Search Console as read Oct 6, 39
+  pages, Success. Re-indexing requested for the SF, Oakland and Berkeley pages.
+- **Tue Oct 6, 2026 (later)** — Own rating made prominent: city, topic, cost and About pages now show
+  "4.9 ★ from N customer ratings" right under the Google & Yelp line (`ratingBlock()`); homepage
+  line and footer gained the count too. Never merge the two figures (Google+Yelp 4.8/500+ vs our own 4.9/N).
+  Markup now uses one business `@id` (`https://www.familylaundry.com/#business`) on home, About and service
+  pages; each city page has its own `…/laundry-delivery-<city>#business` with `parentOrganization` → the main
+  `@id` (same pattern as rinse.com).
