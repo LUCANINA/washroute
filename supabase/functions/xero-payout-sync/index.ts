@@ -318,20 +318,17 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
   if (discountsAmt !== 0) lineItems.push({ Description: `Discounts applied — Stripe payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(discountsAmt), AccountCode: DISCOUNTS_ACCOUNT.code, TaxType: 'NONE' })
   const refundsAmt = dollars(refundsBucket.gross) // Stripe's refund amount is already negative
   if (refundsAmt !== 0) lineItems.push({ Description: `Refunds — Stripe payout ${payout.id}`, Quantity: 1, UnitAmount: refundsAmt, AccountCode: REFUNDS_ACCOUNT.code, TaxType: 'NONE' })
+  // `net`, not `gross`: Stripe's net is amount - fee, so this single line carries
+  // the reversed sale AND the $15 dispute fee, and the whole cost of a chargeback
+  // lands in 606. Nothing is added to 828 for a dispute as a result.
   // Already negative for a chargeback; positive when a dispute is WON and Stripe
   // returns the money, which is why this is not wrapped in -Math.abs().
-  const disputesAmt = dollars(disputesBucket.gross)
+  const disputesAmt = dollars(disputesBucket.net)
   if (disputesAmt !== 0) lineItems.push({ Description: `Chargebacks — Stripe payout ${payout.id}`, Quantity: 1, UnitAmount: disputesAmt, AccountCode: DISPUTE_ACCOUNT.code, TaxType: 'NONE' })
 
   const perChargeFees = dollars(Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee)
   if (perChargeFees !== 0) lineItems.push({ Description: `Stripe processing fees (per-transaction) — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(perChargeFees), AccountCode: '605', TaxType: 'NONE' })
-  // Session 330: Stripe's $15 dispute fee rides on the dispute's OWN balance
-  // transaction as its `fee` -- there is no separate stripe_fee row for it, and
-  // perChargeFees above only sums the revenue buckets and refunds. Leave it out
-  // and the journal is short by exactly the fee, which buildPlan's own `balances`
-  // check then rejects. It posts to 828 rather than 605 because a dispute fee is
-  // a penalty, not a processing fee on a sale.
-  const acctFee = dollars(Math.abs(nonRevenue.stripe_fee.net) + Math.abs(disputesBucket.fee))
+  const acctFee = dollars(nonRevenue.stripe_fee.net)
   if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(acctFee), AccountCode: '828', TaxType: 'NONE' })
   const loanPaydown = dollars(nonRevenue.financing_paydown.net)
   if (loanPaydown !== 0) lineItems.push({ Description: `Stripe Capital loan repayment — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(loanPaydown), AccountCode: STRIPE_CAPITAL_ACCOUNT_CODE, TaxType: 'NONE' })

@@ -211,13 +211,11 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
   const creditsAmt = dollars(creditsTotalCents); if (creditsAmt !== 0) lineItems.push({ Description: `Account credits applied — Stripe payout ${payout.id}`, UnitAmount: -Math.abs(creditsAmt), AccountCode: CREDITS_ACCOUNT.code })
   const discountsAmt = dollars(discountsTotalCents); if (discountsAmt !== 0) lineItems.push({ Description: `Discounts applied — Stripe payout ${payout.id}`, UnitAmount: -Math.abs(discountsAmt), AccountCode: DISCOUNTS_ACCOUNT.code })
   const refundsAmt = dollars(refundsBucket.gross); if (refundsAmt !== 0) lineItems.push({ Description: `Refunds — Stripe payout ${payout.id}`, UnitAmount: refundsAmt, AccountCode: REFUNDS_ACCOUNT.code })
-  // Already negative for a chargeback; positive when a dispute is won.
-  const disputesAmt = dollars(disputesBucket.gross); if (disputesAmt !== 0) lineItems.push({ Description: `Chargebacks — Stripe payout ${payout.id}`, UnitAmount: disputesAmt, AccountCode: DISPUTE_ACCOUNT.code })
+  // `net`, not `gross`: Stripe's net is amount - fee, so this one line carries the
+  // reversed sale AND the dispute fee. Negative for a loss, positive for a win.
+  const disputesAmt = dollars(disputesBucket.net); if (disputesAmt !== 0) lineItems.push({ Description: `Chargebacks — Stripe payout ${payout.id}`, UnitAmount: disputesAmt, AccountCode: DISPUTE_ACCOUNT.code })
   const perChargeFees = dollars(Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee); if (perChargeFees !== 0) lineItems.push({ Description: `Stripe processing fees (per-transaction) — payout ${payout.id}`, UnitAmount: -Math.abs(perChargeFees), AccountCode: '605' })
-  // Session 330: the $15 dispute fee rides on the dispute's own balance transaction
-  // as its `fee`, not as a separate stripe_fee row, and perChargeFees above sums
-  // only the revenue buckets and refunds. Omit it and the journal is short by the fee.
-  const acctFee = dollars(Math.abs(nonRevenue.stripe_fee.net) + Math.abs(disputesBucket.fee)); if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, UnitAmount: -Math.abs(acctFee), AccountCode: '828' })
+  const acctFee = dollars(nonRevenue.stripe_fee.net); if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, UnitAmount: -Math.abs(acctFee), AccountCode: '828' })
   const loanPaydown = dollars(nonRevenue.financing_paydown.net); if (loanPaydown !== 0) lineItems.push({ Description: `Stripe Capital loan repayment — payout ${payout.id}`, UnitAmount: -Math.abs(loanPaydown), AccountCode: '304' })
 
   const total = dollars(lineItems.reduce((s, li) => s + li.UnitAmount * 100, 0))

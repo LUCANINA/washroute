@@ -34,8 +34,9 @@ shape that path cannot express.
    the payout all over again, months later, with nobody remembering why.
 3. **The $15 dispute fee rides on the dispute's own balance transaction as its `fee`**, not as a
    separate `stripe_fee` row, and `perChargeFees` sums only the revenue buckets and refunds. Omit
-   it and the journal is short by exactly $15 — caught by `buildPlan`'s own `balances` check. It
-   posts to **828**, not 605: a dispute fee is a penalty, not a processing fee on a sale.
+   it and the journal is short by exactly $15 — caught by `buildPlan`'s own `balances` check. The
+   line posts the dispute's **`net`** (amount − fee), so the sale and the fee land together in one
+   account and nothing is added to 828. "What did chargebacks cost us" is one figure.
 4. **The dispute TEST is shared, the bucket plumbing is not.** `xero-payout-reallocate` carries
    its own copy of `classifyPayout`; session 266 fixed the sync and reallocate refused the same
    payout within the hour. `_shared/dispute-classify.ts` exists for that reason. The underlying
@@ -43,11 +44,17 @@ shape that path cannot express.
 
 **Arithmetic, verified before any code was written.** The stored `category_breakdown` showed the
 line items summing to $12,420.63 against a payout of $12,234.68 — short by exactly $185.95, the
-unclassified net. Booking −$170.95 to 691 and folding $15 into 828 lands it on **$12,234.68 to
-the cent**. Refunds and chargebacks post as **two separate named lines** on 691 so the account
-stays readable: a refund we chose to give is not a chargeback taken from us.
+unclassified net. Booking that −$185.95 to 606 lands it on **$12,234.68 to the cent**.
 
-**Tests:** `tests/payout-dispute.test.mjs`, 29 assertions, 0 red. It **loads the shipped
+**The account: 606 "Chargebacks", which ALREADY EXISTED.** David asked for a dedicated chargeback
+account; reading the chart of accounts live off Xero (`xero-read` mode `accounts`, 216 accounts)
+found 606 `Chargebacks` (DIRECTCOSTS, active) already there, beside 605 Merchant Fees. **Nothing
+was created** — a second chargeback account would have split the history. 691 Refunds &
+Replacements now keeps only refunds, which is the distinction worth having: a refund we chose to
+give is not a chargeback taken from us. `DISPUTE_ACCOUNT` in `_shared/dispute-classify.ts` is the
+only place the code lives.
+
+**Tests:** `tests/payout-dispute.test.mjs`, 31 assertions, 0 red. It **loads the shipped
 `buildPlan` out of both edge-function sources and runs it** rather than transcribing it (s245).
 It discriminates: zeroing `disputesBucket` reproduces the old behaviour and the plan goes red,
 short by exactly $185.95. `payout-recovery`, `xero-429`, `xero-budget`, `xero-meter`,
@@ -60,8 +67,11 @@ Deploy, then re-run the sync and confirm it foots to $12,234.68.
 **Open, deliberately not touched:** order #15734 is still `billing_status = 'paid'` despite the
 chargeback. Marking it is a separate decision with customer-facing consequences, and the
 don't-correct-billing-data-you-can't-explain rule (s309) applies — raised with David, not acted on.
-Also open: whether the CPA wants chargebacks on their own Xero code instead of inside 691.
-`DISPUTE_ACCOUNT` in `_shared/dispute-classify.ts` is the only thing that moves if so.
+**Decided (David, 2026-10-07): the $15 dispute fee stays in 606 with the reversed sale.** The whole
+cost of a chargeback is one figure in one account; nothing about a dispute touches 605 or 828. This
+is enforced, not just documented — `tests/payout-dispute.test.mjs` asserts the 606 line is exactly
+−$185.95 AND that 828 is unchanged at −$7.70, so moving the fee out would go red. The CPA may still
+want to confirm 606 is where she wants Stripe disputes landing.
 
 
 ## Session 321 — Sep 22, 2026: the amortization read crossed the cap, and the alarm was the only thing that noticed
