@@ -3420,6 +3420,29 @@
 
           <!-- ── TAB: POS SALES ── -->
           <div id="rpttab-possales" style="display:none">
+            <!-- Session 336: Monthly / Daily / Custom, like Launderers, Drivers and Items —
+                 but POS runs to TODAY (no hours to wait for). -->
+            <div class="lm-bar-top" style="margin-bottom:16px">
+              <div class="lm-seg" role="tablist" aria-label="Report period">
+                <button type="button" role="tab" class="active" id="ps-mode-month" aria-selected="true" onclick="psSetMode('month')">Monthly</button>
+                <button type="button" role="tab" id="ps-mode-day" aria-selected="false" onclick="psSetMode('day')">Daily</button>
+                <button type="button" role="tab" id="ps-mode-custom" aria-selected="false" onclick="psSetMode('custom')">Custom</button>
+              </div>
+              <div class="lm-nav">
+                <button type="button" class="lm-step" id="ps-prev" aria-label="Previous month" onclick="psStep(-1)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <div class="lm-month" id="ps-month-label">—</div>
+                <div class="lm-range" id="ps-range" style="display:none">
+                  <input type="date" id="ps-from" min="2025-01-01" aria-label="From" onchange="psSetRange()">
+                  <span>to</span>
+                  <input type="date" id="ps-to" min="2025-01-01" aria-label="To" onchange="psSetRange()">
+                </div>
+                <button type="button" class="lm-step" id="ps-next" aria-label="Next month" onclick="psStep(1)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+              </div>
+            </div>
             <div class="card" style="margin-bottom:16px;padding:0">
               <div class="ps-filter-row">
                 <!-- Quick-range presets moved to the shared global bar above (session 172). -->
@@ -54003,7 +54026,7 @@ ${oneCopy}
     // Session 323: the Launderers report picks its own month, so the shared
     // Today / 7 days / Custom row is hidden while it is open. Session 336: the
     // Drivers report does the same.
-    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items');
+    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items' || tab === 'possales');
     _rptSyncPeriodUI();
     runCurrentReport();
   }
@@ -57799,23 +57822,72 @@ async function _dvIframeLoaded() {
     }
   }
 
+  // ── POS period selector (session 336): Monthly (default) / Daily / Custom,
+  //    sharing _rpRenderStepper with the other reports. Runs to TODAY.
+  const _psS = { mode: 'month', month: null, day: null, range: null, cap: null };
+  let _psSeq = 0;
+  function _psPeriod() {
+    const S = _psS, today = _lndrTodayPT();
+    S.cap = today;
+    if (!S.month || S.month > today.slice(0, 7)) S.month = today.slice(0, 7);
+    if (S.mode === 'day' && (!S.day || S.day > today)) S.day = today;
+    if (S.mode === 'custom' && (!S.range || S.range.to > today)) S.range = { from: addDaysPacific(today, -6), to: today };
+    if (S.mode === 'day') return { from: S.day, to: S.day };
+    if (S.mode === 'custom') return { from: S.range.from, to: S.range.to };
+    const b = _lndrMonthBounds(S.month);
+    return { from: b.from, to: b.to < today ? b.to : today };
+  }
+  function psSetMode(mode) {
+    if (mode === _psS.mode || !['month', 'day', 'custom'].includes(mode)) return;
+    _psS.mode = mode;
+    loadPosSalesReport();
+  }
+  function psStep(n) {
+    const today = _lndrTodayPT(), S = _psS;
+    _psPeriod();
+    if (S.mode === 'month') {
+      const next = _lmShift(S.month, n);
+      if (next > today.slice(0, 7)) return;
+      S.month = next;
+    } else if (S.mode === 'day') {
+      const next = addDaysPacific(S.day, n);
+      if (next > today) return;
+      S.day = next;
+    } else {
+      const len = _lmDayCount(S.range.from, S.range.to);
+      const to = addDaysPacific(S.range.to, n * len);
+      if (to > today) return;
+      S.range = { from: addDaysPacific(S.range.from, n * len), to };
+    }
+    loadPosSalesReport();
+  }
+  function psSetRange() {
+    const f = document.getElementById('ps-from')?.value;
+    const t = document.getElementById('ps-to')?.value;
+    if (!f || !t) return;
+    const redraw = () => _rpRenderStepper('ps', _psS);
+    if (f > t) { showToast('The start date is after the end date', 'error'); redraw(); return; }
+    if (t > _lndrTodayPT()) { showToast('The end date is in the future', 'error'); redraw(); return; }
+    if (f < '2025-01-01') { redraw(); return; }   // half-typed year
+    if (_lmDayCount(f, t) > 366) { showToast('Pick a range of one year or less', 'error'); redraw(); return; }
+    _psS.range = { from: f, to: t };
+    loadPosSalesReport();
+  }
+  window.psSetMode = psSetMode;
+  window.psStep = psStep;
+  window.psSetRange = psSetRange;
+
   async function loadPosSalesReport() {
-    const fromEl    = document.getElementById('rpt-from');
-    const toEl      = document.getElementById('rpt-to');
     const body      = document.getElementById('ps-rpt-body');
     const exportBtn = document.getElementById('possales-export-btn');
-    if (!fromEl?.value || !toEl?.value) {
-      showToast('Please select a date range', 'error');
-      return;
-    }
     if (exportBtn) exportBtn.style.display = 'none';
 
+    const { from: selFrom, to: selTo } = _psPeriod();
+    const seq = ++_psSeq;   // drops a stale load when the period is stepped quickly
+    _rpRenderStepper('ps', _psS);
     await populatePosSalesSiteOptions();
-    _refreshPosSalesPresetHighlight();
 
     const siteFilter = document.getElementById('ps-site-filter')?.value || '';
-    const selFrom    = fromEl.value;
-    const selTo      = toEl.value;
 
     body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
     const byOrderBodyEl = document.getElementById('ps-by-order-body');
@@ -57854,6 +57926,7 @@ async function _dvIframeLoaded() {
       offset += BATCH;
     }
 
+    if (seq !== _psSeq) return;
     if (fetchError) {
       body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${esc(fetchError.message)}</div>`;
       const byOrderBody = document.getElementById('ps-by-order-body');
@@ -57907,6 +57980,7 @@ async function _dvIframeLoaded() {
       }
     }
 
+    if (seq !== _psSeq) return;
     _renderPosByOrder(allOrders, feesByPI, feesEstimated);
 
     if (!orders.length) {
@@ -59705,7 +59779,7 @@ async function _dvIframeLoaded() {
     const pv  = document.getElementById(px + '-prev');
     const nx  = document.getElementById(px + '-next');
     if (!lab) return;
-    const cap = _lmYesterday();
+    const cap = S.cap || _lmYesterday();   // S.cap: POS Sales runs to TODAY
     ['month', 'day', 'custom'].forEach(m => {
       const b = document.getElementById(px + '-mode-' + m);
       if (b) { b.classList.toggle('active', m === S.mode); b.setAttribute('aria-selected', String(m === S.mode)); }
