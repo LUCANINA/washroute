@@ -89,7 +89,7 @@ function home(v) {
   <p>Your laundry comes back with a neutral, clean smell and no detergent or softener residue.</p>
   <div class="h-steps">
     <div><img src="/assets/img/step-prep.jpg" alt="" width="121" height="121" loading="lazy"><h3>Prep</h3><p>We empty all pockets and separate lights and darks.</p></div>
-    <div><img src="/assets/img/step-wash.jpg" alt="" width="121" height="121" loading="lazy"><h3>Wash, Sanitize, Dry</h3><p>We wash in warm water with Free &amp; Clear detergent and ozone, then dry on medium.</p></div>
+    <div><img src="/assets/img/step-wash.jpg" alt="" width="121" height="121" loading="lazy"><h3>Wash, Sanitize, Dry</h3><p>We wash in cold water with Free &amp; Clear detergent and ozone, then dry on medium.</p></div>
     <div><img src="/assets/img/step-fold.png" alt="" width="121" height="121" loading="lazy"><h3>Fold</h3><p>We neatly fold your laundry, ball socks, and bundle your laundry by family member.</p></div>
   </div>
 </section>
@@ -262,7 +262,7 @@ function services(v) {
     <div class="sv-tile sv-tile-lg"><img src="/assets/img/svc-washfold-cut.png" alt="A Family Laundry bag of clean, folded laundry"></div>
     <div>
       <h2>Wash &amp; Fold</h2>
-      <p>Your everyday household laundry: clothes, towels and sheets. Washed warm with Free &amp; Clear detergent and ozone, dried on medium, then folded and bundled by family member.</p>
+      <p>Your everyday household laundry: clothes, towels and sheets. Washed cold with Free &amp; Clear detergent and ozone, dried on medium, then folded and bundled by family member.</p>
       <div class="sv-plans">
         <div class="sv-plan">
           <h3>Per bag</h3>

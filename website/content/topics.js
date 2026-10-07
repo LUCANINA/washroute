@@ -16,7 +16,7 @@ module.exports = [
     sections: [
       { h: 'What we wash', md: "- Comforters and duvets\n- Blankets and throws\n- Bed pillows\n- Sheets, pillowcases and mattress pads\n- Sleeping bags\n- Dog and cat beds" },
       { h: 'How much fits in a bag', md: "Bedding goes in the same Family Laundry bag as everything else, priced per bag. One bag holds about **3 standard pillows, 3 standard blankets or 2 standard duvets**. If it fits in the bag, we'll wash it.\n\nPer bag: {price:Wash & Fold} plus {fee:Delivery Fee} delivery. Bags over 25 lbs are an extra {site:overweight_rate}. Subscribers pay one monthly price instead: {plan:price} for {plan:lbs} lbs." },
-      { h: 'How we clean it', md: "Free & Clear hypoallergenic detergent and ozone, warm water, dried on medium. No fragrance, no bleach and no softener, so nothing lingers on the fabric you sleep on. For a pet bed or a sick-day comforter, add **Double Wash** ({price:Double Wash} per bag), a second full wash, when you book." },
+      { h: 'How we clean it', md: "Free & Clear hypoallergenic detergent and ozone, cold water, dried on medium. No fragrance, no bleach and no softener, so nothing lingers on the fabric you sleep on. For a pet bed or a sick-day comforter, add **Double Wash** ({price:Double Wash} per bag), a second full wash, when you book." },
       { h: "What we can't take", md: "Anything labeled dry clean only or hand wash only, and anything that doesn't fit in a Family Laundry bag." },
     ],
     faqs: [
@@ -203,7 +203,7 @@ module.exports = [
       { h: '1. Book a pickup', md: "Book in the app or at [app.familylaundry.com](https://app.familylaundry.com). Pick a pickup window; you can book up to 60 minutes before a window ends. Later on, regular customers can also text **PICKUP** to {site:phone}." },
       { h: '2. Pack your laundry', md: "For your first order, put your laundry in sealed trash bags. A Family Laundry bag holds about 2 tall kitchen bags, or 25 lbs. Keep delicates in a separate bag and choose Air Dry if you want them hung to dry." },
       { h: "3. Leave it out", md: "You don't need to be home. Leave the bags at your door, porch or front desk and tell us where in the app. [Tips for leaving laundry out](/leaving-laundry-out-for-pickup)." },
-      { h: '4. We wash it ourselves', md: "At our own plant in East Oakland, we empty pockets, separate lights and darks, wash in warm water with Free & Clear detergent and ozone, and dry on medium. Your laundry is never mixed with anyone else's and never sent to another company." },
+      { h: '4. We wash it ourselves', md: "At our own plant in East Oakland, we empty pockets, separate lights and darks, wash in cold water with Free & Clear detergent and ozone, and dry on medium. Your laundry is never mixed with anyone else's and never sent to another company." },
       { h: '5. It comes back folded', md: "Usually the next service day, in Family Laundry bags that are yours to keep for next time. Everything is folded, socks balled, and bundled by family member." },
       { h: '6. Pay and tip', md: "Your card on file is charged when your order is ready for delivery. You can set a default tip for your driver in the app." },
     ],
