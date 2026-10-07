@@ -5,6 +5,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { classifyPrecheckFailure, nextRetryAt } from '../_shared/payout-retry.ts'
 import { rechain, toCents, fromCents, type ChainEntry } from '../_shared/balance-rechain.ts'
 import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
+import { isDisputeTxn, DISPUTE_ACCOUNT } from '../_shared/dispute-classify.ts'
 import { getOrderByPaymentIntent } from '../_shared/order-lookup.ts'
 import { findConflictingDeposit } from '../_shared/existing-deposit.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
@@ -150,6 +151,12 @@ async function classifyPayout(payout: any) {
   // each order's own line_items since Stripe never sees them as separate
   // transactions.
   const refundsBucket = emptyBucket()
+  // Session 330: chargebacks get their own bucket rather than being folded into
+  // refundsBucket. Both post to 691, but a refund is one we chose to give and a
+  // chargeback is one taken from us -- collapsing them would hide the second
+  // inside the first on the only screen that reports it.
+  const disputesBucket = emptyBucket()
+  const disputeDetail: any[] = []
   let creditsTotalCents = 0
   let discountsTotalCents = 0
   const creditDiscountExamples: any[] = []
@@ -165,6 +172,19 @@ async function classifyPayout(payout: any) {
       // Flat bucket, not split by revenue category -- see REFUNDS_ACCOUNT comment.
       refundsBucket.gross += bt.amount; refundsBucket.fee += bt.fee
       refundsBucket.net += bt.net; refundsBucket.count += 1
+      continue
+    }
+
+    // Session 330: a chargeback arrives as type 'adjustment' and matched none of
+    // the branches above, so it fell through to `unclassified` and blocked the
+    // whole payout -- $12,234.68 sat unbooked on 2026-10-07 over one $170.95
+    // dispute. The test lives in _shared/dispute-classify.ts and asks Stripe's
+    // own reporting_category, NOT bt.type: 'adjustment' is Stripe's catch-all and
+    // also carries their corrections, which must keep blocking for a human.
+    if (isDisputeTxn(bt)) {
+      disputesBucket.gross += bt.amount; disputesBucket.fee += bt.fee
+      disputesBucket.net += bt.net; disputesBucket.count += 1
+      disputeDetail.push({ id: bt.id, dispute: bt.source, amount: bt.amount, fee: bt.fee, category: bt.reporting_category })
       continue
     }
 
@@ -275,12 +295,13 @@ async function classifyPayout(payout: any) {
   }
 
   return {
-    buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents,
+    buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail,
+    creditsTotalCents, discountsTotalCents,
     creditDiscountExamples, unclassifiedDetail, overridesApplied, transactionCount: btxns.length,
   }
 }
 
-function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: any, creditsTotalCents: number, discountsTotalCents: number) {
+function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: any, creditsTotalCents: number, discountsTotalCents: number, disputesBucket: any) {
   const arrivalDate = new Date(payout.arrival_date * 1000).toISOString().slice(0, 10)
   const reserveNet = nonRevenue.payout_minimum_balance_hold.net + nonRevenue.payout_minimum_balance_release.net
   const safetyFailed = buckets.unclassified.count > 0 || Math.abs(reserveNet) > 1
@@ -297,10 +318,20 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
   if (discountsAmt !== 0) lineItems.push({ Description: `Discounts applied — Stripe payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(discountsAmt), AccountCode: DISCOUNTS_ACCOUNT.code, TaxType: 'NONE' })
   const refundsAmt = dollars(refundsBucket.gross) // Stripe's refund amount is already negative
   if (refundsAmt !== 0) lineItems.push({ Description: `Refunds — Stripe payout ${payout.id}`, Quantity: 1, UnitAmount: refundsAmt, AccountCode: REFUNDS_ACCOUNT.code, TaxType: 'NONE' })
+  // Already negative for a chargeback; positive when a dispute is WON and Stripe
+  // returns the money, which is why this is not wrapped in -Math.abs().
+  const disputesAmt = dollars(disputesBucket.gross)
+  if (disputesAmt !== 0) lineItems.push({ Description: `Chargebacks — Stripe payout ${payout.id}`, Quantity: 1, UnitAmount: disputesAmt, AccountCode: DISPUTE_ACCOUNT.code, TaxType: 'NONE' })
 
   const perChargeFees = dollars(Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee)
   if (perChargeFees !== 0) lineItems.push({ Description: `Stripe processing fees (per-transaction) — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(perChargeFees), AccountCode: '605', TaxType: 'NONE' })
-  const acctFee = dollars(nonRevenue.stripe_fee.net)
+  // Session 330: Stripe's $15 dispute fee rides on the dispute's OWN balance
+  // transaction as its `fee` -- there is no separate stripe_fee row for it, and
+  // perChargeFees above only sums the revenue buckets and refunds. Leave it out
+  // and the journal is short by exactly the fee, which buildPlan's own `balances`
+  // check then rejects. It posts to 828 rather than 605 because a dispute fee is
+  // a penalty, not a processing fee on a sale.
+  const acctFee = dollars(Math.abs(nonRevenue.stripe_fee.net) + Math.abs(disputesBucket.fee))
   if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(acctFee), AccountCode: '828', TaxType: 'NONE' })
   const loanPaydown = dollars(nonRevenue.financing_paydown.net)
   if (loanPaydown !== 0) lineItems.push({ Description: `Stripe Capital loan repayment — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(loanPaydown), AccountCode: STRIPE_CAPITAL_ACCOUNT_CODE, TaxType: 'NONE' })
@@ -540,8 +571,8 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
     return { skipped: true, reason: 'marked not_applicable -- this payout is accounted for outside the revenue-split pipeline', existing }
   }
 
-  const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied } = await classifyPayout(payout)
-  const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents)
+  const { buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied } = await classifyPayout(payout)
+  const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, disputesBucket)
 
   const { data: syncRow, error: upsertErr } = await supabase.from('xero_payout_syncs').upsert({
     stripe_payout_id: payout.id, payout_amount: plan.payoutDollars, payout_arrival_date: plan.arrivalDate, status: 'pending',
@@ -554,7 +585,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
       // Permanent by construction: an unclassified transaction or an out-of-balance
       // plan reproduces exactly on a re-run. Retrying it would bury the signal.
       failure_kind: 'permanent', next_retry_at: null,
-      category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied },
+      category_breakdown: { buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied },
     }).eq('id', syncRow.id)
     console.error(`[xero-payout-sync] ${payout.id} blocked: ${plan.blockedReason}`)
     return { posted: false, blocked_reason: plan.blockedReason }
@@ -701,7 +732,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
       // a retry would ask the same question and get the same answer. This needs a
       // person to choose the reallocation route.
       status: 'failed', error_message: msg, failure_kind: 'permanent', next_retry_at: null,
-      category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, overridesApplied },
+      category_breakdown: { buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail, creditsTotalCents, discountsTotalCents, overridesApplied },
     }).eq('id', syncRow.id)
     console.error(`[xero-payout-sync] ${payout.id} refused: existing deposit ${t.BankTransactionID}`)
     return { posted: false, blocked_reason: msg, existing_bank_transaction_id: t.BankTransactionID, needs_reallocation: true }
@@ -716,7 +747,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
 
   if (!postRes.ok) {
     // A Xero validation rejection is permanent -- same payload, same rejection.
-    await supabase.from('xero_payout_syncs').update({ status: 'failed', error_message: JSON.stringify(postJson).slice(0, 2000), failure_kind: 'permanent', next_retry_at: null, category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, overridesApplied } }).eq('id', syncRow.id)
+    await supabase.from('xero_payout_syncs').update({ status: 'failed', error_message: JSON.stringify(postJson).slice(0, 2000), failure_kind: 'permanent', next_retry_at: null, category_breakdown: { buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail, creditsTotalCents, discountsTotalCents, overridesApplied } }).eq('id', syncRow.id)
     console.error(`[xero-payout-sync] ${payout.id} Xero post failed`, postJson)
     return { posted: false, xero_error: postJson }
   }
@@ -734,7 +765,7 @@ async function processPayout(payout: any, opts: { force?: boolean } = {}) {
     // to post blind", which is a stale sentence beside a correct number: the
     // hardest kind of wrong to catch, because a reader trusts the words.
     error_message: null, failure_kind: null, next_retry_at: null,
-    category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, overridesApplied },
+    category_breakdown: { buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail, creditsTotalCents, discountsTotalCents, overridesApplied },
   }).eq('id', syncRow.id)
   if (postedUpdErr) {
     console.error(`[xero-payout-sync] ${payout.id} XERO AHEAD OF US: posted ${createdTxnId} but row update failed: ${postedUpdErr.message}`)
@@ -805,8 +836,8 @@ Deno.serve(async (req) => {
     }
 
     if (dryRun) {
-      const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, creditDiscountExamples, unclassifiedDetail, overridesApplied, transactionCount } = await classifyPayout(payout)
-      const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents)
+      const { buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail, creditsTotalCents, discountsTotalCents, creditDiscountExamples, unclassifiedDetail, overridesApplied, transactionCount } = await classifyPayout(payout)
+      const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, disputesBucket)
       return new Response(JSON.stringify({
         would_post: !plan.safetyFailed && plan.balances,
         blocked_reason: plan.blockedReason,

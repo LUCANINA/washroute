@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
+import { isDisputeTxn, DISPUTE_ACCOUNT } from '../_shared/dispute-classify.ts'
 import { getOrderByPaymentIntent } from '../_shared/order-lookup.ts'
 
 // Retroactively fixes a Stripe payout that was already posted to Xero as a single
@@ -129,6 +130,12 @@ async function classifyPayout(payout: any) {
   const nonRevenue: Record<string, any> = {}
   for (const t of NON_REVENUE_TYPES) nonRevenue[t] = emptyBucket()
   const refundsBucket = emptyBucket()
+  // Session 330: mirrors xero-payout-sync. This function carries its own copy of
+  // classifyPayout, and in session 266 a fix applied only to the sync was refused
+  // here within the hour -- the dispute TEST is imported, not copied, for exactly
+  // that reason; only the bucket plumbing is duplicated.
+  const disputesBucket = emptyBucket()
+  const disputeDetail: any[] = []
   let creditsTotalCents = 0
   let discountsTotalCents = 0
   const creditDiscountExamples: any[] = []
@@ -136,6 +143,7 @@ async function classifyPayout(payout: any) {
   for (const bt of btxns) {
     if (NON_REVENUE_TYPES.has(bt.type)) { nonRevenue[bt.type].gross += bt.amount; nonRevenue[bt.type].fee += bt.fee; nonRevenue[bt.type].net += bt.net; nonRevenue[bt.type].count += 1; continue }
     if (bt.type === 'refund' || bt.type === 'payment_refund') { refundsBucket.gross += bt.amount; refundsBucket.fee += bt.fee; refundsBucket.net += bt.net; refundsBucket.count += 1; continue }
+    if (isDisputeTxn(bt)) { disputesBucket.gross += bt.amount; disputesBucket.fee += bt.fee; disputesBucket.net += bt.net; disputesBucket.count += 1; disputeDetail.push({ id: bt.id, dispute: bt.source, amount: bt.amount, fee: bt.fee, category: bt.reporting_category }); continue }
     if (!['charge', 'payment'].includes(bt.type)) { buckets.unclassified.gross += bt.amount; buckets.unclassified.fee += bt.fee; buckets.unclassified.net += bt.net; buckets.unclassified.count += 1; unclassifiedDetail.push({ id: bt.id, type: bt.type, amount: bt.amount, reason: `unhandled balance_transaction type '${bt.type}'` }); continue }
 
     const charge = await getCharge(bt.source)
@@ -190,10 +198,10 @@ async function classifyPayout(payout: any) {
       if (category === 'unclassified') unclassifiedDetail.push({ id: bt.id, chargeId: charge.id, amount: bt.amount, description: charge.description, paymentIntent: charge.payment_intent, reason: charge.payment_intent ? 'no matching WashRoute order found' : 'no payment_intent, invoice, or Gift Up description' })
     }
   }
-  return { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, creditDiscountExamples, unclassifiedDetail, overridesApplied, transactionCount: btxns.length }
+  return { buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail, creditsTotalCents, discountsTotalCents, creditDiscountExamples, unclassifiedDetail, overridesApplied, transactionCount: btxns.length }
 }
 
-function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: any, creditsTotalCents: number, discountsTotalCents: number) {
+function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: any, creditsTotalCents: number, discountsTotalCents: number, disputesBucket: any) {
   const arrivalDate = new Date(payout.arrival_date * 1000).toISOString().slice(0, 10)
   const reserveNet = nonRevenue.payout_minimum_balance_hold.net + nonRevenue.payout_minimum_balance_release.net
   const safetyFailed = buckets.unclassified.count > 0 || Math.abs(reserveNet) > 1
@@ -203,8 +211,13 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
   const creditsAmt = dollars(creditsTotalCents); if (creditsAmt !== 0) lineItems.push({ Description: `Account credits applied — Stripe payout ${payout.id}`, UnitAmount: -Math.abs(creditsAmt), AccountCode: CREDITS_ACCOUNT.code })
   const discountsAmt = dollars(discountsTotalCents); if (discountsAmt !== 0) lineItems.push({ Description: `Discounts applied — Stripe payout ${payout.id}`, UnitAmount: -Math.abs(discountsAmt), AccountCode: DISCOUNTS_ACCOUNT.code })
   const refundsAmt = dollars(refundsBucket.gross); if (refundsAmt !== 0) lineItems.push({ Description: `Refunds — Stripe payout ${payout.id}`, UnitAmount: refundsAmt, AccountCode: REFUNDS_ACCOUNT.code })
+  // Already negative for a chargeback; positive when a dispute is won.
+  const disputesAmt = dollars(disputesBucket.gross); if (disputesAmt !== 0) lineItems.push({ Description: `Chargebacks — Stripe payout ${payout.id}`, UnitAmount: disputesAmt, AccountCode: DISPUTE_ACCOUNT.code })
   const perChargeFees = dollars(Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee); if (perChargeFees !== 0) lineItems.push({ Description: `Stripe processing fees (per-transaction) — payout ${payout.id}`, UnitAmount: -Math.abs(perChargeFees), AccountCode: '605' })
-  const acctFee = dollars(nonRevenue.stripe_fee.net); if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, UnitAmount: -Math.abs(acctFee), AccountCode: '828' })
+  // Session 330: the $15 dispute fee rides on the dispute's own balance transaction
+  // as its `fee`, not as a separate stripe_fee row, and perChargeFees above sums
+  // only the revenue buckets and refunds. Omit it and the journal is short by the fee.
+  const acctFee = dollars(Math.abs(nonRevenue.stripe_fee.net) + Math.abs(disputesBucket.fee)); if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, UnitAmount: -Math.abs(acctFee), AccountCode: '828' })
   const loanPaydown = dollars(nonRevenue.financing_paydown.net); if (loanPaydown !== 0) lineItems.push({ Description: `Stripe Capital loan repayment — payout ${payout.id}`, UnitAmount: -Math.abs(loanPaydown), AccountCode: '304' })
 
   const total = dollars(lineItems.reduce((s, li) => s + li.UnitAmount * 100, 0))
@@ -268,8 +281,8 @@ async function handleRequest(req: Request): Promise<Response> {
     // returns a 500, and the row never gets updated to say so. That is exactly the
     // 'XERO AHEAD OF US' state this codebase worries about everywhere else, caused here
     // by a typo rather than a race. Found while fixing #15801 (deleted-order lookup).
-    const { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied, transactionCount } = await classifyPayout(payout)
-    const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents)
+    const { buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail, creditsTotalCents, discountsTotalCents, unclassifiedDetail, overridesApplied, transactionCount } = await classifyPayout(payout)
+    const plan = buildPlan(payout, buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, disputesBucket)
 
     if (plan.safetyFailed || !plan.balances) {
       return new Response(JSON.stringify({ error: 'blocked', blocked_reason: plan.blockedReason, unclassified_detail: unclassifiedDetail, transaction_count: transactionCount }), { status: 422 })
@@ -406,7 +419,7 @@ async function handleRequest(req: Request): Promise<Response> {
       error_message: null,
       failure_kind: null,
       next_retry_at: null,
-      category_breakdown: { buckets, nonRevenue, refundsBucket, creditsTotalCents, discountsTotalCents, overridesApplied },
+      category_breakdown: { buckets, nonRevenue, refundsBucket, disputesBucket, disputeDetail, creditsTotalCents, discountsTotalCents, overridesApplied },
     }, { onConflict: 'stripe_payout_id' })
 
     return new Response(JSON.stringify({

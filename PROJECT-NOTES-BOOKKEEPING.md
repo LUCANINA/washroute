@@ -1,5 +1,69 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 330 — Oct 7, 2026: a chargeback is not an unhandled type, and the override table could never have answered it
+
+The daily bug check found the 2026-10-07 payout (**$12,234.68**, `po_1UNiQyGACgbvEugHk5z3P8NV`)
+failed permanently after 6 retries, alerting three times. `xero-payout-sync` logged:
+
+> `blocked: 1 unclassified transactions need manual review`
+
+The transaction was `txn_1UNaOgGACgbvEugHqIwYV82f` — **a chargeback on order #15734**, gross
+**−$170.95**, read live from Stripe:
+
+```
+type 'adjustment' · reporting_category 'dispute' · source 'du_1UNaNmGACgbvEugHHNvqFHyJ'
+fee 1500 ("Dispute fee", type stripe_fee) · net −18595
+```
+
+Stripe delivers a chargeback as type `adjustment`, which matched no branch in `classifyPayout`
+and so landed in `unclassified`. **The refusal was correct** — guessing a revenue account is
+worse than refusing. The defect was that *nothing could ever answer it*: `stripe_txn_overrides`
+only accepts the five revenue buckets, and a chargeback is not revenue. Session 266 built the
+override path for an unmatched POS card sale, which is revenue; this is the first blocker of a
+shape that path cannot express.
+
+**Four things worth keeping:**
+
+1. **The gate is `reporting_category`, never `type === 'adjustment'`.** `adjustment` is Stripe's
+   catch-all and also carries their own corrections. Testing the type would silently book the
+   next Stripe correction to 691 — the exact failure the safety check exists to prevent. A
+   non-dispute `adjustment`, and one with no `reporting_category` at all, both still fall through
+   to `unclassified` and still block. The failure mode stays "refuses to post", never "posts a guess".
+2. **`dispute_reversal` is handled too.** A guard that only handles losing a dispute leaves
+   *winning* one broken — the money comes back as a positive `adjustment` and would have blocked
+   the payout all over again, months later, with nobody remembering why.
+3. **The $15 dispute fee rides on the dispute's own balance transaction as its `fee`**, not as a
+   separate `stripe_fee` row, and `perChargeFees` sums only the revenue buckets and refunds. Omit
+   it and the journal is short by exactly $15 — caught by `buildPlan`'s own `balances` check. It
+   posts to **828**, not 605: a dispute fee is a penalty, not a processing fee on a sale.
+4. **The dispute TEST is shared, the bucket plumbing is not.** `xero-payout-reallocate` carries
+   its own copy of `classifyPayout`; session 266 fixed the sync and reallocate refused the same
+   payout within the hour. `_shared/dispute-classify.ts` exists for that reason. The underlying
+   duplication — two near-identical 180-line classifiers — is **still live tech debt**.
+
+**Arithmetic, verified before any code was written.** The stored `category_breakdown` showed the
+line items summing to $12,420.63 against a payout of $12,234.68 — short by exactly $185.95, the
+unclassified net. Booking −$170.95 to 691 and folding $15 into 828 lands it on **$12,234.68 to
+the cent**. Refunds and chargebacks post as **two separate named lines** on 691 so the account
+stays readable: a refund we chose to give is not a chargeback taken from us.
+
+**Tests:** `tests/payout-dispute.test.mjs`, 29 assertions, 0 red. It **loads the shipped
+`buildPlan` out of both edge-function sources and runs it** rather than transcribing it (s245).
+It discriminates: zeroing `disputesBucket` reproduces the old behaviour and the plan goes red,
+short by exactly $185.95. `payout-recovery`, `xero-429`, `xero-budget`, `xero-meter`,
+`xero-metered` all still pass.
+
+**Deploy state as of this entry: NOT DEPLOYED.** Both functions are `verify_jwt: false`
+(sync v27, reallocate v20, read from `list_edge_functions`), so both need `--no-verify-jwt`.
+Deploy, then re-run the sync and confirm it foots to $12,234.68.
+
+**Open, deliberately not touched:** order #15734 is still `billing_status = 'paid'` despite the
+chargeback. Marking it is a separate decision with customer-facing consequences, and the
+don't-correct-billing-data-you-can't-explain rule (s309) applies — raised with David, not acted on.
+Also open: whether the CPA wants chargebacks on their own Xero code instead of inside 691.
+`DISPUTE_ACCOUNT` in `_shared/dispute-classify.ts` is the only thing that moves if so.
+
+
 ## Session 321 — Sep 22, 2026: the amortization read crossed the cap, and the alarm was the only thing that noticed
 
 The daily bug check found `reconciliation-run` logging s246's own alarm on the 6am cron:
