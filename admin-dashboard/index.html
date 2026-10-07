@@ -57960,9 +57960,15 @@ async function _dvIframeLoaded() {
     // 'merchandise' → Merchandise; everything else (service, addon, fees) →
     // Services. Discount lines carry the kind of what they discount.
     let svcRev = 0, merchRev = 0;
+    // Session 337 (David): each category also split by how it was paid for.
+    // Payment method is per ORDER, so every line item attributes to exactly one
+    // method -- this is an exact split, nothing is prorated or estimated.
+    const catByMethod = { svc: {}, merch: {}, tips: {} };
+    const bumpCat = (cat, m, v) => { cat[m] = (cat[m] || 0) + v; };
 
     orders.forEach(o => {
       if (!Array.isArray(o.line_items)) return;
+      const payM = _posMethodKey(o);
 
       // Sum taxable portion of this order so we can prorate tax_amount
       // among only the taxable line items.
@@ -58003,7 +58009,8 @@ async function _dvIframeLoaded() {
 
         totalUnits += qty;
         totalRev   += amount;
-        if (kind === 'merchandise') merchRev += amount; else svcRev += amount;
+        if (kind === 'merchandise') { merchRev += amount; bumpCat(catByMethod.merch, payM, amount); }
+        else { svcRev += amount; bumpCat(catByMethod.svc, payM, amount); }
       });
 
       totalTax += orderTax;
@@ -58024,7 +58031,8 @@ async function _dvIframeLoaded() {
     orders.forEach(o => {
       const tip = tipOf(o);
       if (tip > 0) { totalTips += tip; tipTx++; }
-      const m = (o.billing_payment_method || 'other').toString().toLowerCase();
+      const m = _posMethodKey(o);
+      if (tip > 0) bumpCat(catByMethod.tips, m, tip);
       const b = byMethod[m] || (byMethod[m] = { n: 0, collected: 0, tips: 0, fees: 0, feesEst: false });
       b.n++;
       b.collected += parseFloat(o.total_amount || 0) + tip;
@@ -58037,7 +58045,7 @@ async function _dvIframeLoaded() {
     });
     const refunded = allOrders.filter(o => o.billing_status === 'refunded');
     const totals = { tx: orders.length, units: totalUnits, itemsRev: totalRev, tips: totalTips, tipTx,
-                     rev: totalRev + totalTips, tax: totalTax, svcRev, merchRev };
+                     rev: totalRev + totalTips, tax: totalTax, svcRev, merchRev, catByMethod };
     _posSalesData = { items, totals, from: selFrom, to: selTo, site: siteFilter };
     _renderPosSummary(totals, byMethod, refunded);
 
@@ -58098,17 +58106,39 @@ async function _dvIframeLoaded() {
     if (el) el.innerHTML = `<div class="rev-empty">${esc(msg)}</div>`;
   }
 
+  // One definition of "which payment method is this sale", used by the category
+  // split and the How-customers-paid card alike, so the two can never disagree.
+  const _posMethodKey = o => (o.billing_payment_method || 'other').toString().toLowerCase();
+
   // Revenue by category (session 336): Services / Merchandise / Tips, as one
   // proportional bar plus a line each. Zero parts are left out.
-  function _posRevSplit(t) {
-    const parts = [['Services', t.svcRev, '#1E3A8A', '#fff'], ['Merchandise', t.merchRev, '#6E95EA', '#fff'], ['Tips', t.tips, '#D6E2FB', '#1E3A8A']]
+  // Session 337 (David): each line also names what was paid by card vs cash.
+  function _posRevSplit(t, methods, label) {
+    const parts = [['Services', t.svcRev, '#1E3A8A', '#fff', 'svc'], ['Merchandise', t.merchRev, '#6E95EA', '#fff', 'merch'], ['Tips', t.tips, '#D6E2FB', '#1E3A8A', 'tips']]
       .filter(([, v]) => v > 0);
     if (!parts.length || !(t.rev > 0)) return '';
     const bar = parts.map(([l, v, bg, fg]) => {
       const pct = v / t.rev * 100;
       return `<div class="im-seg" style="flex:0 0 calc(${pct.toFixed(2)}% - 2px);background:${bg};color:${fg}" title="${l} — ${Math.round(pct)}%">${pct >= 12 ? Math.round(pct) + '%' : ''}</div>`;
     }).join('');
-    const lines = parts.map(([l, v, bg]) => `<div class="ps2-line"><i style="background:${bg}"></i><span class="ps2-m">${l}</span><b>${fmtMoney(v)}</b><small>${Math.round(v / t.rev * 100)}%</small></div>`).join('');
+    // Only worth saying when there is more than one method in play -- with a
+    // single method the breakdown just restates the total next to itself.
+    const showSplit = Array.isArray(methods) && methods.length > 1 && t.catByMethod;
+    const lines = parts.map(([l, v, bg, , key]) => {
+      // Tips are deliberately NOT split here: the How-customers-paid card to the
+      // right already states tips per method, and the same two figures twice on
+      // one screen is a second thing to keep true rather than a second reading of
+      // it. David asked for Services and Merchandise, which is also the answer
+      // the duplication rule gives.
+      const tail = showSplit && key !== 'tips'
+        ? (methods
+            .map(m => [m, (t.catByMethod[key] || {})[m] || 0])
+            .filter(([, amt]) => amt > 0)
+            .map(([m, amt]) => `${esc(label(m))} ${fmtMoney(amt)}`)
+            .join(' · '))
+        : '';
+      return `<div class="ps2-line"><i style="background:${bg}"></i><span class="ps2-m">${l}</span><b>${fmtMoney(v)}</b><small>${Math.round(v / t.rev * 100)}%${tail ? ' · ' + tail : ''}</small></div>`;
+    }).join('');
     return `<div class="im-bar ps2-split">${bar}</div><div class="ps2-lines">${lines}</div>`;
   }
 
@@ -58141,7 +58171,7 @@ async function _dvIframeLoaded() {
         <div>
           <div class="lm-big">${fmtMoney(t.rev)}</div>
           <div class="lm-sub"><strong>Revenue</strong></div>
-          ${_posRevSplit(t)}
+          ${_posRevSplit(t, methods, label)}
           <div class="lm-note">${t.tx.toLocaleString()} sale${t.tx === 1 ? '' : 's'} · ${t.units.toLocaleString()} item${t.units === 1 ? '' : 's'}${t.tax > 0 ? ` · ${fmtMoney(t.tax)} sales tax collected on top (not revenue)` : ''}</div>
           ${refundNote}
         </div>
