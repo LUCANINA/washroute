@@ -3287,38 +3287,33 @@
           </div>
 
           <!-- ── TAB: DRIVERS ── -->
+          <!-- Session 336: rebuilt on the Launderers layout (Monthly / Daily / Custom,
+               fleet stops/hr hero, % vs average). Rendered by loadDriverReport(). -->
           <div id="rpttab-drivers" style="display:none">
-            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
-              <div class="stat-card">
-                <div class="stat-label">Stops Completed</div>
-                <div class="stat-value" id="rpt-drv-stops">—</div>
+            <div class="lm-wrap">
+              <div class="lm-bar-top">
+                <div class="lm-seg" role="tablist" aria-label="Report period">
+                  <button type="button" role="tab" class="active" id="dm-mode-month" aria-selected="true" onclick="dmSetMode('month')">Monthly</button>
+                  <button type="button" role="tab" id="dm-mode-day" aria-selected="false" onclick="dmSetMode('day')">Daily</button>
+                  <button type="button" role="tab" id="dm-mode-custom" aria-selected="false" onclick="dmSetMode('custom')">Custom</button>
+                </div>
+                <div class="lm-nav">
+                  <button type="button" class="lm-step" id="dm-prev" aria-label="Previous month" onclick="dmStep(-1)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+                  </button>
+                  <div class="lm-month" id="dm-month-label">—</div>
+                  <div class="lm-range" id="dm-range" style="display:none">
+                    <input type="date" id="dm-from" min="2025-01-01" aria-label="From" onchange="dmSetRange()">
+                    <span>to</span>
+                    <input type="date" id="dm-to" min="2025-01-01" aria-label="To" onchange="dmSetRange()">
+                  </div>
+                  <button type="button" class="lm-step" id="dm-next" aria-label="Next month" onclick="dmStep(1)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                  </button>
+                </div>
               </div>
-              <div class="stat-card">
-                <div class="stat-label">Avg Stops/Hr</div>
-                <div class="stat-value" id="rpt-drv-stops-per-hr">—</div>
-              </div>
-            </div>
-            <div class="card" style="margin-bottom:0">
-              <div class="card-header">
-                <div class="card-title">By Driver</div>
-                <div class="card-sub" id="rpt-drv-period-label"></div>
-                <button class="rev-export-btn" id="driver-export-btn" style="display:none" onclick="exportDriverCSV()">Export CSV</button>
-              </div>
-              <div class="rpt-table-wrap">
-                <table class="rpt-drv-tbl">
-                  <thead>
-                    <tr>
-                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('name')">Driver <span id="drv-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
-                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('stops')">Stops <span id="drv-sort-stops" style="font-size:10px;color:var(--gray-400)"></span></th>
-                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('bags')">Bags Hauled <span id="drv-sort-bags" style="font-size:10px;color:var(--gray-400)"></span></th>
-                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('hrs')">Hours Worked <span id="drv-sort-hrs" style="font-size:10px;color:var(--gray-400)"></span></th>
-                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('stopsPerHr')">Stops/Hr <span id="drv-sort-stopsPerHr" style="font-size:10px;color:var(--gray-400)"></span></th>
-                    </tr>
-                  </thead>
-                  <tbody id="rpt-drv-tbody">
-                    <tr><td colspan="5" class="rpt-no-data">Loading…</td></tr>
-                  </tbody>
-                </table>
+              <div id="dm-body">
+                <div class="rev-empty">Loading…</div>
               </div>
             </div>
           </div>
@@ -53513,7 +53508,7 @@ ${oneCopy}
     else if (rptTab === 'items')         loadItemsReport();
     else if (rptTab === 'possales')      loadPosSalesReport();
     else if (rptTab === 'launderer')     loadLaundererMonthly();
-    else if (rptTab === 'drivers')       loadReports();
+    else if (rptTab === 'drivers')       loadDriverReport();   // session 336 (was loadReports)
     else if (rptTab === 'onaccount')     loadOnAccountReport();
     else if (rptTab === 'invoices')      loadInvoicesReport();
     else if (rptTab === 'registrations') loadRegistrationsReport();
@@ -53942,8 +53937,9 @@ ${oneCopy}
       }
     }
     // Session 323: the Launderers report picks its own month, so the shared
-    // Today / 7 days / Custom row is hidden while it is open.
-    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer');
+    // Today / 7 days / Custom row is hidden while it is open. Session 336: the
+    // Drivers report does the same.
+    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers');
     _rptSyncPeriodUI();
     runCurrentReport();
   }
@@ -55038,6 +55034,9 @@ ${oneCopy}
     }
   }
 
+  // Superseded by loadDriverReport() in session 336 — the old Drivers tab
+  // (loadReports / renderDriverStats / sortDriverReport / exportDriverCSV) has
+  // no callers and its elements are gone. Kept for reference; safe to delete.
   async function loadReports() {
     const fromVal = document.getElementById('rpt-from')?.value;
     const toVal   = document.getElementById('rpt-to')?.value;
@@ -59302,26 +59301,29 @@ async function _dvIframeLoaded() {
   }
 
   // The six periods on screen, oldest first. Each: key, from, to, long, short.
-  function _lmPeriods() {
+  // S = { mode, month, day, range } — shared by the Launderers and Drivers reports.
+  function _rpPeriodsFor(S) {
     const out = [];
     for (let i = 5; i >= 0; i--) {
-      if (_lmMode === 'month') {
-        const ym = _lmShift(_lmMonth, -i), b = _lndrMonthBounds(ym);
+      if (S.mode === 'month') {
+        const ym = _lmShift(S.month, -i), b = _lndrMonthBounds(ym);
         out.push({ key: ym, ym, from: b.from, to: b.to, long: _lmMonthName(ym), short: _lmMonthName(ym, 'short') });
-      } else if (_lmMode === 'day') {
-        const day = addDaysPacific(_lmDay, -i);
+      } else if (S.mode === 'day') {
+        const day = addDaysPacific(S.day, -i);
         out.push({ key: day, from: day, to: day,
                    long: _lmDayText(day, { weekday: 'short', month: 'short', day: 'numeric' }),
                    short: _lmDayText(day, { month: 'short', day: 'numeric' }) });
       } else {
-        const n = _lmDayCount(_lmRange.from, _lmRange.to);
-        const from = addDaysPacific(_lmRange.from, -n * i), to = addDaysPacific(_lmRange.to, -n * i);
+        const n = _lmDayCount(S.range.from, S.range.to);
+        const from = addDaysPacific(S.range.from, -n * i), to = addDaysPacific(S.range.to, -n * i);
         out.push({ key: `${from}_${to}`, from, to, long: _lmRangeText(from, to),
                    short: _lmDayText(from, { month: 'short', day: 'numeric' }) });
       }
     }
     return out;
   }
+
+  const _lmPeriods = () => _rpPeriodsFor({ mode: _lmMode, month: _lmMonth, day: _lmDay, range: _lmRange });
 
   function lmSetMode(mode) {
     if (mode === _lmMode || !['month', 'day', 'custom'].includes(mode)) return;
@@ -59563,45 +59565,49 @@ async function _dvIframeLoaded() {
              laborMissing: !Object.keys(labor[5]?.laundry_hours || {}).length };
   }
 
-  function _lmRenderStepper() {
-    const lab = document.getElementById('lm-month-label');
-    const rng = document.getElementById('lm-range');
-    const pv  = document.getElementById('lm-prev');
-    const nx  = document.getElementById('lm-next');
+  // Draws the Monthly/Daily/Custom switch and the ‹ label › stepper for the
+  // report whose element ids start with `px` ('lm' Launderers, 'dm' Drivers).
+  function _rpRenderStepper(px, S) {
+    const lab = document.getElementById(px + '-month-label');
+    const rng = document.getElementById(px + '-range');
+    const pv  = document.getElementById(px + '-prev');
+    const nx  = document.getElementById(px + '-next');
     if (!lab) return;
     const cap = _lmYesterday();
     ['month', 'day', 'custom'].forEach(m => {
-      const b = document.getElementById('lm-mode-' + m);
-      if (b) { b.classList.toggle('active', m === _lmMode); b.setAttribute('aria-selected', String(m === _lmMode)); }
+      const b = document.getElementById(px + '-mode-' + m);
+      if (b) { b.classList.toggle('active', m === S.mode); b.setAttribute('aria-selected', String(m === S.mode)); }
     });
-    const unit = _lmUnit();
+    const unit = S.mode === 'month' ? 'month' : S.mode === 'day' ? 'day' : 'period';
     if (pv) pv.setAttribute('aria-label', `Previous ${unit}`);
     if (nx) nx.setAttribute('aria-label', `Next ${unit}`);
-    if (_lmMode === 'custom' && _lmRange) {
+    if (S.mode === 'custom' && S.range) {
       lab.style.display = 'none';
       if (rng) {
         rng.style.display = '';
-        const f = document.getElementById('lm-from'), t = document.getElementById('lm-to');
-        if (f) { f.value = _lmRange.from; f.max = cap; }
-        if (t) { t.value = _lmRange.to; t.max = cap; }
+        const f = document.getElementById(px + '-from'), t = document.getElementById(px + '-to');
+        if (f) { f.value = S.range.from; f.max = cap; }
+        if (t) { t.value = S.range.to; t.max = cap; }
       }
-      const len = _lmDayCount(_lmRange.from, _lmRange.to);
-      if (nx) nx.disabled = addDaysPacific(_lmRange.to, len) > cap;
+      const len = _lmDayCount(S.range.from, S.range.to);
+      if (nx) nx.disabled = addDaysPacific(S.range.to, len) > cap;
       return;
     }
     lab.style.display = '';
     if (rng) rng.style.display = 'none';
-    if (_lmMode === 'day' && _lmDay) {
-      lab.innerHTML = esc(_lmDayText(_lmDay, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }));
-      if (nx) nx.disabled = addDaysPacific(_lmDay, 1) > cap;
+    if (S.mode === 'day' && S.day) {
+      lab.innerHTML = esc(_lmDayText(S.day, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }));
+      if (nx) nx.disabled = addDaysPacific(S.day, 1) > cap;
       return;
     }
-    if (!_lmMonth) return;
-    const open = _lmMonth === cap.slice(0, 7);
-    lab.innerHTML = `${esc(_lmMonthName(_lmMonth))} ${_lmMonth.slice(0, 4)}` +
+    if (!S.month) return;
+    const open = S.month === cap.slice(0, 7);
+    lab.innerHTML = `${esc(_lmMonthName(S.month))} ${S.month.slice(0, 4)}` +
       (open ? ` <span>· to ${esc(_lmShortDate(pacificDayStart(cap).toISOString()))}</span>` : '');
-    if (nx) nx.disabled = _lmShift(_lmMonth, 1) > cap.slice(0, 7);
+    if (nx) nx.disabled = _lmShift(S.month, 1) > cap.slice(0, 7);
   }
+
+  const _lmRenderStepper = () => _rpRenderStepper('lm', { mode: _lmMode, month: _lmMonth, day: _lmDay, range: _lmRange });
 
   function _lmRender() {
     const body = document.getElementById('lm-body');
@@ -59855,6 +59861,379 @@ async function _dvIframeLoaded() {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   window.lmExportCSV = lmExportCSV;
+
+  // ── DRIVERS REPORT (session 336) — same shape as the Launderers report ─────
+  // Replaces the Stops / Avg Stops/Hr tiles and the By Driver table. Monthly
+  // (default) / Daily / Custom over six equal periods, like the Launderers
+  // report, with ONE group: the whole fleet (drivers have no Square titles).
+  //
+  // Stops:  route_stops with status 'complete', dated by routes.run_date, and
+  //         credited to stop.driver_id || (pickup ? route.pickup_driver_id :
+  //         route.delivery_driver_id) || route.driver_id — the same rule as the
+  //         order panel (session 184b). The old report used route.driver_id only.
+  //         route_stops has two links to routes (route_id, moved_from_route_id),
+  //         so the embed must name route_stops_route_id_fkey.
+  // Hours:  Square driver_hours, matched by profiles.square_employee_name or the
+  //         display name, IGNORING ACCENTS AND CASE — Square has "Amalia Gracián",
+  //         WashRoute "Amalia Gracian", and the old report showed her hours as —.
+  // Rate:   stops ÷ hours; a driver counts only with both in the period.
+  //         Nothing runs past yesterday (today's hours build up as shifts run).
+  // "Bags Hauled" was dropped: it joined orders.pickup_run_id to routes and was
+  // blank for every driver.
+  const _dmS = { mode: 'month', month: null, day: null, range: null };
+  let _dmData   = null;
+  let _dmPerson = null;   // driver id being viewed in detail
+  let _dmSeq    = 0;
+
+  const _rpNameKey = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+
+  function dmSetMode(mode) {
+    if (mode === _dmS.mode || !['month', 'day', 'custom'].includes(mode)) return;
+    const y = _lmYesterday();
+    _dmS.mode = mode;
+    if (mode === 'day' && !_dmS.day) _dmS.day = y;
+    if (mode === 'custom' && !_dmS.range) _dmS.range = { from: addDaysPacific(y, -6), to: y };
+    loadDriverReport();
+  }
+  window.dmSetMode = dmSetMode;
+
+  function dmStep(n) {
+    const cap = _lmYesterday(), S = _dmS;
+    if (S.mode === 'month') {
+      if (!S.month) return;
+      const next = _lmShift(S.month, n);
+      if (next > cap.slice(0, 7)) return;
+      S.month = next;
+    } else if (S.mode === 'day') {
+      if (!S.day) return;
+      const next = addDaysPacific(S.day, n);
+      if (next > cap) return;
+      S.day = next;
+    } else {
+      if (!S.range) return;
+      const len = _lmDayCount(S.range.from, S.range.to);
+      const to = addDaysPacific(S.range.to, n * len);
+      if (to > cap) return;
+      S.range = { from: addDaysPacific(S.range.from, n * len), to };
+    }
+    loadDriverReport();
+  }
+  window.dmStep = dmStep;
+
+  function dmSetRange() {
+    const f = document.getElementById('dm-from')?.value;
+    const t = document.getElementById('dm-to')?.value;
+    if (!f || !t) return;
+    const cap = _lmYesterday(), redraw = () => _rpRenderStepper('dm', _dmS);
+    if (f > t) { showToast('The start date is after the end date', 'error'); redraw(); return; }
+    if (t > cap) { showToast('The report runs to yesterday at the latest — today’s hours are still being logged', 'error'); redraw(); return; }
+    if (f < '2025-01-01') { redraw(); return; }   // half-typed year
+    if (_lmDayCount(f, t) > 366) { showToast('Pick a range of one year or less', 'error'); redraw(); return; }
+    _dmS.range = { from: f, to: t };
+    loadDriverReport();
+  }
+  window.dmSetRange = dmSetRange;
+
+  // Completed stops per driver for one period → { driver_id: stops }.
+  async function _dmLoadStops(from, to) {
+    const key = `wr-dmstops|${from}|${to}`;
+    const settled = _lmDayCount(to, _lndrTodayPT()) > 45;
+    const cached = _reportCacheGet(key, settled ? 30 * 864e5 : 10 * 60e3);
+    if (cached) return cached;
+    const all = []; const BATCH = 1000; let offset = 0;
+    while (true) {
+      const { data, error } = await db.from('route_stops')
+        .select('stop_type, driver_id, routes!route_stops_route_id_fkey!inner(run_date, driver_id, pickup_driver_id, delivery_driver_id)')
+        .eq('status', 'complete')
+        .gte('routes.run_date', from)
+        .lte('routes.run_date', to)
+        .order('id')
+        .range(offset, offset + BATCH - 1);
+      if (error) throw error;
+      all.push(...(data || []));
+      if (!data || data.length < BATCH) break;
+      offset += BATCH;
+    }
+    const per = {};
+    all.forEach(s => {
+      const r = s.routes || {};
+      const id = s.driver_id || (s.stop_type === 'pickup' ? (r.pickup_driver_id || r.driver_id) : (r.delivery_driver_id || r.driver_id));
+      if (id) per[id] = (per[id] || 0) + 1;
+    });
+    _reportCacheSet(key, per);
+    return per;
+  }
+
+  async function loadDriverReport() {
+    const body = document.getElementById('dm-body');
+    if (!body) return;
+    const S = _dmS, cap = _lmYesterday();
+    if (!S.month || S.month > cap.slice(0, 7)) S.month = cap.slice(0, 7);
+    if (S.day && S.day > cap) S.day = cap;
+    if (S.range && S.range.to > cap) S.range = null;
+    if (S.mode === 'day' && !S.day) S.day = cap;
+    if (S.mode === 'custom' && !S.range) S.range = { from: addDaysPacific(cap, -6), to: cap };
+    const mode = S.mode, periods = _rpPeriodsFor(S), seq = ++_dmSeq;
+    _rpRenderStepper('dm', S);
+    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+    const todayPT = _lndrTodayPT();
+
+    let built;
+    try {
+      const [stops, labor] = await Promise.all([
+        Promise.all(periods.map(p => p.from > cap ? Promise.resolve({}) : _dmLoadStops(p.from, p.to < cap ? p.to : cap))),
+        Promise.all(periods.map(p => {
+          if (p.from > cap) return Promise.resolve({ driver_hours: {} });
+          const settled = (new Date(todayPT) - new Date(p.to)) > 45 * 864e5;
+          return fetchSquareLaborHours(p.from, p.to < cap ? p.to : cap, settled ? 30 * 864e5 : undefined)
+            .catch(() => ({ driver_hours: {} }));
+        })),
+        allDriversCache.length ? Promise.resolve() : loadAllDriversCache(),
+      ]);
+      if (seq !== _dmSeq) return;
+      built = _dmBuild(mode, periods, stops, labor);
+    } catch (e) {
+      if (seq !== _dmSeq) return;
+      body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Could not load the report: ${esc(e.message || String(e))}</div>`;
+      return;
+    }
+    _dmData = built;
+    if (_dmPerson && !built.people.some(p => p.id === _dmPerson)) _dmPerson = null;
+    _dmRender();
+  }
+  window.loadDriverReport = loadDriverReport;
+
+  function _dmBuild(mode, periods, stops, labor) {
+    const openYm = _lmYesterday().slice(0, 7);
+    // Square hours keyed by accent-free, lower-case name.
+    const hrsBy = labor.map(l => {
+      const m = {};
+      Object.entries(l?.driver_hours || {}).forEach(([k, v]) => { m[_rpNameKey(k)] = (m[_rpNameKey(k)] || 0) + Number(v || 0); });
+      return m;
+    });
+    const ids = new Set();
+    stops.forEach(per => Object.keys(per || {}).forEach(id => ids.add(id)));
+    const people = [...ids].map(id => {
+      const d = allDriversCache.find(x => x.id === id);
+      const name = d?.name || 'Unknown driver';
+      const keys = [d?.squareName, d?.name].filter(Boolean).map(_rpNameKey);
+      const series = periods.map((_, i) => {
+        const n = stops[i]?.[id] || 0;
+        let h = null;
+        for (const k of keys) { if (hrsBy[i][k] > 0) { h = hrsBy[i][k]; break; } }
+        return { stops: n, hrs: h, rate: (h && n > 0) ? n / h : null };
+      });
+      let N = 0, H = 0;
+      series.forEach(s => { if (s.rate != null) { N += s.stops; H += s.hrs; } });
+      return { id, name, series, cur: series[5], prv: series[4], avg6: H > 0 ? N / H : null };
+    });
+    const stats = periods.map((p, i) => {
+      let N = 0, H = 0, all = 0;
+      people.forEach(pp => { const s = pp.series[i]; all += s.stops; if (s.rate != null) { N += s.stops; H += s.hrs; } });
+      return { key: p.key, stops: N, allStops: all, hrs: H, rate: H > 0 ? N / H : null, open: mode === 'month' && p.ym >= openYm };
+    });
+    return { mode, periods, cur: periods[5], prev: periods[4], people, stats,
+             laborMissing: !Object.keys(labor[5]?.driver_hours || {}).length };
+  }
+
+  // Six-point line chart on the shared .lm-chart styles; `fmt` labels the values.
+  function _rpChartHtml(values, labels, fmt) {
+    const pts = values.map((v, i) => ({ i, v }));
+    const vals = values.filter(v => v != null);
+    if (!vals.length) return '<div class="lm-note">Not enough data to chart.</div>';
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const pad = Math.max((mx - mn) * 0.25, mx * 0.08, 0.1);
+    const lo = Math.max(0, mn - pad), hi = mx + pad;
+    const X = i => 6 + i * (88 / 5);
+    const Y = v => 8 + (1 - (v - lo) / (hi - lo)) * 84;
+    const line = pts.filter(p => p.v != null).map(p => `${X(p.i)},${Y(p.v).toFixed(1)}`).join(' ');
+    const grid = [hi, (hi + lo) / 2, lo];
+    return `
+      <div class="lm-chart">
+        ${grid.map(v => `<div class="lm-gl" style="top:${Y(v).toFixed(1)}px"></div><div class="lm-gv" style="top:${Y(v).toFixed(1)}px">${fmt(v)}</div>`).join('')}
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+        </svg>
+        ${pts.map(p => {
+          const cur = p.i === pts.length - 1;
+          const lab = `<div class="lm-dm" style="left:${X(p.i)}%">${esc(labels[p.i])}</div>`;
+          if (p.v == null) return lab;
+          return `<div class="lm-dot${cur ? ' cur' : ''}" style="left:${X(p.i)}%;top:${Y(p.v).toFixed(1)}px"></div>
+                  <div class="lm-dv${cur ? ' cur' : ''}" style="left:${X(p.i)}%;top:${Y(p.v).toFixed(1)}px">${fmt(p.v)}</div>${lab}`;
+        }).join('')}
+      </div>`;
+  }
+
+  const _dmF = n => (n == null || !isFinite(n)) ? '—' : n.toFixed(2);
+  const _dmHrs = (h, mode) => h == null ? '—' : (mode === 'day' ? h.toFixed(1) : Math.round(h).toLocaleString());
+
+  function _dmRender() {
+    const body = document.getElementById('dm-body');
+    const d = _dmData;
+    if (!body || !d) return;
+    _rpRenderStepper('dm', _dmS);
+    if (_dmPerson) { body.innerHTML = _dmPersonHtml(_dmPerson); return; }
+
+    const unit = d.mode === 'month' ? 'month' : d.mode === 'day' ? 'day' : 'period';
+    const inP = p => `${d.mode === 'day' ? 'on' : 'in'} ${p.long}`;
+    const ms = d.stats[5], mp = d.stats[4];
+    const rated = d.people.filter(p => p.cur.rate != null).sort((a, b) => b.cur.rate - a.cur.rate);
+    if (!rated.length) {
+      body.innerHTML = `<div class="rev-empty">${d.laborMissing
+        ? `No hours came back from Square for this ${unit}. Square may be unreachable — try again in a minute.`
+        : `No completed stops recorded for this ${unit}.`}</div>`;
+      return;
+    }
+
+    const chartCap = d.mode === 'month' ? 'Monthly average, whole fleet'
+                   : d.mode === 'day'   ? 'Daily average, whole fleet'
+                   : `Same-length periods (${_lmDayCount(d.cur.from, d.cur.to)} days), whole fleet`;
+    const vsPrev = mp.rate != null ? `${_lmPct(ms.rate, mp.rate)} vs ${esc(d.prev.long)} (${_dmF(mp.rate)})` : '';
+    const hero = `
+      <div class="lm-card lm-hero">
+        <div>
+          <div class="lm-big">${_dmF(ms.rate)}<small>stops/hr</small></div>
+          <div class="lm-sub"><strong>Whole fleet, ${esc(d.cur.long)}</strong></div>
+          ${vsPrev ? `<div class="lm-sub">${vsPrev}</div>` : ''}
+          <div class="lm-note">${ms.allStops.toLocaleString()} stops · ${Math.round(ms.hrs).toLocaleString()} driver hours</div>
+        </div>
+        <div>
+          <div class="lm-cap">${esc(chartCap)}</div>
+          ${_rpChartHtml(d.stats.map(s => s.rate), d.periods.map(p => p.short), _dmF)}
+        </div>
+      </div>`;
+
+    const avg = ms.rate, avgPrev = mp.rate;
+    const mostStops = rated.reduce((a, p) => (!a || p.cur.stops > a.cur.stops) ? p : a, null);
+    const fastest = rated[0];
+    const above = rated.filter(p => p.cur.rate >= avg).length;
+    const colPrev = d.mode === 'custom' ? 'vs prior' : `vs ${d.prev.short}`;
+    const col6 = d.mode === 'month' ? '6-mo avg' : d.mode === 'day' ? '6-day avg' : '6-period avg';
+    const rows = rated.map(p => {
+      const rate = p.cur.rate, low = rate < avg;
+      const pct = avg > 0 ? (rate - avg) / avg * 100 : 0;
+      const HALF = 99, SPAN = 50;
+      const w = Math.max(2, Math.round(Math.min(Math.abs(pct), SPAN) / SPAN * HALF));
+      const bar = `left:${low ? HALF - w : HALF + 2}px;width:${w}px;background:${low ? 'var(--amber)' : 'var(--accent)'}`;
+      const idArg = escJS(p.id);
+      return `
+      <div class="lm-row">
+        <div class="lm-grid">
+          <div class="lm-name">
+            <button type="button" class="lm-link" onclick="dmOpenPerson('${idArg}')">${esc(p.name)}</button>
+            ${p === mostStops ? `<span class="lm-trophy" title="Most completed stops this ${unit}">${_lmIconMost}Most stops</span>` : ''}
+            ${p === fastest ? `<span class="lm-trophy" title="Highest stops/hr this ${unit}">${_lmIconFast}Fastest</span>` : ''}
+          </div>
+          <div class="lm-rate${low ? ' dn' : ''}">${_dmF(rate)}</div>
+          <div class="lm-num">${p.prv.rate != null ? _lmPct(rate, p.prv.rate) : 'new'}</div>
+          <div class="lm-num">${_dmF(p.avg6)}</div>
+          <div class="lm-dvg"><b style="${bar}"></b><i></i></div>
+          <div class="lm-diff">${_lmPct(rate, avg)}</div>
+          <div class="lm-iss-prev" style="font-size:13px">${p.cur.stops.toLocaleString()} stops · ${_dmHrs(p.cur.hrs, d.mode)} h</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    const noHours = d.people.filter(p => p.cur.stops > 0 && p.cur.hrs == null);
+    body.innerHTML = `
+      ${hero}
+      <div class="lm-card">
+        <div class="lm-sec">
+          <div class="lm-sec-h">
+            <h3>Drivers</h3>
+            <span>${rated.length} ${rated.length === 1 ? 'driver' : 'drivers'} · fleet average <b>${_dmF(avg)}</b> ${esc(inP(d.cur))}${avgPrev != null ? ` (${_dmF(avgPrev)} ${esc(inP(d.prev))})` : ''} · ${above} above, ${rated.length - above} below</span>
+          </div>
+          <div class="lm-scroll">
+            <div class="lm-grid lm-head">
+              <div>Name</div><div class="lm-r">${esc(d.cur.short)}</div><div class="lm-r">${esc(colPrev)}</div>
+              <div class="lm-r" title="Stops ÷ hours over the six ${unit}s shown in the chart">${esc(col6)}</div>
+              <div style="text-align:center">below · avg · above</div><div>vs avg</div>
+              <div>Stops · hours</div>
+            </div>
+            ${rows}
+          </div>
+        </div>
+      </div>
+      <div class="lm-foot">
+        ${noHours.length ? `<div>Stops but no Square hours matched: ${noHours.map(p => `${esc(p.name)} (${p.cur.stops})`).join(', ')}. Their name in WashRoute doesn’t match their Square timecard.</div>` : ''}
+        <div>Stops/hr = completed pickups and deliveries ÷ Square driver hours. ${ms.open ? 'This month runs to yesterday — today’s hours are still being logged.' : ''}
+          <button type="button" class="lm-link" onclick="dmExportCSV()">Export CSV</button></div>
+      </div>`;
+  }
+
+  function dmOpenPerson(id) {
+    _dmPerson = id; _dmRender();
+    document.getElementById('rpttab-drivers')?.scrollIntoView({ block: 'start' });
+  }
+  function dmClosePerson() { _dmPerson = null; _dmRender(); }
+  window.dmOpenPerson = dmOpenPerson;
+  window.dmClosePerson = dmClosePerson;
+
+  function _dmPersonHtml(id) {
+    const d = _dmData;
+    const p = d.people.find(x => x.id === id);
+    if (!p) return '';
+    const unit = d.mode === 'month' ? 'month' : d.mode === 'day' ? 'day' : 'period';
+    const Unit = unit[0].toUpperCase() + unit.slice(1);
+    const fa = i => d.stats[i].rate;
+    const maxV = Math.max(0.5, ...p.series.map(s => s.rate || 0), ...d.stats.map(s => s.rate || 0)) * 1.1;
+    const H = 170;
+    const bars = p.series.map((s, i) => {
+      const ga = fa(i);
+      const low = s.rate != null && ga != null && s.rate < ga;
+      const h = s.rate != null ? Math.max(2, Math.round(s.rate / maxV * H)) : 0;
+      const tick = ga != null ? `<div class="tick" style="bottom:${Math.round(ga / maxV * H) - 1}px"></div>` : '';
+      const inside = h >= 28;
+      const val = `<span class="${inside ? 'in' : 'v'}">${s.rate != null ? _dmF(s.rate) : '—'}</span>`;
+      return `<div class="lm-pbar">${inside ? '' : val}
+        <div class="col" style="height:${h}px;background:${low ? 'var(--amber)' : 'var(--accent)'}">${inside ? val : ''}${tick}</div></div>`;
+    }).join('');
+    const rows = p.series.map((s, i) => `
+      <tr><td>${esc(d.periods[i].long)}${d.stats[i].open ? ' (to date)' : ''}</td>
+        <td>${s.stops ? s.stops.toLocaleString() : '—'}</td><td>${_dmHrs(s.hrs, d.mode)}</td>
+        <td style="font-weight:600">${_dmF(s.rate)}</td><td style="color:var(--gray-500)">${_dmF(fa(i))}</td></tr>`).join('');
+    const ga = fa(5);
+    const low = p.cur.rate != null && ga != null && p.cur.rate < ga;
+    return `
+      <div class="lm-card">
+        <button type="button" class="lm-back" onclick="dmClosePerson()">← All drivers</button>
+        <h2 style="margin:14px 0 4px;font-size:26px;font-weight:650;letter-spacing:-.02em">${esc(p.name)}</h2>
+        <div class="lm-sub" style="margin:0">Stops per hour · dark line = fleet average that ${unit}</div>
+        <div class="lm-pstats">
+          <div><span style="color:${low ? '#b45309' : '#1A1C20'}">${_dmF(p.cur.rate)}</span><small>${esc(d.cur.long)}</small></div>
+          <div><span style="color:var(--gray-600)">${_dmF(ga)}</span><small>Fleet average, ${esc(d.cur.long)}</small></div>
+          <div><span style="color:var(--gray-600)">${_dmF(p.avg6)}</span><small>Six-${unit} average</small></div>
+        </div>
+        <div class="lm-pbars">${bars}</div>
+        <div class="lm-pmon">${d.periods.map(pp => `<span>${esc(pp.short)}</span>`).join('')}</div>
+        <table class="lm-ptbl">
+          <thead><tr><th>${Unit}</th><th>Stops</th><th>Hours</th><th>Stops/hr</th><th>Fleet avg</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function dmExportCSV() {
+    const d = _dmData;
+    if (!d) return;
+    const q = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const fleet = d.stats[5].rate, pk = d.prev.key;
+    const lines = [['Driver', 'Stops', 'Hours', 'Stops/hr', `Stops/hr ${pk}`, '6-period avg', 'Fleet avg', 'vs fleet avg %'].join(',')];
+    d.people.slice().sort((a, b) => (b.cur.rate ?? -1) - (a.cur.rate ?? -1)).forEach(p => {
+      lines.push([p.name, p.cur.stops, p.cur.hrs != null ? p.cur.hrs.toFixed(2) : '',
+        p.cur.rate != null ? p.cur.rate.toFixed(2) : '', p.prv.rate != null ? p.prv.rate.toFixed(2) : '',
+        p.avg6 != null ? p.avg6.toFixed(2) : '', fleet != null ? fleet.toFixed(2) : '',
+        (p.cur.rate != null && fleet) ? ((p.cur.rate - fleet) / fleet * 100).toFixed(1) : ''].map(q).join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `drivers-${d.cur.key}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  window.dmExportCSV = dmExportCSV;
 
   async function sendLaunchAnnouncementAll() {
     // Fetch all customers with email or phone
