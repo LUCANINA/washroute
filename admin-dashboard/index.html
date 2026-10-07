@@ -53640,7 +53640,9 @@ ${oneCopy}
     { key: 'operations',  label: 'Operations',  tabs: [
         ['drivers',       'Drivers',       'Stops, hours and pay, per driver.'],
         ['launderer',     'Launderers',    'Pounds processed per labour hour.'],
-        ['deliverykpis',  'Delivery KPIs', 'Growth, revenue and retention at a glance.'],
+        // 'deliverykpis' (Delivery KPIs) removed from the menu in session 336 at David's request.
+        // Its tab, loadDeliveryKpis() and the hash route are unreachable now; an old
+        // #reports/deliverykpis bookmark falls back to the default report.
         ['ontime',        'On-Time',       'Windows hit and missed, by month.'] ] },
     { key: 'customers',   label: 'Customers',   tabs: [
         ['registrations', 'Registrations', 'New sign-ups, and where they came from.'],
