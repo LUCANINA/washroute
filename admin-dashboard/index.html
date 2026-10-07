@@ -1529,6 +1529,9 @@
     .im-figs b { display:block; font-size:24px; font-weight:700; letter-spacing:-.02em; }
     .im-figs span { display:block; font-size:13px; color:var(--gray-500); margin-top:4px; }
     .im-figs small { display:block; font-size:12px; color:var(--gray-400); }
+    .im-figs em { display:flex; align-items:baseline; gap:6px; white-space:nowrap; font-style:normal; font-size:13px; font-weight:600; margin-top:8px; font-variant-numeric:tabular-nums; }
+    .im-figs em i { font-style:normal; font-weight:400; color:var(--gray-500); min-width:54px; }
+    .im-figs em small { display:inline; font-weight:400; }
     .im-full td small { display:block; font-size:11px; color:var(--gray-400); }
     .im-zero { color:var(--gray-300); }
     .lm-foot .lm-link { font-size:13px; color:var(--accent); font-weight:500; }
@@ -60600,16 +60603,22 @@ async function _dvIframeLoaded() {
           </div>`).join('')}</div>` : `<div class="lm-note">No add-ons sold this ${unit}.</div>`}
       </div>`;
 
-    // ── fees & tips (zero figures left out) ──
+    // ── fees & tips (zero figures left out), split Delivery vs POS (David, 336):
+    //    POS = the Retail list (walk_in orders); Delivery = every other list. ──
     const F = { deliv: 0, delivN: 0, same: 0, sameN: 0, tips: 0, tipsN: 0 };
-    names.forEach(n => Object.keys(F).forEach(k => { F[k] += cur[n][k]; }));
-    const figs = [['Delivery fees', F.deliv, F.delivN], ['Same-day fees', F.same, F.sameN], ['Tips', F.tips, F.tipsN]]
-      .filter(([, v]) => v > 0);
+    const FP = { deliv: 0, delivN: 0, same: 0, sameN: 0, tips: 0, tipsN: 0 };
+    names.forEach(n => Object.keys(F).forEach(k => { F[k] += cur[n][k]; if (n === 'Retail') FP[k] += cur[n][k]; }));
+    const figs = [['Delivery fees', 'deliv'], ['Same-day fees', 'same'], ['Tips', 'tips']].filter(([, k]) => F[k] > 0);
+    const split = k => {
+      const parts = [['Delivery', F[k] - FP[k], F[k + 'N'] - FP[k + 'N']], ['POS', FP[k], FP[k + 'N']]].filter(([, v]) => v > 0);
+      if (parts.length < 2) return `<small>${F[k + 'N'].toLocaleString()} orders${parts.length ? ' · ' + parts[0][0] : ''}</small>`;
+      return parts.map(([l, v, nn]) => `<em><i>${l}</i>${_imMoney(v)}<small>${nn.toLocaleString()} orders</small></em>`).join('');
+    };
     const feeCard = `
       <div class="lm-card">
         <div class="im-h"><h3>Fees &amp; tips</h3></div>
-        ${figs.length ? `<div class="im-figs">${figs.map(([l, v, nn]) => `<div><b>${_imMoney(v)}</b><span>${l}</span><small>${nn.toLocaleString()} orders</small></div>`).join('')}</div>
-          <div class="lm-note" style="margin-top:14px">All included in gross revenue.</div>` : `<div class="lm-note">No fees or tips this ${unit}.</div>`}
+        ${figs.length ? `<div class="im-figs">${figs.map(([l, k]) => `<div><b>${_imMoney(F[k])}</b><span>${l}</span>${split(k)}</div>`).join('')}</div>
+          <div class="lm-note" style="margin-top:14px">All included in gross revenue. POS = counter sales; Delivery = every other price list.</div>` : `<div class="lm-note">No fees or tips this ${unit}.</div>`}
       </div>`;
 
     // ── full breakdown (opt-in): one column per price list ──
