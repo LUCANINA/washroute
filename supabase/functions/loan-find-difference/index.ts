@@ -1701,7 +1701,21 @@ async function alreadyPostedInXero(narration: string, date: string, headers: Rec
   if (!res.ok) throw new Error(`Could not check Xero for an existing copy of this correction (status ${res.status}) — refusing to post blind.`)
   const json = await res.json().catch(() => null)
   if (!json) throw new Error('Xero returned an unreadable response to the duplicate check — refusing to post blind.')
-  const hit = (json?.ManualJournals || []).find((j: any) => String(j?.Narration || '').trim() === String(narration).trim())
+  // Session 336: PREFIX match, not equality. post_recorded and post_writeoff
+  // append " Approved by <name>…" to the narration AFTER this check, so the
+  // journal in Xero never equals the narration checked here — an exact-match
+  // test could never find its own journal, and every click posted again. That
+  // put the EIDL $5.00 adjustment (WR-ADJUST 299 2026-09-30) in Xero THREE
+  // times. The base narration carries the loan code, the figure and the date,
+  // so a journal that starts with it is this correction. Re-run
+  // tests/find-difference-duplicate.test.mjs after touching this.
+  const base = String(narration).trim()
+  const hit = base
+    ? (json?.ManualJournals || []).find((j: any) => {
+        const n = String(j?.Narration || '').trim()
+        return n === base || n.startsWith(base)
+      })
+    : null
   return hit ? { id: hit.ManualJournalID, narration: hit.Narration, date: normDate(hit.DateString, hit.Date) } : null
 }
 
