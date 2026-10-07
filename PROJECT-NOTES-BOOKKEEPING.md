@@ -1,5 +1,39 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 336 — Oct 7, 2026: the EIDL $5.00 adjustment was posted to Xero THREE times
+
+Found while David was posting September revenue reclasses: three POSTED manual journals dated
+2026-09-30, each `[WR-ADJUST 299 2026-09-30]` — "EIDL SBA Loan — $5.00 adjustment to agree with
+the lender, cause RECORDED", 299 −5.00 / 800 +5.00. One "Approved by Ramona Cedeno"
+(`b7b518cd-9b3b-436d-8bca-16afa53d58a3`), two "Approved by David Macquart-Moulin"
+(`92424c23-63fe-4c4c-a494-60040707e991`, `0c840a8c-5523-45b3-94ed-8df59a101803`). $15.00 moved
+instead of $5.00; the loan now reads $10.00 OVER the lender.
+
+**Root cause — the duplicate check could never find its own journal.** `alreadyPostedInXero` in
+`loan-find-difference` compared narrations for EXACT equality, but `post_recorded` (and
+`post_writeoff`) append `" Approved by <name>…"` to the narration AFTER the check and before the
+POST. So the stored narration never equals the checked one, and every click posted again. The
+other three paths (`post_fix`, `post_exception`, cross-loan) post the narration they check and
+were not affected. A guard on the right branch comparing the wrong string — s231's shape again.
+
+**Fix:** prefix match (`n === base || n.startsWith(base)`). The base narration carries the loan
+code, the figure and the date, so a journal starting with it IS this correction; a different
+figure does not match. `tests/find-difference-duplicate.test.mjs` loads the SHIPPED function out
+of the source (no transcription) and runs it against a stubbed Xero — 5 assertions, including one
+proving the old exact-match version misses the appended narration.
+
+**Swept for other duplicates:** all POSTED manual journals since 2026-07-01 (79). Two other
+narration repeats — 2026-07-31 convertible-note accrual and the 2026-08-07 payroll — are NOT
+duplicates: different lines (an accrual + a true-up; a payroll journal + a $1,115.12 170/675
+correction). Only the EIDL one is real.
+
+**Deploy state as of this entry: NOT DEPLOYED.** `loan-find-difference` is `verify_jwt: false`
+(probed 2026-10-07: no-auth POST answered the function's own 403 "Not authorized."), and it is
+over the MCP size ceiling, so David deploys from his terminal with `--no-verify-jwt`.
+
+**Open — needs a human in Xero:** void two of the three journals (keep Ramona's,
+`b7b518cd…`). Nothing here can void a journal on its own, by design.
+
 ## Session 330 — Oct 7, 2026: a chargeback is not an unhandled type, and the override table could never have answered it
 
 The daily bug check found the 2026-10-07 payout (**$12,234.68**, `po_1UNiQyGACgbvEugHk5z3P8NV`)
@@ -64,9 +98,25 @@ short by exactly $185.95. `payout-recovery`, `xero-429`, `xero-budget`, `xero-me
 (sync v27, reallocate v20, read from `list_edge_functions`), so both need `--no-verify-jwt`.
 Deploy, then re-run the sync and confirm it foots to $12,234.68.
 
-**Open, deliberately not touched:** order #15734 is still `billing_status = 'paid'` despite the
-chargeback. Marking it is a separate decision with customer-facing consequences, and the
-don't-correct-billing-data-you-can't-explain rule (s309) applies — raised with David, not acted on.
+**Decided (David, 2026-10-07): order #15734 STAYS `billing_status = 'paid'`. Do not "fix" it.**
+
+It was genuinely paid when it was paid; the bank reversed it later, and that loss is already booked
+correctly in Xero at 606. Three things make the obvious one-row UPDATE wrong:
+
+* **`billing_status` is a protected column** (s227's `enforce_protected_order_columns` guard). A raw
+  update is blocked by design. That guard is right — don't route around it.
+* **No correct value exists.** The statuses in use are `paid` (12,773), null (2,955), `refunded` (32)
+  and `written_off` (10). A chargeback is none of them. `written_off` means *we* chose to stop
+  chasing; a chargeback is the bank taking it back.
+* **`written_off` is not just a status.** It carries `written_off_at` / `_by` / `_reason`, and the
+  write-off review screen filters on `written_off_at IS NOT NULL` — so setting the status alone
+  creates an order that reads as written off and never appears in the write-off list.
+
+The accurate fix is a `charged_back` status, which is a CODE change, not a data one: audit check #27
+excludes only paid/refunded/written_off, so a new value fires that P0 daily until it is handled, and
+`v_outstanding_orders` and the admin UI need it too. **Not worth it for one order** — revisit if
+chargebacks stop being a once-a-year event. The $170.95 overstates collected-from-orders by one
+order in 12,773; the books are right regardless.
 **Decided (David, 2026-10-07): the $15 dispute fee stays in 606 with the reversed sale.** The whole
 cost of a chargeback is one figure in one account; nothing about a dispute touches 605 or 828. This
 is enforced, not just documented — `tests/payout-dispute.test.mjs` asserts the 606 line is exactly
