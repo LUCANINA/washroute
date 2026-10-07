@@ -1409,11 +1409,11 @@
                border-radius:5px; padding:2px 6px; background:#fff; white-space:nowrap; }
 
     .rpt-head-period { display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-top:12px; }
+    .rpt-head-period.lm-bar-top { justify-content:space-between; gap:10px; }
     .rpt-quick-btn { background:none; border:0; padding:3px 0; font-family:inherit; font-size:14px; color:#63666D;
                      cursor:pointer; border-bottom:1.5px solid transparent; transition:color .12s; }
     .rpt-quick-btn:hover { color:#1A1C20; }
     .rpt-quick-btn.active { color:#1A1C20; font-weight:500; border-bottom-color:#1A1C20; }
-    .rpt-period-label { margin-left:auto; font-size:13px; color:#8A8D93; }
     .rpt-dates { display:flex; align-items:center; gap:10px; margin-top:14px; font-size:12.5px; color:#63666D; }
     .rpt-dates input { padding:7px 11px; border:1px solid #E3E1DC; border-radius:8px; font-family:inherit;
                        font-size:13px; color:#1A1C20; background:#fff; outline:none; }
@@ -1423,8 +1423,7 @@
        .lm-* so nothing here can reach the sibling reports. The Launderers report
        picks its own month, so the shared Today/7 days/Custom row is hidden while
        it is open (setRptTab toggles .rpt-own-period on #page-reports). */
-    #page-reports.rpt-own-period .rpt-head-period,
-    #page-reports.rpt-own-period #rpt-dates { display:none !important; }
+    #page-reports.rpt-own-period .rpt-head-period { display:none !important; }
     .lm-wrap { padding:18px 20px 24px; display:flex; flex-direction:column; gap:20px; color:#1A1C20; }
     .lm-bar-top { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
     .lm-nav { display:flex; align-items:center; gap:6px; }
@@ -3195,21 +3194,29 @@
               </div>
             </div>
 
-            <div class="rpt-head-period">
-              <button class="rpt-quick-btn" data-range="today"     onclick="setRptQuickRange('today',this)">Today</button>
-              <button class="rpt-quick-btn" data-range="yesterday" onclick="setRptQuickRange('yesterday',this)">Yesterday</button>
-              <button class="rpt-quick-btn" data-range="7d"        onclick="setRptQuickRange('7d',this)">7 days</button>
-              <button class="rpt-quick-btn" data-range="month"     onclick="setRptQuickRange('month',this)">This month</button>
-              <button class="rpt-quick-btn" data-range="lastmonth" onclick="setRptQuickRange('lastmonth',this)">Last month</button>
-              <button class="rpt-quick-btn" id="rpt-custom-btn" type="button" onclick="toggleRptCustom()">Custom</button>
-              <span class="rpt-period-label" id="rpt-period-label"></span>
-            </div>
-
-            <div class="rpt-dates" id="rpt-dates" style="display:none">
-              <label for="rpt-from">From</label>
-              <input type="date" id="rpt-from" onchange="_rptDateChanged()">
-              <label for="rpt-to">To</label>
-              <input type="date" id="rpt-to" onchange="_rptDateChanged()">
+            <!-- Session 336: the standard report period control — Monthly (default) /
+                 Daily / Custom, the same control the Launderers, Drivers, Items and POS
+                 reports carry. #rpt-from / #rpt-to stay the one source every report reads. -->
+            <div class="rpt-head-period lm-bar-top">
+              <div class="lm-seg" role="tablist" aria-label="Report period">
+                <button type="button" role="tab" class="active" id="rpt-mode-month" aria-selected="true" onclick="rptSetMode('month')">Monthly</button>
+                <button type="button" role="tab" id="rpt-mode-day" aria-selected="false" onclick="rptSetMode('day')">Daily</button>
+                <button type="button" role="tab" id="rpt-mode-custom" aria-selected="false" onclick="rptSetMode('custom')">Custom</button>
+              </div>
+              <div class="lm-nav">
+                <button type="button" class="lm-step" id="rpt-prev" aria-label="Previous month" onclick="rptStep(-1)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <div class="lm-month" id="rpt-month-label">—</div>
+                <div class="lm-range" id="rpt-range" style="display:none">
+                  <input type="date" id="rpt-from" min="2020-01-01" aria-label="From" onchange="_rptDateChanged()">
+                  <span>to</span>
+                  <input type="date" id="rpt-to" min="2020-01-01" aria-label="To" onchange="_rptDateChanged()">
+                </div>
+                <button type="button" class="lm-step" id="rpt-next" aria-label="Next month" onclick="rptStep(1)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+              </div>
             </div>
 
             <div id="new-customers-body" class="rpt-pulse-panel" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
@@ -53582,9 +53589,11 @@ ${oneCopy}
     // Default to today-only so the Reports page loads fast on first visit.
     // Using Pacific-local date (en-CA gives YYYY-MM-DD); .toISOString() would
     // return UTC which rolls forward after 5pm Pacific — banned per PROJECT-NOTES.
+    // Session 336: the standard control opens on Monthly — month to date.
     const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-    fromEl.value = todayPT;
+    fromEl.value = todayPT.slice(0, 8) + '01';
     toEl.value   = todayPT;
+    _rptMode = 'month';
     _rptSyncPeriodUI();  // session 301: light the Today chip the default just chose
   }
 
@@ -53671,37 +53680,8 @@ ${oneCopy}
     </tbody></table>`;
   }
 
-  // Global Quick Range — sets the shared From/To picker and re-runs whatever
-  // report tab is active. Pacific-anchored (mirrors the old POS-only presets).
-  function _rptQuickClear() {
-    document.querySelectorAll('.rpt-quick-btn').forEach(b => b.classList.remove('active'));
-  }
-  function setRptQuickRange(period, btn) {
-    const fromEl = document.getElementById('rpt-from');
-    const toEl   = document.getElementById('rpt-to');
-    if (!fromEl || !toEl) return;
-    const todayIso = today();
-    const [Y, M] = todayIso.split('-').map(Number);
-    let from = todayIso, to = todayIso;
-    if (period === 'today')            { from = to = todayIso; }
-    else if (period === 'yesterday')   { from = to = addDaysPacific(todayIso, -1); }
-    else if (period === '7d')          { from = addDaysPacific(todayIso, -6); to = todayIso; }
-    else if (period === 'month')       { from = `${Y}-${String(M).padStart(2,'0')}-01`; to = todayIso; }
-    else if (period === 'lastmonth')   {
-      const lastM = M === 1 ? 12 : M - 1;
-      const lastY = M === 1 ? Y - 1 : Y;
-      from = `${lastY}-${String(lastM).padStart(2,'0')}-01`;
-      to   = addDaysPacific(`${Y}-${String(M).padStart(2,'0')}-01`, -1); // last day of prev month
-    }
-    fromEl.value = from;
-    toEl.value   = to;
-    _rptQuickClear();
-    if (btn) btn.classList.add('active');
-    const _d = document.getElementById('rpt-dates');
-    if (_d) _d.dataset.forced = '0';   // a preset puts the pickers away again
-    _rptSyncPeriodUI();
-    runCurrentReport();
-  }
+  // (Session 336: the Today / Yesterday / 7 days / This month / Last month chips and
+  //  setRptQuickRange were replaced by the standard Monthly / Daily / Custom control.)
 
   // ── Report grouping (session 291u) ────────────────────────────────────
   // Eleven flat tabs were one report away from wrapping on a laptop. Grouped by the
@@ -53870,60 +53850,86 @@ ${oneCopy}
   });
 
   // ── The period line ───────────────────────────────────────────────────────
-  // The active chip is DERIVED from the dates rather than tracked, because
-  // setRptTab silently widens the range for six of the reports (Invoices opens on
-  // 90 days, Bad Debt on a year, and so on). Tracking would have gone stale there;
-  // deriving cannot.
-  function _rptMatchPreset() {
+  // ── The standard period control (session 336) ─────────────────────────────
+  // #rpt-from / #rpt-to remain the ONE source of truth (60+ readers). The control
+  // writes them, and derives what it shows FROM them — so any code that sets the
+  // dates directly still lands on the right label. _rptMode only breaks ties
+  // (a 1st-of-month "month to date" is also a single day) and remembers Custom.
+  // Runs to TODAY, like POS; the hours-based reports keep their own control.
+  let _rptMode = 'month';
+  function _rptState() {
     const f = document.getElementById('rpt-from')?.value;
     const t = document.getElementById('rpt-to')?.value;
+    const todayPT = today();
     if (!f || !t) return null;
-    const todayIso = today();
-    const [Y, M] = todayIso.split('-').map(Number);
-    const mStart  = `${Y}-${String(M).padStart(2, '0')}-01`;
-    const lastM   = M === 1 ? 12 : M - 1;
-    const lastY   = M === 1 ? Y - 1 : Y;
-    if (f === todayIso && t === todayIso) return 'today';
-    if (f === addDaysPacific(todayIso, -1) && t === f) return 'yesterday';
-    if (f === addDaysPacific(todayIso, -6) && t === todayIso) return '7d';
-    if (f === mStart && t === todayIso) return 'month';
-    if (f === `${lastY}-${String(lastM).padStart(2, '0')}-01` && t === addDaysPacific(mStart, -1)) return 'lastmonth';
-    return null;
+    const b = _lndrMonthBounds(f.slice(0, 7));
+    const isMonth = f === b.from && (t === b.to || (f.slice(0, 7) === todayPT.slice(0, 7) && t === todayPT));
+    const isDay = f === t;
+    let mode = 'custom';
+    if (_rptMode !== 'custom') {
+      if (isMonth && (_rptMode === 'month' || !isDay)) mode = 'month';
+      else if (isDay) mode = 'day';
+    }
+    return { mode, month: f.slice(0, 7), day: t, range: { from: f, to: t }, cap: todayPT };
   }
+  function _rptSet(from, to, mode) {
+    document.getElementById('rpt-from').value = from;
+    document.getElementById('rpt-to').value = to;
+    _rptMode = mode;
+    _rptSyncPeriodUI();
+    runCurrentReport();
+  }
+  function rptSetMode(mode) {
+    const S = _rptState();
+    if (!S || mode === S.mode) return;
+    const todayPT = today();
+    if (mode === 'month') {
+      const b = _lndrMonthBounds(S.range.to.slice(0, 7));
+      _rptSet(b.from, b.to < todayPT ? b.to : todayPT, 'month');
+    } else if (mode === 'day') {
+      _rptSet(S.range.to, S.range.to, 'day');
+    } else {
+      // Custom keeps the dates on screen and opens the pickers.
+      _rptMode = 'custom';
+      _rptSyncPeriodUI();
+    }
+  }
+  function rptStep(n) {
+    const S = _rptState();
+    if (!S) return;
+    const todayPT = today();
+    if (S.mode === 'month') {
+      const ym = _lmShift(S.month, n);
+      if (ym > todayPT.slice(0, 7)) return;
+      const b = _lndrMonthBounds(ym);
+      _rptSet(b.from, b.to < todayPT ? b.to : todayPT, 'month');
+    } else if (S.mode === 'day') {
+      const d = addDaysPacific(S.day, n);
+      if (d > todayPT) return;
+      _rptSet(d, d, 'day');
+    } else {
+      const len = _lmDayCount(S.range.from, S.range.to);
+      const to = addDaysPacific(S.range.to, n * len);
+      if (to > todayPT) return;
+      _rptSet(addDaysPacific(S.range.from, n * len), to, 'custom');
+    }
+  }
+  window.rptSetMode = rptSetMode;
+  window.rptStep = rptStep;
 
   function _rptSyncPeriodUI() {
-    const match = _rptMatchPreset();
-    document.querySelectorAll('.rpt-quick-btn[data-range]').forEach(b => b.classList.toggle('active', b.dataset.range === match));
-    const dates = document.getElementById('rpt-dates');
-    const cbtn  = document.getElementById('rpt-custom-btn');
-    const forced = dates?.dataset.forced === '1';
-    if (dates) dates.style.display = (!match || forced) ? '' : 'none';
-    if (cbtn)  cbtn.classList.toggle('active', !match);
-    const label = document.getElementById('rpt-period-label');
-    const f = document.getElementById('rpt-from')?.value;
-    const t = document.getElementById('rpt-to')?.value;
-    if (label && f && t) {
-      const long  = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-      const short = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      label.textContent = f === t ? long(f) : `${short(f)} – ${long(t)}`;
-    }
+    const S = _rptState();
+    if (S) _rpRenderStepper('rpt', S);
   }
   window._rptSyncPeriodUI = _rptSyncPeriodUI;
 
-  function toggleRptCustom() {
-    const dates = document.getElementById('rpt-dates');
-    if (!dates) return;
-    const showing = dates.style.display !== 'none';
-    dates.dataset.forced = showing ? '0' : '1';
-    _rptSyncPeriodUI();
-    if (!showing) document.getElementById('rpt-from')?.focus();
-  }
-  window.toggleRptCustom = toggleRptCustom;
-
   function _rptDateChanged() {
-    const dates = document.getElementById('rpt-dates');
-    if (dates) dates.dataset.forced = '1'; // typing a date keeps the pickers open
-    _rptQuickClear();
+    const f = document.getElementById('rpt-from')?.value;
+    const t = document.getElementById('rpt-to')?.value;
+    _rptMode = 'custom';
+    if (!f || !t || f < '2020-01-01') return;            // half-typed date: wait
+    if (f > t) { showToast('The start date is after the end date', 'error'); return; }
+    if (t > today()) { showToast('The end date is in the future', 'error'); return; }
     _rptSyncPeriodUI();
     runCurrentReport();
   }
@@ -53972,57 +53978,10 @@ ${oneCopy}
       const oaBar = document.getElementById('oa-action-bar');
       if (oaBar) oaBar.classList.remove('visible');
     }
-    if (tab === 'baddebt') {
-      // Write-offs are rare (5 in the last 90 days), so the global today-only
-      // default would always show an empty screen. Same reasoning as Invoices.
-      const fromEl = document.getElementById('rpt-from');
-      const toEl   = document.getElementById('rpt-to');
-      if (fromEl && toEl && fromEl.value === toEl.value) {
-        const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-        fromEl.value = addDaysPacific(todayPT, -365);
-        toEl.value   = todayPT;
-        _rptQuickClear();
-      }
-    }
-    if (tab === 'invoices') {
-      // Invoices are monthly, so a today-only range (the global default) would
-      // show an empty screen. Open on the last 90 days instead.
-      const fromEl = document.getElementById('rpt-from');
-      const toEl   = document.getElementById('rpt-to');
-      if (fromEl && toEl && fromEl.value === toEl.value) {
-        const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-        fromEl.value = addDaysPacific(todayPT, -90);
-        toEl.value   = todayPT;
-        _rptQuickClear();
-      }
-    }
-    if (tab === 'ontime') {
-      // On-time is scored by month — open on month-to-date instead of today-only.
-      const fromEl = document.getElementById('rpt-from');
-      const toEl   = document.getElementById('rpt-to');
-      if (fromEl && toEl && fromEl.value === toEl.value) {
-        const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-        fromEl.value = todayPT.slice(0, 8) + '01';
-        toEl.value   = todayPT;
-        _rptQuickClear();
-      }
-    }
-    // Session 301: a report that opened a wider range must say so on the period
-    // line, so _rptSyncPeriodUI() runs after every branch below (see end of fn).
-    if (tab === 'subscriptions' || tab === 'deliverykpis' || tab === 'feedback' || tab === 'referrals') {
-      // These reports compare windows / need a multi-day range to be meaningful.
-      // If picker is at today-only (the global default), bump it to Last 30 days.
-      const fromEl = document.getElementById('rpt-from');
-      const toEl   = document.getElementById('rpt-to');
-      if (fromEl && toEl && fromEl.value === toEl.value) {
-        const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-        const d = new Date(todayPT + 'T12:00:00');
-        d.setDate(d.getDate() - 30);
-        fromEl.value = d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-        toEl.value   = todayPT;
-        _rptQuickClear(); // 30-day window isn't one of the quick presets
-      }
-    }
+    // Session 336: the per-report range overrides that lived here (Bad Debt 365
+    // days, Invoices 90, On-time month to date, Subscriptions/Feedback/Referrals 30)
+    // existed because the default was TODAY ONLY. The default is now Monthly, and a
+    // single day means the person chose Daily — overriding it would fight them.
     // Session 323: the Launderers report picks its own month, so the shared
     // Today / 7 days / Custom row is hidden while it is open. Session 336: the
     // Drivers report does the same.
