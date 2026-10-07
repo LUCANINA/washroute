@@ -49,7 +49,7 @@ ${indexable ? '' : '<meta name="robots" content="noindex, nofollow">'}
   body { margin: 0; background: #fff; color: var(--ink); font: 400 17px/1.6 Poppins, system-ui, sans-serif; }
   .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
   header.wrap { text-align: center; padding: 40px 20px 8px; }
-  header img { width: min(300px, 70vw); height: auto; }
+  header img { width: min(340px, 78vw); height: auto; }
   .tag { font-weight: 700; font-size: 22px; margin: 4px 0 0; }
   .visit { background: var(--pink-soft); border-radius: 18px; padding: 22px 24px; margin: 28px 0; display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
   .visit p { margin: 0; }
@@ -73,7 +73,7 @@ ${indexable ? '' : '<meta name="robots" content="noindex, nofollow">'}
 </head>
 <body>
 <header class="wrap">
-  <h1 style="margin:0"><img src="/assets/img/sudzee-logo.png" alt="Sudzee Wash &amp; Fold" width="640" height="558"></h1>
+  <h1 style="margin:0"><img src="/assets/img/sudzee-logo-tagline.jpg" alt="Sudzee: Laundromat + Wash &amp; Fold" width="682" height="700"></h1>
   <p class="tag">The Friendliest People. Outstanding Wash &amp; Fold.</p>
 </header>
 <main class="wrap">
