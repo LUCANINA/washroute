@@ -23,9 +23,15 @@
   Google times for a Thu 6:30 PM departure. Full plant->stops->plant loop: old 178 min / 62.7 mi,
   new 146 min / 50 mi. New order starts SoMa/FiDi, as Andres asked. Post-deploy dry run of Oct 7 SF
   confirmed `origin_source: plant`, starting in FiDi.
-- **PENDING:** migration `session_335_reoptimize_cron_eta_only` (adds `'mode','eta_only'` to the
-  cron's request body; rewritten from pg_get_functiondef with asserts; dry-run in a self-aborting
-  transaction passed, ACL unchanged). Needs David's approval to apply. Safe in either order.
+- **Applied 08:21 PT:** migration `session_335_reoptimize_cron_eta_only` (adds `'mode','eta_only'` to the
+  cron's request body; rewritten from pg_get_functiondef with asserts; ACL + assert_staff unchanged;
+  rollback def in `_archive.fn_reoptimize_active_routes_20261007`). Cron runs clean after apply; no
+  live driver GPS at the time, so first `mode=eta_only` log line expected on the evening routes.
+- **One-time catch-up, 08:35 PT:** re-optimized every not-yet-started route from Oct 7 on (64 routes,
+  435 stops; 52 got a new order). Skipped any route with a completed/en-route stop (Berkeley/Oakland/
+  Hayward AM, Commercial PM, Alameda PM were mid-shift). Preflight: no trigger, cron or edge function
+  messages customers on stop_number/estimated_arrival. Undo: `_archive.resync_route_order_20261007`
+  holds the previous stop_number + estimated_arrival per stop.
 - **Pre-existing, not fixed:** `optimize-route` has no authorize() check (verify_jwt false); anyone
   with a route UUID can trigger a re-order. Oct 7 SF route has two stops numbered 3.
 
