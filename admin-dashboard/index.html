@@ -1542,6 +1542,7 @@
     .ps2-line b { text-align:right; font-weight:650; }
     .ps2-line small { font-size:12.5px; color:var(--gray-500); }
     .ps2-tiprow td { color:var(--gray-600); font-style:italic; }
+    .ps2-split { height:22px; margin-top:12px; }
     @media (max-width: 1100px) { .ps2-hero { grid-template-columns:1fr; } }
     .lm-foot .lm-link { font-size:13px; color:var(--accent); font-weight:500; }
     .lm-back { background:none; border:0; padding:0; font:inherit; font-size:14px; color:var(--accent); cursor:pointer; }
@@ -57955,6 +57956,10 @@ async function _dvIframeLoaded() {
     let totalUnits = 0;
     let totalRev   = 0;
     let totalTax   = 0;
+    // Session 336 (David): revenue split Services vs Merchandise, by line kind.
+    // 'merchandise' → Merchandise; everything else (service, addon, fees) →
+    // Services. Discount lines carry the kind of what they discount.
+    let svcRev = 0, merchRev = 0;
 
     orders.forEach(o => {
       if (!Array.isArray(o.line_items)) return;
@@ -57998,6 +58003,7 @@ async function _dvIframeLoaded() {
 
         totalUnits += qty;
         totalRev   += amount;
+        if (kind === 'merchandise') merchRev += amount; else svcRev += amount;
       });
 
       totalTax += orderTax;
@@ -58031,7 +58037,7 @@ async function _dvIframeLoaded() {
     });
     const refunded = allOrders.filter(o => o.billing_status === 'refunded');
     const totals = { tx: orders.length, units: totalUnits, itemsRev: totalRev, tips: totalTips, tipTx,
-                     rev: totalRev + totalTips, tax: totalTax };
+                     rev: totalRev + totalTips, tax: totalTax, svcRev, merchRev };
     _posSalesData = { items, totals, from: selFrom, to: selTo, site: siteFilter };
     _renderPosSummary(totals, byMethod, refunded);
 
@@ -58092,6 +58098,20 @@ async function _dvIframeLoaded() {
     if (el) el.innerHTML = `<div class="rev-empty">${esc(msg)}</div>`;
   }
 
+  // Revenue by category (session 336): Services / Merchandise / Tips, as one
+  // proportional bar plus a line each. Zero parts are left out.
+  function _posRevSplit(t) {
+    const parts = [['Services', t.svcRev, '#1E3A8A', '#fff'], ['Merchandise', t.merchRev, '#6E95EA', '#fff'], ['Tips', t.tips, '#D6E2FB', '#1E3A8A']]
+      .filter(([, v]) => v > 0);
+    if (!parts.length || !(t.rev > 0)) return '';
+    const bar = parts.map(([l, v, bg, fg]) => {
+      const pct = v / t.rev * 100;
+      return `<div class="im-seg" style="flex:0 0 calc(${pct.toFixed(2)}% - 2px);background:${bg};color:${fg}" title="${l} — ${Math.round(pct)}%">${pct >= 12 ? Math.round(pct) + '%' : ''}</div>`;
+    }).join('');
+    const lines = parts.map(([l, v, bg]) => `<div class="ps2-line"><i style="background:${bg}"></i><span class="ps2-m">${l}</span><b>${fmtMoney(v)}</b><small>${Math.round(v / t.rev * 100)}%</small></div>`).join('');
+    return `<div class="im-bar ps2-split">${bar}</div><div class="ps2-lines">${lines}</div>`;
+  }
+
   // Headline (session 336): revenue = items + tips; how customers paid, as one
   // proportional bar plus a line per method. Zero parts are left out.
   function _renderPosSummary(t, byMethod, refunded) {
@@ -58120,7 +58140,8 @@ async function _dvIframeLoaded() {
       <div class="lm-hero ps2-hero">
         <div>
           <div class="lm-big">${fmtMoney(t.rev)}</div>
-          <div class="lm-sub"><strong>Revenue</strong>${t.tips > 0 ? ` · items ${fmtMoney(t.itemsRev)} + tips ${fmtMoney(t.tips)}` : ''}</div>
+          <div class="lm-sub"><strong>Revenue</strong></div>
+          ${_posRevSplit(t)}
           <div class="lm-note">${t.tx.toLocaleString()} sale${t.tx === 1 ? '' : 's'} · ${t.units.toLocaleString()} item${t.units === 1 ? '' : 's'}${t.tax > 0 ? ` · ${fmtMoney(t.tax)} sales tax collected on top (not revenue)` : ''}</div>
           ${refundNote}
         </div>
