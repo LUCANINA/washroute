@@ -1441,7 +1441,7 @@
     .lm-month { min-width:210px; text-align:center; font-size:15px; font-weight:600; }
     .lm-month span { font-weight:400; color:var(--gray-400); }
     .lm-card { background:#fff; border:1px solid var(--gray-200); border-radius:12px; padding:22px 26px; }
-    .lm-hero { display:grid; grid-template-columns:minmax(200px,240px) minmax(0,1fr) minmax(220px,260px); gap:32px; align-items:center; }
+    .lm-hero { display:grid; grid-template-columns:minmax(200px,240px) minmax(0,1fr); gap:32px; align-items:center; }
     .lm-big { font-size:48px; font-weight:700; letter-spacing:-.03em; line-height:1; }
     .lm-big small { font-size:15px; font-weight:400; color:var(--gray-500); letter-spacing:0; margin-left:6px; }
     .lm-sub { font-size:14px; color:var(--gray-500); margin-top:6px; }
@@ -1457,9 +1457,6 @@
     .lm-dv { position:absolute; transform:translate(-50%,-150%); font-size:12.5px; color:var(--gray-600); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .lm-dv.cur { color:#1A1C20; font-weight:700; }
     .lm-dm { position:absolute; top:112px; transform:translateX(-50%); font-size:12px; color:var(--gray-400); }
-    .lm-worth { border-left:1px solid var(--gray-100); padding-left:26px; }
-    .lm-worth .lm-money { font-size:28px; font-weight:700; letter-spacing:-.02em; margin-top:6px; }
-    .lm-worth .lm-money small { font-size:14px; font-weight:400; color:var(--gray-500); letter-spacing:0; }
     .lm-note { font-size:12px; color:var(--gray-400); margin-top:4px; line-height:1.4; }
     .lm-summary { font-size:14.5px; padding:0 2px; }
     .lm-summary b.up { color:var(--accent); } .lm-summary b.dn { color:#b45309; }
@@ -1522,7 +1519,7 @@
     .lm-ptbl th { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); font-weight:500; text-align:right; padding:6px 0; }
     .lm-ptbl th:first-child, .lm-ptbl td:first-child { text-align:left; }
     .lm-ptbl td { text-align:right; padding:9px 0; border-top:1px solid var(--gray-100); }
-    @media (max-width: 1100px) { .lm-hero { grid-template-columns:1fr; } .lm-worth { border-left:0; padding-left:0; } }
+    @media (max-width: 1100px) { .lm-hero { grid-template-columns:1fr; } }
 
     /* The 24h pulse. Until now New Delivery Customers and Recent Orders were two
        full-width cards above ALL fourteen reports, including the ten they have
@@ -59258,11 +59255,6 @@ async function _dvIframeLoaded() {
   // Issues: cs_issues raised in the period, charged to the order's
   // folded_by_id (same attribution as the old Issues column). Split orders
   // charge the primary folder only.
-  //
-  // Labour cost for "worth of +1 lb/hr": laundry payroll wages + employer
-  // taxes ÷ Square laundry hours, Aug–Sep 2026 pay runs. A constant, not a
-  // live figure — update it when wages change.
-  const LM_COST_PER_HR = 22.5;
   let _lmMode   = 'month'; // 'month' | 'day' | 'custom'
   let _lmMonth  = null;   // 'YYYY-MM' on screen (monthly)
   let _lmDay    = null;   // 'YYYY-MM-DD' on screen (daily)
@@ -59308,7 +59300,6 @@ async function _dvIframeLoaded() {
     const r = Math.round(n * 10) / 10;
     return (r > 0 ? '+' : r < 0 ? '−' : '±') + Math.abs(r).toFixed(1);
   }
-  const _lmMoney = n => '$' + (Math.round(n / 10) * 10).toLocaleString('en-US');
 
   // The six periods on screen, oldest first. Each: key, from, to, long, short.
   function _lmPeriods() {
@@ -59633,7 +59624,7 @@ async function _dvIframeLoaded() {
       return;
     }
 
-    // ── hero: floor rate, 6-period chart, worth of +1 lb/hr ──
+    // ── hero: floor rate and 6-period chart (the "worth of +1 lb/hr" card was removed in session 336) ──
     const pts = d.monthStats.map((m, i) => ({ i, m, v: (m.rate != null && !m.partialStart) ? m.rate : null }));
     const vals = pts.filter(p => p.v != null).map(p => p.v);
     let lo = vals.length ? Math.floor(Math.min(...vals) - 1) : 0, hi = vals.length ? Math.ceil(Math.max(...vals) + 1) : 4;
@@ -59657,24 +59648,6 @@ async function _dvIframeLoaded() {
         }).join('')}
       </div>`;
 
-    // Worth of +1 lb/hr: the hours saved folding a typical month's pounds one
-    // pound an hour faster. Monthly: "typical" = the average of the complete
-    // months in view (the open month and a go-live month would understate it).
-    // Daily / custom: pounds per calendar day across the periods in view
-    // (closed days count as zero), times an average month of 30.44 days.
-    let typLbs;
-    if (d.mode === 'month') {
-      const full = d.monthStats.filter(m => m.rate != null && !m.open && !m.partialStart);
-      typLbs = full.length ? full.reduce((a, m) => a + m.lbs, 0) / full.length : ms.lbs;
-    } else {
-      const use = d.monthStats.filter(m => !m.partialStart);
-      const days = use.reduce((a, m) => a + m.days, 0);
-      typLbs = days ? use.reduce((a, m) => a + m.lbs, 0) / days * 30.44 : ms.lbs;
-    }
-    const r = ms.rate;
-    const hrsSaved = typLbs / r - typLbs / (r + 1);
-    const perMonth = hrsSaved * LM_COST_PER_HR;
-
     const chartCap = d.mode === 'month' ? 'Monthly average, whole floor'
                    : d.mode === 'day'   ? 'Daily average, whole floor'
                    : `Same-length periods (${ms.days} day${ms.days === 1 ? '' : 's'}), whole floor`;
@@ -59690,12 +59663,6 @@ async function _dvIframeLoaded() {
         <div>
           <div class="lm-cap">${esc(chartCap)}</div>
           ${chart}
-        </div>
-        <div class="lm-worth" title="Hours saved folding a typical month's pounds (${Math.round(typLbs).toLocaleString()} lbs) at ${_lmF1(r + 1)} instead of ${_lmF1(r)} lbs/hr, times the labour cost per hour.">
-          <div class="lm-cap">Worth of +1 lb/hr</div>
-          <div class="lm-money">${_lmMoney(perMonth)}<small> / month</small></div>
-          <div class="lm-sub" style="margin-top:4px">${_lmMoney(perMonth * 12)} a year · ≈ ${Math.round(hrsSaved)} labour hours a month</div>
-          <div class="lm-note">at $${LM_COST_PER_HR.toFixed(2)}/hr — laundry payroll incl. employer taxes ÷ Square hours</div>
         </div>
       </div>`;
 
