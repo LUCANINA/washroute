@@ -71,7 +71,7 @@ function email1(first: string) {
 <p><b>1. Schedule a pickup.</b> Book in the <a href="${APP}">app</a>, or text PICKUP to the number that texted you when you signed up. Your laundry comes back clean and folded within 24 hours.</p>
 <p><b>2. Pack your laundry.</b> Any trash bag or laundry bag works for your first order. We'll return everything in a Family Laundry bag that's yours to keep. Two tall kitchen bags hold about as much as one of ours. Orders over two bags may take an extra day, and we'll let you know.</p>
 <p><b>3. Leave it out when your driver texts.</b> You'll get a text about 10–15 minutes before arrival. Set your bag outside your door or on your porch.</p>
-<p><b>How we clean:</b> warm wash, cold rinse, medium-heat dry. Free &amp; Clear detergent only, with no fragrance, fabric softener or bleach. Every load is sanitized with ozonated water.</p>
+<p><b>How we clean:</b> cold wash, medium-heat dry. Free &amp; Clear detergent only, with no fragrance, fabric softener or bleach. Every load is sanitized with ozonated water.</p>
 <p><b>Pricing:</b> <a href="${APP}?page=pricing">see current prices and our monthly plan in the app</a>.</p>
 <p>Questions? Just reply to this email and a real person on our team will answer.</p>
 ${button(APP, 'Schedule a pickup')}`, preview)
@@ -85,7 +85,7 @@ Thanks for signing up with Family Laundry. Here's how your first order works.
 
 3. Leave it out when your driver texts. You'll get a text about 10-15 minutes before arrival. Set your bag outside your door or on your porch.
 
-How we clean: warm wash, cold rinse, medium-heat dry. Free & Clear detergent only, with no fragrance, fabric softener or bleach. Every load is sanitized with ozonated water.
+How we clean: cold wash, medium-heat dry. Free & Clear detergent only, with no fragrance, fabric softener or bleach. Every load is sanitized with ozonated water.
 
 Pricing: ${APP}?page=pricing
 
