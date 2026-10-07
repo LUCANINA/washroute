@@ -1499,6 +1499,38 @@
     .lm-issue .s { font-size:12px; font-weight:600; color:var(--gray-500); text-transform:capitalize; }
     .lm-issue .s.open { color:#b45309; }
     .lm-foot { display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--gray-500); }
+    /* ── Items report (session 336) — scoped to .im-*; reuses the .lm-* shell ── */
+    .im-h { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+    .im-h h3 { margin:0; font-size:17px; font-weight:650; }
+    .im-h span { font-size:13px; color:var(--gray-500); }
+    .im-h span b { color:#1A1C20; }
+    .im-mix { display:grid; grid-template-columns:80px minmax(0,1fr); gap:10px 14px; align-items:center; }
+    .im-bar { display:flex; height:30px; border-radius:6px; overflow:hidden; gap:2px; }
+    .im-seg { display:flex; align-items:center; padding-left:8px; box-sizing:border-box; min-width:0; font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; }
+    .im-legend { display:flex; gap:18px; flex-wrap:wrap; font-size:13px; color:var(--gray-600); margin-top:14px; }
+    .im-legend span { display:inline-flex; align-items:center; gap:6px; }
+    .im-legend i, .im-name i { width:10px; height:10px; border-radius:3px; flex:none; box-shadow:inset 0 0 0 1px rgba(30,58,138,.15); }
+    .im-grid { display:grid; grid-template-columns:minmax(180px,1.4fr) 70px 90px 110px 190px 90px 80px; column-gap:14px; align-items:center; min-width:860px; }
+    .im-row { min-height:54px; border-top:1px solid var(--gray-100); font-variant-numeric:tabular-nums; }
+    .im-name { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:500; }
+    .im-name small { display:block; font-size:11.5px; font-weight:400; color:var(--gray-500); }
+    .im-rev { text-align:right; font-size:17px; font-weight:650; }
+    .im-perlb { display:flex; align-items:center; gap:10px; font-size:14px; font-weight:600; }
+    .im-track { display:inline-block; width:100px; height:8px; background:var(--gray-100); border-radius:4px; overflow:hidden; flex:none; }
+    .im-track b { display:block; height:100%; background:var(--accent); border-radius:4px; }
+    .im-track-l { width:auto; height:14px; }
+    .im-two { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:20px; }
+    .im-addons { display:flex; flex-direction:column; gap:14px; }
+    .im-addon { display:grid; grid-template-columns:120px minmax(0,1fr) 70px; column-gap:12px; row-gap:2px; align-items:center; font-size:14px; }
+    .im-aname { font-weight:500; }
+    .im-arev { text-align:right; font-weight:650; font-variant-numeric:tabular-nums; }
+    .im-asub { grid-column:2 / 4; font-size:12px; color:var(--gray-400); }
+    .im-figs { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:16px; }
+    .im-figs b { display:block; font-size:24px; font-weight:700; letter-spacing:-.02em; }
+    .im-figs span { display:block; font-size:13px; color:var(--gray-500); margin-top:4px; }
+    .im-figs small { display:block; font-size:12px; color:var(--gray-400); }
+    .im-full td small { display:block; font-size:11px; color:var(--gray-400); }
+    .im-zero { color:var(--gray-300); }
     .lm-foot .lm-link { font-size:13px; color:var(--accent); font-weight:500; }
     .lm-back { background:none; border:0; padding:0; font:inherit; font-size:14px; color:var(--accent); cursor:pointer; }
     .lm-pstats { display:flex; gap:40px; flex-wrap:wrap; margin-top:18px; }
@@ -3343,12 +3375,33 @@
           </div>
 
           <!-- ── TAB: ITEMS ── -->
+          <!-- Session 336: rebuilt on the Launderers / Drivers layout. Rendered by loadItemsMonthly(). -->
           <div id="rpttab-items" style="display:none">
-            <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
-              <button class="rev-export-btn" id="items-export-btn" style="display:none" onclick="exportItemsCSV()">Export CSV</button>
-            </div>
-            <div id="items-rpt-body">
-              <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+            <div class="lm-wrap">
+              <div class="lm-bar-top">
+                <div class="lm-seg" role="tablist" aria-label="Report period">
+                  <button type="button" role="tab" class="active" id="im-mode-month" aria-selected="true" onclick="imSetMode('month')">Monthly</button>
+                  <button type="button" role="tab" id="im-mode-day" aria-selected="false" onclick="imSetMode('day')">Daily</button>
+                  <button type="button" role="tab" id="im-mode-custom" aria-selected="false" onclick="imSetMode('custom')">Custom</button>
+                </div>
+                <div class="lm-nav">
+                  <button type="button" class="lm-step" id="im-prev" aria-label="Previous month" onclick="imStep(-1)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+                  </button>
+                  <div class="lm-month" id="im-month-label">—</div>
+                  <div class="lm-range" id="im-range" style="display:none">
+                    <input type="date" id="im-from" min="2025-01-01" aria-label="From" onchange="imSetRange()">
+                    <span>to</span>
+                    <input type="date" id="im-to" min="2025-01-01" aria-label="To" onchange="imSetRange()">
+                  </div>
+                  <button type="button" class="lm-step" id="im-next" aria-label="Next month" onclick="imStep(1)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div id="im-body">
+                <div class="rev-empty">Loading…</div>
+              </div>
             </div>
           </div>
 
@@ -53505,7 +53558,7 @@ ${oneCopy}
 
   function runCurrentReport() {
     if (rptTab === 'revenue')            loadRevenueReport();
-    else if (rptTab === 'items')         loadItemsReport();
+    else if (rptTab === 'items')         loadItemsMonthly();   // session 336 (was loadItemsReport)
     else if (rptTab === 'possales')      loadPosSalesReport();
     else if (rptTab === 'launderer')     loadLaundererMonthly();
     else if (rptTab === 'drivers')       loadDriverReport();   // session 336 (was loadReports)
@@ -53941,7 +53994,7 @@ ${oneCopy}
     // Session 323: the Launderers report picks its own month, so the shared
     // Today / 7 days / Custom row is hidden while it is open. Session 336: the
     // Drivers report does the same.
-    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers');
+    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items');
     _rptSyncPeriodUI();
     runCurrentReport();
   }
@@ -57292,6 +57345,8 @@ async function _dvIframeLoaded() {
 
   let _itemsReportData = { pricelists: [], from: '', to: '' };
 
+  // Superseded by loadItemsMonthly() in session 336 — no callers, elements gone.
+  // Kept for reference (its aggregation rules are mirrored there); safe to delete.
   async function loadItemsReport() {
     const fromEl    = document.getElementById('rpt-from');
     const toEl      = document.getElementById('rpt-to');
@@ -60236,6 +60291,392 @@ async function _dvIframeLoaded() {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   window.dmExportCSV = dmExportCSV;
+
+  // ── ITEMS REPORT (session 336) — rebuilt on the Launderers / Drivers layout ──
+  // One question: what did we sell this period, and to whom? Replaces five
+  // identical per-price-list cards (~150 equal-weight numbers, no total, zero
+  // rows shown) with: one total + 6-period trend, revenue-vs-pounds mix bars,
+  // one row per price list, one ranked add-on list with ATTACH RATE (share of
+  // orders that took it), and fees & tips as three figures. The old per-list
+  // detail is behind "Show full breakdown"; the CSV keeps every figure.
+  //
+  // Same rules as the old report (loadItemsReport, kept below, no callers):
+  //   • paid orders (billing_status 'paid', total_amount set), dated by the
+  //     Pacific day of billed_at; walk_in orders form the Retail list, the rest
+  //     go by their service's pricelist;
+  //   • gross revenue = total_amount + tip dollars (tips IN, David, session 173);
+  //   • add-ons from line_items, both taxonomies, same blocklist.
+  // New in 336 (David): Subscription includes the monthly PLAN FEES —
+  //   customer_transactions type 'subscription_invoice', counted on the day paid
+  //   (the Daily Revenue report's source). Without them Subscription read
+  //   $0.58/lb. In Daily view it spikes on renewal days.
+  // Like the other two reports, nothing runs past yesterday.
+  const _imS = { mode: 'month', month: null, day: null, range: null };
+  let _imData = null, _imSeq = 0, _imFull = false;
+  const IM_TINTS = { Delivery: '#1E3A8A', Commercial: '#2F5BD3', HCEB: '#6E95EA', Retail: '#A9C1F3', Subscription: '#D6E2FB' };
+  const IM_ORDER = ['Delivery', 'Subscription', 'Retail', 'Commercial', 'HCEB'];
+  const IM_ADDON_BLOCKLIST = new Set(['Air Dry (per item · billed at processing)', 'Yes', 'Oxiclean']);
+  const _imTint = n => IM_TINTS[n] || '#CBD5E1';
+  const _imDark = n => ['Delivery', 'Commercial', 'HCEB'].includes(n);
+  const _imMoney = n => '$' + Math.round(n).toLocaleString('en-US');
+  const _imMoneyK = n => n >= 10000 ? '$' + (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k' : _imMoney(n);
+
+  function imSetMode(mode) {
+    if (mode === _imS.mode || !['month', 'day', 'custom'].includes(mode)) return;
+    const y = _lmYesterday();
+    _imS.mode = mode;
+    if (mode === 'day' && !_imS.day) _imS.day = y;
+    if (mode === 'custom' && !_imS.range) _imS.range = { from: addDaysPacific(y, -6), to: y };
+    loadItemsMonthly();
+  }
+  window.imSetMode = imSetMode;
+
+  function imStep(n) {
+    const cap = _lmYesterday(), S = _imS;
+    if (S.mode === 'month') {
+      if (!S.month) return;
+      const next = _lmShift(S.month, n);
+      if (next > cap.slice(0, 7)) return;
+      S.month = next;
+    } else if (S.mode === 'day') {
+      if (!S.day) return;
+      const next = addDaysPacific(S.day, n);
+      if (next > cap) return;
+      S.day = next;
+    } else {
+      if (!S.range) return;
+      const len = _lmDayCount(S.range.from, S.range.to);
+      const to = addDaysPacific(S.range.to, n * len);
+      if (to > cap) return;
+      S.range = { from: addDaysPacific(S.range.from, n * len), to };
+    }
+    loadItemsMonthly();
+  }
+  window.imStep = imStep;
+
+  function imSetRange() {
+    const f = document.getElementById('im-from')?.value;
+    const t = document.getElementById('im-to')?.value;
+    if (!f || !t) return;
+    const cap = _lmYesterday(), redraw = () => _rpRenderStepper('im', _imS);
+    if (f > t) { showToast('The start date is after the end date', 'error'); redraw(); return; }
+    if (t > cap) { showToast('The report runs to yesterday at the latest', 'error'); redraw(); return; }
+    if (f < '2025-01-01') { redraw(); return; }   // half-typed year
+    if (_lmDayCount(f, t) > 366) { showToast('Pick a range of one year or less', 'error'); redraw(); return; }
+    _imS.range = { from: f, to: t };
+    loadItemsMonthly();
+  }
+  window.imSetRange = imSetRange;
+
+  // One period → { lists: { name: {...} } }. Cached: 10 min when recent, a day otherwise.
+  async function _imLoadPeriod(from, to, svcMap) {
+    const key = `wr-items2|${from}|${to}`;
+    const settled = _lmDayCount(to, _lndrTodayPT()) > 45;
+    const cached = _reportCacheGet(key, settled ? 864e5 : 10 * 60e3);
+    if (cached) return cached;
+    const X = pacificDayStart(from).toISOString(), Y = pacificDayEnd(to).toISOString();
+    const orders = []; const BATCH = 1000; let offset = 0;
+    while (true) {
+      const { data, error } = await db.from('orders')
+        .select('id, source, service_id, weight_lbs, total_bags, total_amount, line_items, tip_amount, tip_type')
+        .eq('billing_status', 'paid')
+        .not('total_amount', 'is', null)
+        .gte('billed_at', X).lte('billed_at', Y)
+        .order('billed_at').order('id')
+        .range(offset, offset + BATCH - 1);
+      if (error) throw error;
+      orders.push(...(data || []));
+      if (!data || data.length < BATCH) break;
+      offset += BATCH;
+    }
+    const { data: subTx, error: subErr } = await db.from('customer_transactions')
+      .select('amount')
+      .eq('type', 'subscription_invoice')
+      .gte('created_at', X).lte('created_at', Y)
+      .limit(5000);
+    if (subErr) throw subErr;
+
+    const lists = {};
+    const L = name => lists[name] || (lists[name] = { orders: 0, lbs: 0, bags: 0, rev: 0, planFees: 0, planN: 0,
+      addons: {}, deliv: 0, delivN: 0, same: 0, sameN: 0, tips: 0, tipsN: 0 });
+    orders.forEach(o => {
+      const name = o.source === 'walk_in' ? 'Retail' : (svcMap[o.service_id]?.pricelist || 'Unknown');
+      const d = L(name);
+      d.orders++;
+      d.lbs  += parseFloat(o.weight_lbs || 0);
+      d.bags += parseInt(o.total_bags || 0);
+      d.rev  += parseFloat(o.total_amount || 0);
+      const li = Array.isArray(o.line_items) ? o.line_items : [];
+      const took = new Set();
+      li.forEach(item => {
+        const t = item.type, amt = parseFloat(item.amount || 0);
+        if (t === 'delivery_fee' || t === 'route_fee') { d.deliv += amt; if (amt > 0) d.delivN++; return; }
+        if (t === 'same_day_surcharge' || t === 'same_day_fee') { d.same += amt; if (amt > 0) d.sameN++; return; }
+        if (t === 'base') return;
+        const isAddon = t === 'pref_service' || t === 'addon' || t === 'addon_service' || item.kind === 'addon';
+        if (!isAddon) return;
+        const label = (item.label || item.name || '').replace(/^\s*\+\s*/, '').trim();
+        const nm = label.split('×')[0].trim() || label;
+        if (!nm || IM_ADDON_BLOCKLIST.has(nm)) return;
+        const qm = label.match(/×\s*(\d+)/);
+        const a = d.addons[nm] || (d.addons[nm] = { units: 0, rev: 0, orders: 0 });
+        a.units += qm ? parseInt(qm[1]) : (parseInt(item.qty) || 1);
+        a.rev   += amt;
+        if (!took.has(nm)) { took.add(nm); a.orders++; }
+      });
+      const tip = parseFloat(o.tip_amount || 0);
+      if (tip > 0) {
+        const dollars = o.tip_type === 'pct' ? Math.round(parseFloat(o.total_amount || 0) * tip) / 100 : tip;
+        if (dollars > 0) { d.tips += dollars; d.tipsN++; d.rev += dollars; }
+      }
+    });
+    (subTx || []).forEach(t => {
+      const amt = parseFloat(t.amount || 0);
+      if (!(amt > 0)) return;
+      const d = L('Subscription');
+      d.planFees += amt; d.planN++; d.rev += amt;
+    });
+    const out = { lists };
+    _reportCacheSet(key, out);
+    return out;
+  }
+
+  async function loadItemsMonthly() {
+    const body = document.getElementById('im-body');
+    if (!body) return;
+    const S = _imS, cap = _lmYesterday();
+    if (!S.month || S.month > cap.slice(0, 7)) S.month = cap.slice(0, 7);
+    if (S.day && S.day > cap) S.day = cap;
+    if (S.range && S.range.to > cap) S.range = null;
+    if (S.mode === 'day' && !S.day) S.day = cap;
+    if (S.mode === 'custom' && !S.range) S.range = { from: addDaysPacific(cap, -6), to: cap };
+    const mode = S.mode, periods = _rpPeriodsFor(S), seq = ++_imSeq;
+    _rpRenderStepper('im', S);
+    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+    const open = mode === 'month' && periods[5].ym === cap.slice(0, 7);
+    let per, cmp = null, cmpData = null;
+    try {
+      const { data: services, error } = await db.from('services').select('id, pricelist');
+      if (error) throw error;
+      const svcMap = {}; (services || []).forEach(s => { svcMap[s.id] = s; });
+      // A month still running is compared with the SAME DAYS of the month before
+      // (Oct 1–6 vs Sep 1–6). Against the whole of September, 6 days read −77%.
+      if (open) {
+        const pb = _lndrMonthBounds(periods[4].ym);
+        const dd = Math.min(Number(cap.slice(8, 10)), Number(pb.to.slice(8, 10)));
+        cmp = { to: `${periods[4].ym}-${String(dd).padStart(2, '0')}`, dd };
+      }
+      [per, cmpData] = await Promise.all([
+        Promise.all(periods.map(p => p.from > cap ? Promise.resolve({ lists: {} })
+          : _imLoadPeriod(p.from, p.to < cap ? p.to : cap, svcMap))),
+        cmp ? _imLoadPeriod(periods[4].from, cmp.to, svcMap) : Promise.resolve(null),
+      ]);
+      if (seq !== _imSeq) return;
+    } catch (e) {
+      if (seq !== _imSeq) return;
+      body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Could not load the report: ${esc(e.message || String(e))}</div>`;
+      return;
+    }
+    const sum = x => {
+      let rev = 0, orders = 0, lbs = 0;
+      Object.values(x.lists).forEach(d => { rev += d.rev; orders += d.orders; lbs += d.lbs; });
+      return { rev, orders, lbs };
+    };
+    const tot = per.map(sum);
+    _imData = { mode, periods, cur: periods[5], prev: periods[4], per, tot, open,
+                cmpLists: cmpData ? cmpData.lists : per[4].lists,
+                cmpTot:   cmpData ? sum(cmpData) : tot[4],
+                cmpLong:  cmp ? `${periods[4].short} 1–${cmp.dd}` : periods[4].long,
+                cmpShort: cmp ? `${periods[4].short} 1–${cmp.dd}` : (mode === 'custom' ? 'prior' : periods[4].short) };
+    _imRender();
+  }
+  window.loadItemsMonthly = loadItemsMonthly;
+
+  function imToggleFull() { _imFull = !_imFull; _imRender(); }
+  window.imToggleFull = imToggleFull;
+
+  function _imRender() {
+    const body = document.getElementById('im-body');
+    const d = _imData;
+    if (!body || !d) return;
+    _rpRenderStepper('im', _imS);
+    const unit = d.mode === 'month' ? 'month' : d.mode === 'day' ? 'day' : 'period';
+    const cur = d.per[5].lists, prv = d.cmpLists, T = d.tot[5], TP = d.cmpTot;
+    const names = Object.keys(cur);
+    if (!names.length) { body.innerHTML = `<div class="rev-empty">No paid orders for this ${unit}.</div>`; return; }
+    const fixed = [...IM_ORDER.filter(n => cur[n]), ...names.filter(n => !IM_ORDER.includes(n)).sort()];
+    const byRev = names.slice().sort((a, b) => cur[b].rev - cur[a].rev);
+    const curLong = d.cur.long + (d.open ? ' to date' : '');
+
+    // ── hero ──
+    // A month still running is left off the line: a part-month total would read as a collapse.
+    const chartCap = d.mode === 'month' ? (d.open ? 'Monthly gross revenue · complete months' : 'Monthly gross revenue') : d.mode === 'day' ? 'Daily gross revenue'
+                   : `Same-length periods (${_lmDayCount(d.cur.from, d.cur.to)} days)`;
+    const vsPrev = TP.rev > 0 ? `${_lmPct(T.rev, TP.rev)} vs ${esc(d.cmpLong)} (${_imMoney(TP.rev)})` : '';
+    const hero = `
+      <div class="lm-card lm-hero">
+        <div>
+          <div class="lm-big">${_imMoney(T.rev)}</div>
+          <div class="lm-sub"><strong>Gross revenue, ${esc(curLong)}</strong></div>
+          ${vsPrev ? `<div class="lm-sub">${vsPrev}</div>` : ''}
+          <div class="lm-note">${T.orders.toLocaleString()} orders · ${Math.round(T.lbs).toLocaleString()} lbs${T.lbs > 0 ? ` · $${(T.rev / T.lbs).toFixed(2)} per lb` : ''}</div>
+        </div>
+        <div>
+          <div class="lm-cap">${esc(chartCap)}</div>
+          ${_rpChartHtml(d.tot.map((t, i) => (t.rev > 0 && !(d.open && i === 5)) ? t.rev : null), d.periods.map(p => p.short), _imMoneyK)}
+        </div>
+      </div>`;
+
+    // ── mix: revenue vs pounds ──
+    const seg = (n, v, total, what) => {
+      const pct = total > 0 ? v / total * 100 : 0;
+      if (pct <= 0) return '';
+      return `<div class="im-seg" style="flex:0 0 calc(${pct.toFixed(2)}% - 2px);background:${_imTint(n)};color:${_imDark(n) ? '#fff' : '#1E3A8A'}" title="${esc(n)} — ${Math.round(pct)}% of ${what}">${pct >= 6 ? Math.round(pct) + '%' : ''}</div>`;
+    };
+    let gapName = null, gapLbs = 0, gapRev = 0;
+    fixed.forEach(n => {
+      const ls = T.lbs > 0 ? cur[n].lbs / T.lbs * 100 : 0, rs = T.rev > 0 ? cur[n].rev / T.rev * 100 : 0;
+      if (ls - rs > gapLbs - gapRev && ls - rs >= 5) { gapName = n; gapLbs = ls; gapRev = rs; }
+    });
+    const mix = `
+      <div class="lm-card">
+        <div class="im-h"><h3>Where it came from</h3>
+          ${gapName ? `<span>${esc(gapName)} is <b>${Math.round(gapLbs)}% of the pounds</b> but <b>${Math.round(gapRev)}% of the revenue</b>.</span>` : ''}</div>
+        <div class="im-mix">
+          <div class="lm-cap">Revenue</div><div class="im-bar">${fixed.map(n => seg(n, cur[n].rev, T.rev, 'revenue')).join('')}</div>
+          <div class="lm-cap">Pounds</div><div class="im-bar">${fixed.map(n => seg(n, cur[n].lbs, T.lbs, 'pounds')).join('')}</div>
+        </div>
+        <div class="im-legend">${fixed.map(n => `<span><i style="background:${_imTint(n)}"></i>${esc(n)}</span>`).join('')}</div>
+      </div>`;
+
+    // ── by price list ──
+    const perLb = n => cur[n].lbs > 0 ? cur[n].rev / cur[n].lbs : null;
+    const maxPerLb = Math.max(0.01, ...byRev.map(n => perLb(n) || 0));
+    const colPrev = `vs ${d.cmpShort}`;
+    const rows = byRev.map(n => {
+      const c = cur[n], pl = perLb(n);
+      const sub = c.planN ? `<small>incl. ${_imMoney(c.planFees)} plan fees (${c.planN})</small>` : '';
+      return `
+        <div class="im-grid im-row">
+          <div class="im-name"><i style="background:${_imTint(n)}"></i><div>${esc(n)}${sub}</div></div>
+          <div class="lm-num">${c.orders.toLocaleString()}</div>
+          <div class="lm-num">${c.lbs > 0 ? Math.round(c.lbs).toLocaleString() : '—'}</div>
+          <div class="im-rev">${_imMoney(c.rev)}</div>
+          <div class="im-perlb">${pl != null ? `<span class="im-track"><b style="width:${(pl / maxPerLb * 100).toFixed(1)}%"></b></span>$${pl.toFixed(2)}` : '—'}</div>
+          <div class="lm-num">${c.orders > 0 ? _imMoney(c.rev / c.orders) : '—'}</div>
+          <div class="lm-num">${prv[n] ? _lmPct(c.rev, prv[n].rev) : 'new'}</div>
+        </div>`;
+    }).join('');
+    const lists = `
+      <div class="lm-card">
+        <div class="im-h"><h3>By price list</h3></div>
+        <div class="lm-scroll">
+          <div class="im-grid lm-head">
+            <div>Price list</div><div class="lm-r">Orders</div><div class="lm-r">Pounds</div><div class="lm-r">Revenue</div>
+            <div>Revenue per lb</div><div class="lm-r">Per order</div><div class="lm-r" title="Revenue change">${esc(colPrev)}</div>
+          </div>
+          ${rows}
+        </div>
+      </div>`;
+
+    // ── add-ons, all price lists together ──
+    const A = {};
+    names.forEach(n => Object.entries(cur[n].addons).forEach(([k, v]) => {
+      const a = A[k] || (A[k] = { units: 0, rev: 0, orders: 0 });
+      a.units += v.units; a.rev += v.rev; a.orders += v.orders;
+    }));
+    const addons = Object.entries(A).sort((a, b) => b[1].rev - a[1].rev);
+    const addonRev = addons.reduce((s, [, a]) => s + a.rev, 0);
+    const maxA = Math.max(0.01, ...addons.map(([, a]) => a.rev));
+    const addonCard = `
+      <div class="lm-card">
+        <div class="im-h"><h3>Add-ons</h3>${addons.length ? `<span>${_imMoney(addonRev)} · ${T.rev > 0 ? (addonRev / T.rev * 100).toFixed(1) : 0}% of revenue</span>` : ''}</div>
+        ${addons.length ? `<div class="im-addons">${addons.map(([k, a]) => `
+          <div class="im-addon">
+            <div class="im-aname">${esc(k)}</div>
+            <div class="im-track im-track-l"><b style="width:${(a.rev / maxA * 100).toFixed(1)}%"></b></div>
+            <div class="im-arev">${_imMoney(a.rev)}</div>
+            <div class="im-asub" title="Attach rate: share of all orders this ${unit} that included it">${a.units.toLocaleString()} sold · on ${T.orders > 0 ? Math.round(a.orders / T.orders * 100) : 0}% of orders</div>
+          </div>`).join('')}</div>` : `<div class="lm-note">No add-ons sold this ${unit}.</div>`}
+      </div>`;
+
+    // ── fees & tips (zero figures left out) ──
+    const F = { deliv: 0, delivN: 0, same: 0, sameN: 0, tips: 0, tipsN: 0 };
+    names.forEach(n => Object.keys(F).forEach(k => { F[k] += cur[n][k]; }));
+    const figs = [['Delivery fees', F.deliv, F.delivN], ['Same-day fees', F.same, F.sameN], ['Tips', F.tips, F.tipsN]]
+      .filter(([, v]) => v > 0);
+    const feeCard = `
+      <div class="lm-card">
+        <div class="im-h"><h3>Fees &amp; tips</h3></div>
+        ${figs.length ? `<div class="im-figs">${figs.map(([l, v, nn]) => `<div><b>${_imMoney(v)}</b><span>${l}</span><small>${nn.toLocaleString()} orders</small></div>`).join('')}</div>
+          <div class="lm-note" style="margin-top:14px">All included in gross revenue.</div>` : `<div class="lm-note">No fees or tips this ${unit}.</div>`}
+      </div>`;
+
+    // ── full breakdown (opt-in): one column per price list ──
+    let full = '';
+    if (_imFull) {
+      const addonNames = addons.map(([k]) => k);
+      const cell = (v, n2, extra) => v > 0 ? `${_imMoney(v)}<small>${n2.toLocaleString()}${extra || ''}</small>` : '<span class="im-zero">—</span>';
+      const line = (label, fn) => `<tr><td>${label}</td>${fixed.map(n => `<td>${fn(cur[n])}</td>`).join('')}</tr>`;
+      full = `
+        <div class="lm-card">
+          <div class="im-h"><h3>Full breakdown</h3><span>count under each amount · % = share of that list's orders</span></div>
+          <div class="lm-scroll"><table class="items-tbl im-full">
+            <thead><tr><th>Line</th>${fixed.map(n => `<th>${esc(n)}</th>`).join('')}</tr></thead>
+            <tbody>
+              ${line('Orders', c => c.orders.toLocaleString())}
+              ${line('Bags', c => c.bags ? c.bags.toLocaleString() : '<span class="im-zero">—</span>')}
+              ${line('Pounds', c => c.lbs ? Math.round(c.lbs).toLocaleString() : '<span class="im-zero">—</span>')}
+              ${line('Gross revenue', c => _imMoney(c.rev))}
+              ${addonNames.map(k => line(esc(k), c => { const a = c.addons[k]; return a ? cell(a.rev, a.units, ` · ${Math.round(a.orders / c.orders * 100)}%`) : '<span class="im-zero">—</span>'; })).join('')}
+              ${line('Delivery fees', c => cell(c.deliv, c.delivN))}
+              ${line('Same-day fees', c => cell(c.same, c.sameN))}
+              ${line('Tips', c => cell(c.tips, c.tipsN))}
+              ${fixed.some(n => cur[n].planN) ? line('Plan fees', c => cell(c.planFees, c.planN)) : ''}
+            </tbody>
+          </table></div>
+        </div>`;
+    }
+
+    body.innerHTML = `
+      ${hero}
+      ${mix}
+      ${lists}
+      <div class="im-two">${addonCard}${feeCard}</div>
+      ${full}
+      <div class="lm-foot">
+        <div><button type="button" class="lm-link" aria-expanded="${_imFull}" onclick="imToggleFull()">${_imFull ? 'Hide' : 'Show'} full breakdown</button>
+          · <button type="button" class="lm-link" onclick="imExportCSV()">Export CSV</button></div>
+        <div>Paid orders, dated by the day they were billed. Subscription includes monthly plan fees, counted the day they were paid. Gross revenue includes tips.${d.open ? ' This month runs to yesterday.' : ''}</div>
+      </div>`;
+  }
+
+  function imExportCSV() {
+    const d = _imData;
+    if (!d) return;
+    const cur = d.per[5].lists;
+    const q = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [['Price list', 'Line', 'Count', 'Orders', 'Amount'].join(',')];
+    Object.keys(cur).sort().forEach(n => {
+      const c = cur[n];
+      lines.push([n, 'Orders', c.orders, c.orders, ''].map(q).join(','));
+      lines.push([n, 'Bags', c.bags, '', ''].map(q).join(','));
+      lines.push([n, 'Pounds', c.lbs.toFixed(1), '', ''].map(q).join(','));
+      lines.push([n, 'Gross revenue', '', c.orders, c.rev.toFixed(2)].map(q).join(','));
+      Object.entries(c.addons).sort().forEach(([k, a]) => lines.push([n, 'Add-on: ' + k, a.units, a.orders, a.rev.toFixed(2)].map(q).join(',')));
+      lines.push([n, 'Delivery fees', '', c.delivN, c.deliv.toFixed(2)].map(q).join(','));
+      lines.push([n, 'Same-day fees', '', c.sameN, c.same.toFixed(2)].map(q).join(','));
+      lines.push([n, 'Tips', '', c.tipsN, c.tips.toFixed(2)].map(q).join(','));
+      if (c.planN) lines.push([n, 'Plan fees', c.planN, '', c.planFees.toFixed(2)].map(q).join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `items-${d.cur.key}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  window.imExportCSV = imExportCSV;
 
   async function sendLaunchAnnouncementAll() {
     // Fetch all customers with email or phone
