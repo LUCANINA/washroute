@@ -1,4 +1,4 @@
-// sudzee.com — one page for Sudzee Laundry, our laundromat at 2609 Foothill Blvd (replaced Wix, Oct 2026).
+// sudzee.com — one page for Sudzee Wash & Fold, our laundromat at 2609 Foothill Blvd (replaced Wix, Oct 2026).
 // Served by the same Vercel project as familylaundry.com; render.js picks this page by host name.
 // Hours, prices and the drop-off cutoff are live WashRoute tokens (never typed), so this page and
 // familylaundry.com always agree.
@@ -8,7 +8,7 @@ const { esc } = C;
 const ORIGIN = 'https://www.sudzee.com';
 const FL = 'https://www.familylaundry.com';
 const APP = 'https://app.familylaundry.com';
-const MAP = 'https://www.google.com/maps/search/?api=1&query=Sudzee+Laundry+2609+Foothill+Blvd+Oakland+CA+94601';
+const MAP = 'https://www.google.com/maps/search/?api=1&query=Sudzee+Wash+%26+Fold+2609+Foothill+Blvd+Oakland+CA+94601';
 
 const plain = (t, v) => C.renderPlain(t, v);
 
@@ -16,11 +16,11 @@ function page(v, { indexable }) {
   const s = v.site || {};
   const tel = s.phone ? 'tel:' + s.phone.replace(/[^\d+]/g, '') : '';
   const t = x => esc(plain(x, v));
-  const title = 'Sudzee Laundry: Laundromat + Wash & Fold in Oakland';
+  const title = 'Sudzee Wash & Fold | Laundromat in East Oakland';
   const description = `Self-service laundromat and drop-off wash & fold (${plain('{retail:Wash & Fold}', v)}) at 2609 Foothill Blvd, Oakland. Open ${plain('{site:dropoff_hours}', v)}. Part of Family Laundry.`;
   const jsonld = {
     '@context': 'https://schema.org', '@type': 'DryCleaningOrLaundry', '@id': ORIGIN + '/#business',
-    name: 'Sudzee Laundry', url: ORIGIN, telephone: s.phone, image: ORIGIN + '/assets/img/sudzee-logo.png',
+    name: 'Sudzee Wash & Fold', url: ORIGIN, telephone: s.phone, image: ORIGIN + '/assets/img/sudzee-logo.png',
     address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
     parentOrganization: { '@type': 'Organization', '@id': FL + '/#business', name: 'Family Laundry', url: FL },
   };
@@ -65,19 +65,21 @@ ${indexable ? '' : '<meta name="robots" content="noindex, nofollow">'}
   .btn { display: inline-block; background: var(--ink); color: #fff; text-decoration: none; font-weight: 600; padding: 12px 22px; border-radius: 999px; margin-top: 6px; }
   .btn:hover { background: #333; }
   .btn-ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); }
+  .truck { max-width: 760px; margin: 32px auto 0; padding: 0 20px; }
+  .truck img { width: 100%; height: auto; display: block; }
   footer.wrap { margin-top: 48px; padding: 24px 20px 40px; border-top: 1px solid var(--line); font-size: 15px; color: var(--muted); }
 </style>
 <script type="application/ld+json">${JSON.stringify(jsonld).replace(/</g, '\\u003c')}</script>
 </head>
 <body>
 <header class="wrap">
-  <h1 style="margin:0"><img src="/assets/img/sudzee-logo.png" alt="Sudzee" width="640" height="558"></h1>
-  <p class="tag">Laundromat + Wash &amp; Fold in East Oakland</p>
+  <h1 style="margin:0"><img src="/assets/img/sudzee-logo.png" alt="Sudzee Wash &amp; Fold" width="640" height="558"></h1>
+  <p class="tag">The Friendliest People. Outstanding Wash &amp; Fold.</p>
 </header>
 <main class="wrap">
   <div class="visit">
     <p><strong>Address</strong>2609 Foothill Blvd<br>Oakland, CA 94601<br><a href="${MAP}" rel="noopener">Get directions</a></p>
-    <p><strong>Open</strong>${t('{site:dropoff_hours}')}${s.phone ? `<br><br><strong>Call or text</strong><a href="${esc(tel)}">${esc(s.phone)}</a>` : ''}</p>
+    <p><strong>Open</strong>${t('{site:dropoff_hours}')}</p>
   </div>
 
   <h2>Do it yourself</h2>
@@ -98,9 +100,9 @@ ${indexable ? '' : '<meta name="robots" content="noindex, nofollow">'}
   <p>Our pickup and delivery service, Family Laundry, collects your laundry from your door across Oakland, the East Bay and San Francisco, ${t('{site:service_days}')}, and brings it back folded the next day.</p>
   <p><a class="btn" href="${APP}">Schedule a pickup</a> <a class="btn btn-ghost" href="${FL}">About Family Laundry</a></p>
 </main>
+<p class="truck"><a href="${FL}"><img src="/assets/img/sudzee-brought-by-fl.jpg" alt="Brought to you by Family Laundry" width="1000" height="1000" loading="lazy"></a></p>
 <footer class="wrap">
-  <p>Sudzee started in San Francisco in 2011 and joined Family Laundry, an Oakland family business, in 2022.</p>
-  <p>Sudzee Laundry · 2609 Foothill Blvd, Oakland, CA 94601${s.phone ? ` · <a href="${esc(tel)}">${esc(s.phone)}</a>` : ''}</p>
+  <p>Sudzee Wash &amp; Fold · 2609 Foothill Blvd, Oakland, CA 94601</p>
 </footer>
 </body>
 </html>`;

@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
     let d;
     try { d = await load(); } catch (e) {
       console.error('content load failed', e); res.statusCode = 503;
-      return res.end('Sudzee Laundry, 2609 Foothill Blvd, Oakland. Please try again in a minute.');
+      return res.end('Sudzee Wash & Fold, 2609 Foothill Blvd, Oakland. Please try again in a minute.');
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=86400');

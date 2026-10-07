@@ -239,3 +239,12 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   `google-site-verification=3njeOMOK6UxW8hSA2cwEDmI9kR9-oobOFKwxcgPEutc`. Check the Wix DNS panel for anything else
   before switching. The Vercel connector has no access to the LUCANINA team (403), so domain + DNS steps are done
   by David in the Vercel dashboard. Domains: www.sudzee.com (primary) + sudzee.com (308 → www).
+  **DONE Tue Oct 6, ~6 pm:** www.sudzee.com (Production) + sudzee.com (308 → www) added to familylaundry-website;
+  Vercel DNS enabled for sudzee.com with the 5 Google MX + SPF + google-site-verification TXT (checked in the
+  dashboard). Page live on main (commit 8686d18). Remaining: GoDaddy nameservers → ns1/ns2.vercel-dns.com, then
+  verify site + MX. Keep the Wix plan 30 days as rollback.
+  **DONE Tue Oct 6, 5:55 pm:** David switched sudzee.com nameservers at GoDaddy to Vercel. Verified: registry and
+  Google DNS show ns1/ns2.vercel-dns.com; MX (5 Google), SPF and site-verification TXT resolve; www.sudzee.com
+  serves the new page (indexable), sudzee.com 308 → www, old paths 301 → /. Wix site plan: keep 30 days, cancel
+  around Nov 5.
+  Oct 6 follow-up (David): name is **Sudzee Wash & Fold**; Wix tagline "The Friendliest People. Outstanding Wash & Fold." and the "Brought to you by Family Laundry" truck image are back; the 2011/2022 history line is removed.
