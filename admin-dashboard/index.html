@@ -1458,8 +1458,6 @@
     .lm-dv.cur { color:#1A1C20; font-weight:700; }
     .lm-dm { position:absolute; top:112px; transform:translateX(-50%); font-size:12px; color:var(--gray-400); }
     .lm-note { font-size:12px; color:var(--gray-400); margin-top:4px; line-height:1.4; }
-    .lm-summary { font-size:14.5px; padding:0 2px; }
-    .lm-summary b.up { color:var(--accent); } .lm-summary b.dn { color:#b45309; }
     .lm-sec + .lm-sec { margin-top:32px; }
     .lm-sec-h { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding-bottom:8px; }
     .lm-sec-h h3 { margin:0; font-size:17px; font-weight:650; }
@@ -59295,10 +59293,12 @@ async function _dvIframeLoaded() {
   }
   const _lmUnit = () => _lmMode === 'month' ? 'month' : _lmMode === 'day' ? 'day' : 'period';
   const _lmF1 = n => (n == null || !isFinite(n)) ? '—' : n.toFixed(1);
-  function _lmSigned(n) {
-    if (n == null || !isFinite(n)) return '—';
-    const r = Math.round(n * 10) / 10;
-    return (r > 0 ? '+' : r < 0 ? '−' : '±') + Math.abs(r).toFixed(1);
+  // Change from `base` to `val` as a signed whole percent: 25.7 → 25.9 = "+1%".
+  // Percent (not lbs/hr) so Tech I and Tech II read on the same scale.
+  function _lmPct(val, base) {
+    if (val == null || base == null || !isFinite(val) || !isFinite(base) || base <= 0) return '—';
+    const r = Math.round((val - base) / base * 100);
+    return (r > 0 ? '+' : r < 0 ? '−' : '±') + Math.abs(r) + '%';
   }
 
   // The six periods on screen, oldest first. Each: key, from, to, long, short.
@@ -59651,7 +59651,7 @@ async function _dvIframeLoaded() {
     const chartCap = d.mode === 'month' ? 'Monthly average, whole floor'
                    : d.mode === 'day'   ? 'Daily average, whole floor'
                    : `Same-length periods (${ms.days} day${ms.days === 1 ? '' : 's'}), whole floor`;
-    const vsPrev = (mp.rate != null) ? `${_lmSigned(ms.rate - mp.rate)} vs ${esc(pName)} (${_lmF1(mp.rate)})` : '';
+    const vsPrev = (mp.rate != null) ? `${_lmPct(ms.rate, mp.rate)} vs ${esc(pName)} (${_lmF1(mp.rate)})` : '';
     const hero = `
       <div class="lm-card lm-hero">
         <div>
@@ -59670,7 +59670,6 @@ async function _dvIframeLoaded() {
     const colPrev = d.mode === 'custom' ? 'vs prior' : `vs ${d.prev.short}`;
     const col6 = d.mode === 'month' ? '6-mo avg' : d.mode === 'day' ? '6-day avg' : '6-period avg';
     const groupDefs = [['I', 'Tech I'], ['II', 'Tech II'], ['other', 'Other titles']];
-    let nUp = 0, nDn = 0;
     const sections = groupDefs.map(([cat, label]) => {
       const rows = rated.filter(p => p.cat === cat).sort((a, b) => b.cur.rate - a.cur.rate);
       if (!rows.length) return '';
@@ -59678,7 +59677,6 @@ async function _dvIframeLoaded() {
       const mostLbs = rows.reduce((a, p) => (!a || p.cur.lbs > a.cur.lbs) ? p : a, null);
       const fastest = rows[0];
       const above = rows.filter(p => p.cur.rate >= avg), below = rows.filter(p => p.cur.rate < avg);
-      nUp += above.length; nDn += below.length;
       const rowHtml = p => _lmRowHtml(p, avg, { most: p === mostLbs, fast: p === fastest });
       return `
         <div class="lm-sec">
@@ -59714,8 +59712,6 @@ async function _dvIframeLoaded() {
 
     body.innerHTML = `
       ${hero}
-      <div class="lm-summary">Each person is compared with the average of their own group this ${unit}.
-        <b class="up">${nUp} above</b> · <b class="dn">${nDn} below</b>.</div>
       <div class="lm-card">${sections}</div>
       ${foot}`;
   }
@@ -59726,11 +59722,12 @@ async function _dvIframeLoaded() {
   function _lmRowHtml(p, avg, trophy) {
     const d = _lmData;
     const unit = d.mode === 'month' ? 'month' : d.mode === 'day' ? 'day' : 'period';
-    const rate = p.cur.rate, diff = rate - avg, low = diff < 0;
-    const HALF = 99, SPAN = 15;
-    const w = Math.max(2, Math.round(Math.min(Math.abs(diff), SPAN) / SPAN * HALF));
+    const rate = p.cur.rate, low = rate < avg;
+    const pct = avg > 0 ? (rate - avg) / avg * 100 : 0;
+    const HALF = 99, SPAN = 50;   // a full half-bar = 50% off the group average
+    const w = Math.max(2, Math.round(Math.min(Math.abs(pct), SPAN) / SPAN * HALF));
     const bar = `left:${low ? HALF - w : HALF + 2}px;width:${w}px;background:${low ? 'var(--amber)' : 'var(--accent)'}`;
-    const vsPrev = p.prv.rate != null ? _lmSigned(rate - p.prv.rate) : 'new';
+    const vsPrev = p.prv.rate != null ? _lmPct(rate, p.prv.rate) : 'new';
     const cur = d.iss.cur[p.id] || [], prv = d.iss.prev[p.id] || [];
     const open = _lmOpen === p.id;
     const idArg = escJS(p.id);
@@ -59752,7 +59749,7 @@ async function _dvIframeLoaded() {
           <div class="lm-num">${vsPrev}</div>
           <div class="lm-num">${_lmF1(p.avg6)}</div>
           <div class="lm-dvg"><b style="${bar}"></b><i></i></div>
-          <div class="lm-diff">${_lmSigned(diff)}</div>
+          <div class="lm-diff">${_lmPct(rate, avg)}</div>
           <div class="lm-iss">${issCell}<span class="lm-iss-prev">${esc(prevTag)} ${prv.length}</span></div>
         </div>
         ${open ? _lmIssuesHtml(cur) : ''}
