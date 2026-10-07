@@ -1,5 +1,34 @@
 # WashRoute — Project Notes
 
+## Session 335 — Oct 7, 2026: route order loops at the start + reshuffles while driving (driver feedback)
+
+- **Report:** Andres Higuera (Slack, Oct 3): Thursday's SF route had him "circling through the middle"
+  before settling, and stop numbers "kept reshuffling while I was driving."
+- **Root causes (all in `optimize-route`, proven from edge logs + Oct 1 route data):**
+  1. No driver GPS before the shift -> origin fell back to the NORTHERNMOST stop. Oct 1 SF was planned
+     at 12:10 and 15:13 PT with origin = a Marina customer, so that stop was #1 by construction. The van
+     really enters SF off the Bay Bridge.
+  2. The finish line was "the stop furthest from the origin" (Outer Sunset that day), forcing a zig-zag
+     through the middle of the city — and moving every time the driver moved.
+  3. pg_cron `reoptimize-active-routes` (*/5) ran a FULL re-order of every live route from driver GPS.
+- **Fix (deployed v50 by David via CLI, `--no-verify-jwt` kept — function is verify_jwt false):**
+  - `PLANT` = 2015 23rd Ave, Oakland (37.78783, -122.23215) is the start when there's no GPS and the
+    end of every optimization (David's call: main facility; Foothill is 3 blocks away).
+    Earlier time window of a multi-window route ends toward the next window's centroid instead.
+  - `mode: 'eta_only'` — recompute ETAs along the current order, never write stop_number.
+  - Stops in `en_route` (driver tapped Notify) are pinned first on any re-order.
+  - `dry_run: true` returns `planned_order`, writes nothing.
+  - First-stop ETA unchanged in practice: with a plant origin the clock starts at window start minus leg 1.
+- **Validated:** replayed Oct 1 SF through old vs new code (throwaway `wr-route-preview`, now a 410 stub),
+  Google times for a Thu 6:30 PM departure. Full plant->stops->plant loop: old 178 min / 62.7 mi,
+  new 146 min / 50 mi. New order starts SoMa/FiDi, as Andres asked. Post-deploy dry run of Oct 7 SF
+  confirmed `origin_source: plant`, starting in FiDi.
+- **PENDING:** migration `session_335_reoptimize_cron_eta_only` (adds `'mode','eta_only'` to the
+  cron's request body; rewritten from pg_get_functiondef with asserts; dry-run in a self-aborting
+  transaction passed, ACL unchanged). Needs David's approval to apply. Safe in either order.
+- **Pre-existing, not fixed:** `optimize-route` has no authorize() check (verify_jwt false); anyone
+  with a route UUID can trigger a re-order. Oct 7 SF route has two stops numbered 3.
+
 ## Session 334 — Oct 6, 2026: intake could re-price an already-charged order down to $0
 
 - **Report:** daily bug check flagged 11 orders on check 26 and 3 on check 25. Investigating them

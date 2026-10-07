@@ -24,6 +24,23 @@ const INACTIVE_ORDER_STATUSES = ['on_hold', 'cancelled', 'skipped'];
 // Session 178: how old a driver GPS fix may be before we stop trusting it.
 const GPS_MAX_AGE_MS = 20 * 60 * 1000; // 20 minutes
 
+// Session 335: where every van starts and ends its shift -- the plant at
+// 2015 23rd Ave, Oakland (US Census geocoder, 2026-10-07; a van parked at the
+// plant reports 37.7881, -122.2322). Used as the starting point when the driver
+// has no live GPS yet, and as the finish line of every optimization, because the
+// van returns to the plant with its pickups.
+//
+// Before: no GPS -> origin was the NORTHERNMOST stop, and the finish line was the
+// stop FURTHEST from the origin. On 2026-10-01 (Andres, SF) that made a Marina
+// customer stop 1 by construction -- the van actually enters SF off the Bay Bridge
+// -- and forced the route to end in the Outer Sunset, so Google zig-zagged through
+// the middle of the city to get there. And because "furthest stop" moved as the
+// driver moved, every re-optimization could flip the whole order.
+const PLANT = { lat: 37.78783, lng: -122.23215 };
+
+// Google Directions accepts at most 25 waypoints besides origin + destination.
+const GOOGLE_MAX_WAYPOINTS = 25;
+
 // --- Haversine fallback (km) ---
 function haversine(a: {lat:number;lng:number}, b: {lat:number;lng:number}): number {
   const R = 6371;
@@ -95,6 +112,7 @@ async function callGoogleOptimize(
   originStr: string,
   destStr: string,
   waypointStops: any[],
+  optimize = true,
 ): Promise<{ waypointOrder: number[]; legs: any[]; distM: number; durSec: number } | null> {
   if (waypointStops.length === 0) {
     // Direct route: origin -> destination, no waypoints
@@ -117,7 +135,7 @@ async function callGoogleOptimize(
   url.searchParams.set('origin', originStr);
   url.searchParams.set('destination', destStr);
   url.searchParams.set('waypoints',
-    `optimize:true|${waypointStops.map(s => `${s.lat},${s.lng}`).join('|')}`);
+    `${optimize ? 'optimize:true|' : ''}${waypointStops.map(s => `${s.lat},${s.lng}`).join('|')}`);
   url.searchParams.set('departure_time', 'now');
   url.searchParams.set('traffic_model', 'best_guess');
   url.searchParams.set('key', apiKey);
@@ -138,50 +156,57 @@ async function callGoogleOptimize(
   return { waypointOrder, legs, distM, durSec };
 }
 
-// --- Optimize a group of stops (single time window) ---
+// --- Order a group of stops (single time window) ---
+// origin -> [stops] -> endPoint. endPoint is NOT a stop: it is the plant for the
+// last window, or the middle of the next window's stops for an earlier window, so
+// the order leans toward where the van goes next. The drive leg to endPoint is
+// only there to shape the order; it is not counted in any ETA.
+// optimize=false keeps the stops in the order given (ETA-only refresh, pinned
+// en-route stops).
 // Returns: ordered stops with _legDurSec (drive time to reach this stop from previous)
-async function optimizeWindow(
+async function orderWindow(
   apiKey: string,
   stops: any[],
   origin: { lat: number; lng: number },
+  endPoint: { lat: number; lng: number },
+  optimize: boolean,
 ): Promise<{ ordered: any[]; totalDurSec: number } | null> {
   if (stops.length === 0) return { ordered: [], totalDurSec: 0 };
-  if (stops.length === 1) {
-    const dur = haversine(origin, stops[0]) / 40 * 3600; // rough estimate 40km/h
-    stops[0]._legDurSec = Math.round(dur);
-    return { ordered: stops, totalDurSec: Math.round(dur) };
+  if (stops.length > GOOGLE_MAX_WAYPOINTS) {
+    console.error(`[optimize-route] ${stops.length} stops in one group exceeds Google's ` +
+      `${GOOGLE_MAX_WAYPOINTS}-waypoint limit -- keeping their current order`);
+    return null;
   }
 
-  // Use geographic extremes relative to origin to pick a good destination
-  // The stop furthest from origin = natural endpoint
-  const byDistFromOrigin = [...stops].sort((a, b) =>
-    haversine(origin, b) - haversine(origin, a)
+  const result = await callGoogleOptimize(
+    apiKey,
+    `${origin.lat},${origin.lng}`,
+    `${endPoint.lat},${endPoint.lng}`,
+    stops,
+    optimize,
   );
-  const dest = byDistFromOrigin[0]; // furthest stop = destination
-  const waypoints = stops.filter(s => s.id !== dest.id);
-
-  const originStr = `${origin.lat},${origin.lng}`;
-  const destStr = `${dest.lat},${dest.lng}`;
-
-  const result = await callGoogleOptimize(apiKey, originStr, destStr, waypoints);
   if (!result) return null;
 
-  // Reconstruct ordered list
-  const ordered: any[] = [];
-  if (waypoints.length > 0) {
-    for (const idx of result.waypointOrder) {
-      ordered.push(waypoints[idx]);
-    }
-  }
-  ordered.push(dest); // destination is last
+  const ordered = (optimize && result.waypointOrder.length === stops.length)
+    ? result.waypointOrder.map((idx: number) => stops[idx])
+    : [...stops];
 
-  // Attach leg durations -- legs[0] is origin->first stop, legs[1] is first->second, etc.
+  // legs[0] is origin->first stop, legs[i] is stop i-1 -> stop i. The final leg
+  // (last stop -> endPoint) is deliberately ignored.
+  let totalDurSec = 0;
   for (let i = 0; i < ordered.length; i++) {
     const leg = result.legs[i];
     ordered[i]._legDurSec = leg?.duration_in_traffic?.value || leg?.duration?.value || 0;
+    totalDurSec += ordered[i]._legDurSec;
   }
+  return { ordered, totalDurSec };
+}
 
-  return { ordered, totalDurSec: result.durSec };
+// Middle of a set of stops -- where the van is heading next.
+function centroid(stops: any[]): { lat: number; lng: number } {
+  const lat = stops.reduce((t, s) => t + Number(s.lat), 0) / stops.length;
+  const lng = stops.reduce((t, s) => t + Number(s.lng), 0) / stops.length;
+  return { lat, lng };
 }
 
 
@@ -198,7 +223,14 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { route_id, driver_lat, driver_lng } = await req.json();
+    // Session 335: mode 'eta_only' (the 5-minute background refresh) recomputes
+    // ETAs along the CURRENT order and never renumbers stops -- the driver's list
+    // must not reshuffle while he is driving. Re-ordering happens only when a stop
+    // is completed / skipped / added, or when someone presses Optimize.
+    // dry_run: compute and return the plan, write nothing.
+    const { route_id, driver_lat, driver_lng, mode, dry_run } = await req.json();
+    const etaOnly = mode === 'eta_only';
+    const dryRun = dry_run === true;
     if (!route_id) {
       return new Response(JSON.stringify({ error: 'route_id is required' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -318,7 +350,7 @@ Deno.serve(async (req: Request) => {
     //   1. driver GPS passed in by the caller (assumed fresh)
     //   2. the last stop the driver actually completed on this route
     //   3. driver row's last known location, if recent enough
-    //   4. northernmost pending stop (legacy last resort)
+    //   4. the plant (session 335 -- was: northernmost pending stop)
     const lastCompleted = done
       .filter((s: any) => s.completed_at && s.lat && s.lng)
       .sort((a: any, b: any) =>
@@ -340,7 +372,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    let originSource = 'northernmost_stop';
+    let originSource = 'plant';
     let resolvedOrigin: { lat: number; lng: number } | null = null;
     if (driver_lat && driver_lng) {
       resolvedOrigin = { lat: Number(driver_lat), lng: Number(driver_lng) };
@@ -385,7 +417,6 @@ Deno.serve(async (req: Request) => {
     console.log(`[optimize-route] ${pendingWithAddr.length} stops in ${windowKeys.length} window(s): ${windowKeys.map(k => `${Math.floor(k/60)}:${String(k%60).padStart(2,'0')}(${windowGroups[k].length})`).join(', ')}`);
 
     // -- 5b. Single-pass optimization for routes within Google waypoint limit --
-    const GOOGLE_MAX_WAYPOINTS = 23; // +origin +dest = 25 total
     // Single-pass optimization is only safe when all stops share one booked window.
     // When multiple windows are present (e.g. a PM route covering both 6-8 PM and
     // 8-10 PM slots), merging them would let Google reorder purely by geography
@@ -400,37 +431,62 @@ Deno.serve(async (req: Request) => {
     if (resolvedOrigin) {
       currentOrigin = resolvedOrigin;
     } else {
-      // No GPS and nothing completed yet -- use northernmost stop as starting point
-      const firstGroup = windowGroups[windowKeys[0]];
-      const byLat = [...firstGroup].sort((a, b) => b.lat - a.lat);
-      currentOrigin = { lat: byLat[0].lat, lng: byLat[0].lng }; // northernmost
-      originSource = 'northernmost_stop';
+      // No GPS and nothing completed yet -- the van leaves from the plant.
+      currentOrigin = { ...PLANT };
+      originSource = 'plant';
     }
     console.log(`[optimize-route] Origin source: ${originSource} (${currentOrigin.lat.toFixed(5)}, ${currentOrigin.lng.toFixed(5)})`);
 
-    // -- 7. Optimize each window sequentially --
+    // -- 7. Build the driving order --
     const finalOrder: any[] = [];
     let totalDriveSec = 0;
     let googleCallCount = 0;
 
-    for (const winKey of windowKeys) {
-      const group = windowGroups[winKey];
-      googleCallCount++;
+    // Append stops in a fixed order (Google gives drive times only), in chunks
+    // that fit the waypoint limit. If Google fails, the stops still go in, with
+    // no drive time -- same fallback as before.
+    const appendInOrder = async (list: any[]) => {
+      for (let i = 0; i < list.length; i += GOOGLE_MAX_WAYPOINTS) {
+        const chunk = list.slice(i, i + GOOGLE_MAX_WAYPOINTS);
+        googleCallCount++;
+        const r = await orderWindow(apiKey, chunk, currentOrigin, PLANT, false);
+        finalOrder.push(...(r ? r.ordered : chunk));
+        if (r) totalDriveSec += r.totalDurSec;
+        const last = chunk[chunk.length - 1];
+        currentOrigin = { lat: Number(last.lat), lng: Number(last.lng) };
+      }
+    };
 
-      const result = await optimizeWindow(apiKey, group, currentOrigin);
-      if (result && result.ordered.length > 0) {
-        finalOrder.push(...result.ordered);
-        totalDriveSec += result.totalDurSec;
+    if (etaOnly) {
+      // Keep today's order exactly as the driver sees it (stops arrive sorted by
+      // stop_number). Only the ETAs move.
+      await appendInOrder(pendingWithAddr);
+    } else {
+      // Session 335: a stop the driver is already heading to ('en_route' -- he
+      // tapped Notify and the customer was texted) always stays first.
+      const pinned = pendingWithAddr.filter((s: any) => s.status === 'en_route');
+      if (pinned.length > 0) {
+        console.log(`[optimize-route] Keeping ${pinned.length} en-route stop(s) first`);
+        await appendInOrder(pinned);
+      }
+
+      // Optimize each window in turn. The last window finishes at the plant; an
+      // earlier one finishes toward the middle of the next window's stops.
+      const windowList = windowKeys
+        .map(k => windowGroups[k].filter((s: any) => s.status !== 'en_route'))
+        .filter(g => g.length > 0);
+      for (let w = 0; w < windowList.length; w++) {
+        const group = windowList[w];
+        const endPoint = w < windowList.length - 1 ? centroid(windowList[w + 1]) : PLANT;
+        googleCallCount++;
+
+        const result = await orderWindow(apiKey, group, currentOrigin, endPoint, true);
+        const placed = (result && result.ordered.length > 0) ? result.ordered : group; // Google failed -> original order
+        if (result) totalDriveSec += result.totalDurSec;
+        finalOrder.push(...placed);
         // Next window starts from last stop of this window
-        const last = result.ordered[result.ordered.length - 1];
-        currentOrigin = { lat: last.lat, lng: last.lng };
-      } else {
-        // Google failed -- add stops in original order
-        finalOrder.push(...group);
-        if (group.length > 0) {
-          const last = group[group.length - 1];
-          currentOrigin = { lat: last.lat, lng: last.lng };
-        }
+        const last = placed[placed.length - 1];
+        currentOrigin = { lat: Number(last.lat), lng: Number(last.lng) };
       }
     }
 
@@ -462,7 +518,12 @@ Deno.serve(async (req: Request) => {
 
     // If no driver GPS, start the clock at route window start (today's date + window_start)
     if (!driver_lat || !driver_lng) {
-      const refMs = ptMinsToUtcMs(tmplStartM);
+      let refMs = ptMinsToUtcMs(tmplStartM);
+      // Session 335: leaving from the plant, assume the van departs early enough
+      // to reach the first stop at window start (it used to "start" AT stop 1).
+      if (originSource === 'plant' && finalOrder[0]?._legDurSec) {
+        refMs -= finalOrder[0]._legDurSec * 1000;
+      }
       if (refMs > now.getTime()) {
         clock = refMs;
       }
@@ -533,13 +594,20 @@ Deno.serve(async (req: Request) => {
       ? Math.max(...numbered.map((s: any) => s.stop_number || 0))
       : 0;
 
-    const updates = finalOrder.map((s: any, i: number) =>
-      db.from('route_stops').update({
-        stop_number: maxDone + i + 1,
-        estimated_arrival: s._eta?.toISOString() || null,
-      }).eq('id', s.id)
-    );
-    await Promise.all(updates);
+    // eta_only never touches stop_number (no reshuffle); dry_run writes nothing.
+    if (!dryRun) {
+      const updates = finalOrder.map((s: any, i: number) =>
+        db.from('route_stops').update(etaOnly
+          ? { estimated_arrival: s._eta?.toISOString() || null }
+          : { stop_number: maxDone + i + 1, estimated_arrival: s._eta?.toISOString() || null }
+        ).eq('id', s.id)
+      );
+      const writeResults = await Promise.all(updates);
+      const writeErrors = writeResults.filter((r: any) => r.error);
+      if (writeErrors.length > 0) {
+        console.error(`[optimize-route] ${writeErrors.length} stop update(s) failed:`, writeErrors[0].error);
+      }
+    }
 
     // -- 10. Log & return summary --
     const totalDriveMin = Math.round(totalDriveSec / 60);
@@ -547,11 +615,14 @@ Deno.serve(async (req: Request) => {
       `[optimize-route] Done: ${finalOrder.length} stops, ` +
       `${totalDriveMin}min drive, ${atRisk.length} at-risk, ` +
       `${googleCallCount} Google calls, origin=${originSource}, ` +
-      `excluded_inactive=${inactive.length}`
+      `excluded_inactive=${inactive.length}, mode=${etaOnly ? 'eta_only' : 'optimize'}` +
+      (dryRun ? ', DRY RUN' : '')
     );
 
     return new Response(JSON.stringify({
       success: true,
+      mode: etaOnly ? 'eta_only' : 'optimize',
+      dry_run: dryRun,
       stops_optimized: finalOrder.length,
       total_drive_minutes: totalDriveMin,
       at_risk: atRisk,
@@ -565,6 +636,7 @@ Deno.serve(async (req: Request) => {
         label: `${Math.floor(k/60) % 12 || 12}:${String(k%60).padStart(2,'0')} ${k >= 720 ? 'PM' : 'AM'}`,
         stops: windowGroups[k]?.length || 0,
       })),
+      ...(dryRun ? { planned_order: finalOrder.map((s: any) => ({ id: s.id, eta: s._eta?.toISOString() || null })) } : {}),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
