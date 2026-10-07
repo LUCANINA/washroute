@@ -3491,7 +3491,7 @@
                   <div class="rev-empty">Select a date range above and the report will load automatically.</div>
                 </div>
                 <div style="padding:10px 20px;border-top:1px solid var(--gray-100);font-size:11.5px;color:var(--gray-500);line-height:1.4">
-                  One row per POS / retail transaction. Includes both paid and fully-refunded orders for audit visibility (refunded rows are tinted red). The headline at top reflects paid sales only — refunds aren't subtracted there. Net per row = Gross + Tax + Tip − Refund. <strong>Fees</strong> are live Stripe processing fees pulled from balance_transactions; <em>italic ~$X</em> means we fell back to a 2.9% + $0.30 estimate (live data temporarily unavailable). Cash orders show — for fees. Refunded orders show — for fees because Stripe refunds the fee on full refunds in the US. Clicking any row opens the order details.
+                  One row per POS / retail transaction. Includes both paid and fully-refunded orders for audit visibility (refunded rows are tinted red). The headline at top reflects paid sales only — refunds aren't subtracted there. <strong>Gross</strong> = what we charged (items + sales tax + tip). <strong>Net</strong> = what we received: Gross − card fees − refund. <strong>Fees</strong> are live Stripe processing fees pulled from balance_transactions; <em>italic ~$X</em> means we fell back to a 2.9% + $0.30 estimate (live data temporarily unavailable). Cash orders show — for fees. Refunded orders show — for fees because Stripe refunds the fee on full refunds in the US. Clicking any row opens the order details.
                 </div>
               </div>
             </div>
@@ -58234,10 +58234,13 @@ async function _dvIframeLoaded() {
     const rows = orders.map(o => {
       const total   = parseFloat(o.total_amount    || 0);
       const tax     = parseFloat(o.tax_amount      || 0);
-      const tip     = parseFloat(o.tip_amount      || 0);
+      const tipRaw  = parseFloat(o.tip_amount      || 0);
+      const tip     = o.tip_type === 'pct' ? Math.round(total * tipRaw) / 100 : tipRaw;
       const refund  = parseFloat(o.amount_refunded || 0);
-      const gross   = total - tax;
-      const net     = gross + tax + tip - refund;
+      // Session 336 (David): Gross = what we charged — total_amount (which already
+      // includes sales tax) plus the tip. Net = what we actually received: Gross
+      // minus card processing fees and any refund (computed below, after the fee).
+      const gross   = total + tip;
 
       // Stripe processing fee for THIS order. Matches Daily Revenue policy:
       // only paid card orders carry a fee. Refunded card orders skip — Stripe
@@ -58257,6 +58260,8 @@ async function _dvIframeLoaded() {
           anyFeeEstimated = true;
         }
       }
+
+      const net = gross - fee - refund;
 
       tGross  += gross;
       tTax    += tax;
