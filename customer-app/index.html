@@ -10291,6 +10291,7 @@ async function loadBillingHistory() {
 function _txMeta(t) {
   switch (t.type) {
     case 'charge':         return { icon: '💳', label: 'Order payment',     sign: '−', color: 'var(--gray-700)' };
+    case 'subscription_invoice': return { icon: '🔁', label: 'Subscription payment', sign: '−', color: 'var(--gray-700)' };
     case 'credit_add':     return { icon: '＋', label: 'Credit added',      sign: '+', color: 'var(--green)' };
     case 'credit_use':     return { icon: '↳', label: 'Credit applied',    sign: '−', color: 'var(--gray-500)' };
     case 'credit_remove':  return { icon: '−', label: 'Credit adjustment', sign: '−', color: 'var(--gray-500)' };
@@ -10333,11 +10334,39 @@ function renderBillingHistory() {
         <div style="flex:1;min-width:0">
           <div style="font-weight:600;font-size:15px;color:var(--navy)">${meta.label}</div>
           <div style="font-size:13px;color:var(--gray-400);margin-top:2px;word-break:break-word">${dayStr}${orderRef}${desc}${cardSfx}</div>
+          ${t.type === 'subscription_invoice' ? `<button type="button" onclick="downloadSubReceipt('${escHtml(t.id)}', this)"
+            style="margin-top:6px;padding:0;background:none;border:none;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Receipt (PDF)</button>` : ''}
         </div>
         <div style="font-weight:700;font-size:15px;color:${meta.color};white-space:nowrap;flex-shrink:0">${meta.sign}${$m(amt)}</div>
       </div>`;
   }).join('');
   el.innerHTML = `<div style="padding-bottom:20px">${rows}</div>`;
+}
+
+// Session 337: download the receipt for one of the customer's own subscription payments.
+async function downloadSubReceipt(txnId, btn) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Preparing…';
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) throw new Error('Please sign in again');
+    const res = await fetch(`${SUPA_URL}/functions/v1/subscription-receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body: JSON.stringify({ transaction_id: txnId, mode: 'pdf' }),
+    });
+    if (!res.ok) { const r = await res.json().catch(() => ({})); throw new Error(r.error || 'Could not load the receipt'); }
+    const blob = await res.blob();
+    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'FamilyLaundry-Receipt.pdf';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = name; a.target = '_blank'; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    showToast(e.message || 'Could not load the receipt', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
 }
 
 // Renders the Promo Code section inside the Confirm step.

@@ -11,6 +11,22 @@ const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET')!
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
+// Session 337: email the customer a receipt for a subscription payment we just recorded.
+// subscription-receipt enforces once-per-payment (unique claim row) and refuses payments
+// older than 48h, so a webhook retry or replay can't double-send or mass-send. Fire and
+// forget: a receipt problem must never fail the webhook (Stripe would retry the payment
+// event). waitUntil keeps the request alive after we answer Stripe.
+function sendSubscriptionReceipt(transactionId: string) {
+  const p = fetch(`${supabaseUrl}/functions/v1/subscription-receipt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}` },
+    body: JSON.stringify({ transaction_id: transactionId, mode: 'email', source: 'auto' }),
+  }).then(async r => {
+    if (!r.ok) console.error(`subscription receipt for ${transactionId} failed: ${r.status} ${await r.text()}`)
+  }).catch(e => console.error(`subscription receipt for ${transactionId} failed:`, e.message))
+  try { (globalThis as any).EdgeRuntime?.waitUntil?.(p) } catch (_e) { /* best effort */ }
+}
+
 Deno.serve(async (req) => {
   const body = await req.text()
   const sig = req.headers.get('stripe-signature')
@@ -722,7 +738,7 @@ Deno.serve(async (req) => {
                 ? `Subscription · ${periodEndIso || 'initial'}`
                 : `Subscription · ${periodEndIso || 'monthly'}`
 
-              const { error: txInsertErr } = await db.from('customer_transactions').insert({
+              const { data: txRow, error: txInsertErr } = await db.from('customer_transactions').insert({
                 customer_id: txCustId,
                 type: 'subscription_invoice',
                 amount: amountPaid,
@@ -731,7 +747,7 @@ Deno.serve(async (req) => {
                 payment_method: 'credit_card',
                 card_brand: custCard?.card_brand || null,
                 card_last4: custCard?.card_last4 || null,
-              })
+              }).select('id').single()
 
               if (txInsertErr) {
                 console.error('customer_transactions insert error:', txInsertErr.message)
@@ -745,6 +761,7 @@ Deno.serve(async (req) => {
                 await db.from('customers').update({ lifetime_value: newLtv })
                   .eq('id', txCustId)
                 console.log(`Recorded subscription invoice $${amountPaid} for customer ${txCustId}, new LTV $${newLtv}`)
+                if (txRow?.id) sendSubscriptionReceipt(txRow.id)
               }
             } else {
               console.log('Subscription invoice already recorded (idempotency hit):', paymentIntentId)
@@ -815,7 +832,7 @@ Deno.serve(async (req) => {
           } else {
             const paidMonth = new Date(((invoice.status_transitions as any)?.paid_at || invoice.created) * 1000)
               .toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-            const { error: foErr } = await db.from('customer_transactions').insert({
+            const { data: foRow, error: foErr } = await db.from('customer_transactions').insert({
               customer_id: foCust.id,
               type: 'subscription_invoice',
               amount: amountPaid,
@@ -825,13 +842,14 @@ Deno.serve(async (req) => {
               card_brand: foCust.card_brand || null,
               card_last4: foCust.card_last4 || null,
               note: `Stripe invoice ${invoice.id} (subscription cancelled)`,
-            })
+            }).select('id').single()
             if (foErr) {
               console.error('Final overage customer_transactions insert error:', foErr.message)
             } else {
               const newLtv = parseFloat(foCust.lifetime_value || '0') + amountPaid
               await db.from('customers').update({ lifetime_value: newLtv }).eq('id', foCust.id)
               console.log(`Recorded final overage $${amountPaid} for customer ${foCust.id}, new LTV $${newLtv}`)
+              if (foRow?.id) sendSubscriptionReceipt(foRow.id)
             }
           }
         }

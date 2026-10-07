@@ -1,5 +1,32 @@
 # WashRoute — Project Notes
 
+## Session 337 — Oct 7, 2026: subscription receipts (email on renewal + download)
+
+- **Ask:** subscribers want receipts for the monthly payment, like order receipts. David picked: auto-email every
+  renewal + download on request. Defaults taken: all subscribers, no pounds-used on the receipt.
+- **New edge function `subscription-receipt`** (send-receipt untouched — it is keyed by order). One receipt per
+  `customer_transactions` row of type `subscription_invoice`. Lines/period/invoice number/card/refunds come from
+  Stripe (PI -> invoice, apiVersion 2024-06-20); falls back to the row if Stripe fails. Email in the order-receipt
+  style with a PDF attached (pdf-lib, same layout as the session-330 order PDF).
+  Callers: stripe-webhook (service key, `source:'auto'`), staff (email resend or PDF), customer (PDF of OWN payment
+  only; someone else's id answers 404). verify_jwt FALSE — own auth, rejects anon.
+- **Safety:** auto sends claim a row in new table `subscription_receipt_sends` BEFORE sending; partial unique index =
+  one auto receipt per payment (webhook retries can't double-send). Auto refuses payments older than 48h (no
+  backfill can mass-email). Auto skips `email_suppressions`. Staff resends are unlimited and logged.
+- **stripe-webhook:** both `subscription_invoice` inserts (renewal + final overage) now `.select('id')` and call
+  `sendSubscriptionReceipt()` fire-and-forget with waitUntil — a receipt failure never fails the webhook.
+  Repo copy verified identical to deployed v69 before editing (commit 814ac23 at 21:27:05Z = deploy 21:27:04Z).
+- **Admin:** customer panel -> Payments -> open a subscription charge -> "Email receipt" / "Download PDF".
+- **Customer app:** Billing History shows "Subscription payment" (was the raw type `subscription_invoice` — no case
+  in `_txMeta`) with a "Receipt (PDF)" link.
+- **Migration `session_337_subscription_receipt_sends`** applied via MCP. RLS on; authenticated SELECT gated by
+  is_admin(); no anon; writes service_role only.
+- **Preflight:** no triggers on customer_transactions, no cron or DB function calls the new function. Volume = new
+  renewals only (~4/day, 28 in the last 7 days).
+- **Deploy (CLI, David's terminal) — both verify_jwt false:**
+  `npx -y supabase@latest functions deploy subscription-receipt --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
+  `npx -y supabase@latest functions deploy stripe-webhook --project-ref umjpbuxrdydwejqtensq --no-verify-jwt`
+
 ## Session 336 — Oct 7, 2026: drivers not seeing customer text replies in the driver app
 
 - **Report:** drivers say customer replies stopped showing in the driver app "since last night".

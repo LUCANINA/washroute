@@ -42656,6 +42656,10 @@ ${oneCopy}
             ${t.note ? `<span>Note</span><span>${esc(t.note)}</span>` : ''}
           </div>
           ${refundableType && already > 0 ? `<div style="margin-top:8px;color:#92400e">${fmtMoney(already)} of ${fmtMoney(amt)} already refunded.${left > 0.004 ? ` ${fmtMoney(left)} left to refund.` : ' Nothing left to refund.'}</div>` : ''}
+          ${t.type === 'subscription_invoice' ? `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="cp2SubReceipt('${escJS(t.id)}','email',this)">✉ Email receipt</button>
+            <button type="button" class="btn btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="cp2SubReceipt('${escJS(t.id)}','pdf',this)">⬇ Download PDF</button>
+          </div>` : ''}
           ${canRefund && !refunding ? `<div style="margin-top:10px"><button type="button" class="btn btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="cp2StartRefund('${escJS(t.id)}')">↩ Refund…</button></div>` : ''}
           ${refunding ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--gray-200)">
             <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
@@ -42676,6 +42680,36 @@ ${oneCopy}
           <span class="cp2-td">${esc(cp2Short(t.created_at))}</span><span class="cp2-tn">${label}</span>${amtHtml}
         </button>${det}`;
     }).join('');
+  }
+  // Session 337: subscription receipts (email the customer, or download the PDF).
+  async function cp2SubReceipt(txnId, mode, btn) {
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = mode === 'pdf' ? 'Preparing…' : 'Sending…';
+    try {
+      const { data: { session } = {} } = await db.auth.getSession();
+      if (!session?.access_token) throw new Error('You are signed out — sign in again.');
+      const res = await fetch(`${SUPA_URL}/functions/v1/subscription-receipt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ transaction_id: txnId, mode }),
+      });
+      if (mode === 'pdf') {
+        if (!res.ok) { const r = await res.json().catch(() => ({})); throw new Error(r.error || `HTTP ${res.status}`); }
+        const blob = await res.blob();
+        const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'FamilyLaundry-Subscription-Receipt.pdf';
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      } else {
+        const r = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        if (!res.ok || !r.ok) throw new Error(r.error || 'Receipt not sent');
+        showToast(`✉ Receipt emailed to ${r.to}`, 'success');
+      }
+    } catch (e) {
+      showToast(`Receipt: ${e.message || e}`, 'error', 6000);
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
   }
   function cp2ToggleTxn(id) { _cp2OpenTxn = (_cp2OpenTxn === id) ? null : id; _cp2RefundTxn = null; renderCpTxns(); }
   function cp2StartRefund(id) {
