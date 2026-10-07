@@ -1534,6 +1534,16 @@
     .im-figs em small { display:inline; font-weight:400; }
     .im-full td small { display:block; font-size:11px; color:var(--gray-400); }
     .im-zero { color:var(--gray-300); }
+    /* ── POS Sales headline (session 336) — scoped to .ps2-* ── */
+    .ps2-wrap { padding:22px 26px; border-top:1px solid var(--gray-100); color:#1A1C20; }
+    .ps2-hero { grid-template-columns:minmax(240px,1fr) minmax(280px,1.2fr); }
+    .ps2-lines { display:flex; flex-direction:column; gap:8px; margin-top:14px; }
+    .ps2-line { display:grid; grid-template-columns:12px 90px 110px minmax(0,1fr); align-items:baseline; column-gap:8px; font-size:14px; font-variant-numeric:tabular-nums; }
+    .ps2-line i { width:10px; height:10px; border-radius:3px; align-self:center; }
+    .ps2-line b { text-align:right; font-weight:650; }
+    .ps2-line small { font-size:12.5px; color:var(--gray-500); }
+    .ps2-tiprow td { color:var(--gray-600); font-style:italic; }
+    @media (max-width: 1100px) { .ps2-hero { grid-template-columns:1fr; } }
     .lm-foot .lm-link { font-size:13px; color:var(--accent); font-weight:500; }
     .lm-back { background:none; border:0; padding:0; font:inherit; font-size:14px; color:var(--accent); cursor:pointer; }
     .lm-pstats { display:flex; gap:40px; flex-wrap:wrap; margin-top:18px; }
@@ -3420,12 +3430,8 @@
                 </select>
                 <button class="rev-export-btn" id="possales-export-btn" style="display:none" onclick="exportPosSalesCSV()">Export CSV</button>
               </div>
-              <div class="items-summary-row" id="ps-summary-row">
-                <div class="items-summary-stat"><strong id="ps-summary-tx">—</strong>Transactions</div>
-                <div class="items-summary-stat"><strong id="ps-summary-items">—</strong>Items Sold</div>
-                <div class="items-summary-stat"><strong id="ps-summary-rev">—</strong>Gross Revenue</div>
-                <div class="items-summary-stat"><strong id="ps-summary-tax">—</strong>Tax Collected</div>
-              </div>
+              <!-- Session 336: revenue (items + tips) with a cash-vs-card split. Rendered by _renderPosSummary(). -->
+              <div id="ps-summary" class="ps2-wrap"><div class="rev-empty">Loading…</div></div>
             </div>
 
             <!-- Sub-tab switcher (By Item / By Order) -->
@@ -3443,7 +3449,7 @@
                   <div class="rev-empty">Select a date range above and the report will load automatically.</div>
                 </div>
                 <div style="padding:10px 20px;border-top:1px solid var(--gray-100);font-size:11.5px;color:var(--gray-500);line-height:1.4">
-                  Includes only POS / retail orders (<code>source = walk_in</code>) with <strong>billing_status = paid</strong>. Fully refunded orders are excluded. Tax is allocated proportionally to taxable items in the same order. Gross Revenue is the sum of line-item amounts before tax.
+                  Includes only POS / retail orders (<code>source = walk_in</code>) with <strong>billing_status = paid</strong>. Fully refunded orders are excluded. Tax is allocated proportionally to taxable items in the same order. Revenue is line-item amounts before tax, plus tips (session 336).
                 </div>
               </div>
             </div>
@@ -57814,7 +57820,7 @@ async function _dvIframeLoaded() {
     body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
     const byOrderBodyEl = document.getElementById('ps-by-order-body');
     if (byOrderBodyEl) byOrderBodyEl.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
-    _setPosSalesSummary('—', '—', '—', '—');
+    _setPosSalesSummary('Loading…');
 
     // Pacific-anchored bounds — keeps the window right whether the admin is in
     // PT or anywhere else.
@@ -57833,7 +57839,7 @@ async function _dvIframeLoaded() {
     let offset = 0;
     while (true) {
       let q = db.from('orders')
-        .select('id, order_number, customer_id, total_amount, tax_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, site_id, pos_shift_id, line_items, created_at, customers(id, first_name_cache, last_name_cache), pos_shifts(id, cashier_profile_id, profiles:cashier_profile_id(id, first_name, last_name))')
+        .select('id, order_number, customer_id, total_amount, tax_amount, tip_amount, tip_type, stripe_payment_intent_id, amount_refunded, billing_status, billing_payment_method, site_id, pos_shift_id, line_items, created_at, customers(id, first_name_cache, last_name_cache), pos_shifts(id, cashier_profile_id, profiles:cashier_profile_id(id, first_name, last_name))')
         .eq('source', 'walk_in')
         .in('billing_status', ['paid', 'refunded'])
         .gte('created_at', fromISO)
@@ -57905,7 +57911,7 @@ async function _dvIframeLoaded() {
 
     if (!orders.length) {
       body.innerHTML = '<div class="rev-empty">No paid POS transactions in this date range.</div>';
-      _setPosSalesSummary(0, 0, '$0.00', '$0.00');
+      _setPosSalesSummary('No paid POS sales in this period.');
       _posSalesData = { items: [], totals: { tx:0, units:0, rev:0, tax:0 }, from:selFrom, to:selTo, site:siteFilter };
       return;
     }
@@ -57965,16 +57971,36 @@ async function _dvIframeLoaded() {
     });
 
     const items = Array.from(itemMap.values()).sort((a, b) => b.revenue - a.revenue);
-    const totals = { tx: orders.length, units: totalUnits, rev: totalRev, tax: totalTax };
-    _posSalesData = { items, totals, from: selFrom, to: selTo, site: siteFilter };
 
-    // Render summary headline
-    _setPosSalesSummary(
-      totals.tx.toLocaleString(),
-      totals.units.toLocaleString(),
-      fmtMoney(totals.rev),
-      fmtMoney(totals.tax)
-    );
+    // Session 336 (David): tips count IN revenue, and the headline splits how
+    // customers paid. "Collected" per method = total_amount + tip (what reached
+    // the drawer or the card), i.e. revenue + sales tax.
+    const tipOf = o => {
+      const t = parseFloat(o.tip_amount || 0);
+      if (!(t > 0)) return 0;
+      return o.tip_type === 'pct' ? Math.round(parseFloat(o.total_amount || 0) * t) / 100 : t;
+    };
+    let totalTips = 0, tipTx = 0;
+    const byMethod = {};
+    orders.forEach(o => {
+      const tip = tipOf(o);
+      if (tip > 0) { totalTips += tip; tipTx++; }
+      const m = (o.billing_payment_method || 'other').toString().toLowerCase();
+      const b = byMethod[m] || (byMethod[m] = { n: 0, collected: 0, tips: 0, fees: 0, feesEst: false });
+      b.n++;
+      b.collected += parseFloat(o.total_amount || 0) + tip;
+      b.tips += tip;
+      if (o.stripe_payment_intent_id) {
+        const cents = feesByPI[o.stripe_payment_intent_id]?.fee_cents;
+        if (cents !== undefined) b.fees += cents / 100;
+        else { b.fees += _estPosFee(parseFloat(o.total_amount || 0) + tip); b.feesEst = true; }
+      }
+    });
+    const refunded = allOrders.filter(o => o.billing_status === 'refunded');
+    const totals = { tx: orders.length, units: totalUnits, itemsRev: totalRev, tips: totalTips, tipTx,
+                     rev: totalRev + totalTips, tax: totalTax };
+    _posSalesData = { items, totals, from: selFrom, to: selTo, site: siteFilter };
+    _renderPosSummary(totals, byMethod, refunded);
 
     // Render table
     const rows = items.map(it => {
@@ -58001,17 +58027,24 @@ async function _dvIframeLoaded() {
             <th style="text-align:left">Item</th>
             <th>Qty Sold</th>
             <th>Transactions</th>
-            <th>Gross Revenue</th>
+            <th>Revenue</th>
             <th>Tax Collected</th>
           </tr>
         </thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rows}${totals.tips > 0 ? `
+          <tr class="ps2-tiprow">
+            <td>Tips</td>
+            <td><span class="rev-zero">—</span></td>
+            <td>${totals.tipTx.toLocaleString()}</td>
+            <td>${fmtMoney(totals.tips)}</td>
+            <td><span class="rev-zero">—</span></td>
+          </tr>` : ''}</tbody>
         <tfoot>
           <tr>
             <td>Total</td>
             <td>${totalUnits.toLocaleString()}</td>
             <td>${totals.tx.toLocaleString()}</td>
-            <td>${fmtMoney(totalRev)}</td>
+            <td>${fmtMoney(totals.rev)}</td>
             <td>${fmtMoney(totalTax)}</td>
           </tr>
         </tfoot>
@@ -58020,12 +58053,50 @@ async function _dvIframeLoaded() {
     if (exportBtn) exportBtn.style.display = '';
   }
 
-  function _setPosSalesSummary(tx, items, rev, tax) {
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    set('ps-summary-tx',    tx);
-    set('ps-summary-items', items);
-    set('ps-summary-rev',   rev);
-    set('ps-summary-tax',   tax);
+  // Loading / empty state for the headline.
+  function _setPosSalesSummary(msg) {
+    const el = document.getElementById('ps-summary');
+    if (el) el.innerHTML = `<div class="rev-empty">${esc(msg)}</div>`;
+  }
+
+  // Headline (session 336): revenue = items + tips; how customers paid, as one
+  // proportional bar plus a line per method. Zero parts are left out.
+  function _renderPosSummary(t, byMethod, refunded) {
+    const el = document.getElementById('ps-summary');
+    if (!el) return;
+    const ORDER = ['card', 'cash'];
+    const methods = [...ORDER.filter(m => byMethod[m]), ...Object.keys(byMethod).filter(m => !ORDER.includes(m)).sort()];
+    const collected = methods.reduce((a, m) => a + byMethod[m].collected, 0);
+    const COLOR = { card: '#2F5BD3', cash: '#A9C1F3' };
+    const label = m => m === 'other' ? 'Not recorded' : m.charAt(0).toUpperCase() + m.slice(1);
+    const bar = methods.map(m => {
+      const pct = collected > 0 ? byMethod[m].collected / collected * 100 : 0;
+      if (pct <= 0) return '';
+      return `<div class="im-seg" style="flex:0 0 calc(${pct.toFixed(2)}% - 2px);background:${COLOR[m] || '#CBD5E1'};color:${m === 'card' ? '#fff' : '#1E3A8A'}" title="${esc(label(m))} — ${Math.round(pct)}%">${pct >= 8 ? esc(label(m)) + ' ' + Math.round(pct) + '%' : ''}</div>`;
+    }).join('');
+    const lines = methods.map(m => {
+      const b = byMethod[m];
+      const bits = [`${b.n.toLocaleString()} sale${b.n === 1 ? '' : 's'}`];
+      if (b.tips > 0) bits.push(`tips ${fmtMoney(b.tips)}`);
+      if (b.fees > 0) bits.push(`<span title="${b.feesEst ? 'Includes estimated card fees (2.9% + 30¢) where Stripe data was unavailable' : 'Stripe processing fees'}">${b.feesEst ? '~' : ''}fees −${fmtMoney(b.fees)}</span>`);
+      return `<div class="ps2-line"><i style="background:${COLOR[m] || '#CBD5E1'}"></i><span class="ps2-m">${esc(label(m))}</span><b>${fmtMoney(b.collected)}</b><small>${bits.join(' · ')}</small></div>`;
+    }).join('');
+    const refundNote = refunded.length
+      ? `<div class="lm-note">${refunded.length} refunded sale${refunded.length === 1 ? '' : 's'} not counted — see By Order.</div>` : '';
+    el.innerHTML = `
+      <div class="lm-hero ps2-hero">
+        <div>
+          <div class="lm-big">${fmtMoney(t.rev)}</div>
+          <div class="lm-sub"><strong>Revenue</strong>${t.tips > 0 ? ` · items ${fmtMoney(t.itemsRev)} + tips ${fmtMoney(t.tips)}` : ''}</div>
+          <div class="lm-note">${t.tx.toLocaleString()} sale${t.tx === 1 ? '' : 's'} · ${t.units.toLocaleString()} item${t.units === 1 ? '' : 's'}${t.tax > 0 ? ` · ${fmtMoney(t.tax)} sales tax collected on top (not revenue)` : ''}</div>
+          ${refundNote}
+        </div>
+        <div>
+          <div class="lm-cap">How customers paid · collected incl. tax &amp; tips</div>
+          <div class="im-bar" style="margin-top:10px">${bar}</div>
+          <div class="ps2-lines">${lines}</div>
+        </div>
+      </div>`;
   }
 
   function exportPosSalesCSV() {
@@ -58033,7 +58104,7 @@ async function _dvIframeLoaded() {
     if (!items.length) return;
     const escCsv = v => `"${String(v).replace(/"/g, '""')}"`;
     const rows = [];
-    rows.push(['Item','Kind','Qty Sold','Unit','Transactions','Gross Revenue','Tax Collected'].map(escCsv).join(','));
+    rows.push(['Item','Kind','Qty Sold','Unit','Transactions','Revenue','Tax Collected'].map(escCsv).join(','));
     items.forEach(it => {
       const isLb = it.anyPerLb;
       rows.push([
@@ -58046,6 +58117,7 @@ async function _dvIframeLoaded() {
         it.tax.toFixed(2),
       ].map(escCsv).join(','));
     });
+    if (totals.tips > 0) rows.push(['Tips', 'tip', '', '', totals.tipTx, totals.tips.toFixed(2), '0.00'].map(escCsv).join(','));
     rows.push([
       'TOTAL','',
       '',
