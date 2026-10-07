@@ -1,5 +1,30 @@
 # WashRoute — Project Notes
 
+## Session 336 — Oct 7, 2026: drivers not seeing customer text replies in the driver app
+
+- **Report:** drivers say customer replies stopped showing in the driver app "since last night".
+- **Not the webhook:** inbound texts land in `sms_messages` normally (14 on Oct 7 by 15:00). The app can't READ them.
+- **Cause 1 — UTC date.** `driver_read_customer_sms` compared `routes.run_date = CURRENT_DATE`; the DB is UTC, so from
+  5 PM PT "today" is tomorrow and the evening shift sees none of tonight's customers (initial load AND realtime).
+  Oct 6 evening: Axel never saw "won't be home until 830", a gate code, "Text & ill come down", "Here".
+  Long-standing (the pre-325b policy had it too) — last night is when drivers noticed.
+- **Cause 2 — session 328's recursive RLS, still live.** 328b was written, blocked on apply, and the file later vanished
+  from disk (still in git, c951fc4). Oct 7 as Eve: 3,277 ms / 209,971 buffers on a quiet afternoon; 80-180 statement
+  timeouts per shift hour; realtime `walrus_rls_stmt` cancellations drop live alerts.
+- **Fix — `migrations/session_336_sms_driver_policy_fast_and_pacific_date.sql`:** 328b's SECURITY DEFINER helper
+  (`driver_today_customer_ids()`, never re-enters orders RLS) with "today" = Pacific date. Grants: authenticated +
+  service_role only. Snapshot of old policy in `_archive.policy_snapshot_session_336`; rollback SQL in the file header.
+- **Tested in a discarded transaction before apply:** 17 drivers, 118 driver/customer pairs old vs new, 0 lost, 0 gained.
+  Eve: same 208 rows, 14 ms (was 3,277). Customer role: 0 rows. Admin: all 3,817. anon cannot execute.
+- **Apply:** `apply_migration` was blocked by the permission control again (same as 328b) — David to paste the file into
+  the Supabase SQL editor. **APPLIED 15:18 PT by David (SQL editor).** Verified live as Eve: 208 rows, 18 ms warm
+  (was 3,277 ms), 5,372 buffers (was 209,971); grants authenticated/service_role/postgres only; snapshot row present.
+  Not in `schema_migrations` (SQL editor apply).
+- **Driver app:** `loadCustomerSms` ignored errors and replaced the list with [] — a timeout looked like "no texts".
+  Now keeps the existing list, toasts, retries once after 15s, and still builds the customer map realtime depends on.
+- **Not fixed, flagged:** `driver_stop_customer_ids()` (backs the `customers` policy, session 328c) also uses UTC
+  `CURRENT_DATE`. The driver app doesn't read `customers` directly, so no live symptom. Only driver function hit.
+
 ## Session 335 — Oct 7, 2026: route order loops at the start + reshuffles while driving (driver feedback)
 
 - **Report:** Andres Higuera (Slack, Oct 3): Thursday's SF route had him "circling through the middle"

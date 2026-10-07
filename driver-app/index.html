@@ -4146,11 +4146,28 @@ async function loadCustomerSms() {
   // pulled the entire SMS history for every customer the driver has ever served
   // (sometimes thousands of rows). 7 days is plenty of context for any active stop.
   const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-  const { data } = await db.from('sms_messages')
+  const { data, error } = await db.from('sms_messages')
     .select('*')
     .gte('created_at', sevenDaysAgo)
     .order('created_at', { ascending: true });
-  allCustomerSms = data || [];
+  // Session 336: a failed load used to replace the list with [] silently, so a timeout
+  // looked exactly like "no customer has texted". Keep what we have, say so, retry once.
+  if (error) {
+    console.error('loadCustomerSms failed:', error);
+    toast('Couldn\'t load customer texts — retrying…', 3500);
+    if (!loadCustomerSms._retrying) {
+      loadCustomerSms._retrying = true;
+      setTimeout(() => {
+        loadCustomerSms().then(() => {
+          updateMsgBadge();
+          if (document.getElementById('screen-messages')?.classList.contains('active') && !_msgActiveThread) renderConversationList();
+        }).catch(console.error).finally(() => { loadCustomerSms._retrying = false; });
+      }, 15000);
+    }
+    // No early return: the customer map below is what lets realtime texts through.
+  } else {
+    allCustomerSms = data || [];
+  }
 
   // Build customer map from today's + upcoming stops for display names + phone
   _msgCustomerMap = {};
