@@ -845,7 +845,7 @@
     .message-bubble { max-width: 72%; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; }
     .voicemail-bubble { display: flex; flex-direction: column; gap: 6px; }
     .voicemail-header { font-weight: 600; font-size: 12.5px; opacity: 0.75; }
-    .voicemail-transcript { font-style: italic; }
+    .voicemail-transcript { font-style: italic; white-space: pre-line; }
     .voicemail-audio { width: 100%; max-width: 320px; height: 32px; margin-top: 4px; }
     /* MMS attachments — image/video/file thumbs that flow above body text */
     .message-bubble.has-media { display: flex; flex-direction: column; gap: 8px; padding: 8px 8px 10px 8px; }
@@ -36518,9 +36518,10 @@ ${oneCopy}
   }
 
   // ── loadInbox ──
-  async function loadInbox() {
+  async function loadInbox(opts = {}) {
     const el = document.getElementById('inbox-list-body');
-    el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+    // silent = live refresh: keep the current list on screen instead of flashing a spinner.
+    if (!opts.silent) el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
 
     // Load SMS messages only (email view removed for now)
     const { data: msgs, error } = await db.from('sms_messages')
@@ -36528,7 +36529,7 @@ ${oneCopy}
       .order('created_at', { ascending: false });
 
     if (error) {
-      el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--red);font-size:13px">Failed to load inbox</div>`;
+      if (!opts.silent) el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--red);font-size:13px">Failed to load inbox</div>`;
       return;
     }
 
@@ -36586,7 +36587,6 @@ ${oneCopy}
     });
 
     // Determine effective status
-    const _48hAgo = Date.now() - 48 * 60 * 60 * 1000;
     const convs = Object.values(convMap).filter(c => c.hasInbound).map(c => {
       const latestIsInbound = c.latest.direction === 'inbound';
       const latestTime = new Date(c.latest.created_at).getTime();
@@ -36598,8 +36598,9 @@ ${oneCopy}
         if (latestTime > archivedAt) status = 'open';
       }
 
-      // Auto-archive only if: (a) latest message is OUTBOUND (admin replied), and (b) no activity in 48h
-      if (status !== 'resolved' && !latestIsInbound && latestTime < _48hAgo) status = 'resolved';
+      // No auto-archive (David, 2026-10-09): a thread only moves to Archived when staff
+      // click Archive. The old 48h rule archived threads whose last message was ANY
+      // outbound text — including automated order texts sent after an unanswered question.
 
       // Unread = inbound messages after last admin reply (genuinely new messages)
       c.unread = c.inboundAfterReply;
@@ -36616,18 +36617,74 @@ ${oneCopy}
 
     renderInboxList();
 
-    // Start realtime subscription
-    if (!_smsSub) {
-      _smsSub = db.channel('sms-inbox')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sms_messages' }, () => {
-          loadInbox();
-          if (currentConv) {
-            const activeEl = document.querySelector('.inbox-item.active');
-            if (activeEl) openSMSConversation(currentConv.customer_id||'', currentConv.phone, activeEl, true);
-          }
-        })
-        .subscribe();
+    // Keep the header's Archive/Reopen button in step with the list (a new text
+    // re-opens an archived thread).
+    if (currentConv) {
+      const fresh = convs.find(c => c.key === currentConv.key);
+      if (fresh && fresh.status !== currentConv.status) {
+        currentConv = { ...currentConv, status: fresh.status, conv_id: fresh.conv_id || currentConv.conv_id };
+        const btn = document.getElementById('btn-resolve-thread');
+        if (btn && !btn.disabled) { btn.textContent = fresh.status === 'resolved' ? '↩ Reopen' : '✓ Archive'; btn.classList.toggle('resolved', fresh.status === 'resolved'); }
+      }
     }
+
+    _ensureInboxRealtime();
+  }
+
+  // ── Live inbox (session 339) ──
+  // A new text refreshes the list without a spinner and, if a thread is open, swaps in
+  // its messages WITHOUT rebuilding the composer (a half-typed reply survives).
+  // The old handler looked for '.inbox-item.active' AFTER loadInbox() had already
+  // replaced the list with a spinner, so it never found the open thread and new
+  // replies never appeared. It also never reconnected after a dropped connection.
+  let _inboxRefreshT = null, _inboxResubT = null;
+  function _scheduleInboxRefresh() {
+    clearTimeout(_inboxRefreshT);
+    _inboxRefreshT = setTimeout(async () => {
+      await loadInbox({ silent: true });
+      await _refreshOpenThread();
+    }, 300);
+  }
+  function _ensureInboxRealtime() {
+    if (_smsSub) return;
+    const ch = db.channel('sms-inbox');
+    _smsSub = ch;
+    ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sms_messages' }, _scheduleInboxRefresh)
+      .subscribe(status => {
+        if (ch !== _smsSub) return; // late callback from a channel we already replaced
+        if (status === 'SUBSCRIBED') {
+          // (Re)connected — catch anything that arrived while we were offline.
+          if (currentPage === 'inbox') _scheduleInboxRefresh();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn('[inbox] realtime', status, '— reconnecting');
+          _smsSub = null;
+          try { db.removeChannel(ch); } catch (_) {}
+          clearTimeout(_inboxResubT);
+          _inboxResubT = setTimeout(_ensureInboxRealtime, 5000);
+        }
+      });
+  }
+  // Laptop asleep / tab in background: catch up as soon as the inbox is looked at again.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && currentPage === 'inbox' && _smsSub) _scheduleInboxRefresh();
+  });
+
+  async function _refreshOpenThread() {
+    if (currentPage !== 'inbox' || !currentConv) return;
+    const mt = document.getElementById('msg-thread');
+    if (!mt) return;
+    const custId = currentConvCustomerId, phone = currentConvPhone;
+    let q = db.from('sms_messages')
+      .select('*, customers(first_name_cache, last_name_cache, phone_cache)')
+      .order('created_at', { ascending: true });
+    if (custId) q = q.eq('customer_id', custId);
+    else        q = q.or(`from_number.eq.${phone},to_number.eq.${phone}`);
+    const { data: msgs, error } = await q;
+    if (error || !msgs) return;
+    if (custId !== currentConvCustomerId || phone !== currentConvPhone) return; // switched threads meanwhile
+    const nearBottom = mt.scrollHeight - mt.scrollTop - mt.clientHeight < 150;
+    mt.innerHTML = _threadMsgsHtml(msgs);
+    if (nearBottom) mt.scrollTop = mt.scrollHeight;
   }
 
   // ── renderInboxList ──
@@ -36829,17 +36886,21 @@ ${oneCopy}
   // non-image media (PDFs, video) render as a labeled link.
   function renderMessageBubble(m) {
     const body = m.body || '';
-    const isVoicemail = body.startsWith('🎙️ Voicemail');
+    // '📞 Call with Maya' rows come from the maya edge function (AI phone assistant); the
+    // recording line is optional on those, so only render audio when a '▶ ' line is present.
+    const isMayaCall = body.startsWith('📞 Call with Maya');
+    const isVoicemail = body.startsWith('🎙️ Voicemail') || isMayaCall;
     if (isVoicemail) {
       const lines = body.split('\n');
       const header = lines[0] || '🎙️ Voicemail';
-      const middle = lines.slice(1, -1).join('\n').trim();
       const lastLine = (lines[lines.length - 1] || '').trim();
+      const hasAudio = !isMayaCall || lastLine.startsWith('▶ ');
+      const middle = lines.slice(1, hasAudio ? -1 : undefined).join('\n').trim();
       const url = lastLine.startsWith('▶ ') ? lastLine.slice(2).trim() : lastLine;
       return `<div class="message-bubble message-${m.direction} voicemail-bubble">
         <div class="voicemail-header">${esc(header)}</div>
         ${middle ? `<div class="voicemail-transcript">${esc(middle)}</div>` : ''}
-        <audio controls preload="metadata" src="${esc(url)}" class="voicemail-audio"></audio>
+        ${hasAudio ? `<audio controls preload="metadata" src="${esc(url)}" class="voicemail-audio"></audio>` : ''}
       </div>`;
     }
 
@@ -36932,6 +36993,25 @@ ${oneCopy}
       description: m.body || '',
       customerId: m.customer_id || null,
     });
+  }
+
+  // Message list inside #msg-thread — shared by openSMSConversation and the live refresh.
+  function _threadMsgsHtml(msgs) {
+    return `
+        <div style="width:100%;max-width:580px;margin:0 auto;display:flex;flex-direction:column;gap:12px">
+          ${(msgs||[]).map(m => `
+            <div class="msg-bubble-wrap" style="display:flex;flex-direction:column;align-items:${m.direction==='outbound'?'flex-end':'flex-start'}">
+              ${renderMessageBubble(m)}
+              ${m.id && m.direction === 'inbound' ? `
+                <div class="msg-actions">
+                  <button class="msg-action-btn" onclick="convertMsgToLostFound('${m.id}','found')" title="Add to Lost &amp; Found as Found">+ Found</button>
+                  <button class="msg-action-btn" onclick="convertMsgToLostFound('${m.id}','lost')" title="Add to Lost &amp; Found as Lost">+ Lost</button>
+                </div>
+              ` : ''}
+              <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}${_smsSenderLabel(m)}${_smsDeliveryBadge(m)}</div>
+            </div>`).join('')}
+          ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
+        </div>`;
   }
 
   async function openSMSConversation(customerId, phone, itemEl, silent = false) {
@@ -37062,20 +37142,7 @@ ${oneCopy}
         </div>
       </div>
       <div class="inbox-messages" id="msg-thread">
-        <div style="width:100%;max-width:580px;margin:0 auto;display:flex;flex-direction:column;gap:12px">
-          ${(msgs||[]).map(m => `
-            <div class="msg-bubble-wrap" style="display:flex;flex-direction:column;align-items:${m.direction==='outbound'?'flex-end':'flex-start'}">
-              ${renderMessageBubble(m)}
-              ${m.id && m.direction === 'inbound' ? `
-                <div class="msg-actions">
-                  <button class="msg-action-btn" onclick="convertMsgToLostFound('${m.id}','found')" title="Add to Lost &amp; Found as Found">+ Found</button>
-                  <button class="msg-action-btn" onclick="convertMsgToLostFound('${m.id}','lost')" title="Add to Lost &amp; Found as Lost">+ Lost</button>
-                </div>
-              ` : ''}
-              <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}${_smsSenderLabel(m)}${_smsDeliveryBadge(m)}</div>
-            </div>`).join('')}
-          ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
-        </div>
+        ${_threadMsgsHtml(msgs)}
       </div>
       <div id="inbox-action-card-slot"></div>
       <div id="compose-attach-row" class="compose-attach-row" style="display:none"></div>
