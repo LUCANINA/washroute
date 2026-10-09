@@ -36523,12 +36523,25 @@ ${oneCopy}
     // silent = live refresh: keep the current list on screen instead of flashing a spinner.
     if (!opts.silent) el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
 
-    // Load SMS messages only (email view removed for now)
-    const { data: msgs, error } = await db.from('sms_messages')
-      .select('id, customer_id, direction, body, media_urls, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, email_cache, sms_consent_at)')
-      .order('created_at', { ascending: false });
+    // One row per thread, computed server-side over ALL texts (session 339). The old
+    // query read the newest sms_messages rows, which the API caps at 1,000 (~2 days),
+    // so any thread quiet for 2+ days — even an unanswered customer text — vanished.
+    // Threads: any activity in the last 30 days, or the customer texted last (any age).
+    // Returned as one JSON array (not subject to the 1,000-row cap) — session 339b.
+    const { data: _threadsJson, error } = await db.rpc('inbox_sms_threads', { p_days: 30 });
+    const threads = Array.isArray(_threadsJson) ? _threadsJson : [];
+    // Same shape the rest of this function always used (one "message" per thread).
+    const msgs = threads.map(t => ({
+      id: t.latest_id, customer_id: t.customer_id, direction: t.latest_direction,
+      body: t.latest_body, media_urls: t.latest_media_urls,
+      from_number: t.latest_from_number, to_number: t.latest_to_number, created_at: t.latest_at,
+      customers: t.customer_id ? { id: t.customer_id, first_name_cache: t.first_name_cache, last_name_cache: t.last_name_cache,
+                                   phone_cache: t.phone_cache, email_cache: t.email_cache, sms_consent_at: t.sms_consent_at } : null,
+      _lastOutbound: t.last_outbound_at, _inboundAfterReply: t.inbound_after_reply,
+    }));
 
     if (error) {
+      console.warn('[inbox] load failed', error);
       if (!opts.silent) el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--red);font-size:13px">Failed to load inbox</div>`;
       return;
     }
@@ -36543,14 +36556,20 @@ ${oneCopy}
     const _phones  = [...new Set((msgs || []).filter(m => !m.customer_id)
       .map(m => m.direction === 'inbound' ? m.from_number : m.to_number).filter(Boolean))];
     const convRows = [];
+    // Batches run in parallel (each customer/phone lives in exactly one batch, so the
+    // newest-row-wins ordering below still holds).
     const _fetchConv = async (col, vals) => {
-      for (let i = 0; i < vals.length; i += 100) {
-        let q = db.from('conversations').select('*').eq('channel', 'sms').in(col, vals.slice(i, i + 100));
+      const batches = [];
+      for (let i = 0; i < vals.length; i += 100) batches.push(vals.slice(i, i + 100));
+      const results = await Promise.all(batches.map(b => {
+        let q = db.from('conversations').select('*').eq('channel', 'sms').in(col, b);
         if (col === 'phone') q = q.is('customer_id', null);
-        const { data, error: cErr } = await q.order('updated_at', { ascending: true, nullsFirst: true });
-        if (cErr) { console.warn('[inbox] conversations load failed', cErr); continue; }
+        return q.order('updated_at', { ascending: true, nullsFirst: true });
+      }));
+      results.forEach(({ data, error: cErr }) => {
+        if (cErr) { console.warn('[inbox] conversations load failed', cErr); return; }
         convRows.push(...(data || []));
-      }
+      });
     };
     await Promise.all([_fetchConv('customer_id', _custIds), _fetchConv('phone', _phones)]);
     const convByCustomer = {};
@@ -36569,20 +36588,14 @@ ${oneCopy}
         const convRow = m.customer_id ? convByCustomer[m.customer_id] : convByPhone[phone];
         convMap[key] = {
           key, customer_id: m.customer_id, cust: m.customers,
-          phone, latest: m, hasInbound: false, channel: 'sms',
+          phone, latest: m, channel: 'sms',
           conv_id: convRow?.id || null,
           db_status: convRow?.status || null,
           resolved_at: convRow?.resolved_at || null,
-          lastOutbound: null,       // most recent outbound timestamp
-          inboundAfterReply: 0,     // inbound msgs after last admin reply
+          lastOutbound: m._lastOutbound || null,           // most recent outbound timestamp
+          inboundAfterReply: m._inboundAfterReply || 0,    // inbound msgs after last reply
+          hasInbound: true,                                // the RPC only returns threads with an inbound text
         };
-      }
-      // msgs are sorted desc by created_at, so first outbound we see is the most recent
-      if (m.direction === 'outbound' && !convMap[key].lastOutbound) convMap[key].lastOutbound = m.created_at;
-      // Count inbound messages that arrived after the last admin reply
-      if (m.direction === 'inbound') {
-        convMap[key].hasInbound = true;
-        if (!convMap[key].lastOutbound) convMap[key].inboundAfterReply++;
       }
     });
 
@@ -36637,13 +36650,28 @@ ${oneCopy}
   // The old handler looked for '.inbox-item.active' AFTER loadInbox() had already
   // replaced the list with a spinner, so it never found the open thread and new
   // replies never appeared. It also never reconnected after a dropped connection.
-  let _inboxRefreshT = null, _inboxResubT = null;
-  function _scheduleInboxRefresh() {
+  let _inboxRefreshT = null, _inboxResubT = null, _inboxRefreshing = false, _inboxRefreshAgain = false;
+  function _scheduleInboxRefresh(payload) {
+    // Automated texts to customers who have never texted us don't change the Inbox.
+    const n = payload && payload.new;
+    if (n && n.direction === 'outbound') {
+      const k = 'sms:' + (n.customer_id || n.to_number);
+      if (!(_allConvs || []).some(c => c.key === k)) return;
+    }
     clearTimeout(_inboxRefreshT);
-    _inboxRefreshT = setTimeout(async () => {
-      await loadInbox({ silent: true });
-      await _refreshOpenThread();
-    }, 300);
+    _inboxRefreshT = setTimeout(_runInboxRefresh, 500);
+  }
+  async function _runInboxRefresh() {
+    if (_inboxRefreshing) { _inboxRefreshAgain = true; return; }  // one at a time; bursts collapse
+    _inboxRefreshing = true;
+    try {
+      // Thread first-class: the open conversation updates as soon as its own (fast)
+      // query returns, without waiting on the full list rebuild.
+      await Promise.all([_refreshOpenThread(), loadInbox({ silent: true })]);
+    } finally {
+      _inboxRefreshing = false;
+      if (_inboxRefreshAgain) { _inboxRefreshAgain = false; _runInboxRefresh(); }
+    }
   }
   function _ensureInboxRealtime() {
     if (_smsSub) return;
