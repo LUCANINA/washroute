@@ -41631,6 +41631,41 @@ ${oneCopy}
       }
     }
 
+    // Session 338: warn before creating a second record for someone who already
+    // exists. The customer-app signup block (session 294) deliberately lets staff
+    // through — that is how a second "Blanca" record appeared on Oct 7.
+    // Fails open: if the lookup errors, saving proceeds as before.
+    {
+      const digits = phone.replace(/\D/g, '').slice(-10);
+      const hits = new Map();
+      if (email) {
+        const { data } = await db.from('customers')
+          .select('id, first_name_cache, last_name_cache, total_orders, cancelled_at')
+          .ilike('email_cache', email.replace(/[%_\\]/g, '\\$&')).limit(5);
+        (data || []).forEach(c => hits.set(c.id, { ...c, why: 'same email' }));
+      }
+      if (digits.length === 10) {
+        const { data } = await db.from('customers')
+          .select('id, first_name_cache, last_name_cache, total_orders, cancelled_at, phone_cache')
+          .ilike('phone_cache', `%${digits.slice(-4)}%`).limit(200);
+        (data || [])
+          .filter(c => (c.phone_cache || '').replace(/\D/g, '').slice(-10) === digits)
+          .forEach(c => { if (!hits.has(c.id)) hits.set(c.id, { ...c, why: 'same phone' }); });
+      }
+      if (hits.size) {
+        const list = [...hits.values()].slice(0, 5).map(c =>
+          `• ${[c.first_name_cache, c.last_name_cache].filter(Boolean).join(' ') || '(no name)'} — ${c.why}, ${c.total_orders || 0} orders${c.cancelled_at ? ', closed account' : ''}`
+        ).join('\n');
+        const ok = confirm(
+          'This customer may already exist:\n\n' + list + '\n\n' +
+          'A second record splits their order history and credit.\n' +
+          'Press Cancel and search for them in Customers instead,\n' +
+          'or OK to create a new record anyway (e.g. a family member sharing a phone).'
+        );
+        if (!ok) return;
+      }
+    }
+
     // Save to Supabase — profile + customer + address
     // Note: full auth-linked profile creation happens when customer registers
     // via the customer app; this creates an admin-managed record.

@@ -1,5 +1,36 @@
 # WashRoute — Project Notes
 
+## Session 338 — Oct 9, 2026: one person, one identity (duplicates + abandoned phone sign-ups)
+
+Triggered by the daily bug check: "9 duplicate customers" and Peter Eggenberger's stuck phone sign-in.
+- **Most of the 9 were not duplicates.** Audit check 5 grouped on phone alone, so it flagged households
+  (Casey Farmer / Galen Wilson), HCEB sites (Homebase / Soul Sanctuary), Myra Greene / Sarang Rahmani and two
+  closed Lenore Anderson records. Real: Danielle Ross ↔ Randle-Ross, Blanca Ca ↔ Cervantes (staff-created Oct 7).
+  John Taladiar (staff login) ↔ John Roi Taladiar (personal) kept separate by David. Kristen Connell still left as is.
+- **Peter was not locked out**: he abandoned phone sign-up (Oct 5 21:36), signed up by email 9 min later and ordered.
+  The unconfirmed phone auth user would only have misrouted a later phone sign-in.
+- **Root cause, both:** one person → two identities. Customer self-signup is closed by session 294's block; the
+  gaps were abandoned phone sign-ups (nightly cleanup covered email only — 181 piled up) and staff-created records.
+- **Found while there:** `merge_duplicate_customer` silently CASCADE-deleted 13 child tables of the merged-away
+  account (referral codes, win-back grants, feedback, email/SMS send logs, opt-out log…). Fixed before merging.
+- **…and every merge had been failing since 2026-09-21**: the conversations-dedupe statements aliased a table `d`,
+  the same name as the function's record variable → `55000 record "d" is not assigned yet`. Zero merges since.
+  Caught when David's first run of the 338 file errored (nothing applied). File now renames the alias to `dc`.
+- **APPLIED Oct 9** by David in SQL Editor (third run). Verified: Peter's leftover gone (archived), Danielle now 9 orders /
+  $673.55 / login kept / default address; Blanca merged with her opt-out log row; finder returns only Kristen; cron
+  `cleanup-orphan-phone-auth-users` active 10:05 UTC. Admin Add-customer warning + audit check 5 need `./commit.sh`.
+- **`migrations/session_338_identity_dedupe_hardening.sql`** (paste into SQL Editor — MCP writes were hanging at the
+  approval step): snapshot `_archive.fn_snapshot_session_338`; merge fix; `find_duplicate_customer_pairs` now
+  same phone + same FIRST name; `cleanup_orphan_phone_auth_users()` + cron `cleanup-orphan-phone-auth-users`
+  (10:05 UTC, ≤50/run, archives to `_archive.orphan_phone_auth_deleted`); deletes Peter's leftover; merges Danielle
+  and Blanca. Rollback SQL in the file header. Preflight: LOW, 0 customers contactable.
+- **`database/audits/daily_audit.sql` check 5** now calls `find_duplicate_customer_pairs(NULL)` (honours dismissals,
+  skips closed accounts).
+- **Admin → Add customer** (`saveCustomer`): warns with a confirm() listing existing customers with the same email
+  or phone (last 10 digits) before inserting. Fails open.
+- Not done: audit check 6 (duplicate orders) still flags multi-site commercial customers (Nit Pixies Clinic,
+  Oakland + El Cerrito) — needs the address in its GROUP BY.
+
 ## Session 337 — Oct 7, 2026: subscription receipts (email on renewal + download)
 
 - **Ask:** subscribers want receipts for the monthly payment, like order receipts. David picked: auto-email every

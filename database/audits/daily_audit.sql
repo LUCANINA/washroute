@@ -102,28 +102,17 @@ ORDER BY o.order_number;
 
 
 -- @check id=5 name="Duplicate Customers" priority=P1
-WITH phone_dups AS (
-  SELECT RIGHT(REGEXP_REPLACE(phone_cache,'[^0-9]','','g'),10) AS match_key,
-         'phone' AS match_type, COUNT(*) AS cnt,
-         ARRAY_AGG(first_name_cache||' '||last_name_cache ORDER BY created_at) AS names,
-         ARRAY_AGG(id ORDER BY created_at) AS ids
-  FROM customers
-  WHERE phone_cache IS NOT NULL
-    AND LENGTH(REGEXP_REPLACE(phone_cache,'[^0-9]','','g')) >= 10
-  GROUP BY match_key HAVING COUNT(*) > 1
-),
-email_dups AS (
-  SELECT email_cache AS match_key, 'email' AS match_type, COUNT(*) AS cnt,
-         ARRAY_AGG(first_name_cache||' '||last_name_cache ORDER BY created_at) AS names,
-         ARRAY_AGG(id ORDER BY created_at) AS ids
-  FROM customers
-  WHERE email_cache IS NOT NULL AND email_cache != ''
-  GROUP BY email_cache HAVING COUNT(*) > 1
-)
-SELECT * FROM phone_dups
-UNION ALL
-SELECT * FROM email_dups
-ORDER BY cnt DESC;
+-- Session 338: uses the app's own duplicate finder instead of a raw phone/email
+-- GROUP BY. The old query flagged households (Casey Farmer / Galen Wilson) and
+-- business sites sharing a phone (Homebase / Soul Sanctuary) every morning, and
+-- counted closed accounts. find_duplicate_customer_pairs() matches same email, or
+-- same phone + same FIRST name, skips cancelled accounts, and honours
+-- customer_duplicate_dismissals (pairs David has ruled "not a duplicate").
+-- Fix: merge with merge_duplicate_customer(keep_id, dup_id), or dismiss the pair.
+SELECT keep_name, keep_orders, dup_name, dup_orders,
+       dup_created AT TIME ZONE 'America/Los_Angeles' AS dup_created_pt,
+       match_reason, contact, keep_id, dup_id
+FROM public.find_duplicate_customer_pairs(NULL);
 
 
 -- @check id=6 name="Duplicate Orders" priority=P1
