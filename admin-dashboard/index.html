@@ -47300,8 +47300,10 @@ ${oneCopy}
         const msSinceMidnight = (_pNow.getHours() * 60 + _pNow.getMinutes()) * 60 * 1000 + _pNow.getSeconds() * 1000;
         windowClosed = msSinceMidnight >= bufferMs;
       }
-      // Lock if: past day, OR today + window_end + 2hr buffer has passed
-      const isLocked = isPast || (isToday && windowClosed);
+      // Lock if: past day, OR today + window_end + 2hr buffer has passed AND no stops
+      // are left. Session 340: a route still out late stays reassignable until it's done.
+      const hasOpenStops = !!(sc && sc.pending > 0);
+      const isLocked = isPast || (isToday && windowClosed && !hasOpenStops);
       if (isLocked) {
         const lockIcon = `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`;
         return `<div class="sched-cell"
@@ -47553,8 +47555,10 @@ ${oneCopy}
         const msSinceMidnight = (_pNow.getHours() * 60 + _pNow.getMinutes()) * 60 * 1000 + _pNow.getSeconds() * 1000;
         windowClosed = msSinceMidnight >= bufferMs;
       }
-      // Lock if: past day, OR today + window_end + 2hr buffer has passed
-      const isLocked = isPast || (isToday && windowClosed);
+      // Lock if: past day, OR today + window_end + 2hr buffer has passed AND no stops
+      // are left. Session 340: a route still out late stays reassignable until it's done.
+      const hasOpenStops = !!(sc && sc.pending > 0);
+      const isLocked = isPast || (isToday && windowClosed && !hasOpenStops);
       if (isLocked) {
         const lockIcon = `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`;
         return `<div class="sched-cell"
@@ -47772,7 +47776,8 @@ ${oneCopy}
         const bufferMs = (eh * 60 + em + 120) * 60 * 1000;
         const _pNow3 = new Date(new Date().toLocaleString('en-US', { timeZone: BIZ_TZ }));
         const msSinceMidnight = (_pNow3.getHours() * 60 + _pNow3.getMinutes()) * 60 * 1000 + _pNow3.getSeconds() * 1000;
-        windowClosed = msSinceMidnight >= bufferMs;
+        // Session 340: never lock while stops remain -- a late route must stay reassignable.
+        windowClosed = msSinceMidnight >= bufferMs && pending === 0;
       }
 
       if (windowClosed) {

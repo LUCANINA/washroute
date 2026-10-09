@@ -2755,6 +2755,14 @@ async function _loadDriverDataInner() {
     return _now >= showFrom && _now <= hideAt;
   }
 
+  // Session 340: true once the route's window + buffer has fully passed.
+  function isPastWindow(r) {
+    const tmpl = r.route_templates;
+    if (!tmpl || !tmpl.window_end) return false;
+    const winEnd = new Date(`${_todayStr}T${tmpl.window_end}`);
+    return _now > new Date(winEnd.getTime() + PRE_WINDOW_HOURS * 60 * 60 * 1000);
+  }
+
   // A route is "upcoming" if its window hasn't opened yet (not even the pre-buffer)
   // and it isn't already in progress. These get shown as a "Later Today" strip instead
   // of a full route card, to avoid confusing drivers about what to work on right now.
@@ -2769,13 +2777,16 @@ async function _loadDriverDataInner() {
 
   // Split: upcoming routes (shown collapsed) vs current routes (shown as full cards)
   upcomingRoutes = _isPreviewNonToday ? [] : allRoutesForToday.filter(r => isUpcomingRoute(r));
-  todayRoutes = _isPreviewNonToday ? allRoutesForToday : allRoutesForToday.filter(r => isRouteVisible(r) && !isUpcomingRoute(r));
+  // Session 340: "current" = every route today that isn't upcoming. Whether a route
+  // past its window stays on screen is decided AFTER the stop fetch below, by whether
+  // it still has work left -- not by the clock. todayRoutes is set there.
+  const currentRoutes = _isPreviewNonToday ? allRoutesForToday : allRoutesForToday.filter(r => !isUpcomingRoute(r));
 
   // ── Group 3: route stops (needs routeIds from group 2) ──
   let routeStops = [];
   const myRouteIds = allRoutesForToday.map(r => r.id); // ALL today's routes (visible + hidden)
-  if (todayRoutes.length > 0) {
-    const routeIds = todayRoutes.map(r => r.id);
+  if (currentRoutes.length > 0) {
+    const routeIds = currentRoutes.map(r => r.id);
     // Include stops explicitly assigned to this driver OR stops with NULL driver_id
     // (NULL = inherit from route's default driver, which is this driver since we
     //  already filtered routes by driver_id above)
@@ -2799,28 +2810,28 @@ async function _loadDriverDataInner() {
     routeStops = rs || [];
   }
 
-  // ── Carry forward: check hidden (past-window) routes for incomplete stops ──
-  // If a morning route has un-done stops, show those stops even if the window passed
-  // Exclude upcoming routes — they haven't started yet and should NOT be treated
-  // as overdue carry-forwards. Only past-window routes need the carry-forward check.
-  const hiddenRoutes = _isPreviewNonToday ? [] : allRoutesForToday.filter(r => !isRouteVisible(r) && !isUpcomingRoute(r));
-  if (hiddenRoutes.length > 0) {
-    const hiddenIds = hiddenRoutes.map(r => r.id);
-    // Session 161: via the same stops RPC (see main fetch). The pending/en_route
-    // status filter is applied client-side since the RPC returns the route's full set.
-    const { data: carryAll } = await db.rpc('get_driver_route_stops', { p_route_ids: hiddenIds, ..._adminOverride });
-    const carryStops = (carryAll || []).filter(s => ['pending', 'en_route'].includes(s.status));
-    if (carryStops?.length) {
-      // Add those routes back to todayRoutes so they render with a section header
-      carryStops.forEach(s => {
-        if (!todayRoutes.find(r => r.id === s.route_id)) {
-          const parentRoute = allRoutesForToday.find(r => r.id === s.route_id);
-          if (parentRoute) todayRoutes.push({ ...parentRoute, _carryForward: true });
-        }
-      });
-      routeStops = [...routeStops, ...carryStops];
-    }
-  }
+  // ── Session 340: a route stays on screen until its WORK is done, not until a time passes ──
+  // Before: a route was hidden at window_end + 2h, and a second "carry-forward" fetch
+  // tried to bring back its pending stops. That dropped the route's completed stops,
+  // and if that second fetch failed the leftover stops vanished with no warning
+  // (Hayward AM 10/9: window ended 10:00, last stop done 15:03 -- dispatch reported
+  // orders disappearing while the driver was still out). Now every non-upcoming route
+  // is fetched in the one guarded call above, and a route past its window is kept for
+  // as long as it has an actionable stop still pending/en_route. Finished routes still
+  // drop off once window + buffer passes. Bounded by run_date = today, so nothing
+  // lingers into tomorrow.
+  const isActionableStop = s =>
+    s.orders
+    && (s.status === 'complete' || (!['delivered','cancelled'].includes(s.orders.status) && !isGhostDelivery(s)))
+    && !['skipped','failed'].includes(s.status);
+  const routesWithOpenWork = new Set(
+    routeStops.filter(s => ['pending','en_route'].includes(s.status) && isActionableStop(s)).map(s => s.route_id)
+  );
+  todayRoutes = currentRoutes
+    .filter(r => _isPreviewNonToday || isRouteVisible(r) || routesWithOpenWork.has(r.id))
+    .map(r => (!_isPreviewNonToday && isPastWindow(r)) ? { ...r, _carryForward: true } : r);
+  const shownRouteIds = new Set(todayRoutes.map(r => r.id));
+  routeStops = routeStops.filter(s => shownRouteIds.has(s.route_id));
 
   // ── Override / reassigned stops: stops on OTHER drivers' routes that were
   //    individually assigned to this driver for TODAY only ──
@@ -2854,11 +2865,7 @@ async function _loadDriverDataInner() {
   // - Order delivered/cancelled = nothing left to do (only for NOT-yet-complete stops)
   // - Stop skipped/failed = admin already handled it
   // - Delivery whose parent order isn't ready yet = ghost delivery (see top of fn)
-  routeStops = routeStops.filter(s =>
-    s.orders
-    && (s.status === 'complete' || (!['delivered','cancelled'].includes(s.orders.status) && !isGhostDelivery(s)))
-    && !['skipped','failed'].includes(s.status)
-  );
+  routeStops = routeStops.filter(isActionableStop);
   allStops = [...routeStops, ...tagged];
 
   // ── Fetch stops for upcoming (later-today) routes so drivers can preview them ──
