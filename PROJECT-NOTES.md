@@ -1,5 +1,31 @@
 # WashRoute — Project Notes
 
+## Session 341 — Oct 9, 2026: Maya, the AI phone assistant, goes live on (510) 588-4102
+
+Replaces voicemail. Retell AI (voice "Nancy", English + Spanish) + our own `maya` edge function. Design and all
+decisions: `docs/washroute/DESIGN-AI-PHONE-ASSISTANT.md`.
+- **Routing:** Twilio Voice URL for 588-4102 = `twilio-voice-webhook?maya=1` (backup = plain URL). The webhook
+  `<Dial>`s Retell's number +1 510-973-4505 with the caller's ID; no answer in 15 s or a failed dial → old voicemail.
+  **Off switch:** remove `?maya=1` in Twilio. `twilio-voice-webhook` source is now in the repo (v22 TwiML kept verbatim).
+- **`supabase/functions/maya/`** (deploy by CLI only, too big for MCP; `--no-verify-jwt`): `/inbound` greets known
+  callers by first name; `/tool/*` = business info, account lookup (caller must say their street), find times,
+  check new address, book, skip, reschedule, **cancel** (one, or "everything" = stops a repeat series); `/webhook`
+  posts a "📞 Call with Maya" summary + recording to the inbox and emails info@ when a callback is needed.
+  `/setup` (x-maya-admin, token in gitignored `maya-admin.key`) pushes script + tools to Retell — run after every deploy.
+  `/admin-tool` = always dry-run tests. `BOOKING_LIVE = true` since tonight.
+- **Booking = app booking:** `source='scheduled'`, $0 base priced at intake, no card required (team collects later),
+  repeat weekly/biweekly/monthly, add-ons saved to `customers.preferences`, 'confirmed' text if texts allowed.
+  New callers get a customer + address (texts only with consent; never marketing).
+- **Cancel vs skip:** a skipped recurring order spawns the next one; a cancelled one ends the series (no text sent).
+  Found when David's test "cancel all future orders" only skipped tonight.
+- **Script fixes from testing:** never volunteer same-day (evening is never same-day); bag ≈ 2 tall kitchen bags;
+  SKIP = reply to the day-before reminder; Maya claimed "test mode" after a real cancel → while live, the prompt
+  says every change is real. Added an "About Family Laundry" section (founders, history, electric vans, Young &
+  Foolish LLC); she says "Oakland", never "East Oakland", and never gives the plant or depot address.
+- `customers.card_needed_since` (migration `maya_phase3_card_needed_since.sql`, applied) is now UNUSED — can drop.
+- Open: recordings > ~7 min exceed the 20 MB voicemails bucket limit; `twilio-voicemail-recorded` source not in repo;
+  move `booking.ts` to `_shared` and reuse it in twilio-webhook's SMS PICKUP.
+
 ## Session 338 — Oct 9, 2026: one person, one identity (duplicates + abandoned phone sign-ups)
 
 Triggered by the daily bug check: "9 duplicate customers" and Peter Eggenberger's stuck phone sign-in.
