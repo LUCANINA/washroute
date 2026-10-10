@@ -1,5 +1,26 @@
 # WashRoute — Project Notes
 
+## Session 343 — Oct 10, 2026: skip a repeating pickup weeks ahead ("planned skips")
+
+Trigger: Jaeman Kim texted to skip Thu Oct 22 (out of town). A repeating series only ever has ONE future
+order (the next is created when the current one is delivered/skipped), so Oct 22 didn't exist yet — nothing to skip.
+- **`migrations/session_343_planned_recurring_skips.sql`** — APPLIED Oct 10 (verified; rollback test on Jaeman #17017 → Oct 22 skipped, next Oct 29). New table
+  `recurring_skip_dates` (customer, pickup address, skip_date, note, who; `used_at`/`used_by_order_id` once consumed;
+  RLS `is_admin()`, no anon). `trg_create_recurring_order_fn` rewritten from its live def (needles asserted, snapshot
+  in `_archive.fn_snapshot_session_343`): when building the next order it jumps over the occurrence nearest any
+  planned date (weekly ±3 d, biweekly ±6, monthly ±13), marks the row used, and logs `planned_skip` on the new order.
+  No skipped row is created → no text, and the "2 skips in a row ends the series" rule is not tripped.
+- **Admin → order panel → "Skip later…"** (beside Skip, recurring non-terminal orders only): lists the next 10
+  occurrences from the anchor, tick to plan/unplan, optional note. Logs `planned_skip` on the open order first.
+  Button shows "(N planned)". History tab icon ⏭️.
+- **Order:** apply the migration and confirm the data API sees the table BEFORE committing the admin change.
+- **Inbox ✦ Draft skip card** (`draft-reply` `resolveSkipAction`): reads the date in the text ("oct 22nd", "October 22",
+  "22nd of October", "10/22"). Next order's date → skip it (as before); a later week → `plan_skip` card ("Skip the
+  Thu, Oct 22 pickup (planned)" — inserts `recurring_skip_dates`, logs `planned_skip`); a date before the next order or
+  in the last 60 days → no card. Found when the card offered to skip Jaeman's Oct 14 for an Oct 22 request.
+  Needs CLI deploy (`verify_jwt` false — probe answered in the function's own words → `--no-verify-jwt`).
+- Not done: customer app, SMS SKIP keyword and Maya still only skip the next order — they could write the same table.
+
 ## Session 342 — Oct 10, 2026: Maya can bring laundry back later on request
 
 Trigger: Natalie (Berkeley, 08:16 call) asked for a pickup today held until Wednesday; Maya took a callback.

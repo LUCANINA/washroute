@@ -7057,6 +7057,33 @@
   </div>
 </div>
 
+<!-- Planned skips modal (session 343) — skip a week of a repeating order that hasn't been created yet -->
+<div id="planned-skip-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1102;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">⏭️ Skip a later week</div>
+        <div id="planned-skip-subtitle" style="font-size:12px;color:var(--gray-400);margin-top:2px;"></div>
+      </div>
+      <button class="modal-close" onclick="closePlannedSkips()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px;font-size:12.5px;color:var(--gray-600);line-height:1.45">
+        Tick the pickups to skip. The series carries on after them. <b>No text is sent</b> — reply to the customer yourself.
+        To skip <b>this</b> order, use the Skip button instead.
+      </div>
+      <div id="planned-skip-list" style="display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto"></div>
+      <label class="form-label" style="margin-top:12px">Note (optional)</label>
+      <input type="text" class="form-input" id="planned-skip-note" placeholder="e.g. Out of town that week (texted Oct 10)">
+      <div id="planned-skip-error" style="color:var(--red);font-size:12px;margin-top:8px;display:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closePlannedSkips()">Cancel</button>
+      <button class="btn btn-primary" id="planned-skip-save-btn" onclick="savePlannedSkips()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ─── MODALS ─── -->
 <div class="modal-overlay" id="modal-add-customer">
   <div class="modal" style="width:620px;max-width:96vw;">
@@ -7881,6 +7908,7 @@
     <button class="btn btn-primary" id="op-advance-btn" onclick="opAdvanceStatus()" style="flex:1">Advance Status</button>
     <button class="btn btn-primary" id="op-recall-btn" onclick="opRecallOrder()" style="flex:1;display:none;background:#f59e0b;border-color:#f59e0b">↩ Recall to Route</button>
     <button class="btn" id="op-skip-btn" onclick="opSkipOrder()" style="display:none;color:#ef4444;border-color:#fca5a5">Skip</button>
+    <button class="btn" id="op-skip-later-btn" onclick="opOpenPlannedSkips()" style="display:none;color:#ef4444;border-color:#fca5a5" title="Skip a pickup further out in this repeating series">Skip later…</button>
     <button class="btn" onclick="printBagTag()" style="color:var(--gray-700)">🖨 Print</button>
     <button class="btn" onclick="opViewCustomer()" style="color:var(--accent)">View Customer</button>
   </div>
@@ -32135,6 +32163,11 @@ ${noActivityNote}
     const skipBtn = document.getElementById('op-skip-btn');
     const showSkip = o.recurring_interval && !_terminalStatuses.has(o.status);
     skipBtn.style.display = showSkip ? '' : 'none';
+    const skipLaterBtn = document.getElementById('op-skip-later-btn');
+    if (skipLaterBtn) {
+      skipLaterBtn.style.display = showSkip ? '' : 'none';
+      if (showSkip) opRefreshSkipLaterBtn(o.id);
+    }
   }
 
   async function opSkipOrder() {
@@ -32158,6 +32191,155 @@ ${noActivityNote}
     updateOrderFilterCounts();
     renderOrders(getFilteredOrders());
     showToast('Order skipped — next recurring order created', 'success');
+  }
+
+  // ── PLANNED SKIPS (session 343) ──
+  // A repeating series only ever has ONE future order, so a week two+ out can't be
+  // skipped directly. Staff mark the date in recurring_skip_dates; when the generator
+  // (trg_create_recurring_order_fn) builds the next order it jumps over the occurrence
+  // nearest each marked date and logs 'planned_skip' on the order it creates.
+  let _psState = null; // { order, occurrences:[ymd], rows:[pending rows], tol }
+  const _psTol = { weekly: 3, biweekly: 6, monthly: 13 };
+  function _psYmdLA(ts) { return new Date(ts).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }); }
+  function _psAdd(ymd, interval, n) {
+    const [y, m, d] = ymd.split('-').map(Number);
+    let dt;
+    if (interval === 'monthly') {
+      // Postgres month arithmetic clamps to the month's last day (Jan 31 + 1 month = Feb 28)
+      const last = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate();
+      dt = new Date(Date.UTC(y, m - 1 + n, Math.min(d, last)));
+    } else {
+      dt = new Date(Date.UTC(y, m - 1, d + n * (interval === 'biweekly' ? 14 : 7)));
+    }
+    return dt.toISOString().slice(0, 10);
+  }
+  function _psDayDiff(a, b) { return Math.round((Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000); }
+  function _psLabel(ymd) {
+    return new Date(ymd + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  async function opOpenPlannedSkips() {
+    if (!opCurrentOrderId) return;
+    const { data: o, error } = await db.from('orders')
+      .select('id, order_number, status, customer_id, pickup_address_id, pickup_window_start, recurring_interval, recurring_anchor_at')
+      .eq('id', opCurrentOrderId).single();
+    if (error || !o) { showToast('Could not load order: ' + (error?.message || 'not found'), 'error'); return; }
+    if (!o.recurring_interval || !_psTol[o.recurring_interval]) { showToast('This order does not repeat', 'error'); return; }
+    if (_terminalStatuses.has(o.status)) { showToast('Open the upcoming order in this series to plan skips', 'error'); return; }
+
+    const { data: rows, error: rErr } = await db.from('recurring_skip_dates')
+      .select('id, skip_date, pickup_address_id, note, created_by_name, created_at')
+      .eq('customer_id', o.customer_id).is('used_at', null).order('skip_date');
+    if (rErr) { showToast('Could not load planned skips: ' + rErr.message, 'error'); return; }
+
+    const anchor = _psYmdLA(o.recurring_anchor_at || o.pickup_window_start);
+    const occurrences = [];
+    for (let n = 1; n <= 10; n++) occurrences.push(_psAdd(anchor, o.recurring_interval, n));
+    const mine = (rows || []).filter(r => !r.pickup_address_id || r.pickup_address_id === o.pickup_address_id);
+    _psState = { order: o, occurrences, rows: mine, tol: _psTol[o.recurring_interval] };
+
+    const local = allOrders.find(x => x.id === o.id);
+    const custName = `${local?.customers?.first_name_cache || ''} ${local?.customers?.last_name_cache || ''}`.trim() || 'Customer';
+    document.getElementById('planned-skip-subtitle').textContent =
+      `${custName} · repeats ${(_recurLabel[o.recurring_interval] || o.recurring_interval).toLowerCase()} · next pickup ${_psLabel(_psYmdLA(o.pickup_window_start))}`;
+    document.getElementById('planned-skip-note').value = '';
+    const errEl = document.getElementById('planned-skip-error');
+    errEl.style.display = 'none'; errEl.textContent = '';
+    _psRenderList();
+    document.getElementById('planned-skip-modal').style.display = 'flex';
+  }
+
+  function _psRenderList() {
+    const { occurrences, rows, tol } = _psState;
+    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const used = new Set();
+    const line = (val, label, checked, sub) => `
+      <label style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" class="ps-cb" value="${esc(val)}" ${checked ? 'checked' : ''} style="margin-top:2px">
+        <span><b>${esc(label)}</b>${sub ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">${esc(sub)}</div>` : ''}</span>
+      </label>`;
+    let html = occurrences.map(ymd => {
+      const r = rows.find(x => !used.has(x.id) && Math.abs(_psDayDiff(x.skip_date, ymd)) <= tol);
+      if (r) used.add(r.id);
+      const sub = r ? `Skip planned${r.created_by_name ? ' by ' + r.created_by_name : ''}${r.note ? ' — ' + r.note : ''}` : '';
+      return line(r ? 'row:' + r.id : 'new:' + ymd, _psLabel(ymd), !!r, sub);
+    }).join('');
+    // Planned dates further out than the list (or that no longer line up) stay visible.
+    rows.filter(r => !used.has(r.id)).forEach(r => {
+      html += line('row:' + r.id, _psLabel(r.skip_date), true,
+        `Skip planned${r.created_by_name ? ' by ' + r.created_by_name : ''}${r.note ? ' — ' + r.note : ''}`);
+    });
+    document.getElementById('planned-skip-list').innerHTML = html;
+  }
+
+  function closePlannedSkips() {
+    document.getElementById('planned-skip-modal').style.display = 'none';
+    _psState = null;
+  }
+
+  async function savePlannedSkips() {
+    if (!_psState) return;
+    const { order: o } = _psState;
+    const btn = document.getElementById('planned-skip-save-btn');
+    const errEl = document.getElementById('planned-skip-error');
+    const showErr = msg => { errEl.textContent = msg; errEl.style.display = ''; };
+    const boxes = [...document.querySelectorAll('#planned-skip-list .ps-cb')];
+    const toAdd = boxes.filter(b => b.checked && b.value.startsWith('new:')).map(b => b.value.slice(4));
+    const toRemove = boxes.filter(b => !b.checked && b.value.startsWith('row:'))
+      .map(b => _psState.rows.find(r => r.id === b.value.slice(4))).filter(Boolean);
+    if (!toAdd.length && !toRemove.length) { closePlannedSkips(); return; }
+
+    const note = document.getElementById('planned-skip-note').value.trim() || null;
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const parts = [];
+    if (toAdd.length) parts.push('Planned skip added: ' + toAdd.map(_psLabel).join(', ') + (note ? ` (${note})` : ''));
+    if (toRemove.length) parts.push('Planned skip removed: ' + toRemove.map(r => _psLabel(r.skip_date)).join(', '));
+
+    btn.disabled = true;
+    try {
+      // Log first — if the log can't be written, change nothing.
+      const { error: logErr } = await db.from('order_events').insert({
+        order_id: o.id, event_type: 'planned_skip', description: parts.join(' · '),
+        old_value: toRemove.map(r => r.skip_date).join(',') || null,
+        new_value: toAdd.join(',') || null, actor_name: actorName,
+      });
+      if (logErr) { showErr('Could not log the change: ' + logErr.message); return; }
+
+      if (toAdd.length) {
+        const { error } = await db.from('recurring_skip_dates').insert(toAdd.map(ymd => ({
+          customer_id: o.customer_id, pickup_address_id: o.pickup_address_id || null,
+          skip_date: ymd, note, created_by_name: actorName,
+        })));
+        if (error) { showErr('Could not save: ' + error.message); return; }
+      }
+      if (toRemove.length) {
+        const { error } = await db.from('recurring_skip_dates').delete()
+          .in('id', toRemove.map(r => r.id)).is('used_at', null);
+        if (error) { showErr('Could not remove: ' + error.message); return; }
+      }
+      if (opCurrentOrderId === o.id) _opHistoryLoaded = null;
+      closePlannedSkips();
+      opRefreshSkipLaterBtn(o.id);
+      showToast(toAdd.length && !toRemove.length
+        ? `Will skip ${toAdd.map(_psLabel).join(', ')}`
+        : 'Planned skips updated', 'success');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Footer button label shows how many skips are already planned for this series.
+  async function opRefreshSkipLaterBtn(orderId) {
+    const btn = document.getElementById('op-skip-later-btn');
+    if (!btn) return;
+    btn.textContent = 'Skip later…';
+    const o = allOrders.find(x => x.id === orderId);
+    if (!o || !o.recurring_interval || !o.customers?.id) return;
+    const { data, error } = await db.from('recurring_skip_dates')
+      .select('id, pickup_address_id').eq('customer_id', o.customers.id).is('used_at', null);
+    if (error || opCurrentOrderId !== orderId) return;
+    const n = (data || []).filter(r => !r.pickup_address_id || !o.pickup_address_id || r.pickup_address_id === o.pickup_address_id).length;
+    if (n) btn.textContent = `Skip later (${n} planned)`;
   }
 
   // ── RECALL ORDER (delivered → back onto a route) ──
@@ -32658,6 +32840,7 @@ ${noActivityNote}
       case 'billing':         icon = ev.new_value === 'failed' ? '⚠️' : '💳'; break;
       case 'rescheduled':     icon = '📅'; break;
       case 'recalled':        icon = '↩️'; break;
+      case 'planned_skip':    icon = '⏭️'; break;
       default:                icon = '•'; break;
     }
 
@@ -38403,6 +38586,7 @@ ${oneCopy}
 
     const ICONS = {
       skip: '⏭',
+      plan_skip: '⏭',
       reschedule_order: '📅',
       place_pickup_order: '📦',
     };
@@ -38472,6 +38656,24 @@ ${oneCopy}
         }
 
         showToast(`Order #${action.order_number} skipped ✓`, 'success');
+
+      } else if (action.type === 'plan_skip') {
+        // Session 343: a later week of a repeating series (that order doesn't exist yet).
+        // Planned in recurring_skip_dates; the generator jumps over it. Log first, then write.
+        const { error: logErr } = await db.from('order_events').insert({
+          order_id: action.order_id, event_type: 'planned_skip',
+          description: `Planned skip added: ${(action.skip_label || action.skip_date)} (customer texted)`,
+          new_value: action.skip_date, actor_name: actorName,
+        });
+        if (logErr) throw new Error('Could not log the skip: ' + logErr.message);
+        const { error } = await db.from('recurring_skip_dates').insert({
+          customer_id: action.customer_id, pickup_address_id: action.pickup_address_id || null,
+          skip_date: action.skip_date, note: 'Customer texted', created_by_name: actorName,
+        });
+        // 23505 = already planned for that date — fine, the skip stands.
+        if (error && error.code !== '23505') throw new Error(error.message);
+        if (opCurrentOrderId === action.order_id) { _opHistoryLoaded = null; opRefreshSkipLaterBtn(action.order_id); }
+        showToast(`${(action.skip_label || action.skip_date)} will be skipped ✓`, 'success');
 
       } else if (action.type === 'place_pickup_order') {
         // session 144 agent phase 1: route through place_pickup_order_for_customer RPC.

@@ -192,7 +192,63 @@ async function fetchVoiceExamples(): Promise<string> {
 }
 
 // ── Skip resolver ──
-async function resolveSkipAction(customerId: string, customerFirstName: string): Promise<any | null> {
+// Session 343: reads the date the customer asked to skip. A repeating series only has ONE
+// future order, so "skip Oct 22" two weeks out used to propose skipping the NEXT order
+// (Oct 14) instead — the wrong pickup. Now:
+//   no date mentioned, or the date is the next order  → skip that order (unchanged)
+//   a later week of the series                        → 'plan_skip' (recurring_skip_dates;
+//                                                        the generator jumps over it)
+//   a date before the next order                      → no card (admin handles it)
+const MONTHS: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+const SKIP_TOL: Record<string, number> = { weekly: 3, biweekly: 6, monthly: 13 };
+
+function ymdLA(ts: string | Date): string {
+  return new Date(ts).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+}
+function ymdOf(y: number, m: number, d: number): string | null {
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCMonth() !== m - 1) return null; // Feb 30 etc.
+  return dt.toISOString().slice(0, 10);
+}
+function dayDiff(a: string, b: string): number {
+  return Math.round((Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000);
+}
+function addOccurrence(ymd: string, interval: string, n: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (interval === 'monthly') {
+    const last = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(y, m - 1 + n, Math.min(d, last))).toISOString().slice(0, 10);
+  }
+  return new Date(Date.UTC(y, m - 1, d + n * (interval === 'biweekly' ? 14 : 7))).toISOString().slice(0, 10);
+}
+function labelYmd(ymd: string): string {
+  return new Date(ymd + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
+}
+// First explicit calendar date in the text: "oct 22nd", "October 22", "22nd of October", "10/22".
+// No year → the next time that date comes round; a date in the last 60 days → 'PAST'.
+// Weekday-only phrases are NOT parsed.
+function extractMentionedDate(text: string, todayYmd: string): string | null {
+  const t = (text || '').toLowerCase();
+  let m: number | null = null, d: number | null = null;
+  let r = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  if (r) { m = MONTHS[r[1]]; d = Number(r[2]); }
+  if (!r) {
+    r = t.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/);
+    if (r) { d = Number(r[1]); m = MONTHS[r[2]]; }
+  }
+  if (!r) {
+    r = t.match(/(?<![\d/])(\d{1,2})\/(\d{1,2})(?![\d/])/);
+    if (r) { m = Number(r[1]); d = Number(r[2]); }
+  }
+  if (!m || !d || m > 12 || d > 31) return null;
+  const y = Number(todayYmd.slice(0, 4));
+  let ymd = ymdOf(y, m, d);
+  // A date in the last ~2 months is a past date (or a typo), not next year's — flag it.
+  if (ymd && ymd < todayYmd) ymd = dayDiff(ymd, todayYmd) >= -60 ? 'PAST' : ymdOf(y + 1, m, d);
+  return ymd;
+}
+
+async function resolveSkipAction(customerId: string, customerFirstName: string, messageText = ''): Promise<any | null> {
   try {
     const rows = await dbGet(
       `orders?customer_id=eq.${encodeURIComponent(customerId)}` +
@@ -200,21 +256,50 @@ async function resolveSkipAction(customerId: string, customerFirstName: string):
       `&recurring_interval=not.is.null` +
       `&order=pickup_window_start.asc` +
       `&limit=1` +
-      `&select=id,order_number,pickup_window_start,pickup_window_end,recurring_interval`
+      `&select=id,order_number,pickup_window_start,pickup_window_end,recurring_interval,recurring_anchor_at,pickup_address_id`
     );
     const order = Array.isArray(rows) ? rows[0] : null;
     if (!order) return null;
 
     const pickupLabel = `${fmtDate(order.pickup_window_start)} ${fmtWindow(order.pickup_window_start, order.pickup_window_end)}`.trim();
     const firstName   = customerFirstName || 'there';
-
-    return {
+    const skipThisOrder = {
       type:               'skip',
       order_id:           order.id,
       order_number:       order.order_number,
       pickup_label:       pickupLabel,
       label:              `Skip Order #${order.order_number} — ${pickupLabel}`,
       confirmation_draft: `Got it, ${firstName} — we'll skip your ${pickupLabel} pickup. See you next time.`,
+    };
+
+    const asked = extractMentionedDate(messageText, ymdLA(new Date()));
+    const tol   = SKIP_TOL[order.recurring_interval];
+    if (asked === 'PAST') return null; // asked about a date that's gone — admin handles it
+    if (!asked || !tol) return skipThisOrder;
+
+    const nextPickup = ymdLA(order.pickup_window_start);
+    const anchor     = ymdLA(order.recurring_anchor_at || order.pickup_window_start);
+    if (Math.abs(dayDiff(asked, nextPickup)) <= tol || Math.abs(dayDiff(asked, anchor)) <= tol) return skipThisOrder;
+    if (asked < nextPickup) return null; // before the next order — not something to skip
+
+    let skipYmd = asked, resumeYmd: string | null = null;
+    for (let n = 1; n <= 60; n++) {
+      const occ = addOccurrence(anchor, order.recurring_interval, n);
+      if (Math.abs(dayDiff(asked, occ)) <= tol) { skipYmd = occ; resumeYmd = addOccurrence(anchor, order.recurring_interval, n + 1); break; }
+      if (occ > asked) break;
+    }
+    const resume = resumeYmd ? ` We'll be back to normal on ${labelYmd(resumeYmd)}.` : '';
+    return {
+      type:               'plan_skip',
+      order_id:           order.id,            // the open order — the plan is logged on it
+      order_number:       order.order_number,
+      customer_id:        customerId,
+      pickup_address_id:  order.pickup_address_id || null,
+      skip_date:          skipYmd,
+      skip_label:         labelYmd(skipYmd),
+      label:              `Skip the ${labelYmd(skipYmd)} pickup (planned)`,
+      rationale:          `Order #${order.order_number} on ${pickupLabel} still goes ahead`,
+      confirmation_draft: `Got it, ${firstName} — we'll skip your ${labelYmd(skipYmd)} pickup. Your ${pickupLabel} pickup is still on.${resume}`,
     };
   } catch (e) {
     console.warn('[draft-reply] resolveSkipAction failed:', e);
@@ -940,7 +1025,7 @@ Deno.serve(async (req: Request) => {
     let svcWindows: SvcWindow[] = [];
     if (!isRefineMode && customer_id) {
       if (intent === 'skip_request') {
-        action = await resolveSkipAction(customer_id, customerFirstName);
+        action = await resolveSkipAction(customer_id, customerFirstName, lastInbound?.body || '');
       } else if (intent === 'new_order' || intent === 'reschedule_request') {
         const avail = await fetchZoneAvailability(customer_id);
         serviceDays = avail.serviceDays;
