@@ -17,7 +17,7 @@
 // reschedule), order status 'skipped' or 'cancelled' (cancel_pickups; cancelling ends a repeat series), and for new callers one customers + one addresses row; plus the
 // normal 'confirmed' text via send-order-notification when the customer allows texts.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { type Slot, findSlots, decodeSlot, baseServiceId, customerBookingContext, upcomingPickups, insertOrder, geocode, ptDateFmt, priceEstimate, prefGroups, matchGroups, resolveAddons, addonLine }
+import { type Slot, findSlots, laterDelivery, decodeSlot, baseServiceId, customerBookingContext, upcomingPickups, insertOrder, geocode, ptDateFmt, priceEstimate, prefGroups, matchGroups, resolveAddons, addonLine }
   from './booking.ts';
 
 // ── Phone booking switches (phase 3) ──
@@ -273,6 +273,38 @@ function parseDay(day: unknown): string | null {
   return null;
 }
 
+// "Wednesday" / "tomorrow" / YYYY-MM-DD → the first such day on or after the usual return day.
+function deliverOnDate(v: unknown, s: Slot): string | null {
+  const d = parseDay(v);
+  if (!d) return null;
+  if (d >= ptDateFmt.format(new Date(s.deliveryStart)) || /^\d{4}-\d{2}-\d{2}$/.test(String(v).trim())) return d;
+  const dt = new Date(d + 'T12:00:00Z'); dt.setUTCDate(dt.getUTCDate() + 7);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Caller wants it back later and/or at another time (deliver_on / deliver_at) → move the delivery if that window has room.
+async function applyLaterDelivery(a: any, slot: Slot, zoneId: string, customerId: string | null)
+  : Promise<{ slot: Slot; later: boolean } | { fail: Record<string, unknown> }> {
+  if (!a?.deliver_on && !a?.deliver_at) return { slot, later: false };
+  const usual = between(slot.deliveryStart, slot.deliveryEnd);
+  if (slot.sameDay) return { fail: { ok: false, say: "Same-day and a later return don't go together. Ask which they want, then call find_pickup_times again." } };
+  const day = a?.deliver_on ? deliverOnDate(a.deliver_on, slot) : ptDateFmt.format(new Date(slot.deliveryStart));
+  if (!day) return { fail: { ok: false, say: 'Ask which day they want it back (a weekday or a date), then call again with deliver_on.' } };
+  const r = await laterDelivery(db, { zoneId, customerId, slot, deliverOn: day, at: a?.deliver_at ? String(a.deliver_at) : null });
+  const dayName = ptDay(day + 'T19:00:00Z');
+  if ('slot' in r) return { slot: r.slot, later: r.slot.deliveryStart !== slot.deliveryStart };
+  if ('choose' in r) return { fail: { ok: false, needs_delivery_time: true,
+    delivery_options: r.choose.map((w) => ({ deliver_at: w.at, back: between(w.start, w.end) })),
+    say: `${r.atNotOpen ? `That time isn't open on ${dayName}. ` : ''}Ask which of these delivery times on ${dayName} they want, then call again with the same deliver_on and deliver_at set to that option's deliver_at.` } };
+  const why = { before_usual: `It can't come back before the usual return, ${usual}.`,
+    too_far: 'We can hold laundry for up to two weeks after pickup.',
+    not_running: `We don't deliver to their area on ${dayName}.`,
+    full: `Every delivery time on ${dayName} is already full.`,
+    bad_time: 'Ask whether they want it back in the morning or the evening.' }[r.reason];
+  return { fail: { ok: false, later_delivery_unavailable: true, usual_back: usual,
+    say: `${why} Offer the usual return (${usual}) or a different day, then call again (leave out deliver_on and deliver_at for the usual return).` } };
+}
+
 async function toolFindTimes(call: any, a: any) {
   let zoneId: string | null = null, customerId: string | null = null, overrideId: string | null = null;
   let usualAddons: string | null = null, usualNotes = '';
@@ -361,8 +393,11 @@ async function toolBook(call: any, a: any, live: boolean) {
       say: 'They already have a pickup booked. Tell them when, and offer to move it with reschedule_pickup instead of booking a second one.' };
   }
   const slots = await findSlots(db, { zoneId: nc ? tok.zoneId : ctx.zoneId, customerId: custId, overrideId: ctx?.overrideId, sameDay: want.sameDay });
-  const slot = slots.find((s) => s.id === a.slot_id);
-  if (!slot) return { ok: false, slot_taken: true, say: 'That time is no longer available. Call find_pickup_times again and offer new options.' };
+  const found = slots.find((s) => s.id === a.slot_id);
+  if (!found) return { ok: false, slot_taken: true, say: 'That time is no longer available. Call find_pickup_times again and offer new options.' };
+  const ld = await applyLaterDelivery(a, found, nc ? tok.zoneId : ctx.zoneId, custId);
+  if ('fail' in ld) return ld.fail;
+  const slot = ld.slot;
   const repeat = ['weekly', 'biweekly', 'monthly'].includes(String(a?.repeat)) ? String(a.repeat) : 'once';
   const pricelist = nc ? 'Delivery' : ctx.pricelist;
   const serviceId = await baseServiceId(db, pricelist);
@@ -380,6 +415,7 @@ async function toolBook(call: any, a: any, live: boolean) {
   const summary = { pickup: between(slot.pickupStart, slot.pickupEnd), back: between(slot.deliveryStart, slot.deliveryEnd), bags, same_day: slot.sameDay,
     repeats: REPEAT_SAY[repeat], add_ons: addons.length ? addons.map((g) => g.name).join(', ') : 'none',
     ...(notes ? { care_notes: notes } : {}), price_estimate: est.text,
+    ...(ld.later ? { later_return: repeat === 'once' ? 'yes, at their request' : 'yes, for this pickup only; the repeats come back on the usual schedule' } : {}),
     ...(nc ? { name: [nc.first_name, nc.last_name].filter(Boolean).join(' '), address: `${tok.line1}${tok.line2 ? ', ' + tok.line2 : ''}, ${tok.city}` } : {}) };
   if (!a?.caller_confirmed) return { ok: true, needs_confirmation: true, summary,
     say: 'Read this back to the caller: pickup, when it comes back, bags, whether it repeats, add-ons, care notes, the price estimate (and name and address if new). Then ask "Shall I book it?". Only after a clear yes, call book_pickup again with caller_confirmed=true with exactly the same details.' };
@@ -424,7 +460,7 @@ async function toolBook(call: any, a: any, live: boolean) {
         line1: tok.line1, line2: tok.line2, city: tok.city, state: tok.state, zip: tok.zip, lat: tok.lat, lng: tok.lng,
         is_default: true, delivery_instructions: nc.access_notes || null }) }))?.[0];
       if (!addr?.id) throw new Error('address insert returned no row');
-      const o = await insertOrder(db, { customerId: cust.id, serviceId, bags, slot, zoneId: tok.zoneId, pickupAddrId: addr.id, deliveryAddrId: addr.id, notes, repeat, addonLines });
+      const o = await insertOrder(db, { customerId: cust.id, serviceId, bags, slot, zoneId: tok.zoneId, pickupAddrId: addr.id, deliveryAddrId: addr.id, notes, repeat, addonLines, usualDeliveryStart: found.deliveryStart });
       console.log(`maya: NEW customer ${cust.id} booked order #${o.order_number} via ${call?.call_id}`);
       if (okText) await sendConfirmation(o.id);
       return { ok: true, booked: true, order_number: o.order_number, summary,
@@ -437,7 +473,7 @@ async function toolBook(call: any, a: any, live: boolean) {
     }
   }
 
-  const o = await insertOrder(db, { customerId: custId!, serviceId, bags, slot, zoneId: ctx.zoneId, pickupAddrId: ctx.pickupAddrId, deliveryAddrId: ctx.deliveryAddrId, notes, repeat, addonLines });
+  const o = await insertOrder(db, { customerId: custId!, serviceId, bags, slot, zoneId: ctx.zoneId, pickupAddrId: ctx.pickupAddrId, deliveryAddrId: ctx.deliveryAddrId, notes, repeat, addonLines, usualDeliveryStart: found.deliveryStart });
   // Save their add-on choices + care notes for future orders (what admin intake prices from).
   await db(`customers?id=eq.${custId}`, { method: 'PATCH', body: JSON.stringify({ preferences: newPrefs }) })
     .catch((e) => console.error('maya: saving preferences failed', (e as Error).message));
@@ -479,8 +515,11 @@ async function toolReschedule(call: any, a: any, live: boolean) {
   if (!want) return { ok: false, say: 'Call find_pickup_times and use a slot_id from it.' };
   const ctx = await customerBookingContext(db, v.c.id);
   const zoneId = old.zone_id || ctx.zoneId;
-  const slot = (await findSlots(db, { zoneId, customerId: v.c.id, overrideId: ctx.overrideId, sameDay: want.sameDay })).find((s) => s.id === a.new_slot_id);
-  if (!slot) return { ok: false, slot_taken: true, say: 'That time is no longer available. Call find_pickup_times again.' };
+  const found = (await findSlots(db, { zoneId, customerId: v.c.id, overrideId: ctx.overrideId, sameDay: want.sameDay })).find((s) => s.id === a.new_slot_id);
+  if (!found) return { ok: false, slot_taken: true, say: 'That time is no longer available. Call find_pickup_times again.' };
+  const ld = await applyLaterDelivery(a, found, zoneId, v.c.id);
+  if ('fail' in ld) return ld.fail;
+  const slot = ld.slot;
   const summary = { from: between(old.pickup_window_start, old.pickup_window_end), to: between(slot.pickupStart, slot.pickupEnd),
     back: between(slot.deliveryStart, slot.deliveryEnd), bags: old.total_bags };
   if (!a?.caller_confirmed) return { ok: true, needs_confirmation: true, summary,
@@ -659,6 +698,7 @@ Share these only when asked, one or two sentences at a time, warmly. Then offer 
 ## What you can do on this call
 - Answer questions, take messages, and tell a VERIFIED known caller about their pickups and orders.
 - Book a pickup (known callers and new callers), skip a pickup, move a pickup to another time, or cancel pickups (including stopping a repeating schedule).
+- Bring an order back later than usual, on another day and/or at another time, if the caller asks and that time has room.
 - You CANNOT: give balances or charges, change prices, add services, or take payments. For those, take a message.
 - Never ask for or accept a card. Explain payment exactly as the booking result says.
 
@@ -679,6 +719,16 @@ Share these only when asked, one or two sentences at a time, warmly. Then offer 
 7. Only after a clear yes, call book_pickup again with the same details and caller_confirmed=true. Then tell them it's booked, and say what the result tells you to (repeat schedule, saved preferences, bags outside, missed-pickup fee, payment), kindly and briefly. Don't rush; one or two sentences at a time.
 - If they already have a pickup booked, offer to move it instead of booking a second one.
 - Never offer a time that find_pickup_times did not return. Never book an address that check_new_address did not return.
+
+## Getting it back later
+- Delivery is flexible. If a caller wants their laundry back LATER than the usual return (for example, picked up this morning but brought back Wednesday evening because they're away), say yes, as long as that time has room.
+- Book the pickup as usual and pass deliver_on (the day they want it back) and, if they said, deliver_at ("morning", "afternoon", "evening" or a time). The delivery time can be different from the pickup time. Use the same fields with reschedule_pickup when moving a pickup.
+- If the tool returns delivery_options, offer those times for that day, let them choose, and call again with that option's deliver_at.
+- Read back the "back" time the tool returns. If the tool says that day doesn't work, tell them kindly and offer the usual return or another day.
+- Never promise a return time the tool didn't confirm. It can't come back earlier than the usual return (except same-day, as above). We can hold it up to two weeks.
+- For a repeating schedule, the later return is for this pickup only; the next ones come back on the usual schedule.
+- If they already have a pickup booked and only want a later return, use reschedule_pickup with the same pickup time plus deliver_on / deliver_at. If that pickup time isn't offered, take a message.
+- Don't bring this up yourself; offer it only when the caller asks about timing.
 
 ## Skipping, moving or cancelling a pickup
 - Skip: verify, then call skip_pickup (caller_confirmed=false) to find which pickup; read it back; after a clear yes, call it again with caller_confirmed=true.
@@ -730,6 +780,8 @@ const STREET = { type: 'string', description: 'Known caller: the street name the
 const SLOT = { type: 'string', description: 'A slot_id returned by find_pickup_times.' };
 const CONFIRMED = { type: 'boolean', description: 'false = get the summary to read back; true = only after the caller clearly said yes.' };
 const DAY_ARG = { type: 'string', description: 'today, tomorrow, a weekday, or YYYY-MM-DD. Omit for the soonest.' };
+const DELIVER_ON = { type: 'string', description: 'ONLY if the caller asked to get their laundry back LATER than the usual return day: the day they want it back (a weekday or YYYY-MM-DD). Omit otherwise.' };
+const DELIVER_AT = { type: 'string', description: 'ONLY if the caller asked for a different delivery time: "morning", "afternoon", "evening", or a deliver_at value from delivery_options. Omit otherwise.' };
 const BOOKING_TOOL_DEFS = [
   { name: 'find_pickup_times', route: 'find_times',
     description: 'Open pickup times. Known caller: pass street_name. New caller: pass address_token from check_new_address.',
@@ -750,6 +802,7 @@ const BOOKING_TOOL_DEFS = [
       addons: { type: 'array', items: { type: 'string' }, description: 'Add-ons the caller wants: Oxi, Vinegar, Double Wash, Air Dry, Shirt Service. Their usual ones are kept automatically.' },
       addons_off: { type: 'array', items: { type: 'string' }, description: 'Usual add-ons the caller wants to stop.' },
       care_notes: { type: 'string', description: 'Care requests with no add-on, e.g. "warm water", "fold shirts on hangers". Saved for future orders.' },
+      deliver_on: DELIVER_ON, deliver_at: DELIVER_AT,
       new_customer: { type: 'object', description: 'Only for a new caller.', properties: {
         first_name: { type: 'string' }, last_name: { type: 'string' },
         address_token: { type: 'string', description: 'From check_new_address.' },
@@ -762,7 +815,7 @@ const BOOKING_TOOL_DEFS = [
   { name: 'reschedule_pickup', route: 'reschedule',
     description: "Move the caller's next pickup (or the one on pickup_date) to new_slot_id from find_pickup_times. caller_confirmed=false first.",
     parameters: { type: 'object', required: ['street_name', 'new_slot_id', 'caller_confirmed'], properties: {
-      street_name: STREET, pickup_date: DAY_ARG, new_slot_id: SLOT, caller_confirmed: CONFIRMED } } },
+      street_name: STREET, pickup_date: DAY_ARG, new_slot_id: SLOT, deliver_on: DELIVER_ON, deliver_at: DELIVER_AT, caller_confirmed: CONFIRMED } } },
   { name: 'cancel_pickups', route: 'cancel',
     description: "Cancel the caller's next pickup (or the one on pickup_date), or with what=\"everything\" cancel ALL their upcoming pickups and stop any repeating schedule. caller_confirmed=false first to read back.",
     parameters: { type: 'object', required: ['street_name', 'what', 'caller_confirmed'], properties: {

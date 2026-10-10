@@ -107,6 +107,63 @@ export async function findSlots(db: Db, o: {
   return out.sort((a, b) => a.pickupStart.localeCompare(b.pickupStart));
 }
 
+// Later delivery on request (David, 2026-10-10, after Natalie's call): a caller can have the order come
+// back on a later day and/or at a different time than usual, as long as that window has room. Any open
+// delivery window in their area that day (get_slot_availability honours a route override). Never before
+// the usual return, at most `maxDays` after pickup. `at` = "morning" | "afternoon" | "evening" | a time
+// ("18:00", "6pm"). No `at` and several windows open → { choose } so Maya can ask. The DB triggers
+// (holidays, window-in-template, pickup-before-delivery) are the backstop.
+const ptHHMM = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const toMin = (t: string) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + (m || 0); };
+export type DeliveryWindow = { start: string; end: string; at: string }; // at = 'HH:MM' start, PT
+function atRange(at: string): [number, number] | null {
+  const t = at.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/morning|manana/.test(t)) return [0, 12 * 60];
+  if (/afternoon|tarde/.test(t)) return [12 * 60, 17 * 60];
+  if (/evening|night|noche/.test(t)) return [17 * 60, 24 * 60];
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?$/);
+  if (!m) return null;
+  let h = Number(m[1]); const min = Number(m[2] || 0);
+  if (m[3]?.startsWith('p') && h < 12) h += 12;
+  if (m[3]?.startsWith('a') && h === 12) h = 0;
+  return h > 23 || min > 59 ? null : [h * 60 + min, h * 60 + min + 1];
+}
+export async function laterDelivery(db: Db, o: {
+  zoneId: string; customerId?: string | null; slot: Slot; deliverOn: string; at?: string | null; maxDays?: number;
+}): Promise<{ slot: Slot } | { choose: DeliveryWindow[]; atNotOpen: boolean } | { reason: 'before_usual' | 'too_far' | 'not_running' | 'full' | 'bad_time' }> {
+  const usual = ptDateFmt.format(new Date(o.slot.deliveryStart));
+  if (o.deliverOn === usual && !o.at) return { slot: o.slot };
+  if (o.deliverOn < usual) return { reason: 'before_usual' };
+  const last = ptDateFmt.format(new Date(new Date(o.slot.pickupStart).getTime() + (o.maxDays ?? 14) * 86_400_000));
+  if (o.deliverOn > last) return { reason: 'too_far' };
+  const range = o.at ? atRange(o.at) : null;
+  if (o.at && !range) return { reason: 'bad_time' };
+  const [hol, rows] = await Promise.all([
+    db(`holidays?holiday_date=eq.${o.deliverOn}&select=holiday_date&limit=1`),
+    db('rpc/get_slot_availability', { method: 'POST',
+      body: JSON.stringify({ p_zone_id: o.zoneId, p_date: o.deliverOn, p_customer_id: o.customerId ?? null }) }),
+  ]);
+  if (hol?.length || !(rows || []).length) return { reason: 'not_running' };
+  // On the usual day, nothing earlier than the usual time (the laundry may not be ready).
+  const floor = o.deliverOn === usual ? toMin(ptHHMM.format(new Date(o.slot.deliveryStart))) : -1;
+  const [y, m, d] = o.deliverOn.split('-').map(Number);
+  const seen = new Set<string>();
+  const open: DeliveryWindow[] = (rows as any[])
+    .filter((r) => !(r.sub_window_limit != null && Number(r.active_stops) >= Number(r.sub_window_limit)))
+    .filter((r) => toMin(r.sub_window_start) >= floor)
+    .sort((a, b) => toMin(a.sub_window_start) - toMin(b.sub_window_start))
+    .filter((r) => { const k = String(r.sub_window_start).slice(0, 5); return seen.has(k) ? false : (seen.add(k), true); })
+    .map((r) => { const [sh, sm] = String(r.sub_window_start).split(':').map(Number), [eh, em] = String(r.sub_window_end).split(':').map(Number);
+      return { start: ptToUtc(y, m, d, sh, sm), end: ptToUtc(y, m, d, eh, em), at: String(r.sub_window_start).slice(0, 5) }; });
+  if (!open.length) return { reason: 'full' };
+  const pick = range
+    ? open.find((w) => { const s = toMin(w.at), e = s + (new Date(w.end).getTime() - new Date(w.start).getTime()) / 60_000;
+        return range[1] - range[0] === 1 ? range[0] >= s && range[0] < e : s >= range[0] && s < range[1]; })
+    : open.length === 1 ? open[0] : null;
+  if (!pick) return { choose: open, atNotOpen: !!o.at };
+  return { slot: { ...o.slot, deliveryStart: pick.start, deliveryEnd: pick.end } };
+}
+
 // Base service for the customer's price list (same rule as twilio-webhook / customer-app getCustomerService).
 export async function baseServiceId(db: Db, pricelist: string | null): Promise<string | null> {
   const svcs: any[] = await db('services?is_active=eq.true&is_addon=eq.false&order=sort_order.asc&select=id,pricelist');
@@ -160,7 +217,9 @@ export async function insertOrder(db: Db, p: {
   customerId: string; serviceId: string; bags: number; slot: Slot; zoneId: string;
   pickupAddrId: string; deliveryAddrId: string; notes?: string | null;
   repeat?: string | null; addonLines?: any[];
+  usualDeliveryStart?: string | null; // set when this order's delivery was moved later on request
 }) {
+  const recurring = ['weekly', 'biweekly', 'monthly'].includes(String(p.repeat)) ? p.repeat : null;
   // Phone requests (add-ons, wash preferences) ride on special_instructions for staff to apply at intake.
   const rows = await db('orders', { method: 'POST', body: JSON.stringify({
     customer_id: p.customerId, service_id: p.serviceId, status: 'scheduled', total_bags: p.bags, total_amount: 0,
@@ -170,7 +229,12 @@ export async function insertOrder(db: Db, p: {
     line_items: [{ type: 'base', label: `${p.bags} bag${p.bags !== 1 ? 's' : ''}`, amount: 0 }, ...(p.addonLines || [])],
     // weekly/biweekly/monthly: trg_create_recurring_order_fn books the next one after each delivery/skip
     // (same as a customer-app recurring booking; anchors left NULL like the app).
-    source: 'scheduled', recurring_interval: ['weekly', 'biweekly', 'monthly'].includes(String(p.repeat)) ? p.repeat : null,
+    source: 'scheduled', recurring_interval: recurring,
+    // A later delivery is for THIS order only. trg_create_recurring_order_fn takes the next order's
+    // turnaround from these anchors (else from this order's windows), so pin them to the usual
+    // delivery or every repeat would come back late too.
+    ...(recurring && p.usualDeliveryStart && p.usualDeliveryStart !== p.slot.deliveryStart
+      ? { recurring_anchor_at: p.slot.pickupStart, recurring_delivery_anchor_at: p.usualDeliveryStart } : {}),
     special_instructions: p.notes || null,
   }) });
   const o = Array.isArray(rows) ? rows[0] : rows;

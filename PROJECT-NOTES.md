@@ -1,5 +1,18 @@
 # WashRoute — Project Notes
 
+## Session 342 — Oct 10, 2026: Maya can bring laundry back later on request
+
+Trigger: Natalie (Berkeley, 08:16 call) asked for a pickup today held until Wednesday; Maya took a callback.
+- `book_pickup` / `reschedule_pickup` take optional `deliver_on` + `deliver_at` (morning/afternoon/evening/time).
+  `booking.ts laterDelivery()` picks ANY open delivery window in their area that day (not tied to the pickup's
+  window — David booked Natalie's for the evening), via `get_slot_availability`; no time + several open →
+  returns `delivery_options` for Maya to offer. Never before the usual return, max 14 days after pickup.
+- Repeating orders: the later return is for that order only — `insertOrder` pins `recurring_anchor_at` /
+  `recurring_delivery_anchor_at` to the USUAL delivery, else `trg_create_recurring_order_fn` would copy the
+  long turnaround onto every repeat.
+- Script: new "Getting it back later" section (only when the caller asks; read back the tool's "back" time).
+- Needs CLI deploy (`--no-verify-jwt`, probe confirmed) + `/setup` to push script/tools to Retell.
+
 ## Session 341 — Oct 9, 2026: Maya, the AI phone assistant, goes live on (510) 588-4102
 
 Replaces voicemail. Retell AI (voice "Nancy", English + Spanish) + our own `maya` edge function. Design and all
