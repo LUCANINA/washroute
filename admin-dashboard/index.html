@@ -7220,7 +7220,7 @@
           <input type="hidden" id="o-customer">
           <div class="cust-combo-wrap">
             <input type="text" id="o-customer-input" class="cust-combo-input" placeholder="Search customer…" autocomplete="off"
-              oninput="custComboFilter(this.value)"
+              oninput="document.getElementById('o-customer').value='';custComboFilter(this.value)"
               onfocus="custComboFilter(this.value)"
               onblur="setTimeout(()=>custComboClose(),180)"
               onkeydown="custComboKeydown(event)">
@@ -41093,13 +41093,22 @@ ${oneCopy}
       if (!allCustomers.length) await loadCustomers();
     }
 
-    // Init combobox — use prefilled customer if provided, otherwise first real customer
-    // Exclude drivers, laundry techs, and attendants from the default selection (admins can also be customers)
-    const _orderableCustomers = allCustomers.filter(c => !c.profiles?.role || !['driver','laundry_tech','attendant'].includes(c.profiles.role));
-    if (_orderableCustomers.length) {
-      const target = prefillCustomerId
-        ? (allCustomers.find(c => c.id === prefillCustomerId) || _orderableCustomers[0])
-        : _orderableCustomers[0];
+    // Session 342: NEVER guess a customer. Prefill only the one we were handed
+    // (e.g. from the customer panel or "Save & create order"); otherwise start blank
+    // so staff must search and pick. Defaulting to the first customer in the list put
+    // order #17224 on the wrong account. If the handed-in customer isn't in the cached
+    // list yet, fetch it directly — never fall back to someone else.
+    let target = null;
+    if (prefillCustomerId) {
+      target = allCustomers.find(c => c.id === prefillCustomerId) || null;
+      if (!target) {
+        const { data: one } = await db.from('customers')
+          .select('id, profile_id, first_name_cache, last_name_cache, phone_cache, email_cache, address_cache, billing_type, pricelist, route_template_override_id, default_tip, default_tip_type, discount_id, frozen_at, cancelled_at, profiles(role)')
+          .eq('id', prefillCustomerId).maybeSingle();
+        if (one) { target = one; allCustomers.unshift(one); }
+      }
+    }
+    if (target) {
       const p  = custProfile(target);
       const fn = p.first_name || target.first_name_cache || '';
       const ln = p.last_name  || target.last_name_cache  || '';
@@ -41110,8 +41119,10 @@ ${oneCopy}
     } else {
       document.getElementById('o-customer').value = '';
       document.getElementById('o-customer-input').value = '';
-      document.getElementById('o-customer-input').placeholder = 'No customers yet';
-      document.getElementById('o-address').innerHTML = '<option value="">No customers yet</option>';
+      document.getElementById('o-customer-input').placeholder = allCustomers.length ? 'Search customer…' : 'No customers yet';
+      document.getElementById('o-address').innerHTML = '<option value="">Select a customer first</option>';
+      _noAddresses = [];
+      _noZoneIds   = new Set();
     }
 
     // Route templates for inline slot picker
@@ -41837,8 +41848,12 @@ ${oneCopy}
 
       showToast(`${first}${last?' '+last:''} added!`, 'success');
       closeModal('add-customer');
-      loadCustomers();
-      if (andOrder) setTimeout(()=>openModal('add-order'), 400);
+      // Session 342: wait for the refreshed list, then hand the NEW customer to the
+      // order form. Before, the form opened 400ms later with no customer passed and a
+      // stale list, so it defaulted to the newest OLD customer — order #17224 went to
+      // Shifteh instead of Natalie (2026-10-10).
+      const _custReload = loadCustomers();
+      if (andOrder && cust?.id) { await _custReload; openModal('add-order', { customerId: cust.id }); }
 
     } catch(e) {
       err.textContent = e?.message || 'Save failed — please try again.';
