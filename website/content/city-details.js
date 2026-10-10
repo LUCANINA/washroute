@@ -23,7 +23,7 @@ module.exports = {
     photo: 'porch-bag-2.jpg',
     about: [
       "Berkeley is our second-busiest city. Customers stretch from the Elmwood and Claremont up into the hills and down to West Berkeley, with a lot of students, faculty and staff around campus.",
-      "Your laundry is washed in our own plant in East Oakland, about 20 minutes away, and comes back folded and bundled by family member.",
+      "Your laundry is washed in our own plant in Oakland, about 20 minutes away, and comes back folded and bundled by family member.",
     ],
     hoods: ['Elmwood', 'Claremont', 'Southside', 'Downtown Berkeley', 'Northside', 'North Berkeley', 'the Gourmet Ghetto', 'Thousand Oaks', 'the Berkeley Hills', 'South Berkeley', 'Lorin', 'Le Conte', 'West Berkeley', 'the UC Berkeley campus area'],
     review: { who: "Kimberly R, Berkeley", text: "Their customer service is supreme! They are extremely attentive and helpful! And it is such a joy to have fresh, beautifully cared for laundry without it being perfumed." },
@@ -37,7 +37,7 @@ module.exports = {
     households: 'more than 100',
     photo: 'porch-bag-1.jpg',
     about: [
-      "Alameda is right across the Fruitvale Bridge from our East Oakland plant, so it is one of the quickest trips our vans make.",
+      "Alameda is right across the Fruitvale Bridge from our Oakland plant, so it is one of the quickest trips our vans make.",
       "We serve the whole island, from the East End to the West End, plus Bay Farm Island and Harbor Bay.",
     ],
     hoods: ['the East End', 'the West End', 'Park Street', 'Webster Street', 'Fernside', 'the Gold Coast', 'Alameda Point', 'Bay Farm Island', 'Harbor Bay'],
@@ -115,7 +115,7 @@ module.exports = {
   hayward: {
     photo: 'porch-bag-1.jpg',
     about: [
-      "Hayward is on our south routes, which also cover San Leandro, San Lorenzo, Castro Valley, Union City, Fremont and Newark. Your laundry is washed by our own team in East Oakland and comes back folded and bundled by family member.",
+      "Hayward is on our south routes, which also cover San Leandro, San Lorenzo, Castro Valley, Union City, Fremont and Newark. Your laundry is washed by our own team in Oakland and comes back folded and bundled by family member.",
       "Most of our Hayward customers live in north Hayward and around downtown, but we pick up across the city, from the Hayward Hills and Cal State East Bay down to Tennyson-Alquire and West Hayward.",
     ],
     hoods: ['Downtown Hayward', 'Upper B Street', 'Prospect Hill', 'Burbank', 'the Hayward Hills', 'Hayward Highlands', 'the Cal State East Bay area', 'Fairway Park', 'Harder-Tennyson', 'Tennyson-Alquire', 'Mount Eden', 'Southgate', 'West Hayward'],
@@ -129,7 +129,7 @@ module.exports = {
   'castro-valley': {
     photo: 'porch-bag-2.jpg',
     about: [
-      "Castro Valley is on our south routes, a quick trip out I-580 from our plant in East Oakland.",
+      "Castro Valley is on our south routes, a quick trip out I-580 from our plant in Oakland.",
       "Most of our Castro Valley customers live up in Five Canyons and the Palomares Hills, east of I-580. The rest are around Castro Valley Boulevard and the center of town, and we pick up everywhere in between.",
     ],
     hoods: ['Five Canyons', 'the Palomares Hills', 'Jensen Ranch', 'Columbia', 'Crow Canyon', 'the Lake Chabot area', 'Castro Valley Boulevard', 'Downtown Castro Valley'],
@@ -143,7 +143,7 @@ module.exports = {
     photo: 'porch-bag-1.jpg',
     about: [
       "El Cerrito shares our Berkeley routes, so it gets the same pickup windows as Berkeley, Albany and Kensington.",
-      "In the hills or in an apartment near El Cerrito Plaza or El Cerrito del Norte, leave the bag at the door, the curb or the front desk. Everything is washed by our own team in East Oakland and comes back folded.",
+      "In the hills or in an apartment near El Cerrito Plaza or El Cerrito del Norte, leave the bag at the door, the curb or the front desk. Everything is washed by our own team in Oakland and comes back folded.",
     ],
     hoods: ['the El Cerrito Hills', 'Mira Vista', 'Arlington Park', 'Fairmont', 'the San Pablo Avenue corridor', 'El Cerrito Plaza', 'El Cerrito del Norte'],
     faqs: [
@@ -157,7 +157,7 @@ module.exports = {
   'san-lorenzo': {
     photo: 'porch-bag-2.jpg',
     about: [
-      "San Lorenzo is on our south routes, right between San Leandro and Hayward, a short drive down I-880 from our plant in East Oakland.",
+      "San Lorenzo is on our south routes, right between San Leandro and Hayward, a short drive down I-880 from our plant in Oakland.",
       "Leave the bag on the porch or by the front door. It is washed by our own team, never handed to a third party, and comes back folded and bundled by family member.",
     ],
     hoods: ['San Lorenzo Village', 'Ashland', 'Hesperian Boulevard', 'Lewelling Boulevard', 'the Grant Avenue area'],
@@ -169,7 +169,7 @@ module.exports = {
   fremont: {
     photo: 'porch-bag-1.jpg',
     about: [
-      "Fremont is at the far end of our south routes, which run down through San Leandro, Hayward and Union City. Your laundry is washed by our own team in East Oakland and comes back the next day, folded and bundled by family member.",
+      "Fremont is at the far end of our south routes, which run down through San Leandro, Hayward and Union City. Your laundry is washed by our own team in Oakland and comes back the next day, folded and bundled by family member.",
       "We pick up across Fremont's districts, from Centerville and Niles to Ardenwood, Irvington, Mission San Jose and Warm Springs.",
     ],
     hoods: ['Centerville', 'Niles', 'Ardenwood', 'Northgate', 'Cabrillo', 'Central Fremont', 'Irvington', 'Glenmoor', 'Mission San Jose', 'Warm Springs'],
@@ -182,7 +182,7 @@ module.exports = {
     photo: 'porch-bag-2.jpg',
     about: [
       "Newark is on our south routes with Fremont and Union City, so it gets the same pickup windows as its neighbors.",
-      "Leave your bag at the door, on the porch or with your building's front desk. It is washed by our own team in East Oakland, never handed to a third party, and comes back folded and bundled by family member.",
+      "Leave your bag at the door, on the porch or with your building's front desk. It is washed by our own team in Oakland, never handed to a third party, and comes back folded and bundled by family member.",
     ],
     hoods: ['Old Town Newark', 'Lakeshore', 'the NewPark Mall area', 'Thornton Avenue', 'Cedar Boulevard'],
     faqs: [
@@ -209,7 +209,7 @@ module.exports = {
     photo: 'porch-bag-2.jpg',
     about: [
       "Walnut Creek is on our Contra Costa route, which also covers Concord, Pleasant Hill, Lafayette, Orinda, Moraga and Martinez. Pickups there run in the morning.",
-      "We pick up from downtown apartments and condos as well as houses out toward Northgate and Rossmoor. Your laundry comes through the tunnel to our own plant in East Oakland, is washed by our team and comes back folded.",
+      "We pick up from downtown apartments and condos as well as houses out toward Northgate and Rossmoor. Your laundry comes through the tunnel to our own plant in Oakland, is washed by our team and comes back folded.",
     ],
     hoods: ['Downtown Walnut Creek', 'Northgate', 'Rossmoor', 'Saranap', 'Parkmead', 'Ygnacio Valley'],
     faqs: [
@@ -260,7 +260,7 @@ module.exports = {
     photo: 'porch-bag-2.jpg',
     about: [
       "Concord is the hub of our Contra Costa route, which also covers Walnut Creek, Pleasant Hill, Martinez, Lafayette, Orinda and Moraga. Pickups there run in the morning.",
-      "Your bag rides back through the Caldecott Tunnel to our own plant in East Oakland, where our team washes it fragrance-free, folds it and bundles it by family member, then brings it back to your door the next day.",
+      "Your bag rides back through the Caldecott Tunnel to our own plant in Oakland, where our team washes it fragrance-free, folds it and bundles it by family member, then brings it back to your door the next day.",
     ],
     hoods: ['Downtown Concord', 'Todos Santos Plaza', 'Ygnacio Valley', 'Dana Estates', 'Sun Terrace', 'Holbrook Heights', 'Crystal Ranch', 'the Concord BART area'],
     faqs: [
@@ -272,7 +272,7 @@ module.exports = {
   lafayette: {
     photo: 'porch-bag-1.jpg',
     about: [
-      "Lafayette is on our morning Contra Costa route, one exit past the Caldecott Tunnel from our plant in East Oakland.",
+      "Lafayette is on our morning Contra Costa route, one exit past the Caldecott Tunnel from our plant in Oakland.",
       "Hand off the whole week: school clothes, sports kits, towels and sheets. Everything comes back folded and bundled by family member, so putting it away takes minutes.",
     ],
     hoods: ['Downtown Lafayette', 'Happy Valley', 'Burton Valley', 'Reliez Valley', 'Acalanes Ridge', 'Springhill'],
@@ -285,8 +285,8 @@ module.exports = {
   moraga: {
     photo: 'porch-bag-2.jpg',
     about: [
-      "Moraga is on our morning Contra Costa route, just over the hills from our plant in East Oakland.",
-      "We pick up from family homes across Moraga and from apartments near Saint Mary's College. Your laundry is washed by our own team in East Oakland, never handed to a third party, and comes back folded the next day.",
+      "Moraga is on our morning Contra Costa route, just over the hills from our plant in Oakland.",
+      "We pick up from family homes across Moraga and from apartments near Saint Mary's College. Your laundry is washed by our own team in Oakland, never handed to a third party, and comes back folded the next day.",
     ],
     hoods: ['Moraga Center', 'Rheem Valley', 'Campolindo', 'Sanders Ranch', 'the Moraga Country Club area', "around Saint Mary's College"],
     faqs: [
@@ -298,7 +298,7 @@ module.exports = {
     photo: 'porch-bag-1.jpg',
     about: [
       "Pleasant Hill sits between Walnut Creek, Concord and Martinez on our morning Contra Costa route.",
-      "Leave your bag on the porch or with your building's front desk. It is washed fragrance-free with Free & Clear and ozone by our own team in East Oakland, folded, and back at your door the next day.",
+      "Leave your bag on the porch or with your building's front desk. It is washed fragrance-free with Free & Clear and ozone by our own team in Oakland, folded, and back at your door the next day.",
     ],
     hoods: ['Downtown Pleasant Hill', 'Gregory Gardens', 'Poets Corner', 'the Pleasant Hill BART area', 'around Diablo Valley College'],
     faqs: [

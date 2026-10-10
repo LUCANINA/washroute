@@ -10,7 +10,7 @@ module.exports = [
     service: 'Comforter and bedding laundry',
     photo: { src: 'bag-deck.jpg', w: 1400, h: 883, alt: 'A zipped Family Laundry bag waiting on a sunny deck', caption: 'Bags close with a zipper and are yours to keep.' },
     title: 'Comforter & Bedding Laundry Service with Pickup | Family Laundry',
-    description: 'Comforters, duvets, blankets, pillows and sleeping bags washed fragrance-free at our own plant in East Oakland, picked up and delivered across the East Bay and San Francisco.',
+    description: 'Comforters, duvets, blankets, pillows and sleeping bags washed fragrance-free at our own plant in Oakland, picked up and delivered across the East Bay and San Francisco.',
     h1: 'Comforter and bedding laundry',
     lead: "We wash comforters, duvets, pillows and sleeping bags in our large machines and bring them back clean, fully dry and folded.",
     sections: [
@@ -30,7 +30,7 @@ module.exports = [
     path: '/delicate-laundry-service', group: 'Residential', nav: 'Delicates & air dry', cta: 'pickup',
     service: 'Delicates laundry with air drying',
     title: 'Delicate Laundry Service: Air Dry for Delicates | Family Laundry',
-    description: 'Lingerie, workout gear and delicates washed gently and air dried, fragrance-free, at our own plant in East Oakland. Pickup and delivery across the East Bay and San Francisco.',
+    description: 'Lingerie, workout gear and delicates washed gently and air dried, fragrance-free, at our own plant in Oakland. Pickup and delivery across the East Bay and San Francisco.',
     h1: 'Delicates and air dry',
     lead: "Bras, swimwear and workout gear last longer when they skip the dryer. Put them in a separate bag, choose Air Dry, and we hang them to dry.",
     sections: [
@@ -107,7 +107,7 @@ module.exports = [
     title: 'Drop-Off Laundry Service in Oakland, Open 7 Days | Family Laundry',
     description: 'Drop off your laundry at 2609 Foothill Blvd, Oakland. Wash & fold by the pound, open 7 days a week, same-day if you drop off early. No machines to babysit.',
     h1: 'Drop-off laundry in Oakland',
-    lead: "Drop your laundry at the counter of our East Oakland laundromat and pick it up washed and folded. No machines to babysit.",
+    lead: "Drop your laundry at the counter of our Oakland laundromat and pick it up washed and folded. No machines to babysit.",
     sections: [
       { h: 'Where and when', md: "**{site:dropoff_address}**, near Fruitvale. Open {site:dropoff_hours}, with self-service washers and dryers as well as the drop-off counter. [sudzee.com](https://www.sudzee.com)\n\n{site:dropoff_cutoff}" },
       { h: 'Price', md: "- Wash & fold: {retail:Wash & Fold}\n- Wash & dry (no folding): {retail:Wash & Dry}\n- Add-ons: Vinegar {retail:Vinegar}, Oxi {retail:Oxi}, Double Wash {retail:Double Wash}" },
@@ -203,7 +203,7 @@ module.exports = [
       { h: '1. Book a pickup', md: "Book in the app or at [app.familylaundry.com](https://app.familylaundry.com). Pick a pickup window; you can book up to 60 minutes before a window ends. Later on, regular customers can also text **PICKUP** to {site:phone}." },
       { h: '2. Pack your laundry', md: "For your first order, put your laundry in sealed trash bags. A Family Laundry bag holds about 2 tall kitchen bags, or 25 lbs. Keep delicates in a separate bag and choose Air Dry if you want them hung to dry." },
       { h: "3. Leave it out", md: "You don't need to be home. Leave the bags at your door, porch or front desk and tell us where in the app. [Tips for leaving laundry out](/leaving-laundry-out-for-pickup)." },
-      { h: '4. We wash it ourselves', md: "At our own plant in East Oakland, we empty pockets, separate lights and darks, wash in cold water with Free & Clear detergent and ozone, and dry on medium. Your laundry is never mixed with anyone else's and never sent to another company." },
+      { h: '4. We wash it ourselves', md: "At our own plant in Oakland, we empty pockets, separate lights and darks, wash in cold water with Free & Clear detergent and ozone, and dry on medium. Your laundry is never mixed with anyone else's and never sent to another company." },
       { h: '5. It comes back folded', md: "Usually the next service day, in Family Laundry bags that are yours to keep for next time. Everything is folded, socks balled, and bundled by family member." },
       { h: '6. Pay and tip', md: "Your card on file is charged when your order is ready for delivery. You can set a default tip for your driver in the app." },
     ],

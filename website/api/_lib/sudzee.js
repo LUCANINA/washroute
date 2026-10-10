@@ -16,7 +16,7 @@ function page(v, { indexable }) {
   const s = v.site || {};
   const tel = s.phone ? 'tel:' + s.phone.replace(/[^\d+]/g, '') : '';
   const t = x => esc(plain(x, v));
-  const title = 'Sudzee Wash & Fold | Laundromat in East Oakland';
+  const title = 'Sudzee Wash & Fold | Laundromat in Oakland';
   const description = `Self-service laundromat and drop-off wash & fold (${plain('{retail:Wash & Fold}', v)}) at 2609 Foothill Blvd, Oakland. Open ${plain('{site:dropoff_hours}', v)}. Part of Family Laundry.`;
   const jsonld = {
     '@context': 'https://schema.org', '@type': 'DryCleaningOrLaundry', '@id': ORIGIN + '/#business',

@@ -8,7 +8,7 @@
 // Pages without it stay live for visitors but carry noindex and are left out of the sitemap.
 module.exports = [
   { name: 'Oakland', slug: 'oakland', index: true, region: 'core',
-    intro: "We're based in East Oakland, near Fruitvale, so Oakland laundry is washed by our own team a few miles from your door.",
+    intro: "We're based in Oakland, near Fruitvale, so Oakland laundry is washed by our own team a few miles from your door.",
     hoods: ['Rockridge', 'Temescal', 'Fruitvale', 'Lake Merritt', 'Grand Lake', 'Glenview', 'Dimond', 'Montclair', 'Uptown', 'Jack London Square', 'West Oakland', 'Maxwell Park'] },
   { name: 'Berkeley', slug: 'berkeley', index: true, region: 'core',
     intro: "Busy Berkeley households, grad students and UC staff use us to get their weekends back. We pick up across the city, from the flats to the hills.",
@@ -20,7 +20,7 @@ module.exports = [
     intro: "We pick up across Piedmont, from Lower Piedmont up to the hills around Piedmont Park.",
     hoods: [] },
   { name: 'Emeryville', slug: 'emeryville', index: true, region: 'core', zone: 'Oakland',
-    intro: "Emeryville is a short hop from our plant in East Oakland.",
+    intro: "Emeryville is a short hop from our plant in Oakland.",
     hoods: ['the Watergate', 'Bay Street', 'the Park Avenue district'] },
   { name: 'Albany', slug: 'albany', index: true, region: 'core',
     intro: "Albany families get the same next-day service as their Berkeley neighbors, picked up from the door.",
@@ -35,7 +35,7 @@ module.exports = [
     intro: "Richmond customers leave their bag at the door and get it back washed, folded and bundled by family member.",
     hoods: [] },
   { name: 'San Leandro', slug: 'san-leandro', index: true, region: 'south',
-    intro: "San Leandro is one of the closest cities to our East Oakland base.",
+    intro: "San Leandro is one of the closest cities to our Oakland base.",
     hoods: ['Estudillo Estates', 'Broadmoor', 'Bay-O-Vista', 'Washington Manor', 'the Marina'] },
   { name: 'San Lorenzo', slug: 'san-lorenzo', index: true, region: 'south',
     intro: "San Lorenzo households get pickup at the door and their laundry back folded, without a trip to the laundromat.",
@@ -77,6 +77,6 @@ module.exports = [
     intro: "Martinez households can hand off laundry day. We pick up, wash, fold and deliver.",
     hoods: [] },
   { name: 'San Francisco', slug: 'sf', index: true, region: 'sf',
-    intro: "San Francisco pickups run in the evening. Your laundry crosses the Bay Bridge to our own plant in East Oakland, where our team washes and folds it. We never hand it to a third party.",
+    intro: "San Francisco pickups run in the evening. Your laundry crosses the Bay Bridge to our own plant in Oakland, where our team washes and folds it. We never hand it to a third party.",
     hoods: ['the Mission', 'Noe Valley', 'Bernal Heights', 'SoMa', 'Mission Bay', 'Potrero Hill', 'Dogpatch', 'Hayes Valley', 'Pacific Heights', 'the Marina', 'the Richmond', 'the Sunset'] },
 ];

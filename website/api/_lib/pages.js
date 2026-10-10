@@ -10,7 +10,7 @@ const md = (text, v) => C.renderContent(text, v).html;
 // Inline (no <p>) version for headings / list items.
 const mdi = (text, v) => md(text, v).replace(/^<p>|<\/p>$/g, '');
 
-const DEFAULT_DESC = "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free at our own plant in East Oakland, never outsourced, and back the next day.";
+const DEFAULT_DESC = "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free at our own plant in Oakland, never outsourced, and back the next day.";
 
 function cta(label = 'Schedule a pickup') {
   return `<a class="btn" href="${APP}">${esc(label)}</a>`;
@@ -29,7 +29,7 @@ function home(v) {
   <img class="h-hero-img" src="/assets/img/hero-wide.jpg" alt="A woman smelling freshly cleaned laundry" width="1920" height="984">
   <div class="wrap h-hero-copy">
     <h1><span class="h-kicker">Family Laundry</span>Premium Wash &amp; Fold for Busy Households</h1>
-    <p class="h-hero-sub">Picked up, washed at our own plant in East Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
+    <p class="h-hero-sub">Picked up, washed at our own plant in Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
     ${ratingBadge(v)}
     <a class="h-btn h-btn-lg" href="${APP}">Get started</a>
     <img class="h-stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="236" height="236">
@@ -120,7 +120,7 @@ ${contactBlock(v)}`;
   return {
     path: '/',
     title: 'Laundry Pickup & Delivery in Oakland & the East Bay | Family Laundry',
-    description: "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free at our own plant in East Oakland, never outsourced, and back the next day. Serving Oakland, Berkeley, the East Bay and San Francisco, Monday to Saturday.",
+    description: "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free at our own plant in Oakland, never outsourced, and back the next day. Serving Oakland, Berkeley, the East Bay and San Francisco, Monday to Saturday.",
     body,
     jsonld: {
       '@context': 'https://schema.org', '@type': 'DryCleaningOrLaundry', '@id': BIZ_ID, name: 'Family Laundry',
@@ -252,11 +252,11 @@ function services(v) {
   return {
     path: '/laundry-delivery-services',
     title: 'Laundry Services & Prices: Wash & Fold Pickup and Delivery | Family Laundry',
-    description: 'Wash & fold pickup and delivery, plus Air Dry, shirt service, Vinegar, Oxi and Double Wash. Washed fragrance-free at our own plant in East Oakland. Serving the East Bay and San Francisco.',
+    description: 'Wash & fold pickup and delivery, plus Air Dry, shirt service, Vinegar, Oxi and Double Wash. Washed fragrance-free at our own plant in Oakland. Serving the East Bay and San Francisco.',
     body: `<section class="wrap section sv">
   <p class="eyebrow">Services &amp; prices</p>
   <h1>Wash &amp; fold, done for you</h1>
-  <p class="sv-lead">Picked up at your door, washed fragrance-free at our own plant in East Oakland, and back folded the next day.</p>
+  <p class="sv-lead">Picked up at your door, washed fragrance-free at our own plant in Oakland, and back folded the next day.</p>
 
   <div class="sv-main">
     <div class="sv-tile sv-tile-lg"><img src="/assets/img/svc-washfold-cut.png" alt="A Family Laundry bag of clean, folded laundry"></div>
@@ -305,7 +305,7 @@ function commercial(v) {
   return {
     path: '/commercial-laundry',
     title: 'Commercial Laundry Service for Schools, Daycares & Businesses | Family Laundry',
-    description: 'Commercial laundry pickup and delivery for schools, daycares and businesses in San Francisco and the East Bay: nap mats, bibs, towels, uniforms and linens. Washed at our own plant in East Oakland on a schedule that fits yours.',
+    description: 'Commercial laundry pickup and delivery for schools, daycares and businesses in San Francisco and the East Bay: nap mats, bibs, towels, uniforms and linens. Washed at our own plant in Oakland on a schedule that fits yours.',
     body: `<section class="wrap section narrow sv">
   <p class="eyebrow">Commercial</p>
   <h1>Commercial laundry</h1>
@@ -390,7 +390,7 @@ function city(c, v) {
       ? `Yes. Family Laundry picks up and delivers in ${name} ${days}, with ${wins.length > 1 ? `${C.list(winText)} windows` : `${/^[aeiou]/.test(winText[0]) ? 'an' : 'a'} ${winText[0]} window`}. Pick yours when you book in the app.`
       : `Yes. Family Laundry picks up and delivers in ${name} ${days}. Enter your address in the app to see the pickup windows for your street.`],
     ...(d.faqs || []).map(([q, a]) => [q, plain(a)]),
-    ['When do I get my laundry back?', 'The next service day. We wash and fold it at our own plant in East Oakland, so a Saturday pickup comes back Monday.'],
+    ['When do I get my laundry back?', 'The next service day. We wash and fold it at our own plant in Oakland, so a Saturday pickup comes back Monday.'],
     ['Do I need to be home?', "No. Leave your bag at the door, with your building's front desk, or wherever you tell us in the app."],
     ['What detergent do you use?', 'Free & Clear hypoallergenic detergent and ozone. We never use bleach, softener or fragrance.'],
   ];
@@ -403,7 +403,7 @@ function city(c, v) {
     path: cityPath(c),
     noindex: !c.index,
     title: `Laundry Pickup & Delivery in ${name} | Family Laundry`,
-    description: `Wash & fold laundry pickup and delivery in ${name}. Washed fragrance-free at our own plant in East Oakland, never outsourced, and back the next day.`,
+    description: `Wash & fold laundry pickup and delivery in ${name}. Washed fragrance-free at our own plant in Oakland, never outsourced, and back the next day.`,
     body: `<section class="wrap section narrow">
   <h1>Laundry pickup &amp; delivery in ${esc(name)}</h1>
   <p class="lead">${esc(c.intro)}</p>
@@ -419,7 +419,7 @@ function city(c, v) {
   ${hoodsBlock}
   ${d.review ? `<figure class="city-quote"><blockquote>“${esc(d.review.text)}”</blockquote><figcaption>${esc(d.review.who)}</figcaption></figure>` : ''}
   <div class="why why-2">
-    <div><h3>Cleaned in-house</h3><p>Washed by our own team at our East Oakland plant. Never outsourced.</p></div>
+    <div><h3>Cleaned in-house</h3><p>Washed by our own team at our Oakland plant. Never outsourced.</p></div>
     <div><h3>Fragrance-free</h3><p>Free &amp; Clear detergent and ozone. Nothing that lingers on skin.</p></div>
     <div><h3>Back the next day</h3><p>Folded neatly, socks balled, bundled by family member.</p></div>
     <div><h3>No need to be home</h3><p>Leave your bag at the door. We text you when we're on the way.</p></div>
@@ -548,7 +548,7 @@ function cost(v) {
   <h2>What's included either way</h2>
   <ul>
     <li>Pickup and delivery to your door ${mdi('{site:service_days}', v)}, back the next service day</li>
-    <li>Washed at our own plant in East Oakland by our own team, never outsourced</li>
+    <li>Washed at our own plant in Oakland by our own team, never outsourced</li>
     <li>Free &amp; Clear hypoallergenic detergent and ozone, with no fragrance, bleach or softener</li>
     <li>Folded, socks balled, bundled by family member, in bags that are yours to keep</li>
   </ul>
@@ -582,20 +582,20 @@ function about(v) {
   return {
     path: '/about-us',
     title: 'About Us: an Oakland Family Business | Family Laundry',
-    description: 'Meet Family Laundry: an Oakland family business since 2018 with more than 30 employees. We wash every delivery order at our own plant in East Oakland and deliver it in our own electric vans.',
+    description: 'Meet Family Laundry: an Oakland family business since 2018 with more than 30 employees. We wash every delivery order at our own plant in Oakland and deliver it in our own electric vans.',
     body: `<section class="wrap section narrow about">
   <p class="eyebrow">About us</p>
   <h1>The people who do your laundry</h1>
   <p class="lead">Family Laundry is an Oakland family business. We started in early 2018, the day we closed on our first laundromat, and began pickup and delivery in 2019.</p>
   ${ratingBlock(v)}
-  <figure class="about-photo"><img src="/assets/img/team.jpg" alt="The Family Laundry team in aprons in East Oakland" width="1078" height="588">
+  <figure class="about-photo"><img src="/assets/img/team.jpg" alt="The Family Laundry team in aprons in Oakland" width="1078" height="588">
     <figcaption>Part of the Family Laundry team in Oakland.</figcaption></figure>
   <h2>Our own team, never outsourced</h2>
   <p>We have more than 30 employees, and every order is washed, dried and folded by them. Your laundry never goes to a third party. When you call or text, you reach the same team.</p>
   <figure class="about-photo"><img src="/assets/img/facility.jpg" alt="A Family Laundry team member in front of the commercial washers" width="1140" height="766" loading="lazy">
-    <figcaption>Our commercial washers in East Oakland.</figcaption></figure>
-  <h2>Our own plant in East Oakland</h2>
-  <p>Every delivery order is washed at our own plant in East Oakland, in commercial machines with Free &amp; Clear hypoallergenic detergent and ozone. We never use fragrance, bleach or softener. Your order is folded, socks balled, and bagged in Family Laundry bags that are yours to keep.</p>
+    <figcaption>Our commercial washers in Oakland.</figcaption></figure>
+  <h2>Our own plant in Oakland</h2>
+  <p>Every delivery order is washed at our own plant in Oakland, in commercial machines with Free &amp; Clear hypoallergenic detergent and ozone. We never use fragrance, bleach or softener. Your order is folded, socks balled, and bagged in Family Laundry bags that are yours to keep.</p>
   <p>Drop-off orders are washed at our laundromat, Sudzee Wash &amp; Fold, at 2609 Foothill Boulevard. It shares its name with Sudzee, the San Francisco delivery company we acquired in 2022.</p>
   <figure class="about-photo"><img src="/assets/img/bag-deck.jpg" alt="A zipped Family Laundry bag on a sunny deck" width="1400" height="883" loading="lazy">
     <figcaption>Every customer gets their own Family Laundry bags.</figcaption></figure>
@@ -651,7 +651,7 @@ function blogIndex() {
     description: 'How an Oakland laundromat became a family-run laundry delivery service, and the people and partners behind it.',
     body: `<section class="wrap section narrow">
   <h1>Our story</h1>
-  <p class="lead">How a run-down East Oakland laundromat became Family Laundry, and the people and partners behind it.</p>
+  <p class="lead">How a run-down Oakland laundromat became Family Laundry, and the people and partners behind it.</p>
   <div class="post-list">${POSTS.map(p => `<a href="${esc(postPath(p))}" lang="${p.lang}">
     ${p.image ? `<img src="${esc(p.image)}" alt="" loading="lazy">` : '<span></span>'}
     <div><h2 style="font-size:24px;margin:0 0 6px">${esc(p.title)}</h2><p class="muted" style="margin:0">${esc(p.description)}</p></div>
@@ -707,10 +707,10 @@ function community() {
   return {
     path: '/community',
     title: 'Community | Family Laundry',
-    description: 'Family Laundry in the East Oakland community: a reading room with Libraries Without Borders, library story time, free English classes and pandemic relief for neighbors.',
+    description: 'Family Laundry in the Oakland community: a reading room with Libraries Without Borders, library story time, free English classes and pandemic relief for neighbors.',
     body: `<section class="wrap section narrow prose">
   <h1>Community</h1>
-  <p class="lead">Family Laundry started in 2018 as a neighborhood laundromat in East Oakland. Here is what we have done with that space, and with our partners, since then.</p>
+  <p class="lead">Family Laundry started in 2018 as a neighborhood laundromat in Oakland. Here is what we have done with that space, and with our partners, since then.</p>
   <h2>Reading and classes at the laundromat (2018–2020)</h2>
   <ul>
     <li>In 2018 we turned a small store in our building into a free reading room with the nonprofit Libraries Without Borders. Kids read while their parents did laundry.</li>
