@@ -11,6 +11,7 @@
 //   POST /maya/tool/account x-maya-token + X-Retell-Signature → caller's pickups/orders, ONLY after
 //                                                they confirm their street name (caller ID can be spoofed)
 //   POST /maya/tool/{find_times,check_address,book,skip,reschedule,cancel}  same checks → phone booking (phase 3)
+//   POST /maya/transcripts x-maya-admin, body {since_hours?} → recent calls with full transcripts (read-only; daily review)
 //   POST /maya/admin-tool  x-maya-admin → run a booking tool as a given caller number, ALWAYS dry-run (tests)
 //
 // Writes: one inbound sms_messages row per call (+ recording). With BOOKING_LIVE: orders (book /
@@ -898,6 +899,27 @@ async function wireNumbers(agentId: string) {
   return out;
 }
 
+// Recent calls with full transcripts (incl. tool calls), for the daily script review (David, 2026-10-10).
+// Admin only. Read-only: nothing here changes Retell or the database.
+async function transcripts(sinceHours: number) {
+  const hours = Math.min(Math.max(Number(sinceHours) || 24, 1), 24 * 14);
+  const agents: any[] = await retell('/list-agents');
+  const ids = [...new Set((agents || []).filter((a) => a.agent_name === AGENT_NAME).map((a) => a.agent_id))];
+  if (!ids.length) return { calls: [] };
+  const calls: any[] = await retell('/v2/list-calls', 'POST', { filter_criteria: { agent_id: ids,
+    start_timestamp: { lower_threshold: Date.now() - hours * 3_600_000 } }, sort_order: 'ascending', limit: 200 });
+  const toolTurn = (t: any) => t.role === 'tool_call_invocation' ? { role: 'tool_call', name: t.name, args: t.arguments }
+    : t.role === 'tool_call_result' ? { role: 'tool_result', result: String(t.content ?? '').slice(0, 1500) }
+    : { role: t.role, text: t.content };
+  return { since_hours: hours, calls: (calls || []).map((c) => ({
+    call_id: c.call_id, started: c.start_timestamp ? new Date(c.start_timestamp).toISOString() : null,
+    duration_s: c.duration_ms ? Math.round(c.duration_ms / 1000) : null, from: c.from_number || null,
+    ended: c.disconnection_reason || null, summary: c.call_analysis?.call_summary || null,
+    analysis: c.call_analysis?.custom_analysis_data || null,
+    turns: (c.transcript_with_tool_calls || c.transcript_object || []).map(toolTurn),
+  })) };
+}
+
 async function voices() {
   const all: any[] = await retell('/list-voices');
   return (all || []).filter((x) => String(x.gender || '').toLowerCase() === 'female')
@@ -1077,12 +1099,13 @@ Deno.serve(async (req) => {
       return json({ info: await businessInfo() });
     }
 
-    if (path.endsWith('/setup') || path.endsWith('/voices') || path.endsWith('/preview-info')) {
+    if (path.endsWith('/setup') || path.endsWith('/voices') || path.endsWith('/preview-info') || path.endsWith('/transcripts')) {
       if (!safeEq(await sha256Hex(req.headers.get('x-maya-admin') || ''), ADMIN_TOKEN_SHA256)) return json({ error: 'forbidden' }, 403);
       if (!RETELL_KEY) return json({ error: 'RETELL_API_KEY not set' }, 500);
       if (path.endsWith('/voices')) return json(await voices());
       if (path.endsWith('/preview-info')) return new Response(await businessInfo());
       const b = await req.json().catch(() => ({}));
+      if (path.endsWith('/transcripts')) return json(await transcripts(b.since_hours));
       return json(await setup(b.voice_id));
     }
     return json({ error: 'not found' }, 404);
