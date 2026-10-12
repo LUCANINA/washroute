@@ -85,6 +85,28 @@ async function retell(path: string, method = 'GET', body?: unknown): Promise<any
   return text ? JSON.parse(text) : null;
 }
 
+// Retell's versioned list endpoints (v2/v3, required since 2026-06-15) return one page at a time:
+// { items, has_more, pagination_key }. Walk the pages; fail loudly if the shape is not what we expect.
+async function retellPages(fetchPage: (key?: string) => Promise<any>, max = 5000): Promise<any[]> {
+  const out: any[] = [];
+  let key: string | undefined;
+  while (out.length < max) {
+    const r = await fetchPage(key);
+    if (!r || !Array.isArray(r.items)) throw new Error('retell: expected a paged { items } response');
+    out.push(...r.items);
+    if (!r.has_more || !r.pagination_key || r.pagination_key === key) break;
+    key = r.pagination_key;
+  }
+  return out.slice(0, max);
+}
+const pageQs = (key?: string) => (key ? `&pagination_key=${encodeURIComponent(key)}` : '');
+// All of Maya's agents (POST /v2/list-agents — returns one row per agent, newest-modified first).
+async function mayaAgents(): Promise<any[]> {
+  const all = await retellPages((key) => retell(`/v2/list-agents?limit=1000${pageQs(key)}`, 'POST', {}));
+  return all.filter((a) => a.agent_name === AGENT_NAME)
+    .sort((a, b) => (b.user_modified_timestamp ?? 0) - (a.user_modified_timestamp ?? 0));
+}
+
 // ── Live facts. Mirrors website/assets/fl-content.js tokenValue() so Maya quotes exactly
 //    what the website shows. Never type a price here — everything comes from the DB. ──
 function money(n: unknown) {
@@ -847,9 +869,8 @@ async function setup(voiceId?: string) {
   ];
   const llmBody = { general_prompt: PROMPT, begin_message: BEGIN, start_speaker: 'agent', general_tools: tools };
 
-  const agents: any[] = await retell('/list-agents');
-  const existing = (agents || []).filter((a) => a.agent_name === AGENT_NAME)
-    .sort((a, b) => (b.version ?? 0) - (a.version ?? 0))[0];
+  const found = (await mayaAgents())[0];
+  const existing = found ? await retell(`/get-agent/${encodeURIComponent(found.agent_id)}`) : null;
 
   const agentBody: Record<string, unknown> = {
     agent_name: AGENT_NAME,
@@ -874,6 +895,7 @@ async function setup(voiceId?: string) {
 
   if (existing) {
     const llmId = existing.response_engine?.llm_id;
+    if (!llmId) throw new Error(`Maya agent ${existing.agent_id} has no retell-llm id — not touching it`);
     await retell(`/update-retell-llm/${llmId}`, 'PATCH', llmBody);
     const agent = await retell(`/update-agent/${existing.agent_id}`, 'PATCH', agentBody);
     return { action: 'updated', agent_id: agent.agent_id, llm_id: llmId, voice_id: agent.voice_id, language: agent.language,
@@ -888,9 +910,9 @@ async function setup(voiceId?: string) {
 
 // Every Retell number whose inbound agent is Maya gets our caller-recognition webhook.
 async function wireNumbers(agentId: string) {
-  const nums: any[] = await retell('/list-phone-numbers');
+  const nums = await retellPages((key) => retell(`/v2/list-phone-numbers?limit=1000${pageQs(key)}`));
   const out: string[] = [];
-  for (const n of nums || []) {
+  for (const n of nums) {
     const mine = (n.inbound_agents || []).some((a: any) => a.agent_id === agentId) || n.inbound_agent_id === agentId;
     if (!mine) continue;
     await retell(`/update-phone-number/${encodeURIComponent(n.phone_number)}`, 'PATCH', { inbound_webhook_url: `${FN_URL}/inbound` });
@@ -903,15 +925,21 @@ async function wireNumbers(agentId: string) {
 // Admin only. Read-only: nothing here changes Retell or the database.
 async function transcripts(sinceHours: number) {
   const hours = Math.min(Math.max(Number(sinceHours) || 24, 1), 24 * 14);
-  const agents: any[] = await retell('/list-agents');
-  const ids = [...new Set((agents || []).filter((a) => a.agent_name === AGENT_NAME).map((a) => a.agent_id))];
+  const ids = [...new Set((await mayaAgents()).map((a) => a.agent_id))];
   if (!ids.length) return { calls: [] };
-  const calls: any[] = await retell('/v2/list-calls', 'POST', { filter_criteria: { agent_id: ids,
-    start_timestamp: { lower_threshold: Date.now() - hours * 3_600_000 } }, sort_order: 'ascending', limit: 200 });
+  const listed = await retellPages((key) => retell('/v3/list-calls', 'POST', {
+    filter_criteria: { agent: ids.map((agent_id) => ({ agent_id })),
+      start_timestamp: { type: 'number', op: 'ge', value: Date.now() - hours * 3_600_000 } },
+    sort_order: 'ascending', limit: 200, ...(key ? { pagination_key: key } : {}) }), 200);
+  // POST /v3/list-calls omits transcripts, so read each call in full (GET /v2/get-call), 5 at a time.
+  const calls: any[] = [];
+  for (let i = 0; i < listed.length; i += 5)
+    calls.push(...await Promise.all(listed.slice(i, i + 5)
+      .map((c) => retell(`/v2/get-call/${encodeURIComponent(c.call_id)}`))));
   const toolTurn = (t: any) => t.role === 'tool_call_invocation' ? { role: 'tool_call', name: t.name, args: t.arguments }
     : t.role === 'tool_call_result' ? { role: 'tool_result', result: String(t.content ?? '').slice(0, 1500) }
     : { role: t.role, text: t.content };
-  return { since_hours: hours, calls: (calls || []).map((c) => ({
+  return { since_hours: hours, calls: calls.map((c) => ({
     call_id: c.call_id, started: c.start_timestamp ? new Date(c.start_timestamp).toISOString() : null,
     duration_s: c.duration_ms ? Math.round(c.duration_ms / 1000) : null, from: c.from_number || null,
     ended: c.disconnection_reason || null, summary: c.call_analysis?.call_summary || null,
