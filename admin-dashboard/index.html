@@ -9667,6 +9667,8 @@
         startNewOrderListener();
         startRouteStopListener();
         startPaymentMethodListener();
+        // Session 344: auto first-order nudges (server enforces roles, 7am–8pm, caps, no repeats).
+        if (role === 'admin' || role === 'manager') startAutoNudge();
 
         // Restore the page + sub-tab the user was on before refresh (from URL hash).
         // Hash format: #page  or  #page/subtab  (e.g. #orders/map, #orders/driver-schedule, #orders/in_process)
@@ -29941,6 +29943,34 @@ ${noActivityNote}
       btn.disabled = false; btn.textContent = 'Nudge';
       showToast('Failed to send nudge: ' + e.message, 'error');
     }
+  }
+
+  // Session 344: auto-nudge. On dashboard open (and hourly while it stays open) ask the
+  // auto-nudge function to text new sign-ups who haven't ordered, in this staff member's name.
+  // All rules live server-side (supabase/functions/auto-nudge); this only knocks on the door.
+  let _autoNudgeTimer = null;
+  function startAutoNudge() {
+    if (_autoNudgeTimer) return;
+    runAutoNudge();
+    _autoNudgeTimer = setInterval(runAutoNudge, 60 * 60 * 1000);
+  }
+  async function runAutoNudge() {
+    try {
+      const jwt = await _staffJwt();
+      if (!jwt) return;
+      const res = await fetch(`${SUPA_URL}/functions/v1/auto-nudge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+        body: '{}',
+      });
+      const out = await res.json().catch(() => ({}));
+      console.log('[auto-nudge]', out);
+      if (out.sent > 0) {
+        showToast(`Auto-nudge: texted ${out.names.join(', ')}`, 'success');
+        _nudgeSent.clear();
+        if (document.getElementById('new-customers-body')) loadNewCustomers();
+      }
+    } catch (e) { console.warn('[auto-nudge] failed', e); }
   }
 
   async function loadNewCustomers() {
