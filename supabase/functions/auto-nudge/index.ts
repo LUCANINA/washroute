@@ -22,7 +22,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-const ENABLED = false             // ← on/off switch
+const ENABLED = true              // ← on/off switch (turned on 2026-10-12)
 const START_HOUR = 7              // Pacific, inclusive
 const END_HOUR = 20               // Pacific, exclusive (nothing at/after 8 pm)
 const MIN_AGE_MIN = 60            // give brand-new sign-ups an hour to book on their own
