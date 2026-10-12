@@ -26812,6 +26812,12 @@ ${noActivityNote}
       map: (v) => ({ payment: v[1], principal: v[2], interest: v[3], balance: v[4] }) },
     { n: 4, name: 'payment,principal,interest,balance',
       map: (v) => ({ payment: v[0], principal: v[1], interest: v[2], balance: v[3] }) },
+    // Session 344: Dexter Financial prints interest BEFORE principal. Same width as the
+    // layout above, so the parser below tries both and keeps the one whose arithmetic
+    // holds -- balance continuity tells them apart (principal reduces the balance,
+    // interest does not). If both ever verify, the parse is refused as ambiguous.
+    { n: 4, name: 'payment,interest,principal,balance',
+      map: (v) => ({ payment: v[0], principal: v[2], interest: v[1], balance: v[3] }) },
     { n: 3, name: 'principal,interest,balance',
       map: (v) => ({ payment: null, principal: v[0], interest: v[1], balance: v[2] }) },
   ];
@@ -26821,7 +26827,12 @@ ${noActivityNote}
     // A row is a date followed by 3-5 money figures. Currency symbols, thousands commas
     // and any leading period number are tolerated; a trailing period number belonging to
     // the NEXT row is excluded by requiring the decimal cents on every captured figure.
-    const rowRe = /(\d{1,2}\/\d{1,2}\/\d{4})((?:\s+\$?-?[\d,]+\.\d{2})+)/g;
+    // Session 344: a short word label may sit between the date and the figures
+    // (Dexter's "Cash Payment" / "Auto Payment" source column) -- before this, every
+    // Dexter row failed to match and the schedule silently fell through to "keep on
+    // file". A figure must also END at its cents: "9.39000" is a rate, not money, so a
+    // rate-change row matches no figures at all instead of contributing a bogus 9.39.
+    const rowRe = /(\d{1,2}\/\d{1,2}\/\d{4})(?:\s+[A-Za-z][A-Za-z.&'\/-]*(?:\s+[A-Za-z][A-Za-z.&'\/-]*){0,3})?((?:\s+\$?-?[\d,]+\.\d{2}(?![\d.]))+)/g;
     const raw = [];
     let m;
     while ((m = rowRe.exec(text))) {
@@ -26838,9 +26849,26 @@ ${noActivityNote}
     const body = raw.filter(r => r.nums.length === n);
     const setAside = raw.length - body.length;
 
-    const layout = _AMORT_LAYOUTS.find(l => l.n === n);
-    if (!layout || body.length < 3) return null;
+    const candidates = _AMORT_LAYOUTS.filter(l => l.n === n);
+    if (!candidates.length || body.length < 3) return null;
+    // Every layout of this width is tried; the one whose arithmetic holds wins.
+    const results = candidates.map(l => _scoreAmortLayout(l, body, offset, setAside));
+    const passing = results.filter(r => r.verified);
+    if (passing.length > 1) {
+      // Two readings both add up -- picking one would be a guess about which column is
+      // principal. Refuse rather than guess; a wrong schedule corrupts every split.
+      const r = passing[0];
+      r.verified = false;
+      r.failures = [`ambiguous columns: both ${passing.map(p => p.layout).join(' and ')} add up`].concat(r.failures);
+      return r;
+    }
+    if (passing.length === 1) return passing[0];
+    // Nothing verified: report the reading that came closest, so the "doesn't add up"
+    // note quotes the most useful failures.
+    return results.sort((a, b) => b._score - a._score)[0];
+  }
 
+  function _scoreAmortLayout(layout, body, offset, setAside) {
     const rows = body.map(r => {
       const f = layout.map(r.nums);
       const [mm, dd, yyyy] = r.date.split('/');
@@ -26881,6 +26909,7 @@ ${noActivityNote}
 
     return {
       rows, verified, layout: layout.name, encodingOffset: offset, setAside,
+      _score: balanceRate + splitRate,
       checks: {
         balance_continuity: `${balanceOk}/${balanceChecked}`,
         principal_plus_interest: splitChecked ? `${splitOk}/${splitChecked}` : 'n/a (no payment column)',
@@ -28018,8 +28047,28 @@ ${noActivityNote}
       uploaded_by: opts.by || currentUserDisplayName || currentUserRole || 'admin dashboard',
       file_sha256: opts.sha || null,
     });
-    if (insErr) throw new Error(insErr.message || 'Could not save the document record');
+    if (insErr) {
+      // Session 344: the (loan, file hash) unique index is the backstop for the check in
+      // _submitIntakeDocument. Never show the raw Postgres text to a person.
+      if (insErr.code === '23505' && /loan_documents_loan_sha_uniq/.test(insErr.message || '')) {
+        throw new Error('This exact file is already on file for this loan. Nothing new was saved.');
+      }
+      throw new Error(insErr.message || 'Could not save the document record');
+    }
     return path;
+  }
+
+  // Session 344: say WHEN and AS WHAT the identical file was filed, so "duplicate" is an
+  // answer rather than a wall. A lender re-sending a schedule under a new name is the
+  // common case (Dexter 2, 2026-10-12: "NEW amort Schedule" was byte-identical to the
+  // file filed on 10/07 as "Young & Foolish SP2 amort Schedule").
+  function _liAlreadyOnFileMsg(prior) {
+    const opt = document.querySelector(`#li-kind-select option[value="${prior.doc_type}"]`);
+    const kind = opt ? opt.textContent.split(' — ')[0] : (prior.doc_type || 'a document');
+    const when = prior.created_at
+      ? new Date(prior.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })
+      : 'earlier';
+    return `Already on file: this exact file was filed for this loan on ${when} as "${kind}". Nothing was uploaded.`;
   }
 
   async function _submitIntakeDocument(docType) {
@@ -28045,6 +28094,15 @@ ${noActivityNote}
           sha = await _bkSha256Hex(bytes);
         }
       } catch (_) { /* hash is best-effort — never blocks a filing */ }
+      // Session 344: check BEFORE uploading. The insert used to fail on the unique index
+      // AFTER the file had gone to storage, leaving an orphaned copy behind on every retry.
+      if (sha) {
+        const { data: same } = await db.from('loan_documents')
+          .select('doc_type, created_at')
+          .eq('loan_account_id', loanId).eq('file_sha256', sha)
+          .order('created_at', { ascending: true }).limit(1);
+        if (same && same.length) throw new Error(_liAlreadyOnFileMsg(same[0]));
+      }
       await _attachLoanDocument(loanId, acct.lender_account_number, _liRawFile, docType, { title, notes, sha });
       closeLoanIntakeModal();
       showToast('Document attached.', 'success');
@@ -43028,7 +43086,7 @@ ${oneCopy}
         </button>${det}`;
     }).join('');
   }
-  // Session 337: subscription receipts (email the customer, or download the PDF).
+  // Session 344: subscription receipts (email the customer, or download the PDF).
   async function cp2SubReceipt(txnId, mode, btn) {
     const label = btn.textContent;
     btn.disabled = true; btn.textContent = mode === 'pdf' ? 'Preparing…' : 'Sending…';

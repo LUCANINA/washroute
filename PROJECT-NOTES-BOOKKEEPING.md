@@ -1,5 +1,58 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 344 — Oct 12, 2026: Dexter 2's new rate schedule was rejected as a "duplicate" — because it had never been read
+
+David uploaded "Dexter 2 - NEW amort Schedule.pdf" (lender re-issued 2026-10-07: rate 6.64% →
+**9.39% from 8/31/26 → 9.64% from 10/1/26**; payment $3,839.38 → **$3,947.35 (Sep) → $3,956.84
+(Oct on)**, payoff 2028-08-31) and got raw Postgres: `duplicate key value violates unique
+constraint "loan_documents_loan_sha_uniq"`.
+
+**The message was true and beside the point.** The file is byte-identical (sha 2172f465…, 222,877
+bytes) to "Young & Foolish SP2 amort Schedule.pdf" filed 2026-10-07 — but filed only as
+"Amortization schedule — keep on file". The browser schedule reader returned null on it, so the
+modal fell through to plain filing and **no schedule was ever ingested**. Dexter 2 (prestaging) kept
+running on the 2021 schedule, which projected a rate DROP to 5.89% and $3,810.26. Consequences on
+the day: the 2026-09 card is still $3,810.26 (422.44 int / 3,387.82 prin); the WR-STAGE for it was
+deleted in Xero by hand and the real bank line — **$3,947.35 on 2026-09-30, reconciled, coded 100%
+to 233, no journal touches it** (xero-read payment_picture, 2026-10-12) — so September's $673.47 of
+interest currently sits in the liability.
+
+**Root cause — two reasons the reader saw zero rows.** (1) Dexter prints a source label between the
+date and the figures ("09/30/2026 Cash Payment 3,947.35 …"); `rowRe` required figures straight
+after the date. (2) Dexter's columns are payment, INTEREST, principal, balance; the only 4-wide
+layout was payment, principal, interest, balance, and `_AMORT_LAYOUTS.find` took the first width
+match without trying others.
+
+**Fix (admin-dashboard only, no edge function, no schema):**
+* `rowRe` tolerates a short word label before the figures; a figure must end at its cents
+  (`(?![\d.])`) so a rate like 9.39000 is not read as money and rate-change rows (printed balance
+  0.00) match nothing.
+* New layout `payment,interest,principal,balance`. Every layout of the row width is now scored
+  (`_scoreAmortLayout`) and the one whose arithmetic holds wins; **two that both verify are refused
+  as ambiguous** rather than guessed.
+* Dexter now reads 86 rows, 85/85 balance continuity, 86/86 p+i. The PCV ×2 and Verdant schedules
+  that already import produce **byte-identical rows** (md5 pinned in the test).
+* Duplicate filing: `_submitIntakeDocument` checks (loan, sha) BEFORE uploading to storage and says
+  when and as what the file was filed; the 23505 is translated as a backstop. The old order
+  uploaded first, so every rejected retry left an orphan in `loan-statements` — four exist now
+  (`documents/103973-SP2/1791396074421_…`, `1791821462494_…`, `1791821672377_…`; harmless, left).
+
+**Tests:** `tests/amort-schedule-parse.test.mjs` (15, Node, cuts the SHIPPED functions out of
+index.html; fixtures `tests/fixtures/amort-text/*.txt` are pdf.js 3.11.174 extractions of the real
+PDFs) and harness group `amort-schedule-intake` (12, by clicking; red against HEAD, incl. a
+strip-the-check discrimination). Full harness on the container: 2,716 assertions, 2,704 pass; the
+12 red are `history/s240 #10` (deliberate) plus `stale-anchor-ask` ×6 and
+`rollback-beats-stale` ×5, **identical red against the pre-change file** — pre-existing, not this.
+
+**Still to do — by David, in this order (needs the push first):**
+1. Bookkeeping → upload the same PDF again on Dexter Loan 2. It should now say "Auto-read an
+   amortization schedule: 86 rows" and the button reads **Import Schedule (86 rows)**. Set the
+   schedule date to **2026-10-07** (the date printed on it), import.
+2. Regenerate **2026-09** from the schedule (it is pending_review, so loan-generate-schedule-split
+   allows it) → $3,947.35 = 673.47 int / 3,273.88 prin. The bank line is already reconciled to 233,
+   so September is POSTED as a reallocation journal, not staged.
+3. October then appears as the next card at $3,956.84 (664.55 / 3,292.29) for staging.
+
 ## Session 336 — Oct 7, 2026: the EIDL $5.00 adjustment was posted to Xero THREE times
 
 Found while David was posting September revenue reclasses: three POSTED manual journals dated

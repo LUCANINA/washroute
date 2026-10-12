@@ -12490,6 +12490,111 @@ GROUPS.push({
   },
 });
 
+/* ── A LENDER'S NEW SCHEDULE IS IMPORTED, AND A DUPLICATE SAYS WHEN (session 344) ──
+ *
+ * Dexter 2's lender re-issued its schedule on 2026-10-07 (6.64% -> 9.39% -> 9.64%).
+ * The reader could not parse Dexter's layout, so the upload fell through to "keep on
+ * file" and the loan kept staging off the 2021 schedule; re-uploading under a new name
+ * then hit the file-hash unique index as raw Postgres text. Both halves, by CLICKING. */
+GROUPS.push({
+  name: 'amort-schedule-intake',
+  async run(t) {
+    const dexterText = fs.readFileSync(path.join(HERE, 'fixtures', 'amort-text', 'dexter2-2026-10-07.txt'), 'utf8');
+    const p = await newHarnessPage({ tab: 'loans' });
+    await p.settle();
+
+    /* ── 1. A READABLE SCHEDULE GOES TO THE SCHEDULE INGEST ─────────────── */
+    const setup = await p.evaluate((text) => {
+      openLoanIntakeModal();
+      const loan = (_allLoanAccounts || []).find(a => a.lender_account_number === '103973-SP2');
+      document.getElementById('li-loan-select').value = loan.id;
+      _loanUploadFile = { filename: 'Dexter 2 - NEW amort Schedule.pdf', base64: 'AAAA' };
+      _liParsedSchedule = _parseAmortizationSchedule(text);
+      document.getElementById('li-kind-select').value = LI_SCHEDULE_KIND;
+      onLoanIntakeKindChanged(false);
+      document.getElementById('li-sched-date').value = '2026-10-07';
+      window.__amortCalls = [];
+      const realFn = _loanFn;
+      _loanFn = async (name, body) => { window.__amortCalls.push({ name, body }); return { ok: true, data: { rows_inserted: body.rows ? body.rows.length : 0 } }; };
+      window.__restoreLoanFn = () => { _loanFn = realFn; };
+      return { verified: !!(_liParsedSchedule && _liParsedSchedule.verified),
+               label: document.getElementById('li-submit-btn').textContent };
+    }, dexterText);
+    t.ok(setup.verified, '⭐ the Dexter 2026-10-07 schedule is READ by the shipped parser');
+    t.ok(/Import Schedule \(86 rows\)/.test(setup.label), '...and the button offers the import, not "keep on file"', setup.label);
+    await p.page.click('#li-submit-btn');
+    await p.settle();
+    const sent = await p.evaluate(() => {
+      window.__restoreLoanFn();
+      const c = (window.__amortCalls || []).find(x => x.name === 'loan-ingest-amortization');
+      const sep = c && c.body.rows.find(r => r.row_date === '2026-09-30');
+      return { calls: (window.__amortCalls || []).map(x => x.name), n: c ? c.body.rows.length : 0,
+               source: c && c.body.source, type: c && c.body.amort_type, gen: c && c.body.schedule_generated_date, sep };
+    });
+    t.eq(sent.calls.join(','), 'loan-ingest-amortization', '⭐ clicking sends it to the SCHEDULE ingest — nothing is filed as a plain document');
+    t.eq(sent.n, 86, 'all 86 payment rows travel');
+    t.eq(`${sent.source}|${sent.type}`, 'client_parsed_verified|amortization_schedule',
+         'with the provenance mayPrestage() allows — a lender-issued schedule may stage');
+    t.eq(sent.gen, '2026-10-07', 'dated as the lender dated it');
+    t.ok(sent.sep && sent.sep.payment === 3947.35 && sent.sep.interest === 673.47 && sent.sep.principal === 3273.88,
+         '⭐ September carries the NEW rate: 3,947.35 = 673.47 interest + 3,273.88 principal', JSON.stringify(sent.sep));
+    await p.close();
+
+    /* ── 2. A FILE ALREADY ON FILE SAYS WHEN AND AS WHAT — AND UPLOADS NOTHING ── */
+    const SHA = 'abc0000000000000000000000000000000000000000000000000000000000337';
+    const q = await newHarnessPage({ tab: 'loans', mutate: (d) => {
+      const loan = (d.loan_accounts || []).find(a => a.lender_account_number === '103973-SP2');
+      (d.loan_documents = d.loan_documents || []).push({ id: 's337-prior', loan_account_id: loan.id,
+        doc_type: 'amortization_schedule', file_sha256: SHA, created_at: '2026-10-07T17:59:53.62931+00:00',
+        storage_path: 'documents/103973-SP2/prior.pdf' });
+    } });
+    await q.settle();
+    const runDup = async () => {
+      await q.evaluate((sha) => {
+        openLoanIntakeModal();
+        const loan = (_allLoanAccounts || []).find(a => a.lender_account_number === '103973-SP2');
+        document.getElementById('li-loan-select').value = loan.id;
+        _loanUploadFile = { filename: 'x.pdf', base64: 'AAAA' };
+        _liRawFile = new File(['x'], 'Dexter 2 - NEW amort Schedule.pdf', { type: 'application/pdf' });
+        _liParsedSchedule = null;
+        document.getElementById('li-kind-select').value = LI_SCHEDULE_KIND;
+        onLoanIntakeKindChanged(false);
+        window.__realSha = window.__realSha || _bkSha256Hex;
+        _bkSha256Hex = async () => sha;
+        window.__uploads = 0;
+        const st = db.storage.from('loan-statements');
+        const proto = Object.getPrototypeOf(st) === Object.prototype ? st : null;
+        window.__realStorageFrom = window.__realStorageFrom || db.storage.from.bind(db.storage);
+        db.storage.from = (b) => { const o = window.__realStorageFrom(b);
+          return Object.assign({}, o, { upload: async (...a) => { window.__uploads++; return o.upload(...a); } }); };
+      }, SHA);
+      await q.page.click('#li-submit-btn');
+      await q.settle();
+      return q.evaluate(() => ({ err: document.getElementById('li-error').textContent || '',
+                                 shown: document.getElementById('li-error').style.display !== 'none',
+                                 uploads: window.__uploads }));
+    };
+    const dup = await runDup();
+    t.ok(dup.shown && /Already on file/.test(dup.err), '⭐ a byte-identical file is refused in words, not as a Postgres constraint name', dup.err);
+    t.ok(/Oct 7, 2026/.test(dup.err) && /"Amortization schedule"/.test(dup.err), '...naming WHEN it was filed and AS WHAT', dup.err);
+    t.ok(!/loan_documents_loan_sha_uniq|duplicate key/.test(dup.err), 'no constraint name reaches the screen');
+    t.eq(dup.uploads, 0, '⭐ and NOTHING was uploaded — the check runs before storage, so no orphaned copy is left behind');
+
+    /* ── 3. IT DISCRIMINATES ────────────────────────────────────────────── */
+    // Strip the pre-upload check out of the SHIPPED function's own source: the same
+    // click must now reach storage. A pass against both versions would be decoration.
+    await q.evaluate(() => {
+      const src = _submitIntakeDocument.toString();
+      const a = src.indexOf('if (sha) {'), b = src.indexOf('await _attachLoanDocument(');
+      _submitIntakeDocument = new Function('return ' + src.slice(0, a) + src.slice(b))();
+    });
+    const broken = await runDup();
+    t.ok(broken.uploads > 0 && !/Already on file/.test(broken.err),
+         'with the check removed the same click uploads and the friendly refusal disappears', JSON.stringify(broken));
+    await q.close();
+  },
+});
+
 /* ── A HAND-ENTERED BALANCE MUST SAY WHAT IT MEASURES (session 278) ────────
  *
  * Three paths wrote loan_statements.balance_basis and only two of them could:
