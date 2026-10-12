@@ -26,10 +26,10 @@ function home(v) {
   // Layout and look follow the original Wix homepage (David prefers it); copy and prices are the corrected, live versions.
   const body = `
 <section class="h-hero">
-  <img class="h-hero-img" src="/assets/img/hero-wide.jpg" alt="A woman smelling freshly cleaned laundry" width="1920" height="984">
+  <img class="h-hero-img" src="/assets/img/hero-tropical.jpg" alt="A Family Laundry bag on a sunny deck under tropical leaves" width="1920" height="984">
   <div class="wrap h-hero-copy">
-    <h1><span class="h-kicker">Family Laundry</span>Premium Wash &amp; Fold for Busy Households</h1>
-    <p class="h-hero-sub">Picked up, washed at our own plant in Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
+    <h1><span class="h-kicker">Family Laundry</span>Another beautiful day <span style="white-space:nowrap">of not doing laundry.</span></h1>
+    <p class="h-hero-sub">Premium wash &amp; fold for busy households. Picked up, washed at our own plant in Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
     ${ratingBadge(v)}
     <a class="h-btn h-btn-lg" href="${APP}">Get started</a>
     <img class="h-stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="236" height="236">
@@ -108,7 +108,7 @@ ${ownRatingLine(v) ? `<p class="h-own">${ownRatingLine(v)}</p>` : ''}
 
 <section id="story" class="h-story">
   <h2>Our story</h2>
-  <div class="h-video"><iframe src="https://www.youtube-nocookie.com/embed/342c6q6Ly-I" title="Family Laundry - Laundry service for busy households" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
+  <figure class="h-photo"><img src="/assets/img/family-van.jpg" alt="Laura, David and their two sons in front of a Family Laundry van in Oakland" width="1448" height="1086" loading="lazy"></figure>
   <p>Our Family Laundry adventure began in early 2018, the day we closed on our first laundromat in Oakland. Our respective backgrounds didn't make us laundry delivery experts from the get-go, but we got our hands dirty and learned along the way.</p>
   <p>We run Family Laundry the way we think all companies should be run: we put employees first, we actively engage with the communities we operate in, and we do our part to reduce our impact on the environment.</p>
   <p>Thank you for trusting us with your laundry.</p>
