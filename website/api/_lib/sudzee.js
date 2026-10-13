@@ -67,6 +67,9 @@ ${indexable ? '' : '<meta name="robots" content="noindex, nofollow">'}
   .btn-ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); }
   .truck { max-width: 760px; margin: 32px auto 0; padding: 0 20px; }
   .truck img { width: 100%; height: auto; display: block; }
+  .sf { margin: 18px auto 0; max-width: 560px; padding: 10px 18px; border: 2px solid var(--pink); border-radius: 999px; font-size: 15px; text-align: center; }
+  .sf a { font-weight: 600; white-space: nowrap; }
+  @media (max-width: 560px) { .sf { border-radius: 18px; } }
   footer.wrap { margin-top: 48px; padding: 24px 20px 40px; border-top: 1px solid var(--line); font-size: 15px; color: var(--muted); }
 </style>
 <script type="application/ld+json">${JSON.stringify(jsonld).replace(/</g, '\\u003c')}</script>
@@ -75,6 +78,7 @@ ${indexable ? '' : '<meta name="robots" content="noindex, nofollow">'}
 <header class="wrap">
   <h1 style="margin:0"><img src="/assets/img/sudzee-logo-tagline.jpg" alt="Sudzee: Laundromat + Wash &amp; Fold" width="682" height="700"></h1>
   <p class="tag">The Friendliest People. Outstanding Wash &amp; Fold.</p>
+  <p class="sf">Looking for Sudzee delivery in San Francisco? It's now Family Laundry. <a href="${FL}/laundry-delivery-sf">SF pickup &amp; delivery →</a></p>
 </header>
 <main class="wrap">
   <div class="visit">

@@ -284,5 +284,17 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   (migration `session_333_service_area_waitlist`: zip, email lowercased, source, created_at, notified_at; unique
   zip+email; RLS: anon/authenticated INSERT only, `is_admin()` read/update/delete). Note: PostgREST `on_conflict`
   fails RLS for anon (needs SELECT), so the endpoint does a plain insert and treats 409 as success. One test row
-  (zip 00000, probe@claude-test.invalid) is in the table; delete it. Not built yet: an Admin list of sign-ups by ZIP.
+  (zip 00000, probe@claude-test.invalid) is in the table; delete it. Admin list built Oct 13: Reports → Customers → Area Requests (by ZIP, newest, Copy emails).
+
+- **Tue Oct 13, 2026 (outage + fixes)** — 07:50 the whole site and sudzee.com returned 500: the new ZIP list was
+  named `zips.js`, which the repo `.gitignore` pattern `zi[A-Za-z0-9]*` silently ignored, so it was never pushed and
+  `require()` crashed every page. Renamed to `content/service-zips.js`. **Before telling David to publish, check every
+  new file name against `.gitignore`.** Same morning: hero ZIP check simplified to one pill (field + button same
+  height, label visually hidden, "Already a customer" line removed, rating under the bar); `layout.js` now adds
+  `?v=<hash of site.css+forms.js>` to both asset URLs so a deploy is seen at once (assets are cached 1 hour).
+  sudzee.com: added "Looking for Sudzee delivery in San Francisco? It's now Family Laundry → SF page" under the
+  tagline (David OK'd). Admin: new report Reports → Customers → Area Requests (`loadAreaRequests()` in
+  `admin-dashboard/index.html`, reads `service_area_waitlist`; RLS checked: admin sees rows, driver and anon see none).
+  David found the old Sudzee SF Google listing (1901 McAllister St, 94118, "Permanently closed", 2.7★ from 3
+  reviews). Advice given: claim it now, keep it closed, revive/rename/move it only when there is a real SF hub.
 

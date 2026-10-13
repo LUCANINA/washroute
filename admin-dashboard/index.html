@@ -3231,6 +3231,24 @@
                Stripe payouts (collected money), so an uncollected card order never
                entered Xero as revenue — there is nothing to reverse. This is a
                record, not a journal. -->
+          <!-- ── TAB: AREA REQUESTS (session 333, Oct 2026) ──
+               People who checked a ZIP we don't serve on the website and left an email
+               (table service_area_waitlist). All-time, grouped by ZIP, so expansion
+               decisions can follow real demand. Own period: the date row is hidden. -->
+          <div id="rpttab-arearequests" style="display:none">
+            <div class="card" style="margin-top:16px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Requests by ZIP</div>
+                  <div class="card-sub" id="area-req-sub">From the "Check if we serve your area" box on familylaundry.com. All time.</div>
+                </div>
+              </div>
+              <div id="area-req-body">
+                <div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>
+              </div>
+            </div>
+          </div>
+
           <div id="rpttab-referrals" style="display:none">
             <!-- Session 314: the funnel. Invites and link opens come from referral_events
                  (written by the customer app); sign-ups and first orders from referrals. -->
@@ -54087,6 +54105,57 @@ ${oneCopy}
     else if (rptTab === 'baddebt')       loadBadDebtReport();
     else if (rptTab === 'feedback')      loadFeedbackPage();
     else if (rptTab === 'referrals')     loadReferralPairs(true);
+    else if (rptTab === 'arearequests')  loadAreaRequests();
+  }
+
+  // ── AREA REQUESTS (session 333) ──
+  // service_area_waitlist, grouped by ZIP: how many people, newest request, and their
+  // emails (copy them all when we open that area). RLS lets admin/manager/laundry_tech read.
+  let _areaReqByZip = {};
+  async function loadAreaRequests() {
+    const el = document.getElementById('area-req-body');
+    const subEl = document.getElementById('area-req-sub');
+    if (!el) return;
+    const { data, error } = await db.from('service_area_waitlist')
+      .select('zip, email, created_at, notified_at')
+      .order('created_at', { ascending: false })
+      .limit(5000);
+    if (error) {
+      el.innerHTML = `<div style="padding:16px;color:var(--red)">Could not load area requests: ${esc(error.message)}</div>`;
+      return;
+    }
+    const rows = data || [];
+    _areaReqByZip = {};
+    rows.forEach(r => { (_areaReqByZip[r.zip] = _areaReqByZip[r.zip] || []).push(r); });
+    const zips = Object.keys(_areaReqByZip).sort((a, b) => _areaReqByZip[b].length - _areaReqByZip[a].length || a.localeCompare(b));
+    if (subEl) subEl.textContent = rows.length
+      ? `${rows.length} ${rows.length === 1 ? 'person' : 'people'} from ${zips.length} ZIP ${zips.length === 1 ? 'code' : 'codes'}, from the "Check if we serve your area" box on familylaundry.com. All time.`
+      : 'From the "Check if we serve your area" box on familylaundry.com. All time.';
+    if (!rows.length) {
+      el.innerHTML = '<div style="padding:16px;color:var(--gray-500);font-size:13px">No requests yet. When someone checks a ZIP we don\'t serve and leaves an email, it shows up here.</div>';
+      return;
+    }
+    const fmtD = iso => new Date(iso).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' });
+    el.innerHTML = `<table><thead><tr>
+        <th>ZIP</th><th style="text-align:right">People</th><th>Newest request</th><th>Emails</th><th></th>
+      </tr></thead><tbody>${zips.map(z => {
+        const list = _areaReqByZip[z];
+        const waiting = list.filter(r => !r.notified_at).length;
+        return `<tr>
+          <td class="td-name">${esc(z)}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">${list.length}${waiting < list.length ? `<div style="font-size:11px;color:var(--gray-400);font-weight:400">${waiting} not yet told</div>` : ''}</td>
+          <td style="white-space:nowrap">${fmtD(list[0].created_at)}</td>
+          <td style="font-size:12px;color:var(--gray-600);max-width:420px">${list.slice(0, 3).map(r => esc(r.email)).join(', ')}${list.length > 3 ? ` and ${list.length - 3} more` : ''}</td>
+          <td style="text-align:right"><button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap" onclick="copyAreaRequestEmails('${esc(z)}')">Copy emails</button></td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  }
+  function copyAreaRequestEmails(zip) {
+    const emails = (_areaReqByZip[zip] || []).map(r => r.email).join(', ');
+    if (!emails) return;
+    navigator.clipboard.writeText(emails)
+      .then(() => showToast(`Copied ${(_areaReqByZip[zip] || []).length} emails for ${zip}`, 'success'))
+      .catch(() => showToast('Could not copy. Select the emails in the table instead.', 'error'));
   }
 
   // ── BAD DEBT REPORT (session 291e) ──
@@ -54188,6 +54257,7 @@ ${oneCopy}
         ['registrations', 'Registrations', 'New sign-ups, and where they came from.'],
         ['subscriptions', 'Subscriptions', 'Active plans, new and churned.'],
         ['referrals',     'Referrals',     'Who refers, and what it is worth.'],
+        ['arearequests',  'Area Requests', 'ZIPs we don\'t serve yet, asking us to come.'],
         ['feedback',      'Feedback',      'What customers actually said.'] ] },
   ];
 
@@ -54208,6 +54278,7 @@ ${oneCopy}
     subscriptions: '<path d="M20.6 10.2A8 8 0 1 0 21 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M21.4 5.4v5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
     referrals:     '<circle cx="8" cy="8.5" r="3.2" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="17.5" r="3.2" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.7 15.5 15.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
     feedback:      '<path d="M5 6.5h16v10h-8.5L8 21v-4.5H5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>',
+    arearequests:  '<path d="M13 22s-6.5-6.1-6.5-11a6.5 6.5 0 0 1 13 0c0 4.9-6.5 11-6.5 11z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="13" cy="11" r="2.3" stroke="currentColor" stroke-width="1.5"/>',
   };
 
   const _rptGroupOf = tab => (RPT_GROUPS.find(g => g.tabs.some(t => t[0] === tab)) || RPT_GROUPS[0]).key;
@@ -54460,7 +54531,7 @@ ${oneCopy}
     // Session 323: the Launderers report picks its own month, so the shared
     // Today / 7 days / Custom row is hidden while it is open. Session 336: the
     // Drivers report does the same.
-    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items' || tab === 'possales');
+    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items' || tab === 'possales' || tab === 'arearequests');
     _rptSyncPeriodUI();
     runCurrentReport();
   }
