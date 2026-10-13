@@ -11,6 +11,7 @@
 // mixed: true = streets in this ZIP book into zones with different windows, so no windows are shown.
 // label = what the visitor sees when a ZIP spans two cities.
 // To add a ZIP when you open a new area: add one line here.
+// Maya (the phone assistant) reads this same list through /api/service-area (api/service-area.js) — keep that file.
 module.exports = {
   // San Francisco (whole city is bookable by city name)
   94102: 'San Francisco', 94103: 'San Francisco', 94104: 'San Francisco', 94105: 'San Francisco', 94107: 'San Francisco',

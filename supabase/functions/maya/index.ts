@@ -224,7 +224,7 @@ async function inboundCall(evt: any) {
       ? `The caller's number matches an existing customer whose first name is ${first}. Not verified yet.`
       : `The caller's number matches an existing customer (no first name on file). Not verified yet.` },
     ...(first ? { agent_override: { retell_llm: {
-      begin_message: `Hi ${first}, this is Maya at Family Laundry. How can I help you today?` } } } : {}),
+      begin_message: `Hi ${first}, this is Maya, Family Laundry's virtual assistant. How can I help you today?` } } } : {}),
   } };
 }
 
@@ -600,9 +600,75 @@ async function toolCancel(call: any, a: any, live: boolean) {
     say: `Cancelled.${all && repeats ? ' Their repeating pickups are stopped; nothing more is booked. They can call any time to start again.' : ''}${missed}` };
 }
 
+// ── Service-area check by ZIP or city (David, 2026-10-13) ──
+// The ZIP/city list is the website's (website/content/service-zips.js + cities.js, served as JSON by
+// website/api/service-area.js), so the phone and the homepage ZIP check can't disagree. Pickup windows come
+// live from site_public_values().zones. If the website can't be reached, cities still work from the zones.
+const AREA_URL = 'https://www.familylaundry.com/api/service-area';
+let areaCache: { at: number; data: any } | null = null;
+async function areaList(): Promise<any | null> {
+  if (areaCache && Date.now() - areaCache.at < 10 * 60_000) return areaCache.data;
+  try {
+    const r = await fetch(AREA_URL, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) throw new Error(String(r.status));
+    const data = await r.json();
+    if (!data?.zips || !data?.cities) throw new Error('bad shape');
+    areaCache = { at: Date.now(), data };
+    return data;
+  } catch (e) { console.error('maya: service-area list unavailable', (e as Error).message); return areaCache?.data ?? null; }
+}
+
+async function toolServiceArea(_call: any, a: any) {
+  const zip = String(a?.zip || '').replace(/\D/g, '').slice(0, 5);
+  const cityIn = String(a?.city || '').trim();
+  if (!zip && !cityIn) return { ok: false, say: 'Ask for their ZIP code or city.' };
+  const [vRows, list] = await Promise.all([db('rpc/site_public_values', { method: 'POST', body: '{}' }), areaList()]);
+  const v = Array.isArray(vRows) ? vRows[0]?.site_public_values ?? vRows[0] : vRows;
+  const zones: any[] = v?.zones || [];
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z]/g, '');
+  const zoneFor = (city: string, zone: string | null) =>
+    zones.find((z) => zone && z.name === zone) || zones.find((z) => (z.cities || []).includes(city));
+  const windows = (z: any) => (z?.windows || [])
+    .map((x: any) => `${hm(x.start)}–${hm(x.end)} (${(x.days || []).map((d: number) => DAY[d]).join(',')})`).join(' and ');
+  const yes = (name: string, z: any) => z
+    ? { ok: true, served: true, area: name, zone: z.name, pickup_windows: windows(z),
+        say: `Yes, we pick up in ${name}. Pickup windows there: ${windows(z)}. For same-day, use the ${z.name} area line in get_business_info. Offer to book a pickup.` }
+    : { ok: true, served: true, area: name,
+        say: `Yes, we pick up in ${name}. Offer to book a pickup; the times come from find_pickup_times once you have their address.` };
+  const askStreet = (name: string, why: string) => ({ ok: true, served: 'depends', area: name,
+    say: `${why} Ask for their house number and street, then call check_new_address to check it. That only checks; nothing is created until book_pickup.` });
+
+  if (zip) {
+    if (!/^\d{5}$/.test(zip)) return { ok: false, say: 'Ask them to repeat the five-digit ZIP code.' };
+    if (!list) return { ok: false, say: "The ZIP check isn't working right now. Ask which city they're in instead, and call this again with city." };
+    const e = list.zips[zip];
+    if (!e) return { ok: true, served: false, zip,
+      say: `ZIP ${zip} is outside our service area. Say so kindly and name the nearest cities we serve (from get_business_info). If you might have misheard, read the ZIP back once.` };
+    const name = e.label || e.city;
+    if (e.partial) return askStreet(name, `We serve only some streets in ${name}.`);
+    if (e.mixed) return askStreet(name, `We serve ${name}, but pickup times differ by street there.`);
+    return yes(name, zoneFor(e.city, e.zone));
+  }
+
+  const cities: Record<string, any> = { ...(list?.cities || {}) };
+  for (const z of zones) for (const c of z.cities || []) cities[c] ??= { zone: z.name };
+  const key = Object.keys(cities).find((c) => norm(c) === norm(cityIn));
+  // List unavailable: the zones alone miss Richmond/Piedmont/Emeryville and East Oakland's different windows,
+  // so don't say no and don't quote windows; check the street address instead.
+  if (!list) return key ? yes(key, null) : askStreet(cityIn, `I can't confirm ${cityIn} from here right now.`);
+  if (!key) return { ok: true, served: false, city: cityIn,
+    say: `${cityIn} isn't on our list. Say kindly that we don't serve it yet and name the nearest cities we do (from get_business_info). If you might have misheard the city, ask for their ZIP code and call this again.` };
+  const c = cities[key];
+  if (c.partial) return askStreet(key, `We serve only some streets in ${key}.`);
+  if (c.varies) return { ok: true, served: true, area: key,
+    say: `Yes, we pick up all over ${key}, but pickup times depend on the neighborhood. Ask for their ZIP code and call this again with zip.` };
+  return yes(key, zoneFor(key, c.zone));
+}
+
 const BOOKING_TOOLS: Record<string, (call: any, a: any, live: boolean) => Promise<any>> = {
   find_times: (c, a) => toolFindTimes(c, a), check_address: (c, a) => toolCheckAddress(c, a),
   book: toolBook, skip: toolSkip, reschedule: toolReschedule, cancel: toolCancel,
+  area: (c, a) => toolServiceArea(c, a),
 };
 
 async function businessInfo(): Promise<string> {
@@ -656,7 +722,7 @@ async function businessInfo(): Promise<string> {
     zones,
     `Customers choose a 2–3 hour arrival slot inside a window. Booking closes 60 minutes before the window ends.`,
     `SAME-DAY DELIVERY (${tokenValue('fee', 'Same-Day Surcharge', v)} extra): only for a MORNING pickup that comes back the same evening. Available ONLY in: ${list(sdYes) || 'no areas'}. NOT available in: ${list(sdNo) || 'none'} — there, orders come back the next service day.`,
-    upcoming ? `Closed on: ${upcoming}.` : ``,
+    upcoming ? `Closed on (both pickup & delivery and the Sudzee laundromat): ${upcoming}.` : ``,
     ``,
     `CONTACT: email ${v.site?.email}; website familylaundry.com; customer app app.familylaundry.com (web app, nothing to download).`,
     `REFERRALS: ${v.referral?.enabled ? `friend gets ${money(v.referral?.friend)} off their first order; referrer gets ${money(v.referral?.referrer)} once it's paid. Code is under Rewards in the app.` : 'not currently offered.'}`,
@@ -675,6 +741,7 @@ const PROMPT = `You are Maya, the phone assistant for Family Laundry, a family-r
 - Say prices and numbers clearly, e.g. "sixty-five dollars per bag".
 - Speak the caller's language. If they speak Spanish (or another language you support), switch to it and stay in it.
 - If asked whether you are a person, say you are Family Laundry's virtual assistant.
+- If the caller is quiet after your greeting, say: "Hello? I'm here, take your time. Are you calling about our laundromat or about pickup and delivery?"
 
 ## Who is calling
 {{caller_context}}
@@ -692,8 +759,10 @@ const PROMPT = `You are Maya, the phone assistant for Family Laundry, a family-r
 - Business (commercial) laundry: take a message (their name, business, and what they need) so the team can call with a quote. You can also mention the quote page, familylaundry.com/commercial-laundry.
 
 ## Facts
+- Answer only what was asked. For "are you open today?", say yes or no and today's hours. Mention holiday closures only if the caller asks about that date.
 - Before answering any question about prices, areas, pickup times, services or policies, call get_business_info (once per call is enough) and answer ONLY from what it returns.
 - If the facts answer the question, give the answer, even when it's "no". Say it plainly and kindly, then offer the closest alternative (for example: "Same-day isn't available in San Francisco. We pick up in the evening and bring it back the next evening.").
+- "Do you come to my area?": call check_service_area with their ZIP code if they gave one, otherwise their city, and follow what it says. Never guess from the city list alone.
 - When a caller mentions their city, check that area's pickup windows and same-day availability before answering.
 - Only if the facts truly don't cover it: don't guess, say you'll have the team follow up, and take a message.
 - Never invent prices, times, discounts or policies.
@@ -786,7 +855,7 @@ Apologize sincerely, don't argue, take a message, and tell them you're marking i
 ## Ending
 When the caller has what they need, say goodbye warmly and use end_call.`;
 
-const BEGIN = "Hi, this is Maya at Family Laundry. How can I help you today?";
+const BEGIN = "Hi, this is Maya, Family Laundry's virtual assistant. How can I help you today?";
 
 const ANALYSIS = [
   { type: 'system-presets', name: 'call_summary' },
@@ -806,6 +875,11 @@ const DAY_ARG = { type: 'string', description: 'today, tomorrow, a weekday, or Y
 const DELIVER_ON = { type: 'string', description: 'ONLY if the caller asked to get their laundry back LATER than the usual return day: the day they want it back (a weekday or YYYY-MM-DD). Omit otherwise.' };
 const DELIVER_AT = { type: 'string', description: 'ONLY if the caller asked for a different delivery time: "morning", "afternoon", "evening", or a deliver_at value from delivery_options. Omit otherwise.' };
 const BOOKING_TOOL_DEFS = [
+  { name: 'check_service_area', route: 'area',
+    description: 'Check whether we pick up in a ZIP code or city, and the pickup windows there. Use it whenever a caller asks "do you come to ..." or gives a ZIP. Pass zip if they gave one, else city.',
+    parameters: { type: 'object', properties: {
+      zip: { type: 'string', description: 'Five-digit ZIP code, if the caller gave one.' },
+      city: { type: 'string', description: 'City, if no ZIP.' } } } },
   { name: 'find_pickup_times', route: 'find_times',
     description: 'Open pickup times. Known caller: pass street_name. New caller: pass address_token from check_new_address.',
     parameters: { type: 'object', properties: { street_name: STREET,
@@ -886,6 +960,8 @@ async function setup(voiceId?: string) {
       'San Lorenzo', 'Castro Valley', 'Fremont', 'Newark', 'Union City', 'Concord', 'Lafayette',
       'Walnut Creek', 'Pleasant Hill', 'Orinda', 'Moraga', 'Martinez', 'San Francisco'],
     end_call_after_silence_ms: 45000,
+    reminder_trigger_ms: 5000,     // speak up after 5s of silence (callers hung up on a silent line, review 2026-10-13)
+    reminder_max_count: 2,
     max_call_duration_ms: 15 * 60 * 1000,
     webhook_url: `${FN_URL}/webhook`,
     webhook_events: ['call_analyzed'],
@@ -1100,7 +1176,7 @@ Deno.serve(async (req) => {
     }
 
     // Phone booking tools — same token + signature as the account tool.
-    const bm = path.match(/\/tool\/(find_times|check_address|book|skip|reschedule|cancel)$/);
+    const bm = path.match(/\/tool\/(find_times|check_address|book|skip|reschedule|cancel|area)$/);
     if (bm) {
       const raw = await req.text();
       if (!RETELL_KEY || !safeEq(req.headers.get('x-maya-token') || '', await toolToken())) return json({ error: 'forbidden' }, 403);

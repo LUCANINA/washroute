@@ -62,6 +62,14 @@ payment_failed text if texts are on) — the "collect card hold" was built then 
   delivery/skip. Reschedule of a recurring pickup books a ONE-TIME replacement and skips the old one (the chain continues).
 - `/maya/admin-tool` (admin token) runs any booking tool as a given caller number, always dry-run.
 
+## Service-area check by ZIP or city (2026-10-13)
+- Tool `check_service_area` (route `/tool/area`, read-only). ZIP/city list = the website's
+  (`website/content/service-zips.js` + `cities.js`), served as JSON by `website/api/service-area.js` at
+  https://www.familylaundry.com/api/service-area — one list for the homepage ZIP check and the phone.
+  Windows come live from `site_public_values().zones`. Partial (Richmond, Daly City) or mixed ZIPs → Maya asks
+  for the street and runs `check_new_address` (checks only, writes nothing). Oakland by city → asks for ZIP
+  (East Oakland books into the Hayward zone). Website unreachable → cities still answered, no windows quoted.
+
 ## Before go-live (phase 1b)
 - Update FAQ 5 and 19 (website + app): they say "leave a voicemail/message and we'll call you back" — Maya answers now.
 - Point the Twilio number at Retell, keeping the old voicemail path as fallback if Retell fails.
