@@ -17,9 +17,9 @@ function cta(label = 'Schedule a pickup') {
 }
 
 // ── "Do we serve your area?" ZIP check (Oct 12, 2026) ───────────────────
-// ZIP list: content/zips.js. Pickup windows come live from each city's zone. Unknown ZIP → "not yet" + email sign-up
+// ZIP list: content/service-zips.js. Pickup windows come live from each city's zone. Unknown ZIP → "not yet" + email sign-up
 // for expansion (the ZIP is saved with the email, so we can see where demand is).
-const ZIPS = require('../../content/zips.js');
+const ZIPS = require('../../content/service-zips.js');
 const ZIPCHECK_SPOT = 'hero'; // David picked the hero, Oct 12 ('van' = the pink van section, also built)
 function zipData(v) {
   const out = {};

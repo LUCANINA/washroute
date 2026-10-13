@@ -69,7 +69,7 @@ WashRoute apps don't change when only `website/` changes (the build-version hook
 | Blog posts (5, from Wix, no dates) | `website/content/posts.json` |
 | Styles | `website/assets/site.css` |
 | Contact + quote forms | Supabase edge function `website-contact` (verify_jwt **false**) |
-| ZIP check (homepage hero) | ZIP list `website/content/zips.js` (add a line when you open an area); windows live from zones; logic in `assets/forms.js` |
+| ZIP check (homepage hero) | ZIP list `website/content/service-zips.js` (add a line when you open an area); windows live from zones; logic in `assets/forms.js` |
 | "Not yet" sign-ups | `website/api/waitlist.js` → table `service_area_waitlist` (anon insert-only; admin/manager/laundry_tech read) |
 | Business info (phone, hours, Google rating, Gift Up id) | `site_info` table — Admin → App Content |
 | Pickup windows per city | `route_templates`, read live via `site_public_values().zones` |

@@ -2,7 +2,7 @@
 // Saves to WashRoute table service_area_waitlist (insert-only for the public key; admins read it).
 // Served ZIPs are refused here too, so the list only holds areas we don't cover yet.
 const { SUPABASE_URL, ANON } = require('./_lib/data.js');
-const ZIPS = require('../content/zips.js');
+const ZIPS = require('../content/service-zips.js');
 
 function send(res, status, body) {
   res.statusCode = status;
