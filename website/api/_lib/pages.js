@@ -97,7 +97,7 @@ function home(v) {
 <section class="h-bubbles">
   <div class="h-bubbles-copy">
     <h2>Bubble Power</h2>
-    <p>The washers at our plant run on ozone-injected water. Ozone sanitizes your laundry (and the machines as they run) and helps a mild detergent clean better.</p>
+    <p>Our facilities are equipped with state-of-the-art Ozone water-injection systems that sanitize your laundry (and our washing machines as they run), while boosting the cleaning power of our detergents.</p>
   </div>
 </section>
 
@@ -124,11 +124,13 @@ ${ownRatingLine(v) ? `<p class="h-own">${ownRatingLine(v)}</p>` : ''}
     <button class="h-car-btn next" type="button" aria-label="Next photo">&#8250;</button>
     <div class="h-car-dots" aria-hidden="true"></div>
   </div>
+  <div class="h-story-copy">
   <p>Our Family Laundry adventure began in early 2018, the day we closed on our first laundromat in Oakland. Our respective backgrounds didn't make us laundry delivery experts from the get-go, but we got our hands dirty and learned along the way.</p>
   <p>We run Family Laundry the way we think all companies should be run: we put employees first, we actively engage with the communities we operate in, and we do our part to reduce our impact on the environment.</p>
   <p>Thank you for trusting us with your laundry.</p>
   <p>Laura Guevara &amp; David Macquart-Moulin</p>
   <p><a href="/about-us">Meet the team →</a></p>
+  </div>
 </section>
 
 ${contactBlock(v)}`;
@@ -431,6 +433,7 @@ function city(c, v) {
     <p class="muted">${esc(days)}. Choose your window when you book; we text you when the driver is on the way.</p>
   </div>` : ''}
   ${d.photo ? `<figure class="city-photo"><img src="/assets/img/${esc(d.photo)}" alt="A Family Laundry bag of folded, bundled laundry delivered to a doorstep" width="900" height="1200" loading="lazy"><figcaption>Back at your door, folded and bundled by family member.</figcaption></figure>` : ''}
+  ${subHoodLinks(c)}
   ${hoodsBlock}
   ${d.review ? `<figure class="city-quote"><blockquote>“${esc(d.review.text)}”</blockquote><figcaption>${esc(d.review.who)}</figcaption></figure>` : ''}
   <div class="why why-2">
@@ -463,6 +466,98 @@ function city(c, v) {
           image: ORIGIN + '/assets/img/logo-circle-512.png',
           address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
           areaServed: { '@type': 'City', name },
+          ...ownRatingLd(v) },
+      ],
+    },
+  };
+}
+
+// ── Neighborhood pages ──────────────────────────────────────────────────
+// /laundry-delivery-<city>/<slug>, from content/neighborhoods.js (keyed by parent city slug). Added Oct 12, 2026
+// for San Francisco. Same rules as city pages: real local content only; prices and windows render live.
+const HOODS = require('../../content/neighborhoods.js');
+const hoodPath = (c, h) => `${cityPath(c)}/${h.slug}`;
+const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+
+// Links from a city page to its neighborhood pages (only the ones open to Google, so we never point
+// people at thin pages).
+function subHoodLinks(c) {
+  const list = (HOODS[c.slug] || []).filter(h => h.index);
+  if (!list.length) return '';
+  return `<h2>${esc(c.name)} neighborhoods</h2>
+  <ul class="city-list hood-links">${list.map(h => `<li><a href="${hoodPath(c, h)}">${esc(cap(h.name))}</a></li>`).join('')}</ul>`;
+}
+
+function neighborhood(c, h, v) {
+  const name = h.name;
+  const Name = cap(name);
+  const plain = t => C.renderPlain(t, v);
+  const wins = cityWindows(c, v);
+  const winText = wins.map(w => `${w.label.toLowerCase()} (${w.range})`);
+  const days = plain('{site:service_days}');
+  const siblings = (HOODS[c.slug] || []).filter(o => o.index && o.slug !== h.slug);
+  const faqs = [
+    [`Do you pick up laundry in ${name}?`, wins.length
+      ? `Yes. Family Laundry picks up and delivers in ${name} ${days}, with ${wins.length > 1 ? `${C.list(winText)} windows` : `${/^[aeiou]/.test(winText[0]) ? 'an' : 'a'} ${winText[0]} window`}. Pick yours when you book in the app.`
+      : `Yes. Family Laundry picks up and delivers in ${name} ${days}. Enter your address in the app to see the pickup windows for your street.`],
+    ...(h.faqs || []).map(([q, a]) => [q, plain(a)]),
+    ['When do I get my laundry back?', 'The next service day. We wash and fold it at our own plant in Oakland, so a Saturday pickup comes back Monday.'],
+    ['What detergent do you use?', 'Free & Clear hypoallergenic detergent and ozone. We never use bleach, softener or fragrance.'],
+  ];
+  const path = hoodPath(c, h);
+  return {
+    path,
+    noindex: !h.index,
+    title: `Laundry Pickup & Delivery in ${name}, ${c.name} | Family Laundry`,
+    description: `Wash & fold laundry pickup and delivery in ${name} (${h.zips.join(', ')}). Washed fragrance-free at our own plant, never outsourced, back the next day.`,
+    body: `<section class="wrap section narrow">
+  <p class="muted crumbs"><a href="${cityPath(c)}">${esc(c.name)}</a> › ${esc(Name)}</p>
+  <h1>Laundry pickup &amp; delivery in ${esc(name)}</h1>
+  <p class="lead">${esc(h.intro)}</p>
+  ${ratingBlock(v)}
+  ${(h.about || []).map(p => `<p>${esc(p)}</p>`).join('\n  ')}
+  ${wins.length ? `<div class="card">
+    <h2>Pickup windows in ${esc(name)}</h2>
+    <ul class="ticks">${wins.map(w => `<li><strong>${esc(w.label)}:</strong> ${esc(w.range)}</li>`).join('')}</ul>
+    <p class="muted">${esc(days)}. Choose your window when you book; we text you when the driver is on the way.</p>
+  </div>` : ''}
+  <h2>Where we pick up</h2>
+  <ul class="city-list">${h.areas.map(a => `<li>${esc(cap(a))}</li>`).join('')}</ul>
+  <p class="muted">ZIP code${h.zips.length > 1 ? 's' : ''} ${esc(C.list(h.zips))}. Not sure about your street? <a href="${APP}">Enter your address in the app</a> and we'll tell you right away.</p>
+  ${h.review ? `<figure class="city-quote"><blockquote>“${esc(h.review.text)}”</blockquote><figcaption>${esc(h.review.who)}</figcaption></figure>` : ''}
+  <div class="why why-2">
+    <div><h3>Cleaned in-house</h3><p>Washed by our own team at our Oakland plant. Never outsourced.</p></div>
+    <div><h3>Fragrance-free</h3><p>Free &amp; Clear detergent and ozone. Nothing that lingers on skin.</p></div>
+    <div><h3>Back the next day</h3><p>Folded neatly, socks balled, bundled by family member.</p></div>
+    <div><h3>No need to be home</h3><p>Leave your bag at the door. We text you when we're on the way.</p></div>
+  </div>
+  <div class="card">
+    <h2>Pricing</h2>
+    <ul class="ticks">
+      <li>Per bag: ${mdi('{price:Wash & Fold}', v)} for up to 25 lbs, plus ${mdi('{fee:Delivery Fee}', v)} delivery</li>
+      <li>Subscription: ${mdi('{plan:price}', v)}/month for ${mdi('{plan:lbs}', v)} lbs, delivery included</li>
+    </ul>
+    <p>${cta()}</p>
+  </div>
+  <h2>Questions from customers in ${esc(name)}</h2>
+  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}
+  ${h.related ? `<p>More on <a href="${esc(h.related)}">comforters &amp; bedding</a>.</p>` : ''}
+  <p class="muted nearby">${siblings.length ? `Nearby: ${siblings.map(o => `<a href="${hoodPath(c, o)}">${esc(cap(o.name))}</a>`).join(', ')}. ` : ''}<a href="${cityPath(c)}">All of ${esc(c.name)}</a> · <a href="/service-map">Full service area</a>.</p>
+</section>`,
+    jsonld: {
+      '@context': 'https://schema.org',
+      '@graph': [
+        { '@type': 'BreadcrumbList', itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Home', item: ORIGIN + '/' },
+          { '@type': 'ListItem', position: 2, name: c.name, item: ORIGIN + cityPath(c) },
+          { '@type': 'ListItem', position: 3, name: Name, item: ORIGIN + path } ] },
+        { '@type': 'FAQPage',
+          mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
+        { '@type': 'DryCleaningOrLaundry', '@id': ORIGIN + path + '#business', parentOrganization: { '@id': BIZ_ID },
+          name: 'Family Laundry', url: ORIGIN + path, telephone: v.site?.phone,
+          image: ORIGIN + '/assets/img/logo-circle-512.png',
+          address: { '@type': 'PostalAddress', streetAddress: '2609 Foothill Blvd', addressLocality: 'Oakland', addressRegion: 'CA', postalCode: '94601', addressCountry: 'US' },
+          areaServed: { '@type': 'Place', name: `${Name}, ${c.name}` },
           ...ownRatingLd(v) },
       ],
     },
@@ -819,6 +914,7 @@ const ROUTES = {
   '/blog': blogIndex,
   ...Object.fromEntries(POSTS.map(p => [postPath(p), () => post(p)])),
   ...Object.fromEntries(CITIES.map(c => [cityPath(c), v => city(c, v)])),
+  ...Object.fromEntries(CITIES.flatMap(c => (HOODS[c.slug] || []).map(h => [hoodPath(c, h), v => neighborhood(c, h, v)]))),
   ...Object.fromEntries(TOPICS.map(t => [t.path, v => topic(t, v)])),
   '/laundry-service-cost': cost,
   '/': home,

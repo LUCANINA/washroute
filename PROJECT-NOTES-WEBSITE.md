@@ -142,7 +142,8 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
 - How booking decides coverage: `get_zone_for_point(lat, lng, p_city)` = polygon match first, then the zone's
   `cities` list by city name. Polygons alone under-cover (Albany, Kensington, Fremont, Newark, Union City, south
   Hayward, downtown Concord, Martinez are outside every polygon); the city list is what makes them bookable.
-- [ ] SF and Oakland neighborhood pages (2ULaundry has ~90; ours need real local content first)
+- [x] SF neighborhood pages (8, Oct 12) — see log
+- [ ] Oakland neighborhood pages (same pattern: add an `oakland:` list in `content/neighborhoods.js`)
 - [ ] PARKED Oct 5 (David likes it, not now): "Neighborhood Laundry Day" — one discounted pickup day per ZIP.
   Why: Monday has 2–3x the pickups of Tue/Thu in most ZIPs; same-day neighbors = denser routes. Open choices:
   discount (free delivery vs $5), subscribers, pilot ZIPs (e.g. 94610, 94611, Alameda).
@@ -248,3 +249,15 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   serves the new page (indexable), sudzee.com 308 → www, old paths 301 → /. Wix site plan: keep 30 days, cancel
   around Nov 5.
   Oct 6 follow-up (David): name is **Sudzee Wash & Fold**; Wix tagline "The Friendliest People. Outstanding Wash & Fold." and the "Brought to you by Family Laundry" truck image are back; the 2011/2022 history line is removed.
+
+- **Mon Oct 12, 2026 (SF neighborhoods)** — San Francisco is a must-win market (David). Search Console had SF at #12–15
+  with 0 clicks; Rinse, PurpleTie and Mulberrys all have strong SF pages, none has East Bay neighborhood depth.
+  Added 8 neighborhood pages under the SF page at `/laundry-delivery-sf/<slug>`: mission, soma, nob-hill,
+  pacific-heights, richmond, haight, noe-valley, sunset. Content in `content/neighborhoods.js` (keyed by parent city
+  slug, so Oakland can reuse it); builder `neighborhood()` in `pages.js`. Grouping and "busiest ZIP" facts come from
+  customers active in the past 12 months by address ZIP (94110 15; 94109 12; 94115 12; 94118 9; 94103 9; 94117 8;
+  94105 7; rest ≤5). Raw counts are small, so pages say where customers are, not how many. Reviews are 5-star
+  after-delivery ratings (`order_feedback`) from that ZIP: Gregg C (Mission), Ellie J (Rincon Hill), Jessica A
+  (Castro). Pickup windows and prices render live. Each page has BreadcrumbList + FAQPage + DryCleaningOrLaundry
+  markup; SF page links to all 8; sitemap picks them up automatically. Not yet covered (too few customers):
+  Excelsior, Bayview, Treasure Island.
