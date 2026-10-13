@@ -26,10 +26,10 @@ function home(v) {
   // Layout and look follow the original Wix homepage (David prefers it); copy and prices are the corrected, live versions.
   const body = `
 <section class="h-hero">
-  <img class="h-hero-img" src="/assets/img/hero-tropical.jpg" alt="A Family Laundry bag on a sunny deck under tropical leaves" width="1920" height="984">
+  <img class="h-hero-img" src="/assets/img/hero-wide.jpg" alt="A woman smelling freshly cleaned laundry" width="1920" height="984">
   <div class="wrap h-hero-copy">
-    <h1><span class="h-kicker">Family Laundry</span>Another beautiful day <span style="white-space:nowrap">of not doing laundry.</span></h1>
-    <p class="h-hero-sub">Premium wash &amp; fold for busy households. Picked up, washed at our own plant in Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
+    <h1><span class="h-kicker">Family Laundry</span>Premium Wash &amp; Fold for Busy Households</h1>
+    <p class="h-hero-sub">Picked up, washed at our own plant in Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
     ${ratingBadge(v)}
     <a class="h-btn h-btn-lg" href="${APP}">Get started</a>
     <img class="h-stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="236" height="236">
@@ -108,7 +108,22 @@ ${ownRatingLine(v) ? `<p class="h-own">${ownRatingLine(v)}</p>` : ''}
 
 <section id="story" class="h-story">
   <h2>Our story</h2>
-  <figure class="h-photo"><img src="/assets/img/family-van.jpg" alt="Laura, David and their two sons in front of a Family Laundry van in Oakland" width="1448" height="1086" loading="lazy"></figure>
+  <div class="h-carousel" data-carousel aria-roledescription="carousel" aria-label="Photos of Family Laundry">
+    <div class="h-car-track" tabindex="0">
+      ${[
+        ['family-van.jpg', 'Laura, David and their two sons in front of a Family Laundry van in Oakland', 1448, 1086, '50% 30%'],
+        ['story-apron.jpg', 'A Family Laundry team member in an apron inside the laundromat', 1600, 938],
+        ['story-driver.jpg', 'A Family Laundry driver smiling behind the wheel of the delivery van', 1600, 917],
+        ['story-van-smile.jpg', 'A Family Laundry team member in front of the delivery van', 1600, 898],
+        ['story-washers.jpg', 'A row of stainless steel washers running at the Family Laundry plant', 1600, 895],
+        ['story-loading.jpg', 'A team member loading laundry into a washer', 1600, 896],
+        ['story-team-2.jpg', 'The Family Laundry team smiling together at the laundromat', 1600, 915],
+      ].map(([f, alt, w, h, pos], i, a) => `<figure class="h-car-slide" role="group" aria-roledescription="slide" aria-label="${i + 1} of ${a.length}"><img src="/assets/img/${f}" alt="${alt}" width="${w}" height="${h}"${pos ? ` style="object-position:${pos}"` : ''}${i ? ' loading="lazy"' : ''}></figure>`).join('')}
+    </div>
+    <button class="h-car-btn prev" type="button" aria-label="Previous photo">&#8249;</button>
+    <button class="h-car-btn next" type="button" aria-label="Next photo">&#8250;</button>
+    <div class="h-car-dots" aria-hidden="true"></div>
+  </div>
   <p>Our Family Laundry adventure began in early 2018, the day we closed on our first laundromat in Oakland. Our respective backgrounds didn't make us laundry delivery experts from the get-go, but we got our hands dirty and learned along the way.</p>
   <p>We run Family Laundry the way we think all companies should be run: we put employees first, we actively engage with the communities we operate in, and we do our part to reduce our impact on the environment.</p>
   <p>Thank you for trusting us with your laundry.</p>

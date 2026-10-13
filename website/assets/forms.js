@@ -21,3 +21,33 @@
     });
   });
 })();
+
+// "Our story" photo carousel: arrows + dots on top of a native swipeable scroll-snap strip.
+(function () {
+  document.querySelectorAll('[data-carousel]').forEach(function (root) {
+    var track = root.querySelector('.h-car-track'), slides = track.children, n = slides.length;
+    var prev = root.querySelector('.prev'), next = root.querySelector('.next'), dots = root.querySelector('.h-car-dots');
+    if (n < 2) return;
+    root.classList.add('js');
+    for (var i = 0; i < n; i++) {
+      var d = document.createElement('button'); d.type = 'button'; d.tabIndex = -1;
+      d.addEventListener('click', go.bind(null, i)); dots.appendChild(d);
+    }
+    function cur() { return Math.round(track.scrollLeft / track.clientWidth); }
+    function go(i) { track.scrollTo({ left: Math.max(0, Math.min(n - 1, i)) * track.clientWidth }); }
+    function sync() {
+      var c = cur();
+      [].forEach.call(dots.children, function (d, i) { d.setAttribute('aria-current', i === c ? 'true' : 'false'); });
+      prev.disabled = c === 0; next.disabled = c === n - 1;
+    }
+    prev.addEventListener('click', function () { go(cur() - 1); });
+    next.addEventListener('click', function () { go(cur() + 1); });
+    track.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); go(cur() - 1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); go(cur() + 1); }
+    });
+    track.addEventListener('scroll', function () { clearTimeout(track._t); track._t = setTimeout(sync, 60); }, { passive: true });
+    window.addEventListener('resize', sync);
+    sync();
+  });
+})();
