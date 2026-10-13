@@ -16,6 +16,34 @@ function cta(label = 'Schedule a pickup') {
   return `<a class="btn" href="${APP}">${esc(label)}</a>`;
 }
 
+// ── "Do we serve your area?" ZIP check (Oct 12, 2026) ───────────────────
+// ZIP list: content/zips.js. Pickup windows come live from each city's zone. Unknown ZIP → "not yet" + email sign-up
+// for expansion (the ZIP is saved with the email, so we can see where demand is).
+const ZIPS = require('../../content/zips.js');
+const ZIPCHECK_SPOT = 'hero'; // David picked the hero, Oct 12 ('van' = the pink van section, also built)
+function zipData(v) {
+  const out = {};
+  for (const [zip, raw] of Object.entries(ZIPS)) {
+    const e = typeof raw === 'string' ? { city: raw } : raw;
+    const c = CITIES.find(x => x.name === e.city);
+    const wins = c ? cityWindows(c, v) : [];
+    out[zip] = { n: e.label || e.city, p: c ? cityPath(c) : '', w: wins.map(w => `${w.label} ${w.range}`).join(' · '), x: e.partial ? 1 : 0 };
+  }
+  return out;
+}
+function zipCheck(v, spot) {
+  const id = `zc-${spot}`;
+  return `<form class="zc zc-${spot}" data-zipcheck novalidate>
+      <label class="zc-label" for="${id}">${spot === 'hero' ? 'Check if we serve your area' : 'Do we pick up at your door?'}</label>
+      <div class="zc-row">
+        <input id="${id}" name="zip" class="zc-input" inputmode="numeric" autocomplete="postal-code" maxlength="5" placeholder="Your ZIP code" aria-describedby="${id}-out">
+        <button class="h-btn zc-btn" type="submit">Check</button>
+      </div>
+      <div class="zc-out" id="${id}-out" aria-live="polite"></div>
+    </form>
+    <script type="application/json" id="zc-data">${JSON.stringify({ app: APP, days: C.renderPlain('{site:service_days}', v), zips: zipData(v) }).replace(/</g, '\\u003c')}</script>`;
+}
+
 // ── Home ────────────────────────────────────────────────────────────────
 function home(v) {
   const reviews = [
@@ -31,7 +59,8 @@ function home(v) {
     <h1><span class="h-kicker">Family Laundry</span>Premium Wash &amp; Fold for Busy Households</h1>
     <p class="h-hero-sub">Picked up, washed at our own plant in Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
     ${ratingBadge(v)}
-    <a class="h-btn h-btn-lg" href="${APP}">Get started</a>
+    ${ZIPCHECK_SPOT === 'hero' ? `${zipCheck(v, 'hero')}
+    <p class="zc-already">Already a customer? <a href="${APP}">Open the app</a></p>` : `<a class="h-btn h-btn-lg" href="${APP}">Get started</a>`}
     <img class="h-stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="236" height="236">
   </div>
 </section>
@@ -46,7 +75,7 @@ function home(v) {
     <h2>Delivering the freshest laundry in the Bay since ${esc(v.site?.founded || '2019')}.</h2>
     <p>Imagine a service that picks up your dirty laundry, then returns it to you perfectly washed and folded. Within a day. Like magic. That's Family Laundry (learn more about what makes us <a href="/post/premium-laundry-delivery-at-your-doorstep">stand out</a>).</p>
     <p>We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities (we never, ever outsource) and delivery vehicles. It's 100% Family Laundry, satisfaction guaranteed.</p>
-    <p>Let us take care of your laundry. <a href="${APP}">Create an account</a>.</p>
+    ${ZIPCHECK_SPOT === 'van' ? zipCheck(v, 'van') : `<p>Let us take care of your laundry. <a href="${APP}">Create an account</a>.</p>`}
   </div>
 </section>
 

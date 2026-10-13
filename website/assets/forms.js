@@ -51,3 +51,61 @@
     sync();
   });
 })();
+
+// "Do we serve your area?" ZIP check on the homepage. Data (ZIPs, live pickup windows) is printed into the page
+// as #zc-data by pages.js, so the check is instant and needs no network call.
+(function () {
+  var dataEl = document.getElementById('zc-data');
+  if (!dataEl) return;
+  var D; try { D = JSON.parse(dataEl.textContent); } catch (e) { return; }
+  function h(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  document.querySelectorAll('form[data-zipcheck]').forEach(function (form) {
+    var input = form.querySelector('.zc-input'), out = form.querySelector('.zc-out');
+    input.addEventListener('input', function () { input.value = input.value.replace(/\D/g, '').slice(0, 5); });
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var zip = input.value.trim();
+      if (!/^\d{5}$/.test(zip)) { out.className = 'zc-out zc-err'; out.innerHTML = 'Enter a 5-digit ZIP code.'; input.focus(); return; }
+      var z = D.zips[zip];
+      if (z && !z.x) {
+        out.className = 'zc-out zc-yes';
+        out.innerHTML = '<p class="zc-head"><span class="zc-icon" aria-hidden="true">✓</span> Yes, we pick up in ' + h(zip) + (z.n ? ' (' + h(z.n) + ')' : '') + '.</p>' +
+          (z.w ? '<p class="zc-sub">' + h(z.w) + ', ' + h(D.days) + '.</p>' : '') +
+          '<p class="zc-actions"><a class="btn" href="' + h(D.app) + '">Schedule a pickup</a>' + (z.p ? ' <a class="zc-link" href="' + h(z.p) + '">About ' + h(z.n) + '</a>' : '') + '</p>';
+      } else if (z && z.x) {
+        out.className = 'zc-out zc-part';
+        out.innerHTML = '<p class="zc-head">We serve parts of ' + h(zip) + (z.n ? ' (' + h(z.n) + ')' : '') + '.</p>' +
+          '<p class="zc-sub">Enter your street address in the app and we\'ll tell you right away.</p>' +
+          '<p class="zc-actions"><a class="btn" href="' + h(D.app) + '">Check my address</a></p>';
+      } else {
+        out.className = 'zc-out zc-no';
+        out.innerHTML = '<p class="zc-head">We\'re not in ' + h(zip) + ' yet.</p>' +
+          '<p class="zc-sub">Leave your email and we\'ll tell you when we start picking up there.</p>' +
+          '<div class="zc-row zc-wait"><input class="zc-input zc-email" type="email" autocomplete="email" placeholder="you@email.com" aria-label="Your email">' +
+          '<button class="h-btn zc-btn" type="button">Notify me</button></div>' +
+          '<input class="zc-hp" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">' +
+          '<p class="zc-wait-msg" aria-live="polite"></p>';
+        var hp = out.querySelector('.zc-hp'), em = out.querySelector('.zc-email'), nb = out.querySelector('.zc-wait .zc-btn'), wm = out.querySelector('.zc-wait-msg');
+        function join() {
+          var email = em.value.trim();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { wm.className = 'zc-wait-msg zc-err'; wm.textContent = 'Enter a valid email address.'; em.focus(); return; }
+          nb.disabled = true; nb.textContent = 'Saving…'; wm.className = 'zc-wait-msg'; wm.textContent = '';
+          fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zip: zip, email: email, website: hp.value }) })
+            .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+            .then(function (r) {
+              if (!r.ok) throw new Error(r.error || 'Sorry, that did not go through. Please try again in a minute.');
+              out.className = 'zc-out zc-yes';
+              out.innerHTML = '<p class="zc-head"><span class="zc-icon" aria-hidden="true">✓</span> Thanks! We\'ll email ' + h(email) + ' when we start picking up in ' + h(zip) + '.</p>';
+            })
+            .catch(function (err) {
+              nb.disabled = false; nb.textContent = 'Notify me';
+              wm.className = 'zc-wait-msg zc-err'; wm.textContent = err.message || 'Sorry, that did not go through. Please try again in a minute.';
+            });
+        }
+        nb.addEventListener('click', join);
+        em.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); join(); } });
+        em.focus();
+      }
+    });
+  });
+})();

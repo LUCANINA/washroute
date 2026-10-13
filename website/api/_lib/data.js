@@ -24,4 +24,4 @@ async function load() {
   return cache;
 }
 
-module.exports = { load };
+module.exports = { load, SUPABASE_URL, ANON };

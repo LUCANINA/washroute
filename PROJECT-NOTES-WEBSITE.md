@@ -69,6 +69,8 @@ WashRoute apps don't change when only `website/` changes (the build-version hook
 | Blog posts (5, from Wix, no dates) | `website/content/posts.json` |
 | Styles | `website/assets/site.css` |
 | Contact + quote forms | Supabase edge function `website-contact` (verify_jwt **false**) |
+| ZIP check (homepage hero) | ZIP list `website/content/zips.js` (add a line when you open an area); windows live from zones; logic in `assets/forms.js` |
+| "Not yet" sign-ups | `website/api/waitlist.js` → table `service_area_waitlist` (anon insert-only; admin/manager/laundry_tech read) |
 | Business info (phone, hours, Google rating, Gift Up id) | `site_info` table — Admin → App Content |
 | Pickup windows per city | `route_templates`, read live via `site_public_values().zones` |
 | Our own customer rating | `order_feedback`, via `site_public_values().ratings` |
@@ -273,4 +275,14 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   Audit items deliberately NOT changed: (1) "ratings don't match" — 4.8/500+ (Google+Yelp) and 4.9/N (our own,
   after delivery) are two labeled figures on purpose; the own figure backs the rating markup. (2) "drop Martinez,
   Concord, Fremont" — David opened Contra Costa for growth on Oct 6.
+
+- **Mon Oct 12, 2026 (ZIP check)** — "Check if we serve your area" in the homepage hero, replacing the Get started
+  button (David picked the hero over the pink van section; both were mocked up on the real page). Three answers:
+  served ZIP → live pickup windows + Schedule button + city page link; partial ZIP (Richmond 94801/94804/94805) →
+  "check your address in the app"; anything else → "not yet" + email sign-up. Sign-ups go through `/api/waitlist`
+  (Vercel function, honeypot, refuses served ZIPs, duplicate = success) into new table `service_area_waitlist`
+  (migration `session_333_service_area_waitlist`: zip, email lowercased, source, created_at, notified_at; unique
+  zip+email; RLS: anon/authenticated INSERT only, `is_admin()` read/update/delete). Note: PostgREST `on_conflict`
+  fails RLS for anon (needs SELECT), so the endpoint does a plain insert and treats 409 as success. One test row
+  (zip 00000, probe@claude-test.invalid) is in the table; delete it. Not built yet: an Admin list of sign-ups by ZIP.
 
