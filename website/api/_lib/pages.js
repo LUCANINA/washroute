@@ -34,9 +34,9 @@ function zipData(v) {
 function zipCheck(v, spot) {
   const id = `zc-${spot}`;
   return `<form class="zc zc-${spot}" data-zipcheck novalidate>
-      <label class="zc-label" for="${id}">${spot === 'hero' ? 'Check if we serve your area' : 'Do we pick up at your door?'}</label>
+      <label class="zc-label${spot === 'hero' ? ' sr-only' : ''}" for="${id}">${spot === 'hero' ? 'Check if we serve your area' : 'Do we pick up at your door?'}</label>
       <div class="zc-row">
-        <input id="${id}" name="zip" class="zc-input" inputmode="numeric" autocomplete="postal-code" maxlength="5" placeholder="Your ZIP code" aria-describedby="${id}-out">
+        <input id="${id}" name="zip" class="zc-input" inputmode="numeric" autocomplete="postal-code" maxlength="5" placeholder="Enter your ZIP code" aria-describedby="${id}-out">
         <button class="h-btn zc-btn" type="submit">Check</button>
       </div>
       <div class="zc-out" id="${id}-out" aria-live="polite"></div>
@@ -58,9 +58,9 @@ function home(v) {
   <div class="wrap h-hero-copy">
     <h1><span class="h-kicker">Family Laundry</span>Premium Wash &amp; Fold for Busy Households</h1>
     <p class="h-hero-sub">Picked up, washed at our own plant in Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
-    ${ratingBadge(v)}
     ${ZIPCHECK_SPOT === 'hero' ? `${zipCheck(v, 'hero')}
-    <p class="zc-already">Already a customer? <a href="${APP}">Open the app</a></p>` : `<a class="h-btn h-btn-lg" href="${APP}">Get started</a>`}
+    ${ratingBadge(v)}` : `${ratingBadge(v)}
+    <a class="h-btn h-btn-lg" href="${APP}">Get started</a>`}
     <img class="h-stamp" src="/assets/img/free-clear-stamp.png" alt="Hypoallergenic, Free &amp; Clear, no nasty stuff" width="236" height="236">
   </div>
 </section>

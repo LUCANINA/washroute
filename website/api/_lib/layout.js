@@ -1,5 +1,15 @@
 const { esc } = require('../../assets/fl-content.js');
 
+// Asset version = short hash of site.css + forms.js, added to their URLs. Browsers cache /assets for an hour,
+// so without it a deploy shows new HTML with old styles (Oct 13, 2026: the ZIP box rendered unstyled).
+const ASSET_V = (() => {
+  try {
+    const fs = require('fs'), path = require('path'), crypto = require('crypto');
+    const h = crypto.createHash('sha1');
+    for (const f of ['site.css', 'forms.js']) h.update(fs.readFileSync(path.join(__dirname, '../../assets', f)));
+    return h.digest('hex').slice(0, 8);
+  } catch (e) { return String(Date.now()); }
+})();
 const ORIGIN = 'https://www.familylaundry.com';
 const APP = 'https://app.familylaundry.com';
 // Written exactly as on the Google Business Profile (name/address/phone must match everywhere).
@@ -114,7 +124,7 @@ ${robots}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@800&family=Nunito+Sans:wght@300;400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/site.css?v=${ASSET_V}">
 ${page.jsonld ? `<script type="application/ld+json">${JSON.stringify(page.jsonld).replace(/</g, '\\u003c')}</script>` : ''}
 </head>
 <body>
@@ -124,7 +134,7 @@ ${header(page.path, values)}
 ${page.body}
 </main>
 ${footer(values)}
-<script src="/assets/forms.js" defer></script>
+<script src="/assets/forms.js?v=${ASSET_V}" defer></script>
 </body>
 </html>`;
 }
