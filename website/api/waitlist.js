@@ -18,7 +18,7 @@ module.exports = async (req, res) => {
     try { body = JSON.parse(await new Promise((ok, no) => { let s = ''; req.on('data', c => { s += c; if (s.length > 2000) no(new Error('too big')); }); req.on('end', () => ok(s)); req.on('error', no); })); }
     catch (e) { return send(res, 400, { ok: false, error: 'Something went wrong. Please try again.' }); }
   }
-  if (body.website) return send(res, 200, { ok: true }); // honeypot field: bots fill it, people don't see it
+  // No honeypot: browser autofill can fill hidden fields, which silently dropped a real sign-up (Oct 13, 2026).
   const zip = String(body.zip || '').trim();
   const email = String(body.email || '').trim().toLowerCase();
   if (!/^\d{5}$/.test(zip)) return send(res, 400, { ok: false, error: 'Enter a 5-digit ZIP code.' });

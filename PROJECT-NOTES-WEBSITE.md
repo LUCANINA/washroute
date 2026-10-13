@@ -298,3 +298,14 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   David found the old Sudzee SF Google listing (1901 McAllister St, 94118, "Permanently closed", 2.7★ from 3
   reviews). Advice given: claim it now, keep it closed, revive/rename/move it only when there is a real SF hub.
 
+- **Tue Oct 13, 2026 (ZIP audit)** — David found a Hayward ZIP marked "not yet". The list now has every ZIP of every
+  served city (141, from an official ZIP database), checked against the booking rule `get_zone_for_point` for every
+  Bay Area ZIP and every customer address. Findings: (1) much of East Oakland books into the **Hayward** zone
+  (7–10 am / 7–10 pm), not Oakland (7–11 am / 6–10 pm): 94603/94605/94613/94619/94621 fully, 94601/94602 split. The
+  ZIP check now shows each ZIP's real zone windows (`zone:` / `mixed:` in `service-zips.js`); the Oakland city page,
+  Montclair and Fruitvale pages no longer show windows (`windows: false`), Dimond shows Hayward windows (`zone:`).
+  (2) Daly City 94014 is partly inside the SF zone → partial. (3) El Sobrante, Hercules, Pinole, San Pablo, Alamo,
+  Danville, San Ramon, Tri-Valley: not bookable, correctly "not yet". Also removed the sign-up honeypot field: David's
+  own sign-up didn't save, most likely because browser autofill filled the hidden field and the server dropped it.
+  Test rows to delete: zip 00000 and 00001, email probe@claude-test.invalid.
+

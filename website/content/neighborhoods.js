@@ -186,7 +186,7 @@ module.exports = {
       ],
     },
     {
-      slug: 'montclair', index: true,
+      slug: 'montclair', index: true, windows: false, // 94611 Oakland/Berkeley zones, 94619 Hayward zone
       name: 'Montclair & the Oakland hills',
       short: 'Montclair',
       zips: ['94611', '94619'],
@@ -202,7 +202,7 @@ module.exports = {
       ],
     },
     {
-      slug: 'dimond', index: true,
+      slug: 'dimond', index: true, zone: 'Hayward', // 94602 + 94619 book mostly into the Hayward zone
       name: 'Dimond, Glenview & the Laurel',
       short: 'Dimond',
       zips: ['94602', '94619'],
@@ -237,7 +237,7 @@ module.exports = {
       ],
     },
     {
-      slug: 'fruitvale', index: true,
+      slug: 'fruitvale', index: true, windows: false, // 94601 split between Oakland and Hayward zones
       name: 'Eastlake, San Antonio & Fruitvale',
       short: 'Fruitvale',
       zips: ['94606', '94601'],

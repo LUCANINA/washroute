@@ -5,6 +5,8 @@
 // Answers may use live tokens ({site:dropoff_address}, {retail:Wash & Fold} …) — never type a price or a time.
 module.exports = {
   oakland: {
+    // East Oakland streets book into the Hayward zone (different windows), so the page shows none (Oct 13, 2026).
+    windows: false,
     households: 'more than 600',
     photo: 'porch-bag-1.jpg',
     about: [

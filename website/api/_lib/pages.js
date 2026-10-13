@@ -26,8 +26,8 @@ function zipData(v) {
   for (const [zip, raw] of Object.entries(ZIPS)) {
     const e = typeof raw === 'string' ? { city: raw } : raw;
     const c = CITIES.find(x => x.name === e.city);
-    const wins = c ? cityWindows(c, v) : [];
-    out[zip] = { n: e.label || e.city, p: c ? cityPath(c) : '', w: wins.map(w => `${w.label} ${w.range}`).join(' · '), x: e.partial ? 1 : 0 };
+    const wins = e.mixed ? [] : e.zone ? cityWindows({ name: '', zone: e.zone }, v) : c ? cityWindows(c, v) : [];
+    out[zip] = { n: e.label || e.city, p: c ? cityPath(c) : '', w: wins.map(w => `${w.label} ${w.range}`).join(' · '), x: e.partial ? 1 : 0, m: e.mixed ? 1 : 0 };
   }
   return out;
 }
@@ -428,7 +428,8 @@ function city(c, v) {
   const hoodList = d.hoods || c.hoods;
   const plain = t => C.renderPlain(t, v);
   const nearby = CITIES.filter(o => o.region === c.region && o.slug !== c.slug).slice(0, 6);
-  const wins = cityWindows(c, v);
+  // d.windows === false: the city spans zones with different pickup windows (Oakland, Oct 13), so none are shown.
+  const wins = d.windows === false ? [] : cityWindows(c, v);
   const winText = wins.map(w => `${w.label.toLowerCase()} (${w.range})`);
   const days = plain('{site:service_days}');
   const faqs = [
@@ -521,7 +522,9 @@ function neighborhood(c, h, v) {
   const name = h.name;
   const Name = cap(name);
   const plain = t => C.renderPlain(t, v);
-  const wins = cityWindows(c, v);
+  // h.zone: the zone these streets actually book into (Oct 13: much of East Oakland books into the Hayward zone);
+  // h.windows === false: the area spans zones with different windows, so none are shown.
+  const wins = h.windows === false ? [] : h.zone ? cityWindows({ name: '', zone: h.zone }, v) : cityWindows(c, v);
   const winText = wins.map(w => `${w.label.toLowerCase()} (${w.range})`);
   const days = plain('{site:service_days}');
   const siblings = (HOODS[c.slug] || []).filter(o => o.index && o.slug !== h.slug);

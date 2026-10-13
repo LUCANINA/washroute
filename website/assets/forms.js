@@ -70,7 +70,7 @@
       if (z && !z.x) {
         out.className = 'zc-out zc-yes';
         out.innerHTML = '<p class="zc-head"><span class="zc-icon" aria-hidden="true">✓</span> Yes, we pick up in ' + h(zip) + (z.n ? ' (' + h(z.n) + ')' : '') + '.</p>' +
-          (z.w ? '<p class="zc-sub">' + h(z.w) + ', ' + h(D.days) + '.</p>' : '') +
+          (z.w ? '<p class="zc-sub">' + h(z.w) + ', ' + h(D.days) + '.</p>' : '<p class="zc-sub">' + h(D.days) + '. Pickup times depend on your street; you\'ll see yours when you book.</p>') +
           '<p class="zc-actions"><a class="btn" href="' + h(D.app) + '">Schedule a pickup</a>' + (z.p ? ' <a class="zc-link" href="' + h(z.p) + '">About ' + h(z.n) + '</a>' : '') + '</p>';
       } else if (z && z.x) {
         out.className = 'zc-out zc-part';
@@ -83,14 +83,13 @@
           '<p class="zc-sub">Leave your email and we\'ll tell you when we start picking up there.</p>' +
           '<div class="zc-row zc-wait"><input class="zc-input zc-email" type="email" autocomplete="email" placeholder="you@email.com" aria-label="Your email">' +
           '<button class="h-btn zc-btn" type="button">Notify me</button></div>' +
-          '<input class="zc-hp" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">' +
           '<p class="zc-wait-msg" aria-live="polite"></p>';
-        var hp = out.querySelector('.zc-hp'), em = out.querySelector('.zc-email'), nb = out.querySelector('.zc-wait .zc-btn'), wm = out.querySelector('.zc-wait-msg');
+        var em = out.querySelector('.zc-email'), nb = out.querySelector('.zc-wait .zc-btn'), wm = out.querySelector('.zc-wait-msg');
         function join() {
           var email = em.value.trim();
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { wm.className = 'zc-wait-msg zc-err'; wm.textContent = 'Enter a valid email address.'; em.focus(); return; }
           nb.disabled = true; nb.textContent = 'Saving…'; wm.className = 'zc-wait-msg'; wm.textContent = '';
-          fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zip: zip, email: email, website: hp.value }) })
+          fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zip: zip, email: email }) })
             .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
             .then(function (r) {
               if (!r.ok) throw new Error(r.error || 'Sorry, that did not go through. Please try again in a minute.');
