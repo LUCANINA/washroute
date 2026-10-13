@@ -143,7 +143,7 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   `cities` list by city name. Polygons alone under-cover (Albany, Kensington, Fremont, Newark, Union City, south
   Hayward, downtown Concord, Martinez are outside every polygon); the city list is what makes them bookable.
 - [x] SF neighborhood pages (8, Oct 12) — see log
-- [ ] Oakland neighborhood pages (same pattern: add an `oakland:` list in `content/neighborhoods.js`)
+- [x] Oakland neighborhood pages (6, Oct 12) — see log
 - [ ] PARKED Oct 5 (David likes it, not now): "Neighborhood Laundry Day" — one discounted pickup day per ZIP.
   Why: Monday has 2–3x the pickups of Tue/Thu in most ZIPs; same-day neighbors = denser routes. Open choices:
   discount (free delivery vs $5), subscribers, pilot ZIPs (e.g. 94610, 94611, Alameda).
@@ -261,3 +261,16 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   (Castro). Pickup windows and prices render live. Each page has BreadcrumbList + FAQPage + DryCleaningOrLaundry
   markup; SF page links to all 8; sitemap picks them up automatically. Not yet covered (too few customers):
   Excelsior, Bayview, Treasure Island.
+
+- **Mon Oct 12, 2026 (SEO audit follow-up)** — Outside audit said: Oakland is the biggest market with no neighborhood
+  pages; homepage title leaves out SF. Done: homepage `<title>` now "Laundry Pickup & Delivery in Oakland, the East Bay
+  & San Francisco". Added 6 Oakland neighborhood pages at `/laundry-delivery-oakland/<slug>`: grand-lake (94610, our
+  busiest Oakland ZIP), rockridge (94618/94609/94705), montclair (94611/94619), dimond (94602/94619), downtown
+  (94612/94607/94608), fruitvale (94606/94601, home neighborhood: plant + Sudzee). ZIP counts = customers active in
+  the past 12 months (94610 177; 94611 138; 94602 91; 94606 80; 94609 77; 94605 68; 94618 65; 94608 62; 94612 56;
+  94601 52; 94607 51; 94619 50; 94705 43). Reviews from 5-star `order_feedback` in those ZIPs: Katey W, Kyja J,
+  Joan & Ann H, Virginia K. Not covered yet: 94605 (Millsmont/Maxwell Park), 94621, 94603.
+  Audit items deliberately NOT changed: (1) "ratings don't match" — 4.8/500+ (Google+Yelp) and 4.9/N (our own,
+  after delivery) are two labeled figures on purpose; the own figure backs the rating markup. (2) "drop Martinez,
+  Concord, Fremont" — David opened Contra Costa for growth on Oct 6.
+

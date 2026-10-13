@@ -136,7 +136,7 @@ ${ownRatingLine(v) ? `<p class="h-own">${ownRatingLine(v)}</p>` : ''}
 ${contactBlock(v)}`;
   return {
     path: '/',
-    title: 'Laundry Pickup & Delivery in Oakland & the East Bay | Family Laundry',
+    title: 'Laundry Pickup & Delivery in Oakland, the East Bay & San Francisco | Family Laundry',
     description: "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free at our own plant in Oakland, never outsourced, and back the next day. Serving Oakland, Berkeley, the East Bay and San Francisco, Monday to Saturday.",
     body,
     jsonld: {

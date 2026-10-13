@@ -144,4 +144,113 @@ module.exports = {
       related: '/comforter-cleaning',
     },
   ],
+
+  // Oakland, added Oct 12, 2026 (SEO audit: biggest market, no neighborhood pages). Same sources as SF: customers
+  // active in the past 12 months by address ZIP (94610 177; 94611 138; 94602 91; 94606 80; 94609 77; 94605 68;
+  // 94618 65; 94608 62; 94612 56; 94601 52; 94607 51; 94619 50; 94705 43). Oakland has morning AND evening
+  // windows, so never say "evening routes" here; the page renders the real windows live.
+  // Not covered yet: Millsmont, Maxwell Park and the rest of 94605 / 94621 / 94603.
+  oakland: [
+    {
+      slug: 'grand-lake', index: true,
+      name: 'Grand Lake, Adams Point & Piedmont Avenue',
+      short: 'Grand Lake',
+      zips: ['94610', '94611'],
+      intro: "94610 is our busiest ZIP code in Oakland. We pick up all around Lake Merritt's north shore: Grand Lake, Adams Point, Lakeshore, Crocker Highlands and up Piedmont Avenue.",
+      about: [
+        "Lots of our customers here live in apartment buildings around the lake. Leave your bag at your door, in the lobby or with the building manager, and tell us where in the app.",
+        "Your laundry goes to our own plant a few miles away in Oakland, where our team washes it fragrance-free and folds it. It comes back the next service day, bundled by family member.",
+      ],
+      areas: ['Grand Lake', 'Adams Point', 'Lakeshore', 'Crocker Highlands', 'Trestle Glen', 'Piedmont Avenue', 'Mosswood', 'Rose Garden'],
+      review: { who: 'Katey W, Grand Lake', text: 'This was a fantastic experience! I had been avoiding my laundry for weeks and this provided the perfect reset.' },
+      faqs: [
+        ['I live in an apartment by the lake. Where do I leave my bag?', 'At your door, in the lobby or with the building manager, wherever your building allows. Add your buzzer or gate code under Delivery Instructions in the app.'],
+        ['Do you pick up in Crocker Highlands and Trestle Glen?', 'Yes. Crocker Highlands and Trestle Glen are on the same routes as Grand Lake and Lakeshore.'],
+      ],
+    },
+    {
+      slug: 'rockridge', index: true,
+      name: 'Rockridge & Temescal',
+      short: 'Rockridge',
+      zips: ['94618', '94609', '94705'],
+      intro: "We pick up across Rockridge, Temescal and the streets in between, from Longfellow and Bushrod up to Upper Rockridge and the Claremont area.",
+      about: [
+        "Leave your bag on the porch or by the side gate, and we bring it back to the same spot. Many of our customers here are busy families who hand off the whole week's laundry at once.",
+        "Everything is washed by our own team at our plant in Oakland, with Free & Clear detergent and ozone. No fragrance, no softener, no bleach.",
+      ],
+      areas: ['Rockridge', 'Upper Rockridge', 'Temescal', 'Longfellow', 'Bushrod', 'Shafter', 'Claremont', 'College Avenue'],
+      review: { who: 'Kyja J, Temescal', text: 'Always excellent!!! Very thankful for the wash and dry option and fragrance free detergent.' },
+      faqs: [
+        ['Do you pick up in Upper Rockridge and near the Claremont?', 'Yes. Upper Rockridge and the Claremont area are on the same routes as Rockridge and Temescal.'],
+        ['Can I leave my bag by the side gate?', 'Yes. Tell us where under Delivery Instructions in the app, and we deliver it back to the same spot.'],
+      ],
+    },
+    {
+      slug: 'montclair', index: true,
+      name: 'Montclair & the Oakland hills',
+      short: 'Montclair',
+      zips: ['94611', '94619'],
+      intro: "94611 is our second-busiest ZIP code in Oakland. We pick up in Montclair Village and up through the hills: Piedmont Pines, Merriwood, Shepherd Canyon, Redwood Heights and along Skyline.",
+      about: [
+        "Long driveway, steep steps or a house set back from the road? Leave the bag wherever is easiest, at the curb, by the garage or at the front door, and note it in the app.",
+        "Your laundry is washed fragrance-free at our own plant in Oakland and comes back folded the next service day.",
+      ],
+      areas: ['Montclair', 'Piedmont Pines', 'Merriwood', 'Shepherd Canyon', 'Thornhill', 'Joaquin Miller', 'Redwood Heights', 'Skyline'],
+      faqs: [
+        ['Do you pick up along Skyline and in the upper hills?', 'Yes. The hills above Montclair, including Skyline, Shepherd Canyon and Redwood Heights, are on our regular Oakland routes.'],
+        ['My house is up a long driveway. Do I need to bring the bag down?', 'No. Leave it wherever is easiest for you, and tell us where under Delivery Instructions in the app.'],
+      ],
+    },
+    {
+      slug: 'dimond', index: true,
+      name: 'Dimond, Glenview & the Laurel',
+      short: 'Dimond',
+      zips: ['94602', '94619'],
+      intro: "94602 is one of our busiest ZIP codes in Oakland. We pick up across Glenview, the Dimond, Oakmore, Lincoln Highlands and down MacArthur through the Laurel.",
+      about: [
+        "Bulky things are welcome: comforters, blankets and sheets can go in the same bag as the rest of your laundry, at the same per-bag price.",
+        "Everything is washed by our own team at our plant in Oakland, a short drive away, and comes back folded and bundled by family member.",
+      ],
+      areas: ['Glenview', 'the Dimond', 'Oakmore', 'Lincoln Highlands', 'Upper Dimond', 'Fruitvale Avenue', 'the Laurel', 'Allendale'],
+      review: { who: 'Joan & Ann H, Glenview', text: 'You did an outstanding job [...] on the blankets we included in that last order!' },
+      faqs: [
+        ['Do you pick up in Oakmore and Lincoln Highlands?', 'Yes. Oakmore and Lincoln Highlands are on the same routes as Glenview and the Dimond.'],
+        ['Can you wash blankets and comforters?', 'Yes. Comforters, blankets and pillows go in the same Family Laundry bag as the rest of your laundry, at the same per-bag price.'],
+      ],
+      related: '/comforter-cleaning',
+    },
+    {
+      slug: 'downtown', index: true,
+      name: 'Downtown, Uptown & Jack London',
+      short: 'Downtown',
+      zips: ['94612', '94607', '94608'],
+      intro: "We pick up across Downtown, Uptown, Old Oakland, Chinatown and Jack London Square, and through West Oakland.",
+      about: [
+        "In buildings with a front desk or package room, leave your bag there if your building allows it. Our drivers check in with building staff, and we text you when your laundry is on the way back.",
+        "Your laundry is washed by our own team at our plant in Oakland, never sent to a third party, and comes back folded the next service day.",
+      ],
+      areas: ['Downtown', 'Uptown', 'Old Oakland', 'Chinatown', 'Jack London Square', 'Lake Merritt', 'West Oakland', 'Prescott'],
+      review: { who: 'Virginia K, Uptown', text: 'Excellent. Thank you, Family Laundry!' },
+      faqs: [
+        ['Can I leave my bag with the front desk?', 'Yes. Tell us in the app who to ask or where the bag will be (front desk, concierge, package room). Our driver checks in with building staff.'],
+        ['Do you pick up in West Oakland?', 'Yes. West Oakland is on the same routes as Downtown and Jack London Square.'],
+      ],
+    },
+    {
+      slug: 'fruitvale', index: true,
+      name: 'Eastlake, San Antonio & Fruitvale',
+      short: 'Fruitvale',
+      zips: ['94606', '94601'],
+      intro: "This is our home neighborhood. Our plant and our laundromat, Sudzee Wash & Fold, are both here, so your laundry travels a few blocks, not across town.",
+      about: [
+        "We pick up across Eastlake, Clinton, San Antonio, Fruitvale and Jingletown, and our electric vans start and end every route right here.",
+        "Prefer to drop off yourself? Sudzee, our laundromat on Foothill Boulevard, takes drop-off wash & fold seven days a week.",
+      ],
+      areas: ['Eastlake', 'Clinton', 'San Antonio', 'Cleveland Heights', 'Bella Vista', 'Fruitvale', 'Jingletown', 'Fruitvale Station'],
+      faqs: [
+        ['Can I drop my laundry off myself?', 'Yes. Our drop-off counter is at {site:dropoff_address}, open {site:dropoff_hours}. Drop-off wash & fold is {retail:Wash & Fold}.'],
+        ['Do you pick up in Cleveland Heights and Bella Vista?', 'Yes. Cleveland Heights and Bella Vista are on the same routes as Eastlake and San Antonio.'],
+      ],
+    },
+  ],
 };
