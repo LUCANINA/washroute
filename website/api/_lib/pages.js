@@ -43,10 +43,10 @@ function home(v) {
     <p class="h-electric">I'm electric</p>
   </div>
   <div class="h-van-copy">
-    <h2>Delivering laundry across the Bay since ${esc(v.site?.founded || '2019')}.</h2>
-    <p>We pick up your laundry, wash it ourselves and bring it back folded the next day. <a href="/post/premium-laundry-delivery-at-your-doorstep">What makes us different</a>.</p>
-    <p>We're an Oakland family business with more than 30 employees. We run our own wash &amp; fold plant and our own delivery vans, and we never outsource. Not happy with an order? Tell us and we'll make it right.</p>
-    <p>Let us take care of your laundry. <a href="${APP}">Create an account</a> and book your first pickup.</p>
+    <h2>Delivering the freshest laundry in the Bay since ${esc(v.site?.founded || '2019')}.</h2>
+    <p>Imagine a service that picks up your dirty laundry, then returns it to you perfectly washed and folded. Within a day. Like magic. That's Family Laundry (learn more about what makes us <a href="/post/premium-laundry-delivery-at-your-doorstep">stand out</a>).</p>
+    <p>We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities (we never, ever outsource) and delivery vehicles. It's 100% Family Laundry, satisfaction guaranteed.</p>
+    <p>Let us take care of your laundry. <a href="${APP}">Create an account</a>.</p>
   </div>
 </section>
 
@@ -85,8 +85,8 @@ function home(v) {
 
 <section class="h-clean">
   <h2>How we clean</h2>
-  <p>We wash with Free &amp; Clear hypoallergenic detergent and ozone. We never use fragrance, bleach, softener or dry-cleaning solvents.</p>
-  <p>Your laundry comes back with a neutral, clean smell and no detergent or softener residue.</p>
+  <p>We use only hypoallergenic detergents (free and clear) and Ozone when washing your laundry. No fragrances, no bleach, no softeners, no dry cleaning solvents, ever.</p>
+  <p>The result is a neutral, clean laundry smell with no noticeable detergent or conditioner residue.</p>
   <div class="h-steps">
     <div><img src="/assets/img/step-prep.jpg" alt="" width="121" height="121" loading="lazy"><h3>Prep</h3><p>We empty all pockets and separate lights and darks.</p></div>
     <div><img src="/assets/img/step-wash.jpg" alt="" width="121" height="121" loading="lazy"><h3>Wash, Sanitize, Dry</h3><p>We wash in cold water with Free &amp; Clear detergent and ozone, then dry on medium.</p></div>
