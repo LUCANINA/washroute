@@ -8933,7 +8933,7 @@
     company_name:  'Family Laundry',
     address_line1: '5215 Genoa St',
     address_line2: 'Oakland CA 94608',
-    phone:         '(510) 842-3560',
+    phone:         '(510) 588-4102',
     email:         'info@familylaundry.com',
     footer:        ''
   };
@@ -29211,7 +29211,7 @@ ${noActivityNote}
               <div>
                 <div style="font-size:11px;font-weight:700;letter-spacing:0;color:var(--gray-500);margin-bottom:6px">Phone</div>
                 <input id="inv-phone" class="form-input" type="tel"
-                  placeholder="(510) 842-3560"
+                  placeholder="(510) 588-4102"
                   value="${(BIZ_INVOICE.phone||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
                   style="width:100%;font-size:13.5px">
               </div>
@@ -44776,6 +44776,16 @@ ${oneCopy}
         .select('discount_id, created_at, status, line_items')
         .not('discount_id', 'is', null)
     ]);
+    // Session 344: these three reads used to be swallowed with `|| []`, so when the
+    // redemptions query failed (RLS statement timeout -> HTTP 500, 12x on Oct 13)
+    // the "Redeemed ($)" / "Redeemed (date)" columns just rendered blank and nobody
+    // knew. Surface the failure instead of showing wrong-looking zeros.
+    const loadErr = discRes.error || redRes.error || usageRes.error;
+    if (loadErr) {
+      console.error('loadDiscounts failed:', loadErr);
+      showToast('Could not load discounts: ' + (loadErr.message || 'unknown error')
+                + ' — figures below may be incomplete.', 'error', 8000);
+    }
     const data = discRes.data || [];
     const redsByDisc = {};
     (redRes.data || []).forEach(r => {
