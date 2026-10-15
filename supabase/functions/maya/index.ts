@@ -10,7 +10,7 @@
 //                                                greet a known customer by first name
 //   POST /maya/tool/account x-maya-token + X-Retell-Signature → caller's pickups/orders, ONLY after
 //                                                they confirm their street name (caller ID can be spoofed)
-//   POST /maya/tool/{find_times,check_address,book,skip,reschedule,cancel}  same checks → phone booking (phase 3)
+//   POST /maya/tool/{find_times,check_address,book,skip,reschedule,cancel,notes,card_link}  same checks → phone booking (phase 3)
 //   POST /maya/transcripts x-maya-admin, body {since_hours?} → recent calls with full transcripts (read-only; daily review)
 //   POST /maya/admin-tool  x-maya-admin → run a booking tool as a given caller number, ALWAYS dry-run (tests)
 //
@@ -193,12 +193,19 @@ function near(a: string, b: string): boolean {
   return edits + (a.length - i) + (b.length - j) <= 1;
 }
 
-async function streetMatches(customerId: string, street: string): Promise<boolean> {
+function streetSaid(street: string): string[] {
   const words = streetWords(street);
-  const said = words.length > 1 ? [...words, words.join('')] : words; // "Foot hill" → also "foothill"
+  return words.length > 1 ? [...words, words.join('')] : words; // "Foot hill" → also "foothill"
+}
+const lineMatches = (line1: string, said: string[]) => {
+  const known = streetWords(line1);
+  return said.some((w) => known.some((k) => near(w, k)));
+};
+
+async function streetMatches(customerId: string, street: string): Promise<boolean> {
+  const said = streetSaid(street);
   const addrs: any[] = await db(`addresses?customer_id=eq.${customerId}&select=line1`);
-  const known = addrs.flatMap((a) => streetWords(a.line1));
-  return said.length > 0 && said.some((w) => known.some((k) => near(w, k)));
+  return said.length > 0 && addrs.some((a) => lineMatches(a.line1, said));
 }
 
 // Known caller + street check, for every tool that touches an account.
@@ -214,15 +221,19 @@ async function verifiedCaller(call: any, street: string): Promise<{ c?: any; fai
 
 async function inboundCall(evt: any) {
   const c = await customerByPhone(evt?.call_inbound?.from_number);
+  // Caller ID's last four, so a message can confirm "the number you're calling from" instead of
+  // making the caller read out all ten digits (David, 2026-10-15).
+  const cid = String(evt?.call_inbound?.from_number || '').replace(/\D/g, '');
+  const idLine = cid.length >= 10 ? ` Caller ID: a phone number ending in ${cid.slice(-4).split('').join(' ')}.` : ' No caller ID.';
   if (!c || c.cancelled_at) {
     return { call_inbound: { dynamic_variables: { caller_context:
-      "The caller's number does not match an active customer. Treat them as a new or unknown caller." } } };
+      "The caller's number does not match an active customer. Treat them as a new or unknown caller." + idLine } } };
   }
   const first = String(c.first_name_cache || '').trim().split(/\s+/)[0] || '';
   return { call_inbound: {
-    dynamic_variables: { caller_context: first
+    dynamic_variables: { caller_context: (first
       ? `The caller's number matches an existing customer whose first name is ${first}. Not verified yet.`
-      : `The caller's number matches an existing customer (no first name on file). Not verified yet.` },
+      : `The caller's number matches an existing customer (no first name on file). Not verified yet.`) + idLine },
     ...(first ? { agent_override: { retell_llm: {
       begin_message: `Hi ${first}, this is Maya, Family Laundry's virtual assistant. How can I help you today?` } } } : {}),
   } };
@@ -600,6 +611,75 @@ async function toolCancel(call: any, a: any, live: boolean) {
     say: `Cancelled.${all && repeats ? ' Their repeating pickups are stopped; nothing more is booked. They can call any time to start again.' : ''}${missed}` };
 }
 
+// ── Delivery notes for the driver (David, 2026-10-15) ──
+// Gate codes, "call when you arrive", where to leave the bags: saved straight onto the caller's address
+// (addresses.delivery_instructions), the same field as "Add delivery notes" in the customer app. The driver
+// app shows it as the yellow Instructions card on every stop at that address. No team callback needed.
+async function toolDeliveryNotes(call: any, a: any, live: boolean) {
+  const v = await verifiedCaller(call, a?.street_name);
+  if (v.fail) return v.fail;
+  const said = String(a?.notes || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (!said) return { ok: false, say: 'Ask what the driver should know: a gate code, where to leave the bags, or to call on arrival.' };
+  // The address whose street they just said (they may have more than one), default first.
+  const addrs: any[] = await db(`addresses?customer_id=eq.${v.c.id}&select=id,line1,delivery_instructions` +
+    '&order=is_default.desc,created_at.desc');
+  const words = streetSaid(a?.street_name);
+  const addr = addrs.find((x) => lineMatches(x.line1, words)) || addrs[0];
+  if (!addr?.id) return { ok: false, say: "I can't find an address on this account. Take a message." };
+  const old = String(addr.delivery_instructions || '').trim();
+  const text = (a?.replace === true || !old) ? said
+    : old.toLowerCase().includes(said.toLowerCase()) ? old
+    : `${old.replace(/[.\s]+$/, '')}. ${said}`.slice(0, 500);
+  if (!live) return { ok: true, test_mode: true, saved_notes: text, say: TEST };
+  if (text !== old) {
+    const rows = await db(`addresses?id=eq.${addr.id}&customer_id=eq.${v.c.id}`, { method: 'PATCH',
+      body: JSON.stringify({ delivery_instructions: text }) });
+    if (!rows?.length) return { ok: false, say: "The note couldn't be saved. Take a message with the note." };
+  }
+  console.log(`maya: customer ${v.c.id} delivery notes on address ${addr.id} ${text === old ? 'unchanged' : 'saved'} via ${call?.call_id}`);
+  return { ok: true, saved: true, saved_notes: text,
+    say: 'Saved. The driver will see it at every pickup and delivery. Read the saved notes back in one short sentence.' +
+      (old && a?.replace !== true && text !== said
+        ? ' Their earlier notes were kept. If part of it is now wrong (like an old gate code), ask, then call again with replace=true and the full corrected notes.'
+        : '') };
+}
+
+// ── Text the caller the link to update their card (David, 2026-10-15) ──
+// Same link as the payment_failed text (app.familylaundry.com/#account). Only to a VERIFIED known caller, only
+// to the number they're calling from (it's the account's number: that's how we found them), only if they get
+// texts, at most once per 10 minutes. Sent through send-sms, so it shows in the Admin inbox and obeys its
+// staging kill-switch. Maya never takes card details.
+const CARD_LINK = 'https://app.familylaundry.com/#account';
+async function toolCardLink(call: any, a: any, live: boolean) {
+  const v = await verifiedCaller(call, a?.street_name);
+  if (v.fail) return v.fail;
+  const phone = d10(call?.from_number);
+  const cust = (await db(`customers?id=eq.${v.c.id}&select=first_name_cache,sms_notifications_opt_out_at&limit=1`))?.[0] || {};
+  const spoken = 'go to app dot family laundry dot com, sign in, and open Account';
+  if (!phone || cust.sms_notifications_opt_out_at) return { ok: false, texts_off: true,
+    say: `They have our texts turned off, so don't text them. Tell them to ${spoken} to update their card. If they can't sign in, take a message.` };
+  const to = `+1${phone}`;
+  const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const recent = await db(`sms_messages?to_number=eq.${encodeURIComponent(to)}&body=ilike.*app.familylaundry.com%2F%23account*` +
+    `&created_at=gte.${since}&select=id&limit=1`).catch(() => []);
+  if (recent?.length) return { ok: true, already_sent: true, say: 'The link was just texted to them. Ask them to check their messages.' };
+  const first = String(cust.first_name_cache || '').trim();
+  const body = a?.language === 'es'
+    ? `Hola${first ? ' ' + first : ''}, aquí está el enlace para actualizar su tarjeta con Family Laundry: ${CARD_LINK} (inicie sesión y abra Account).`
+    : `Hi${first ? ' ' + first : ''}, here's the link to update your card with Family Laundry: ${CARD_LINK} (sign in, then open Account).`;
+  if (!live) return { ok: true, test_mode: true, text: body, say: TEST };
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/send-sms`, { method: 'POST',
+    headers: { Authorization: `Bearer ${SVC}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to, body, customer_id: v.c.id }) }).catch((e) => { console.error('maya: card link text failed', (e as Error).message); return null; });
+  if (!r || !r.ok) {
+    if (r) console.error('maya: card link text failed', r.status, (await r.text()).slice(0, 200));
+    return { ok: false, say: `The text didn't go through. Tell them to ${spoken} to update their card. If they can't sign in, take a message.` };
+  }
+  console.log(`maya: customer ${v.c.id} texted card link via ${call?.call_id}`);
+  return { ok: true, sent: true,
+    say: "Texted. Tell them the link is on its way to this phone: they sign in and update their card under Account. Their card details stay private; never take them yourself." };
+}
+
 // ── Service-area check by ZIP or city (David, 2026-10-13) ──
 // The ZIP/city list is the website's (website/content/service-zips.js + cities.js, served as JSON by
 // website/api/service-area.js), so the phone and the homepage ZIP check can't disagree. Pickup windows come
@@ -667,7 +747,8 @@ async function toolServiceArea(_call: any, a: any) {
 
 const BOOKING_TOOLS: Record<string, (call: any, a: any, live: boolean) => Promise<any>> = {
   find_times: (c, a) => toolFindTimes(c, a), check_address: (c, a) => toolCheckAddress(c, a),
-  book: toolBook, skip: toolSkip, reschedule: toolReschedule, cancel: toolCancel,
+  book: toolBook, skip: toolSkip, reschedule: toolReschedule, cancel: toolCancel, notes: toolDeliveryNotes,
+  card_link: toolCardLink,
   area: (c, a) => toolServiceArea(c, a),
 };
 
@@ -747,7 +828,7 @@ const PROMPT = `You are Maya, the phone assistant for Family Laundry, a family-r
 {{caller_context}}
 (If that line is missing or shows a placeholder in curly braces, treat the caller as unknown.)
 - A known caller has already been greeted by first name. Don't ask for their name again; use it.
-- Before sharing ANY account detail (pickups, deliveries, orders, address), verify the caller: ask them to say the street name of their pickup address, then call lookup_my_account with what they said.
+- Before sharing ANY account detail or changing anything (pickups, deliveries, orders, address, booking), verify the caller. Say: "Quick security check: what's the street name of your pickup address?" Then call lookup_my_account with what they said.
   Never say, spell or hint at the street yourself. If it doesn't match twice, don't share anything; take a message instead.
 - Share only what lookup_my_account returns. Say dates and times naturally ("this Tuesday between seven and nine in the evening").
 - Unknown callers: you can't look up an account. Answer general questions and take a message.
@@ -791,6 +872,8 @@ Share these only when asked, one or two sentences at a time, warmly. Then offer 
 - Answer questions, take messages, and tell a VERIFIED known caller about their pickups and orders.
 - Book a pickup (known callers and new callers), skip a pickup, move a pickup to another time, or cancel pickups (including stopping a repeating schedule).
 - Bring an order back later than usual, on another day and/or at another time, if the caller asks and that time has room.
+- Save delivery notes for the driver (gate code, call on arrival, where to leave the bags) on a VERIFIED known caller's address.
+- Text a VERIFIED known caller the link to update their card (text_card_link): lost or new card, or a "payment problem" text or email. Don't take a message for it. If they also question a charge or an amount, take a message for that part only.
 - You CANNOT: give balances or charges, change prices, add services, or take payments. For those, take a message.
 - Never ask for or accept a card. Explain payment exactly as the booking result says.
 
@@ -810,6 +893,7 @@ Share these only when asked, one or two sentences at a time, warmly. Then offer 
 6. Call book_pickup with caller_confirmed=false. Read back the summary it returns: day and time of pickup, when it comes back, number of bags, whether it repeats, add-ons and care notes, and the price estimate (and name and address for a new caller). Ask "Shall I book it?"
 7. Only after a clear yes, call book_pickup again with the same details and caller_confirmed=true. Then tell them it's booked, and say what the result tells you to (repeat schedule, saved preferences, bags outside, missed-pickup fee, payment), kindly and briefly. Don't rush; one or two sentences at a time.
 - If they already have a pickup booked, offer to move it instead of booking a second one.
+- Gate, door code, "call me when you arrive", or where to leave the bags: known caller → call save_delivery_notes (any time in the call, booking or not); new caller → put it in new_customer.access_notes. Never take a message for it.
 - Never offer a time that find_pickup_times did not return. Never book an address that check_new_address did not return.
 
 ## Getting it back later
@@ -838,7 +922,8 @@ If any tool fails, or its result says to take a message, apologize and take a me
 
 ## Taking a message
 1. Ask for their name (skip this for a known caller you greeted by name).
-2. Ask for the best number to call them back. Let them say it at their own pace, in groups if they like.
+2. If "Who is calling" shows a caller ID, ask: "Is the number you're calling from, ending in (the last four), the best one to reach you?" If yes, go to step 3; don't read the whole number.
+   Otherwise ask for the best number to call them back. Let them say it at their own pace, in groups if they like.
    If you missed part of it, ask only for the missing part ("I got five one oh, eight four two. What were the last four digits?"). Don't give up after one try.
    Read the full number back digit by digit and confirm.
 3. Ask briefly what it's about.
@@ -860,8 +945,8 @@ const BEGIN = "Hi, this is Maya, Family Laundry's virtual assistant. How can I h
 const ANALYSIS = [
   { type: 'system-presets', name: 'call_summary' },
   { type: 'string', name: 'caller_name', description: "The caller's name if they gave it, otherwise empty." },
-  { type: 'string', name: 'callback_number', description: 'Callback phone number the caller confirmed, digits only, otherwise empty.' },
-  { type: 'boolean', name: 'needs_callback', description: 'True only if the caller left a message or still needs the team to do something. False if Maya fully handled it (e.g. booked, skipped or moved a pickup, or answered their question).' },
+  { type: 'string', name: 'callback_number', description: 'Callback phone number the caller said and confirmed, digits only. Empty if they chose the number they are calling from, or gave none.' },
+  { type: 'boolean', name: 'needs_callback', description: 'True only if the caller left a message or still needs the team to do something. False if Maya fully handled it (e.g. booked, skipped or moved a pickup, saved delivery notes, texted a card link, or answered their question).' },
   { type: 'boolean', name: 'urgent', description: 'True if the caller was upset, complained, or reported a lost/damaged item or missed pickup.' },
   { type: 'enum', name: 'reason', description: 'Main reason for the call.',
     choices: ['question_answered', 'book_pickup', 'change_or_skip_pickup', 'new_customer', 'order_status', 'billing', 'complaint', 'business_inquiry', 'other'] },
@@ -906,6 +991,15 @@ const BOOKING_TOOL_DEFS = [
         ok_to_text: { type: 'boolean', description: 'Their answer to "Can we text this number with pickup reminders and updates?"' },
         access_notes: { type: 'string', description: 'Gate code or where to find the bags, if they mention it.' },
         callback_phone: { type: 'string', description: 'Only if the call has no caller ID.' } } } } } },
+  { name: 'save_delivery_notes', route: 'notes',
+    description: "Known caller: save a note for the driver on their address (gate code, call on arrival, where to leave or find the bags). Saved to their account right away; the driver sees it at every pickup and delivery there. Earlier notes are kept unless replace=true.",
+    parameters: { type: 'object', required: ['street_name', 'notes'], properties: { street_name: STREET,
+      notes: { type: 'string', description: 'What the driver should know, short and plain, e.g. "Gate code 4512. Call on arrival."' },
+      replace: { type: 'boolean', description: 'true only if the caller says the old notes are wrong or out of date (e.g. a new gate code). Then pass the full corrected notes.' } } } },
+  { name: 'text_card_link', route: 'card_link',
+    description: "Known caller: text them the link to update or add their card (lost card, new card, or a payment problem notice). Goes only to the number they're calling from.",
+    parameters: { type: 'object', required: ['street_name'], properties: { street_name: STREET,
+      language: { type: 'string', enum: ['en', 'es'], description: 'es if the call is in Spanish.' } } } },
   { name: 'skip_pickup', route: 'skip',
     description: "Skip the caller's next pickup (or the one on pickup_date). caller_confirmed=false first to read back which one.",
     parameters: { type: 'object', required: ['street_name', 'caller_confirmed'], properties: { street_name: STREET, pickup_date: DAY_ARG, caller_confirmed: CONFIRMED } } },
@@ -1085,7 +1179,8 @@ async function handleCall(call: any) {
   const a = call.call_analysis || {};
   const c = a.custom_analysis_data || {};
   const digits = (s: unknown) => String(s || '').replace(/\D/g, '');
-  const callback = digits(c.callback_number);
+  // Empty callback_number = the caller confirmed the number they called from (or gave none): use caller ID.
+  const callback = digits(c.callback_number) || (c.needs_callback || c.urgent ? digits(call.from_number) : '');
   // Web test calls have no caller ID: fall back to the number the caller gave, then a marker.
   const from = call.from_number || (callback.length >= 10 ? `+1${callback.slice(-10)}` : 'maya-web-call');
   const to = call.to_number || 'maya';
@@ -1176,7 +1271,7 @@ Deno.serve(async (req) => {
     }
 
     // Phone booking tools — same token + signature as the account tool.
-    const bm = path.match(/\/tool\/(find_times|check_address|book|skip|reschedule|cancel|area)$/);
+    const bm = path.match(/\/tool\/(find_times|check_address|book|skip|reschedule|cancel|notes|card_link|area)$/);
     if (bm) {
       const raw = await req.text();
       if (!RETELL_KEY || !safeEq(req.headers.get('x-maya-token') || '', await toolToken())) return json({ error: 'forbidden' }, 403);
