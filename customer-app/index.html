@@ -3930,6 +3930,7 @@ async function loadHome() {
   renderHomeReferralStrip();   // fire-and-forget; never blocks the order list
   renderHomeRecurCard();       // fire-and-forget (session 321)
   if (currentCustomer?.id) maybeOpenPendingAddCard();
+  if (currentCustomer?.id) maybeOpenPendingPlan();
   if (currentCustomer?.id) maybeOpenPendingRating();
   if (currentCustomer?.id) maybeHandleEmailLinks();
 
@@ -9973,6 +9974,32 @@ const ADDCARD_KEY = 'wr_open_addcard';
   } catch (_) {}
 })();
 
+/* ── "Your plan" deep link (session 346) ──────────────────────────────────
+   The monthly savings emails link to https://app.familylaundry.com/?plan=1 so
+   "Switch to pay-per-bag" / "Pause my plan" / "Switch to the subscription" land on
+   the Subscription screen, not the home page. Same pattern as ?addcard=1. */
+const PLAN_KEY = 'wr_open_plan';
+(function capturePlanIntent() {
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.get('plan') !== '1') return;
+    localStorage.setItem(PLAN_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
+    qs.delete('plan');
+    const rest = qs.toString();
+    history.replaceState({}, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+  } catch (_) {}
+})();
+
+function maybeOpenPendingPlan() {
+  let until = 0;
+  try { until = parseInt(localStorage.getItem(PLAN_KEY) || '0', 10); } catch (_) {}
+  if (!until) return;
+  try { localStorage.removeItem(PLAN_KEY); } catch (_) {}
+  if (until < Date.now() || !currentCustomer?.id) return;
+  goTo('account');
+  setTimeout(() => { openPlanPanel(); }, 350);
+}
+
 function maybeOpenPendingAddCard() {
   let until = 0;
   try { until = parseInt(localStorage.getItem(ADDCARD_KEY) || '0', 10); } catch (_) {}
@@ -10673,7 +10700,7 @@ function renderPlanCards(activePlanId) {
         pauseBlock = `
         <div style="background:#fbe9ee;color:#7a1f3d;padding:12px;border-radius:8px;font-size:14px;font-weight:600;text-align:center;margin-bottom:10px;line-height:1.45">
           ⏸ Paused until ${fmtPause(_activeSub.pause_ends_at)}<br>
-          <span style="font-weight:500">Orders until then are priced per bag. Your plan restarts ${fmtPause(_activeSub.pause_ends_at)} and $${pricePause} will be charged that day.</span>
+          <span style="font-weight:500">We price orders per bag until then. Your plan restarts ${fmtPause(_activeSub.pause_ends_at)}, and we'll charge $${pricePause} that day.</span>
         </div>`;
       } else if (pausePlanned) {
         pauseBlock = `
@@ -10947,7 +10974,7 @@ async function pauseSubscription() {
     const last = new Date(Date.UTC(y, mo + 2, 0)).getUTCDate();
     return new Date(Date.UTC(y, mo + 1, Math.min(d.getUTCDate(), last), d.getUTCHours(), d.getUTCMinutes())); })() : null;
   const msg = end
-    ? `Your plan continues until ${fmt(end)}, and you won't be charged that day. It restarts on its own on ${restart ? fmt(restart) : 'the following month'} ($${price}). While paused, your weekly pickup is skipped and any order is priced per bag.`
+    ? `Your plan continues until ${fmt(end)}, and we won't charge you that day. It restarts on its own on ${restart ? fmt(restart) : 'the following month'} ($${price}). While paused, we skip your weekly pickup and price any order per bag.`
     : `You'll skip one month's charge, and the plan restarts on its own a month later.`;
   if (!await confirmDialog({ title: 'Pause for one month?', message: msg, confirmLabel: 'Pause' })) return;
   try {

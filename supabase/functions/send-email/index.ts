@@ -170,7 +170,14 @@ Deno.serve(async (req: Request) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        personalizations: [{ to: [{ email: to_email }] }],
+        // Session 346: optional BCC (staff/internal callers only — a customer caller never
+        // chooses recipients). Used by savings-summary to copy info@ on every send.
+        personalizations: [{
+          to: [{ email: to_email }],
+          ...(auth.mode === 'staff' && typeof payload.bcc === 'string' && /^[^@\s]+@[^@\s]+$/.test(payload.bcc)
+              && payload.bcc.toLowerCase() !== String(to_email).toLowerCase()
+            ? { bcc: [{ email: payload.bcc }] } : {}),
+        }],
         from: { email: FROM_EMAIL, name: FROM_NAME },
         reply_to: { email: FROM_EMAIL, name: FROM_NAME },
         subject,

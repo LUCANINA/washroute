@@ -1,5 +1,22 @@
 # WashRoute — Project Notes
 
+## Session 346 — Oct 16, 2026: monthly savings emails (savings-summary)
+
+David's design: subscribers get a usage summary at 3 pm PT the day before each renewal; pay-per-bag customers who'd
+have saved on the plan 3 months running get "you could have saved" on the 1st (pilot: 20 random, rest = control).
+info@ BCC'd on every send. Variants: saved / light_month / switch (3-period total negative) / no_orders (→ pause).
+- **Counting rule (found by David on a test email):** an order counts in the period the PLAN counted it — first
+  `order_ready` usage-log row — not its pickup time. Pickup-time attribution mis-stated 14 of 106 subscribers (Laurel:
+  bag picked up the evening before her cycle, weighed next morning → 5 pickups/120 lbs/$55 overage, not 4/95).
+  Verified 106/106 match `usage_lbs_this_period` after also excluding walk-ins.
+- Prices read live (services Delivery per_bag, service_fees Delivery, subscription_plans). Order reads paged
+  (`_shared/paged-select.ts`) — the first dry run silently stopped at 1,000 rows.
+- Tables `savings_email_sends` (claim-before-send, unique per customer+period) + `savings_email_pilot`
+  (`migrations/session_346_savings_emails.sql`, run by David in the SQL editor — the MCP apply was cancelled twice).
+- `send-email` gained optional `bcc` (staff/internal callers only). Customer app: `?plan=1` deep link opens
+  Account → Subscription (same pattern as `?addcard=1`).
+- Test: `{mode, test_to, window_days, one_per_variant}`; dry run `{dry_run:true}`. Cron: `session_346b_savings_cron.sql`.
+
 ## Session 345 — Oct 15, 2026: subscription Pause (one month, customer self-serve) — backend LIVE, apps not pushed
 
 David's decisions: pause = ONE billing month; starts when the paid month ends (no charge at that renewal);

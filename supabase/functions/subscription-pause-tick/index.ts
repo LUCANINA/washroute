@@ -114,7 +114,7 @@ Hi ${firstName || 'there'}, your one-month pause is almost over.
 <div style="background:#fbf6f1;border-radius:8px;padding:18px;margin:16px 0;text-align:center;">
 <div style="font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#8a8f9c;">Your plan restarts</div>
 <div style="font-size:26px;font-weight:900;color:#1f2a4d;margin-top:4px;">${day}</div>
-<div style="font-size:13px;color:#6b7280;margin-top:4px;">$${price.toFixed(2)} will be charged to your card on file that day</div></div>
+<div style="font-size:13px;color:#6b7280;margin-top:4px;">We'll charge $${price.toFixed(2)} to your card on file that day</div></div>
 From then on your pickups are back on the plan: 100 lbs a month and free delivery. Your repeating pickup starts again on its usual day.
 <div style="border:1px solid #f3c9d5;background:#fff8fa;border-radius:8px;padding:12px 14px;margin:16px 0;font-size:13.5px;color:#4b2a35;">Not ready to restart? You can cancel in the app before ${day} under Account &rarr; Subscription.</div>
 <div style="text-align:center;margin:18px 0 8px;"><a href="https://app.familylaundry.com" style="display:inline-block;background:#1f2a4d;color:#fff;text-decoration:none;font-weight:700;border-radius:999px;padding:11px 22px;font-size:14px;">Open the app</a></div>
