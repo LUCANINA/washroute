@@ -6131,7 +6131,8 @@ async function placeOrder() {
   // ── Session 118: link order to active subscription so usage is tracked ──
   // If the customer has an active subscription, stamp subscription_id on the order.
   // This ensures charge-order skips payment and the usage trigger deducts weight.
-  let _orderSubId = _activeSub?.id || null;
+  // Session 345: a paused plan never covers a new order (orders during a pause are per bag).
+  let _orderSubId = (_activeSub && _activeSub.status !== 'paused') ? _activeSub.id : null;
   if (!_orderSubId && currentCustomer?.id) {
     try {
       const { data: _subs } = await db.from('subscriptions')
@@ -10662,8 +10663,32 @@ function renderPlanCards(activePlanId) {
       const pickupBlock = hasPref
         ? `<div style="background:var(--gray-50);color:var(--gray-700);padding:11px 12px;border-radius:8px;font-size:14px;font-weight:600;text-align:center;margin-bottom:10px;line-height:1.4">📅 Weekly pickup: ${cap(_activeSub.preferred_pickup_day)}s${_activeSub.preferred_pickup_window ? ' · ' + _activeSub.preferred_pickup_window : ''}</div>`
         : `<button class="plan-select-btn" style="border-color:var(--navy);background:var(--navy);color:white;margin-bottom:10px" onclick="showSubscriptionPickupPicker()">📅 Schedule weekly pickup</button>`;
+      // Session 345: one-month pause. Three states — none, planned (starts when the paid
+      // month ends), in progress (status 'paused').
+      const fmtPause = d => new Date(d).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'long', day: 'numeric' });
+      const pricePause = Number(_activeSub.subscription_plans?.price_monthly || 275).toFixed(0);
+      const pausePlanned = _activeSub.status === 'active' && _activeSub.pause_starts_at && new Date(_activeSub.pause_starts_at) > new Date();
+      let pauseBlock;
+      if (_activeSub.status === 'paused' && _activeSub.pause_ends_at) {
+        pauseBlock = `
+        <div style="background:#fbe9ee;color:#7a1f3d;padding:12px;border-radius:8px;font-size:14px;font-weight:600;text-align:center;margin-bottom:10px;line-height:1.45">
+          ⏸ Paused until ${fmtPause(_activeSub.pause_ends_at)}<br>
+          <span style="font-weight:500">Orders until then are priced per bag. Your plan restarts ${fmtPause(_activeSub.pause_ends_at)} and $${pricePause} will be charged that day.</span>
+        </div>`;
+      } else if (pausePlanned) {
+        pauseBlock = `
+        <div style="background:#fbe9ee;color:#7a1f3d;padding:12px;border-radius:8px;font-size:14px;font-weight:600;text-align:center;margin-bottom:10px;line-height:1.45">
+          ⏸ Pause planned<br>
+          <span style="font-weight:500">Your plan continues until ${fmtPause(_activeSub.pause_starts_at)}. No charge that day. It restarts ${fmtPause(_activeSub.pause_ends_at)} ($${pricePause}).</span>
+        </div>
+        <button class="plan-select-btn" style="margin-bottom:10px" onclick="undoPauseSubscription()">Undo pause</button>`;
+      } else {
+        pauseBlock = `<button class="plan-select-btn" style="margin-bottom:4px" onclick="pauseSubscription()">Pause for one month</button>
+        <div style="font-size:12.5px;color:var(--gray-500);text-align:center;margin:0 0 12px;line-height:1.4">Skip one month's charge. Your plan restarts on its own a month later.</div>`;
+      }
       actionsEl.innerHTML = `
         ${pickupBlock}
+        ${pauseBlock}
         <button class="plan-select-btn danger" onclick="cancelSubscription()">Cancel Subscription</button>
         <div style="font-size:12.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">You'll keep service through the end of this billing period, then your subscription will end.</div>`;
     } else if (_activeSub.status === 'trialing') {
@@ -10896,32 +10921,51 @@ async function selectPlan(planId, isFree) {
 }
 
 /* ── Subscription lifecycle stubs (wired to Stripe in Phase 4) ── */
+// Session 345: one-month pause (pause-subscription action 'schedule' / 'undo').
+async function _callPause(action) {
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) throw new Error('Not signed in');
+  const res = await fetch(`${SUPA_URL}/functions/v1/pause-subscription`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+    body: JSON.stringify({ subscription_id: _activeSub.id, action }),
+  });
+  const result = await res.json().catch(() => ({}));
+  if (!res.ok || result.error) throw new Error(result.error || ('Request failed (' + res.status + ')'));
+  await loadUserData();
+  await fetchActiveSub(); renderPlanCards(currentCustomer?.subscription_plan_id); renderPlanBadges();
+  return result;
+}
+
 async function pauseSubscription() {
   if (!_activeSub) return;
-  if (!await confirmDialog({ title: 'Pause your subscription?', message: "You won't be charged while paused, and you can resume anytime.", confirmLabel: 'Pause' })) return;
-
+  const fmt = d => new Date(d).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'long', day: 'numeric' });
+  const end = _activeSub.current_period_end;
+  const price = Number(_activeSub.subscription_plans?.price_monthly || 275).toFixed(0);
+  // Same rule as the server (and Stripe): one month later, day clamped (Jan 31 → Feb 28).
+  const restart = end ? (() => { const d = new Date(end); const y = d.getUTCFullYear(), mo = d.getUTCMonth();
+    const last = new Date(Date.UTC(y, mo + 2, 0)).getUTCDate();
+    return new Date(Date.UTC(y, mo + 1, Math.min(d.getUTCDate(), last), d.getUTCHours(), d.getUTCMinutes())); })() : null;
+  const msg = end
+    ? `Your plan continues until ${fmt(end)}, and you won't be charged that day. It restarts on its own on ${restart ? fmt(restart) : 'the following month'} ($${price}). While paused, your weekly pickup is skipped and any order is priced per bag.`
+    : `You'll skip one month's charge, and the plan restarts on its own a month later.`;
+  if (!await confirmDialog({ title: 'Pause for one month?', message: msg, confirmLabel: 'Pause' })) return;
   try {
-    const { data: { session } } = await db.auth.getSession();
-    if (!session) throw new Error('Not authenticated');
-
-    const res = await fetch(`${SUPA_URL}/functions/v1/pause-subscription`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ subscription_id: _activeSub.id }),
-    });
-
-    const result = await res.json();
-    if (result.error) throw new Error(result.error);
-
-    // Refetch subscription and re-render
-    await loadUserData();
-    await fetchActiveSub(); renderPlanCards(currentCustomer?.subscription_plan_id); renderPlanBadges(); // was renderSubscriptionCard() — undefined, threw after a successful pause/resume
-    toast('Subscription paused ✓', '');
+    await _callPause('schedule');
+    toast('Pause planned ✓', '');
   } catch (e) {
-    toast('Error pausing subscription: ' + e.message, '');
+    toast('Could not pause: ' + e.message, '');
+  }
+}
+
+async function undoPauseSubscription() {
+  if (!_activeSub) return;
+  if (!await confirmDialog({ title: 'Undo your pause?', message: 'Your plan will renew as usual on its renewal date.', confirmLabel: 'Undo pause' })) return;
+  try {
+    await _callPause('undo');
+    toast('Pause cancelled ✓', '');
+  } catch (e) {
+    toast('Could not undo the pause: ' + e.message, '');
   }
 }
 

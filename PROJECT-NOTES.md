@@ -1,5 +1,34 @@
 # WashRoute — Project Notes
 
+## Session 345 — Oct 15, 2026: subscription Pause (one month, customer self-serve) — backend LIVE, apps not pushed
+
+David's decisions: pause = ONE billing month; starts when the paid month ends (no charge at that renewal);
+restarts automatically one month later (renewal day unchanged); orders during the pause are pay-per-bag;
+repeating pickups skipped for the pause weeks; reminder email 3 days before restart; customers only (admin read-only).
+Replaces the session-165 "dropped" pause (old function kept in `_to_delete/`).
+- **Stripe:** `pause_collection {behavior:'void', resumes_at: pause end − 1h}` set at scheduling. The renewal invoice at
+  pause start is voided; the next renewal charges normally.
+- **`migrations/session_345_subscription_pause.sql` — APPLIED Oct 15 16:44 PT (David OK'd); REST verified sees the 4 columns.** `subscriptions.pause_starts_at /
+  pause_ends_at / pause_requested_at / pause_reminder_sent_at`; usage-log CHECK + `pause_scheduled|pause_cancelled|
+  pause_started|pause_ended`; `link_subscription_on_order_fn` (snapshot `_archive.fn_snapshot_session_345`): (A) an order
+  CREATED during a pause never links later, (B) a NEW order never joins a paused plan (customer app used to stamp
+  `_activeSub.id` even when paused → free orders).
+- **`pause-subscription`** rewritten: `action: 'schedule' | 'undo'`. Writes `recurring_skip_dates` (note `pause:<sub id>`)
+  for every repeating occurrence in the window. Date math in `_shared/pause-window.ts`, tests `tests/subscription-pause.test.mts`.
+- **`subscription-pause-tick`** (new, hourly, x-wr-internal): START (silent-skip in-window repeating orders while still
+  active → pricelist → previous_pricelist → status 'paused' → re-aim resumes_at), REMIND (one email), END (pricelist
+  'Subscription', status from Stripe; `paused_at` marks a pause in progress). `{dry_run:true}` supported.
+  Cron: `migrations/session_345b_pause_tick_cron.sql` — SCHEDULED Oct 15 (job 41, :12 hourly) after preflight; dry run clean.
+- **Deployed Oct 15 by David via CLI** (all `--no-verify-jwt`): pause-subscription, resume-subscription, stripe-webhook,
+  subscription-pause-tick. NB he deployed ~1 min BEFORE the migration; no Stripe events arrived in the gap.
+- **`stripe-webhook`:** pause_collection no longer maps to 'paused'; subscription.updated keeps 'paused' mid-pause;
+  invoice.created does not attach overage during a pause. **`resume-subscription`:** no longer clears pause_collection.
+- **Apps:** customer-app "Pause for one month" / "Undo pause" / paused banner; admin subscription card shows pause dates;
+  intake panel mirrors guard (A).
+- **Deploy order:** migration → prove REST sees columns → deploy 4 functions (all `--no-verify-jwt`, probed) → dry run →
+  cron → push apps.
+- Known limit: a ONE-OFF pickup booked before the pause for a date inside it keeps plan pricing. No "resume early".
+
 ## Session 343 — Oct 10, 2026: skip a repeating pickup weeks ahead ("planned skips")
 
 Trigger: Jaeman Kim texted to skip Thu Oct 22 (out of town). A repeating series only ever has ONE future

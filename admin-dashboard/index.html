@@ -35716,6 +35716,14 @@ ${oneCopy}
             ${statusBadge}${cancellingBadge}
             <div style="margin-left:auto;font-size:12px;color:var(--gray-500)">$${Number(plan.price_monthly||0).toFixed(0)}/mo</div>
           </div>
+          ${(() => {
+            // Session 345: one-month pause (customer self-serve). Read-only here.
+            if (!sub.pause_starts_at || !sub.pause_ends_at) return '';
+            const f = d => new Date(d).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
+            if (sub.status === 'paused') return `<div style="background:#fef3c7;color:#92400e;padding:8px 10px;border-radius:8px;font-size:12.5px;margin-bottom:10px">⏸ Paused ${f(sub.pause_starts_at)} → restarts ${f(sub.pause_ends_at)}. Orders until then are priced per bag; weekly pickups skipped.</div>`;
+            if (new Date(sub.pause_starts_at) > new Date()) return `<div style="background:#fef3c7;color:#92400e;padding:8px 10px;border-radius:8px;font-size:12.5px;margin-bottom:10px">⏸ Customer planned a pause: no charge ${f(sub.pause_starts_at)}, restarts ${f(sub.pause_ends_at)}.</div>`;
+            return '';
+          })()}
           ${plan.weight_limit_lbs ? `
             <div style="margin-bottom:8px">
               <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-500);margin-bottom:4px">
@@ -53168,12 +53176,16 @@ ${oneCopy}
         subRow = _resolved.subRow;
       } else if (order.customers?.pricelist === 'Subscription') {
         ({ data: subRow } = await db.from('subscriptions')
-          .select('id, usage_lbs_this_period, status, current_period_end, subscription_plans(name, weight_limit_lbs, overage_price_per_lb, pickup_limit)')
+          .select('id, usage_lbs_this_period, status, current_period_end, pause_starts_at, pause_ends_at, subscription_plans(name, weight_limit_lbs, overage_price_per_lb, pickup_limit)')
           .eq('customer_id', order.customers.id)
           .in('status', ['active', 'past_due', 'paused'])   // must match link_subscription_on_order_fn
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle());
+        // Session 345: mirror the DB linker — an order placed during a pause stays per bag.
+        if (subRow?.pause_starts_at && subRow?.pause_ends_at && order.created_at
+            && new Date(order.created_at) >= new Date(subRow.pause_starts_at)
+            && new Date(order.created_at) <  new Date(subRow.pause_ends_at)) subRow = null;
         if (subRow) procOrderIsSubscription = true;
       }
       if (subRow?.subscription_plans) procSubscription = subRow;

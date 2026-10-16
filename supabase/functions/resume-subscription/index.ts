@@ -88,8 +88,10 @@ Deno.serve(async (req) => {
     //   (b) Cancel scheduled cancellation (clear cancel_at_period_end) — new reactivate flow
     // The customer-app's reactivateSubscription() calls this endpoint for case (b).
     // Stripe's API accepts both fields in a single update call.
+    // Session 345: no longer clears pause_collection. Pause is now a scheduled one-month
+    // pause owned by pause-subscription / subscription-pause-tick; reactivating a cancelled
+    // plan must not silently drop it (Stripe would charge while our records say paused).
     const updatedStripeSub = await stripe.subscriptions.update(sub.stripe_subscription_id, {
-      pause_collection: '',
       cancel_at_period_end: false,
     })
 
@@ -103,8 +105,8 @@ Deno.serve(async (req) => {
 
     const now = new Date().toISOString()
     await db.from('subscriptions').update({
-      status: localStatus,
-      paused_at: null,
+      // Session 345: keep 'paused' (and paused_at) if a pause is in progress.
+      ...(sub.status === 'paused' ? {} : { status: localStatus }),
       cancel_at_period_end: false,
       updated_at: now,
     }).eq('id', subscription_id)

@@ -88,9 +88,9 @@ Deno.serve(async (req) => {
 
   // v29: Helper to map Stripe subscription status to our DB status
   function mapStripeStatus(sub: Stripe.Subscription): string {
-    if (sub.pause_collection) {
-      return 'paused'
-    }
+    // Session 345: pause_collection no longer means 'paused'. A pause is set in Stripe the
+    // moment the customer schedules it (weeks ahead); our 'paused' status is owned by
+    // subscription-pause-tick from subscriptions.pause_starts_at / pause_ends_at.
     if (sub.status === 'active') return 'active'
     if (sub.status === 'past_due') return 'past_due'
     if (sub.status === 'canceled') return 'cancelled'
@@ -451,7 +451,15 @@ Deno.serve(async (req) => {
     if (event.type === 'customer.subscription.updated') {
       const sub = event.data.object as Stripe.Subscription
       const now = new Date().toISOString()
-      const subStatus = mapStripeStatus(sub)
+      let subStatus = mapStripeStatus(sub)
+
+      // Session 345: while a pause is in progress, Stripe still says 'active' — keep 'paused'.
+      const { data: pauseRow } = await db.from('subscriptions')
+        .select('paused_at, pause_ends_at').eq('stripe_subscription_id', sub.id).maybeSingle()
+      if (subStatus === 'active' && pauseRow?.paused_at && pauseRow?.pause_ends_at
+          && new Date(pauseRow.pause_ends_at) > new Date()) {
+        subStatus = 'paused'
+      }
 
       const { error: updateErr } = await db.from('subscriptions')
         .update({
@@ -951,11 +959,20 @@ Deno.serve(async (req) => {
       // Only act on draft invoices tied to a subscription
       if (subscriptionId && invoice.status === 'draft') {
         const { data: sub } = await db.from('subscriptions')
-          .select('id, overage_amount_due, stripe_subscription_id')
+          .select('id, overage_amount_due, stripe_subscription_id, pause_starts_at, pause_ends_at')
           .eq('stripe_subscription_id', subscriptionId)
           .single()
 
-        if (sub) {
+        // Session 345: the renewal invoice raised as a pause begins is voided by Stripe
+        // (pause_collection 'void'). Claiming overage onto it would mark the overage collected
+        // when it never was — leave it for the first invoice after the restart.
+        const t = Date.now()
+        const inPause = !!(sub?.pause_starts_at && sub?.pause_ends_at
+          && t >= new Date(sub.pause_starts_at).getTime() - 2 * 3600 * 1000
+          && t <  new Date(sub.pause_ends_at).getTime()   - 2 * 3600 * 1000)
+        if (inPause) console.log('invoice.created during pause — overage not attached:', invoice.id)
+
+        if (sub && !inPause) {
           const stripeCustomerId = typeof invoice.customer === 'string'
             ? invoice.customer
             : (invoice.customer as any)?.id
