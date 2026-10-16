@@ -116,17 +116,34 @@ FROM public.find_duplicate_customer_pairs(NULL);
 
 
 -- @check id=6 name="Duplicate Orders" priority=P1
+-- 2026-10-10: grouped by pickup_address_id as well as customer + date. A
+-- multi-site commercial customer legitimately has one order per SITE on the
+-- same day, and the old customer+date grouping flagged every one of them as a
+-- duplicate. Nit Pixies Clinic is the standing example: #16889 (5009
+-- Woodminster Lane, Oakland) and #16893 (11362 San Pablo Avenue, El Cerrito)
+-- are two real weekly pickups, not one booked twice. Note site_id does NOT
+-- separate them (both orders carry the same site_id) -- pickup_address_id is
+-- the field that actually distinguishes the two locations.
+--
+-- Scope of the change, measured before it was made: across all history the
+-- grouping drops 235 -> 198 flagged groups, i.e. it only ever removes the
+-- multi-address case and still catches every same-address repeat booking.
+-- Orders with a NULL pickup_address_id (walk-ins) still group together, so
+-- that path keeps its coverage too.
 SELECT o.customer_id,
        c.first_name_cache || ' ' || c.last_name_cache AS customer,
        (o.pickup_window_start AT TIME ZONE 'America/Los_Angeles')::date AS pickup_date,
+       a.line1 || ', ' || a.city AS pickup_address,
        COUNT(*) AS order_count,
        ARRAY_AGG(o.order_number ORDER BY o.created_at) AS order_numbers,
        ARRAY_AGG(o.status ORDER BY o.created_at) AS statuses
 FROM orders o
 LEFT JOIN customers c ON c.id = o.customer_id
+LEFT JOIN addresses a ON a.id = o.pickup_address_id
 WHERE o.status IN ('scheduled','picked_up','processing','folding','ready_for_delivery','out_for_delivery')
   AND o.pickup_window_start IS NOT NULL
 GROUP BY o.customer_id, c.first_name_cache, c.last_name_cache,
+         o.pickup_address_id, a.line1, a.city,
          (o.pickup_window_start AT TIME ZONE 'America/Los_Angeles')::date
 HAVING COUNT(*) > 1
 ORDER BY pickup_date;

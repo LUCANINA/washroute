@@ -126,6 +126,83 @@ function fmtAmt(n: number): string {
   return '$' + (Math.round(n * 100) % 100 === 0 ? String(Math.round(n)) : n.toFixed(2));
 }
 
+// ── Plan usage note on overage receipts (session 345) ──
+// A subscriber's receipt used to say only "Subscription overage · 20 lbs × $2.75/lb",
+// with no way to see WHY. Laurel (#17091, Oct 2026) read it as a mistake: she
+// counted by calendar month, but her period runs 17th–17th and held five weekly
+// pickups (25+27+24+20+24 = 120 of 100 lbs). This reconstructs the usage the
+// `apply_subscription_usage_fn` trigger saw from `subscription_usage_log`, and
+// renders it under the overage line. If the reconstruction does not reproduce
+// the overage pounds on the line item exactly, it shows NOTHING — a note that
+// contradicts the charge is worse than no note.
+type PlanUsage = { limit: number; before: number; thisOrder: number; total: number; range: string | null };
+
+function fmtLbs(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+async function getPlanUsage(db: any, order: any): Promise<PlanUsage | null> {
+  try {
+    const items: any[] = Array.isArray(order.line_items) ? order.line_items : [];
+    const over = items.find((i: any) => i?.type === 'lb_overage');
+    if (!over || !order.subscription_id) return null;
+    const sid = order.subscription_id;
+
+    const { data: sub, error: subErr } = await db.from('subscriptions')
+      .select('plan:plan_id ( weight_limit_lbs )').eq('id', sid).single();
+    if (subErr) throw subErr;
+    const limit = Number(sub?.plan?.weight_limit_lbs);
+    if (!Number.isFinite(limit) || limit <= 0) return null;
+
+    // The moment this order's weight was counted (latest order_ready row).
+    const { data: mine, error: mineErr } = await db.from('subscription_usage_log')
+      .select('created_at').eq('order_id', order.id).eq('event_type', 'order_ready')
+      .order('created_at', { ascending: false }).limit(1);
+    if (mineErr) throw mineErr;
+    const t = mine?.[0]?.created_at;
+    if (!t) return null;
+
+    // The period that order landed in starts at the last reset before it.
+    const { data: resets, error: resetErr } = await db.from('subscription_usage_log')
+      .select('created_at, note').eq('subscription_id', sid).eq('event_type', 'period_reset')
+      .lte('created_at', t).order('created_at', { ascending: false }).limit(1);
+    if (resetErr) throw resetErr;
+    const reset = resets?.[0] ?? null;
+
+    let q = db.from('subscription_usage_log')
+      .select('weight_delta, order_id').eq('subscription_id', sid).lt('created_at', t);
+    if (reset) q = q.gt('created_at', reset.created_at);
+    const { data: rows, error: rowsErr } = await q;
+    if (rowsErr) throw rowsErr;
+    const before = Math.max(0, (rows ?? [])
+      .filter((r: any) => r.order_id !== order.id)
+      .reduce((s: number, r: any) => s + Number(r.weight_delta ?? 0), 0));
+
+    const thisOrder = Number(order.weight_lbs ?? 0);
+    const total = before + thisOrder;
+    const expectedOver = Math.max(0, Math.min(thisOrder, total - limit));
+    const m = String(over.label ?? '').match(/([\d.]+)\s*lbs/);
+    const labelOver = m ? Number(m[1]) : NaN;
+    if (!(Math.abs(expectedOver - labelOver) < 0.01)) {
+      console.warn(`[send-receipt] order #${order.order_number}: plan-usage note skipped — reconstructed ${expectedOver} lbs over (before ${before} + this ${thisOrder}, limit ${limit}) but line item says ${over.label}`);
+      return null;
+    }
+
+    let range: string | null = null;
+    const endMatch = String(reset?.note ?? '').match(/(\d{4}-\d{2}-\d{2})/);
+    if (reset && endMatch) {
+      const md = { month: 'short', day: 'numeric' } as const;
+      const start = new Date(reset.created_at).toLocaleDateString('en-US', { ...md, timeZone: 'America/Los_Angeles' });
+      const end = new Date(endMatch[1] + 'T12:00:00Z').toLocaleDateString('en-US', { ...md, timeZone: 'UTC' });
+      range = `${start} – ${end}`;
+    }
+    return { limit, before, thisOrder, total, range };
+  } catch (e) {
+    console.warn(`[send-receipt] plan-usage note skipped for order #${order?.order_number}: ${(e as any)?.message ?? e}`);
+    return null;
+  }
+}
+
 async function getReferralBlock(db: any, customerId: string, firstName: string | null, billingType: string | null): Promise<ReferralBlock | null> {
   try {
     if (!customerId) return null;
@@ -330,7 +407,7 @@ function computeReceiptData(order: any, creditApplied: number = 0) {
   };
 }
 
-function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, priorTotal: number | null = null, referral: ReferralBlock | null = null): string {
+function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, priorTotal: number | null = null, referral: ReferralBlock | null = null, planUsage: PlanUsage | null = null): string {
   const firstName = customer.first_name_cache ?? customer.email_cache?.split('@')[0] ?? 'there';
   const {
     displayItems, discountItems, effectiveCredit, subtotalShown, taxAmt, taxLabel,
@@ -406,11 +483,22 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0, pr
     </table>` : '';
 
   const displayItemsHtml = displayItems.length > 0
-    ? displayItems.map((i: any) => `
+    ? displayItems.map((i: any) => {
+        // Session 345: the overage row carries a plan-usage note directly beneath it.
+        const note = (i.type === 'lb_overage' && planUsage) ? planUsage : null;
+        const rowBorder = note ? '' : 'border-bottom:1px solid #f3f4f6;';
+        const noteHtml = note ? `
         <tr>
-          <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:14px;color:#374151;">${i.label ?? 'Service'}</td>
-          <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:14px;font-weight:600;text-align:right;width:80px;">${fmt(i.amount ?? 0)}</td>
-        </tr>`).join('')
+          <td colspan="2" style="padding:0 0 8px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280;line-height:1.5;">
+            Plan usage${note.range ? ` ${note.range}` : ' this period'}: ${fmtLbs(note.before)} lbs before this order + ${fmtLbs(note.thisOrder)} lbs this order = ${fmtLbs(note.total)} lbs (${fmtLbs(note.limit)} lbs included).
+          </td>
+        </tr>` : '';
+        return `
+        <tr>
+          <td style="padding:7px 0;${rowBorder}font-size:14px;color:#374151;">${i.label ?? 'Service'}</td>
+          <td style="padding:7px 0;${rowBorder}font-size:14px;font-weight:600;text-align:right;width:80px;">${fmt(i.amount ?? 0)}</td>
+        </tr>${noteHtml}`;
+      }).join('')
     : `<tr><td colspan="2" style="padding:10px 0;font-size:13px;color:#9ca3af;">Wash &amp; Fold service</td></tr>`;
 
   const discountItemsHtml = discountItems.map((i: any) => `
@@ -699,7 +787,7 @@ Deno.serve(async (req: Request) => {
     const { data: order, error: orderErr } = await supabase
       .from('orders')
       .select(`
-        id, customer_id, order_number, total_amount, line_items, total_bags, weight_lbs,
+        id, customer_id, subscription_id, order_number, total_amount, line_items, total_bags, weight_lbs,
         pickup_window_start, pickup_window_end,
         delivery_window_start, delivery_window_end,
         actual_pickup_at, actual_delivery_at, billed_at, created_at,
@@ -750,7 +838,9 @@ Deno.serve(async (req: Request) => {
     const referral = priorTotal === null
       ? await getReferralBlock(supabase, (order as any).customer_id, customer?.first_name_cache ?? null, customer?.billing_type ?? null)
       : null;
-    const html = buildEmailHtml(order, customer, creditApplied, priorTotal, referral);
+    // Session 345: explain subscription overage with the period's running total.
+    const planUsage = await getPlanUsage(supabase, order);
+    const html = buildEmailHtml(order, customer, creditApplied, priorTotal, referral, planUsage);
 
     // Session 330: PDF receipt for Commercial-pricelist customers who pay by card
     // (on-account customers get monthly invoices instead). Restores session 219's

@@ -260,10 +260,18 @@ Deno.serve(async (req) => {
 
     if (!creditsOnly) {
       // Need to charge a card for the remainder
+      // ── v51: a missing Stripe account is a SETUP gap, not a declined card ──
+      // Same reasoning as the v47 on-account carve-out above: no billing_status
+      // stamp, no "update your card" SMS. Order #17142 (2026-10-13 21:20 UTC) was
+      // picked up by sweep_autocharge_ready_orders because a customer_payment_methods
+      // row existed while customers.stripe_customer_id was still null — so a paying
+      // customer got a payment_failed text and the order then settled fine on her
+      // card ••2248. A clean refusal leaves billing_status NULL, which is where daily
+      // audit check 3 surfaces the order as awaiting_payment for a human to fix.
+      // The admin dashboard reads stamped:false + a code as outcome 'refused' and
+      // shows this message to staff, so nothing is hidden — it just isn't a decline.
       if (!customer.stripe_customer_id) {
-        await stampChargeFailed(db, orderId);
-        notifyCustomer(orderId, 'payment_failed');
-        throw new ChargeRefused('No Stripe account for this customer', 'no_stripe_account', true)
+        throw new ChargeRefused('No Stripe account for this customer — add a card before charging', 'no_stripe_account')
       }
 
       // Load all saved cards — default first, then by creation date (newest first)
@@ -287,10 +295,9 @@ Deno.serve(async (req) => {
           ? [{ stripe_payment_method_id: customer.stripe_default_payment_method_id, card_brand: customer.card_brand, card_last4: customer.card_last4, is_default: true }]
           : []
 
+      // v51: no card on file is a setup gap too — see the note above. Clean refusal.
       if (cardList.length === 0) {
-        await stampChargeFailed(db, orderId);
-        notifyCustomer(orderId, 'payment_failed')
-        throw new ChargeRefused('No card on file for this customer', 'no_card_on_file', true)
+        throw new ChargeRefused('No card on file for this customer — add a card before charging', 'no_card_on_file')
       }
 
       const stripeAmountCents = Math.round(chargeAmount * 100)

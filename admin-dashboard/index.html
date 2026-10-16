@@ -1309,6 +1309,21 @@
     .ac-chg-main { flex:1; min-width:0; }
     .ac-chg-sum { color:var(--gray-900); font-weight:500; overflow-wrap:anywhere; }
     .ac-chg-meta { color:var(--gray-400); font-size:11.5px; margin-top:2px; }
+    /* Session 345: screenshots + email drafts */
+    .ac-attach-row { display:flex; gap:8px; flex-wrap:wrap; }
+    .ac-thumb { position:relative; width:64px; height:64px; border-radius:8px; overflow:hidden; border:1px solid var(--gray-200); background:var(--gray-50); }
+    .ac-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+    .ac-thumb button { position:absolute; top:2px; right:2px; width:18px; height:18px; border-radius:50%; border:none; background:rgba(17,24,39,.75); color:white; font-size:12px; line-height:18px; padding:0; cursor:pointer; }
+    .ac-clip { padding:7px 9px; display:flex; align-items:center; color:var(--gray-500); }
+    .ac-user-imgs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; }
+    .ac-user-imgs img { max-width:180px; max-height:140px; border-radius:6px; border:1px solid rgba(255,255,255,.4); display:block; cursor:zoom-in; }
+    #slideover-ask-claude.ac-dropping .slide-over-body { outline:2px dashed var(--accent); outline-offset:-8px; background:var(--accent-light); }
+    #ask-claude-card.ac-dropping { outline:2px dashed var(--accent); outline-offset:-4px; }
+    .ac-email .ac-email-to { font-size:12.5px; color:var(--gray-600); margin-bottom:8px; overflow-wrap:anywhere; }
+    .ac-email .form-input { width:100%; box-sizing:border-box; font-family:inherit; font-size:13px; }
+    .ac-email textarea.form-input { resize:vertical; line-height:1.5; margin-top:6px; }
+    .ac-email-sent-body { white-space:pre-wrap; font-size:13px; color:var(--gray-700,#374151); background:var(--gray-50); border-radius:6px; padding:10px 12px; margin-top:6px; }
+    .ac-email-note { font-size:11.5px; color:var(--gray-400); margin-top:6px; }
     .ac-chg-tag { display:inline-block; font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:999px; background:var(--gray-100); color:var(--gray-500); margin-left:6px; vertical-align:1px; }
     .slide-over-footer { padding:14px 24px;border-top:1px solid var(--gray-200);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0; }
     .day-chips { display:flex;gap:6px; }
@@ -2227,16 +2242,16 @@
         <div class="page active" id="page-overview">
 
           <!-- Ask Claude (session 318, Phase 1 read-only; admin + manager only — see _acApplyVisibility) -->
-          <div class="card" id="ask-claude-card" style="display:none">
+          <div class="card" id="ask-claude-card" style="display:none" ondragover="askClaudeDragOver(event, this)" ondragleave="this.classList.remove('ac-dropping')" ondrop="askClaudeDrop(event, this)">
             <div class="card-header">
               <div>
                 <div class="card-title">Ask Claude</div>
-                <div class="card-sub">Look up any order, customer, price or route, or ask it to make a change. Nothing changes until you click Confirm.</div>
+                <div class="card-sub">Look up any order, customer, price or route, paste or drop a screenshot, or ask it to draft an email or make a change. Nothing changes or sends until you click Confirm or Send.</div>
               </div>
               <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px;margin-left:auto;white-space:nowrap" onclick="askClaudeShowChanges()" title="Changes confirmed through Ask Claude — undo from here">Recent changes</button>
             </div>
             <div class="ac-card-row">
-              <input class="form-input" id="ac-card-input" placeholder="e.g. Why did order #15542 go from $77 to $87?" onkeydown="if(event.key==='Enter'){event.preventDefault();askClaudeFromCard();}">
+              <input class="form-input" id="ac-card-input" placeholder="e.g. Why did order #15542 go from $77 to $87? — or paste a screenshot" onkeydown="if(event.key==='Enter'){event.preventDefault();askClaudeFromCard();}" onpaste="askClaudePaste(event, true)">
               <button class="btn btn-primary" style="font-size:12px;padding:7px 14px" onclick="askClaudeFromCard()">Ask</button>
             </div>
             <div class="ac-chips">
@@ -2245,6 +2260,7 @@
               <button class="ac-chip" onclick="askClaudeOpen('Summarize the routes for today', true)">Today's routes</button>
               <button class="ac-chip" onclick="askClaudeOpen('What happened to order #')">What happened to an order?</button>
               <button class="ac-chip" onclick="askClaudeOpen('Add a new customer: ')">Add a customer</button>
+              <button class="ac-chip" onclick="askClaudeOpen('Draft an email to ')">Draft an email</button>
             </div>
           </div>
 
@@ -6594,7 +6610,7 @@
 <!-- ── TEAM MEMBER EDIT SLIDE-OVER ── -->
 <div class="slide-backdrop" id="team-member-backdrop" onclick="closeTeamMemberEditor()"></div>
 <!-- Ask Claude conversation (session 318) -->
-<div class="slide-over" id="slideover-ask-claude">
+<div class="slide-over" id="slideover-ask-claude" ondragover="askClaudeDragOver(event, this)" ondragleave="if(!this.contains(event.relatedTarget))this.classList.remove('ac-dropping')" ondrop="askClaudeDrop(event, this)">
   <div class="slide-over-header">
     <button onclick="askClaudeClose()" title="Close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);display:flex;align-items:center;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
@@ -6607,9 +6623,16 @@
     <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="askClaudeReset()" title="Start a new conversation">New chat</button>
   </div>
   <div class="slide-over-body" id="ac-thread" style="gap:10px"></div>
-  <div class="slide-over-footer" style="gap:8px">
-    <textarea class="form-input" id="ac-input" rows="2" style="flex:1;resize:none;font-family:inherit" placeholder="Ask about an order, customer, price, route…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askClaudeSend();}"></textarea>
-    <button class="btn btn-primary" id="ac-send-btn" onclick="askClaudeSend()">Send</button>
+  <div class="slide-over-footer" style="gap:8px;flex-direction:column;align-items:stretch">
+    <div class="ac-attach-row" id="ac-attach-row" style="display:none"></div>
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <button class="btn btn-ghost ac-clip" type="button" onclick="document.getElementById('ac-file').click()" title="Attach a screenshot (you can also paste or drop one)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      </button>
+      <input type="file" id="ac-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none" onchange="askClaudeAddFiles(this.files);this.value=''">
+      <textarea class="form-input" id="ac-input" rows="2" style="flex:1;resize:none;font-family:inherit" placeholder="Ask about an order, customer, price, route… or paste a screenshot" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askClaudeSend();}" onpaste="askClaudePaste(event)"></textarea>
+      <button class="btn btn-primary" id="ac-send-btn" onclick="askClaudeSend()">Send</button>
+    </div>
   </div>
 </div>
 
@@ -29658,7 +29681,146 @@ ${noActivityNote}
     propose_credit: 'prepared a credit change', propose_instructions_update: 'prepared an instructions change',
     propose_issue: 'prepared an issue', propose_issue_comment: 'prepared an issue comment',
     propose_create_customer: 'prepared a new customer',
+    get_email_history: 'read emails', draft_email: 'drafted an email',
   };
+  // ── Session 345: screenshots ──
+  // Images are shrunk in the browser (≤1568px, JPEG) before upload, ride on ONE
+  // question only, and are never stored — assistant_log records "[+N screenshots]".
+  const AC_MAX_IMAGES = 3;
+  let _acPending = [];   // [{ media_type, data, url }]
+  function _acShrink(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let out = null;
+          for (const [max, q] of [[1568, 0.85], [1200, 0.75], [900, 0.7]]) {
+            const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+            const c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round(img.naturalWidth * k));
+            c.height = Math.max(1, Math.round(img.naturalHeight * k));
+            const g = c.getContext('2d');
+            g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);   // transparent PNGs → white, not black
+            g.drawImage(img, 0, 0, c.width, c.height);
+            out = c.toDataURL('image/jpeg', q);
+            if (out.length < 2_800_000) break;
+          }
+          URL.revokeObjectURL(url);
+          resolve({ media_type: 'image/jpeg', data: out.split(',')[1], url: out });
+        } catch (e) { URL.revokeObjectURL(url); reject(e); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image')); };
+      img.src = url;
+    });
+  }
+  async function askClaudeAddFiles(files) {
+    const imgs = [...(files || [])].filter(f => /^image\/(png|jpe?g|webp|gif)$/i.test(f.type));
+    if (!imgs.length) { showToast('Only images (PNG, JPG, WebP, GIF) can be attached', 'error'); return; }
+    for (const f of imgs) {
+      if (_acPending.length >= AC_MAX_IMAGES) { showToast(`Up to ${AC_MAX_IMAGES} screenshots per question`, 'error'); break; }
+      try { _acPending.push(await _acShrink(f)); }
+      catch (e) { showToast('Could not attach image: ' + (e?.message || e), 'error'); }
+    }
+    _acDrawAttachments();
+  }
+  function askClaudeRemoveImage(i) { _acPending.splice(i, 1); _acDrawAttachments(); }
+  function _acDrawAttachments() {
+    const row = document.getElementById('ac-attach-row');
+    if (!row) return;
+    row.style.display = _acPending.length ? '' : 'none';
+    row.innerHTML = _acPending.map((im, i) =>
+      '<div class="ac-thumb"><img src="' + im.url + '" alt="Screenshot ' + (i + 1) + '"><button type="button" title="Remove" onclick="askClaudeRemoveImage(' + i + ')">×</button></div>').join('');
+  }
+  // fromCard: pasted into the Overview card → open the panel with the image waiting.
+  function askClaudePaste(e, fromCard) {
+    const files = [...(e.clipboardData?.items || [])].filter(it => it.kind === 'file' && it.type.startsWith('image/')).map(it => it.getAsFile()).filter(Boolean);
+    if (!files.length) return;   // plain text paste: leave it alone
+    e.preventDefault();
+    if (fromCard) {
+      const c = document.getElementById('ac-card-input');
+      const q = (c?.value || '').trim(); if (c) c.value = '';
+      askClaudeOpen(q);
+    }
+    askClaudeAddFiles(files);
+  }
+  function askClaudeDragOver(e, el) {
+    if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+    e.preventDefault(); el.classList.add('ac-dropping');
+  }
+  function askClaudeDrop(e, el) {
+    el.classList.remove('ac-dropping');
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    if (el.id === 'ask-claude-card') askClaudeOpen('');
+    askClaudeAddFiles(e.dataTransfer.files);
+  }
+  function askClaudeViewImage(src) {
+    const w = window.open('', '_blank');
+    if (w) { w.document.title = 'Screenshot'; w.document.body.style.margin = '0'; const im = w.document.createElement('img'); im.src = src; im.style.maxWidth = '100%'; w.document.body.appendChild(im); }
+  }
+
+  // ── Session 345: email drafts ──
+  // Claude only drafts. The card is editable; Send calls send-email with THIS staff
+  // member's login (recipient = the customer's email from the server-side draft),
+  // which sends from info@ and saves it to the customer's Messages history.
+  function _acFindDraft(id) {
+    for (const t of _acTurns) for (const d of (t.drafts || [])) if (d.id === id) return d;
+    return null;
+  }
+  function _acEmailEdit(id, field, val) { const d = _acFindDraft(id); if (d && d.state === 'draft') { d[field] = val; d.edited = true; } }
+  function _acEmailHtml(text) {
+    const paras = String(text || '').replace(/\r\n/g, '\n').trim().split(/\n\s*\n/);
+    return '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;font-size:15px;line-height:1.6;color:#1f2937;max-width:600px">' +
+      paras.map(p => '<p style="margin:0 0 14px">' + esc(p).replace(/\n/g, '<br>') + '</p>').join('') + '</div>';
+  }
+  function _acEmailCard(d) {
+    const id = esc(d.id);
+    const to = '<div class="ac-email-to"><strong>To:</strong> ' + esc(d.to_name || '') + ' &lt;' + esc(d.to_email) + '&gt;</div>';
+    let inner, foot = '';
+    if (d.state === 'draft' || d.state === 'failed') {
+      inner = '<input class="form-input" value="' + esc(d.subject) + '" oninput="_acEmailEdit(\'' + id + '\',\'subject\',this.value)" placeholder="Subject">' +
+        '<textarea class="form-input" rows="10" oninput="_acEmailEdit(\'' + id + '\',\'body\',this.value)">' + esc(d.body) + '</textarea>';
+      foot = (d.state === 'failed' ? '<div class="ac-prop-status" style="color:var(--red)">' + esc(d.msg || 'Not sent') + '</div>' : '') +
+        '<div class="ac-prop-actions"><button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="askClaudeEmailSend(\'' + id + '\')">Send email</button>' +
+        '<button class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="askClaudeEmailCopy(\'' + id + '\')">Copy</button>' +
+        '<button class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="askClaudeEmailDiscard(\'' + id + '\')">Discard</button></div>' +
+        '<div class="ac-email-note">Sends from info@familylaundry.com and saves to the customer’s Messages history. Edit anything before sending.</div>';
+    } else {
+      inner = '<div style="font-weight:600;font-size:13px">' + esc(d.subject) + '</div><div class="ac-email-sent-body">' + esc(d.body) + '</div>';
+      const col = d.state === 'sent' ? 'var(--green)' : 'var(--gray-500)';
+      foot = '<div class="ac-prop-status" style="color:' + col + '">' + (d.state === 'sending' ? 'Sending…' : esc(d.msg || d.state)) + '</div>';
+    }
+    const cls = d.state === 'sent' ? 'done' : d.state === 'discarded' ? 'cancelled' : d.state === 'failed' ? 'failed' : 'pending';
+    return '<div class="ac-prop ac-email ' + cls + '"><div class="ac-prop-title">✉ Email draft</div>' + to + inner + foot + '</div>';
+  }
+  async function askClaudeEmailSend(id) {
+    const d = _acFindDraft(id);
+    if (!d || (d.state !== 'draft' && d.state !== 'failed')) return;
+    if (!String(d.subject || '').trim() || !String(d.body || '').trim()) { showToast('Subject and message can’t be empty', 'error'); return; }
+    d.state = 'sending'; _acDraw(_acBusy);
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
+        body: JSON.stringify({ customer_id: d.customer_id, to_email: d.to_email, subject: d.subject.trim(), body: _acEmailHtml(d.body) }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || out.ok === false) throw new Error(out.error || ('HTTP ' + res.status));
+      d.state = 'sent'; d.msg = '✓ Sent to ' + d.to_email;
+      showToast('Email sent to ' + d.to_email, 'success');
+    } catch (e) {
+      d.state = 'failed'; d.msg = 'Not sent: ' + (e?.message || e);
+    }
+    _acDraw(_acBusy);
+  }
+  function askClaudeEmailDiscard(id) { const d = _acFindDraft(id); if (d && d.state !== 'sent' && d.state !== 'sending') { d.state = 'discarded'; d.msg = 'Discarded — not sent'; _acDraw(_acBusy); } }
+  async function askClaudeEmailCopy(id) {
+    const d = _acFindDraft(id); if (!d) return;
+    try { await navigator.clipboard.writeText(d.body); showToast('Email text copied', 'success'); }
+    catch (_) { showToast('Could not copy — select the text and copy it', 'error'); }
+  }
+
   function _acPropCard(pr) {
     const id = esc(pr.id);
     const rows = (pr.preview?.lines || []).map(l =>
@@ -29808,11 +29970,13 @@ ${noActivityNote}
       return;
     }
     el.innerHTML = _acTurns.map(t => {
-      if (t.role === 'user') return '<div class="ac-msg ac-user">' + esc(t.content) + '</div>';
+      if (t.role === 'user') return '<div class="ac-msg ac-user">' +
+        ((t.images || []).length ? '<div class="ac-user-imgs">' + t.images.map(u => '<img src="' + u + '" alt="Screenshot" onclick="askClaudeViewImage(this.src)">').join('') + '</div>' : '') +
+        esc(t.content) + '</div>';
       if (t.error) return '<div class="ac-msg ac-err">' + esc(t.content) + '</div>';
       const tools = (t.tools || []).map(x => AC_TOOL_LABELS[x.name] || x.name);
       const toolLine = tools.length ? '<div class="ac-tools">Looked up: ' + esc([...new Set(tools)].join(', ')) + '</div>' : '';
-      return '<div class="ac-msg ac-bot">' + _acRender(t.content) + toolLine + '</div>' + (t.proposals || []).map(_acPropCard).join('');
+      return '<div class="ac-msg ac-bot">' + _acRender(t.content) + toolLine + '</div>' + (t.proposals || []).map(_acPropCard).join('') + (t.drafts || []).map(_acEmailCard).join('');
     }).join('') + (thinking ? '<div class="ac-thinking"><div class="spinner" style="width:14px;height:14px"></div> Looking into it… (can take up to a minute)</div>' : '');
     el.scrollTop = el.scrollHeight;
   }
@@ -29835,17 +29999,19 @@ ${noActivityNote}
   function askClaudeClose() { document.getElementById('slideover-ask-claude')?.classList.remove('open'); }
   function askClaudeReset() {
     if (_acBusy) return;
-    _acTurns = []; _acConversationId = null; _acDraw(false);
+    _acTurns = []; _acConversationId = null; _acPending = []; _acDrawAttachments(); _acDraw(false);
     document.getElementById('ac-input')?.focus();
   }
   async function askClaudeSend() {
     if (_acBusy) return;
     const inp = document.getElementById('ac-input');
-    const q = (inp?.value || '').trim();
+    const sendImgs = _acPending.slice();
+    const q = (inp?.value || '').trim() || (sendImgs.length ? 'Here’s a screenshot. What does it show, and is anything wrong?' : '');
     if (!q) return;
     inp.value = '';
+    _acPending = []; _acDrawAttachments();
     if (_acView !== 'chat') askClaudeToggleView();
-    _acTurns.push({ role: 'user', content: q });
+    _acTurns.push({ role: 'user', content: q, images: sendImgs.map(im => im.url) });
     _acBusy = true;
     const btn = document.getElementById('ac-send-btn'); if (btn) btn.disabled = true;
     _acDraw(true);
@@ -29853,7 +30019,16 @@ ${noActivityNote}
       const _withStatus = t => (t.proposals || []).length
         ? t.content + '\n\n' + t.proposals.map(p => `[Proposed change "${p.summary}": ${p.state === 'done' ? 'CONFIRMED by staff — ' + (p.msg || 'done') + (p.undone ? ' — later UNDONE by staff' : '') : p.state === 'cancelled' ? 'cancelled by staff' : p.state === 'failed' ? 'FAILED — ' + (p.msg || '') : 'not confirmed yet'}]`).join('\n')
         : t.content;
-      const payload = { conversation_id: _acConversationId, messages: _acTurns.filter(t => !t.error).map(t => ({ role: t.role, content: _withStatus(t) })) };
+      // Session 345: earlier screenshots aren't re-sent — the turn carries a note instead;
+      // email drafts carry their outcome so Claude knows what was actually sent.
+      const _withExtras = t => {
+        let c = _withStatus(t);
+        if ((t.images || []).length && t !== _acTurns[_acTurns.length - 1]) c += `\n[${t.images.length} screenshot${t.images.length > 1 ? 's' : ''} attached earlier]`;
+        for (const d of (t.drafts || [])) c += `\n[Email draft to ${d.to_email}, subject "${d.subject}": ${d.state === 'sent' ? 'SENT by staff' + (d.edited ? ' after editing' : '') : d.state === 'discarded' ? 'discarded by staff, not sent' : 'NOT sent yet'}]`;
+        return c;
+      };
+      const payload = { conversation_id: _acConversationId, messages: _acTurns.filter(t => !t.error).map(t => ({ role: t.role, content: _withExtras(t) })),
+        images: sendImgs.map(im => ({ media_type: im.media_type, data: im.data })) };
       const { data, error } = await db.functions.invoke('admin-assistant', { body: payload });
       if (error) {
         let msg = error.message || 'Request failed';
@@ -29863,9 +30038,11 @@ ${noActivityNote}
       if (!data?.answer) throw new Error(data?.error || 'No answer came back');
       _acConversationId = data.conversation_id || _acConversationId;
       _acTurns.push({ role: 'assistant', content: data.answer, tools: data.tools_used || [],
-        proposals: (data.proposals || []).map(p => ({ ...p, state: 'pending', notify: false })) });
+        proposals: (data.proposals || []).map(p => ({ ...p, state: 'pending', notify: false })),
+        drafts: (data.email_drafts || []).map(d => ({ ...d, state: 'draft' })) });
     } catch (e) {
       _acTurns.push({ role: 'assistant', content: 'Sorry, that didn\'t work: ' + (e?.message || e), error: true });
+      if (sendImgs.length && !_acPending.length) { _acPending = sendImgs; _acDrawAttachments(); }   // keep screenshots for a retry
     } finally {
       _acBusy = false;
       if (btn) btn.disabled = false;
@@ -35058,7 +35235,36 @@ ${oneCopy}
     { value: 'ready_for_delivery', label: 'Ready for Delivery',   icon: '🏁' },
     { value: 'out_for_delivery',   label: 'Out for Delivery',     icon: '🚗' },
     { value: 'delivered',          label: 'Delivered',            icon: '🎉' },
+    // Session 330: a plain, non-destructive cancel. Before this the only cancel-ish
+    // choice in this menu was "Cancel & Delete", so staff deleting orders they only
+    // meant to cancel (John, #17405) hit the cs_issues FK. advance_order_status
+    // takes 'cancelled' (cancelled_by='admin'); sync_stops_on_order_terminal skips
+    // the pending stops so it comes off the driver routes.
+    { value: 'cancelled',          label: 'Cancelled',            icon: '🚫' },
   ];
+
+  // Session 330: cancelling a recurring order ends the series
+  // (trg_create_recurring_order_fn only chains on delivered/skipped/pickup_failed).
+  function _cancelRecurringWarning(orderIds) {
+    const recurring = orderIds.filter(id => allOrders.find(o => o.id === id)?.recurring_interval).length;
+    if (!recurring) return '';
+    return recurring === 1 && orderIds.length === 1
+      ? '\n\nThis is a RECURRING order — cancelling stops the series (no next pickup will be created). To keep the series going, open the order and use Skip instead.'
+      : `\n\n${recurring} of these are RECURRING orders — cancelling stops those series. To keep a series going, open the order and use Skip instead.`;
+  }
+
+  // Session 330: delete_orders is blocked by the database when something must not be
+  // lost with the order (a customer issue, a referral reward). Say that in plain words.
+  function _friendlyOrderDeleteError(error) {
+    const m = (error && error.message) || '';
+    if (m.includes('cs_issues_order_id_fkey'))
+      return 'Can\'t delete — a customer issue or feedback is attached to this order. Set it to "Cancelled" instead (open the status menu → Cancelled).';
+    if (m.includes('referrals_qualifying_order_id_fkey'))
+      return 'Can\'t delete — this order earned a referral reward. Set it to "Cancelled" instead.';
+    if (m.includes('violates foreign key constraint'))
+      return 'Can\'t delete — other records depend on this order. Set it to "Cancelled" instead.';
+    return 'Error: ' + m;
+  }
 
   function openSetStatusModal() {
     const sel = getSelectedOrderData();
@@ -35093,10 +35299,11 @@ ${oneCopy}
     closeSetStatusModal();
     if (!sel.length) return;
     const label = ALL_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
-    if (!confirm(`Set ${sel.length} order${sel.length>1?'s':''} to "${label}"?`)) return;
+    const _recWarn = newStatus === 'cancelled' ? _cancelRecurringWarning(sel.map(s => s.id)) : '';
+    if (!confirm(`Set ${sel.length} order${sel.length>1?'s':''} to "${label}"?${_recWarn}`)) return;
 
     const now = new Date().toISOString();
-    let succeeded = 0, chargeCount = 0;
+    let succeeded = 0, chargeCount = 0, failed = 0, firstErr = '';
     for (const s of sel) {
       // Charge step when moving to ready_for_delivery — centralized (session 178).
       if (newStatus === 'ready_for_delivery') {
@@ -35117,9 +35324,11 @@ ${oneCopy}
         p_notify_sms:   false,
       });
       if (!error) succeeded++;
+      else { failed++; if (!firstErr) firstErr = `#${s.num}: ${error.message}`; }
     }
     const extra = chargeCount > 0 ? ` · ${chargeCount} charged` : '';
-    showToast(`✓ ${succeeded} order${succeeded>1?'s':''} → ${label}${extra}`);
+    if (failed) showToast(`${succeeded} order${succeeded===1?'':'s'} → ${label} · ${failed} not changed (${firstErr})`, 'error');
+    else showToast(`✓ ${succeeded} order${succeeded>1?'s':''} → ${label}${extra}`);
     clearOrderSelection();
     setTimeout(() => loadOrders(currentOrderFilter), 400);
   }
@@ -35265,7 +35474,7 @@ ${oneCopy}
   async function batchCancelOrders() {
     const sel = getSelectedOrderData();
     if (!sel.length) return;
-    if (!confirm(`Delete ${sel.length} order${sel.length>1?'s':''}? This cannot be undone.`)) return;
+    if (!confirm(`PERMANENTLY delete ${sel.length} order${sel.length>1?'s':''}? This erases ${sel.length>1?'them':'it'} completely and cannot be undone.\n\nTo just cancel, use Set Status → Cancelled instead.`)) return;
     // Disable batch buttons during delete
     const _advBtn2 = document.getElementById('batch-advance-btn');
     const _delBtn2 = document.querySelector('.batch-bar-btn.danger');
@@ -35277,7 +35486,7 @@ ${oneCopy}
     const { error } = await db.rpc('delete_orders', { p_ids: ids });
     if (_advBtn2) { _advBtn2.disabled = false; _advBtn2.style.opacity = ''; }
     if (_delBtn2) { _delBtn2.disabled = false; _delBtn2.style.opacity = ''; }
-    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    if (error) { showToast(_friendlyOrderDeleteError(error), 'error'); return; }
     showToast(`✓ ${ids.length} order${ids.length>1?'s':''} deleted`);
     clearOrderSelection();
     setTimeout(() => loadOrders(currentOrderFilter), 400);
@@ -35293,7 +35502,7 @@ ${oneCopy}
     document.getElementById('set-status-subtitle').textContent = `Order #${orderNum}`;
     const allOpts = [
       ...ALL_STATUSES,
-      { value: 'cancel_delete', label: 'Cancel & Delete', icon: '🗑️' },
+      { value: 'cancel_delete', label: 'Delete permanently', icon: '🗑️' },
     ];
     document.getElementById('set-status-options').innerHTML = allOpts.map(s => {
       const isCurrent = s.value === currentStatus;
@@ -35318,13 +35527,15 @@ ${oneCopy}
     if (!_singleStatusOrderId) return;
     const orderId = _singleStatusOrderId, orderNum = _singleStatusOrderNum;
     if (newStatus === 'cancel_delete') {
-      if (!confirm(`Delete order #${orderNum}? This cannot be undone.`)) return;
+      if (!confirm(`PERMANENTLY delete order #${orderNum}? This erases it completely and cannot be undone.\n\nTo just cancel it, choose "Cancelled" instead.`)) return;
       // Use the same RPC as batch delete — handles cascade on route_stops + notifications
       const { error } = await db.rpc('delete_orders', { p_ids: [orderId] });
-      if (error) { showToast('Error: ' + error.message, 'error'); return; }
+      if (error) { showToast(_friendlyOrderDeleteError(error), 'error'); return; }
       showToast(`✓ Order #${orderNum} deleted`);
     } else {
       const label = ALL_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
+      if (newStatus === 'cancelled' &&
+          !confirm(`Cancel order #${orderNum}? It comes off the driver routes and stays in the customer's history.${_cancelRecurringWarning([orderId])}`)) return;
       // Charge on the transition into ready_for_delivery — centralized (session 178).
       // ROOT CAUSE FIX: this override path previously skipped charging entirely,
       // which let commercial orders reach Ready for Delivery / Delivered unpaid.
