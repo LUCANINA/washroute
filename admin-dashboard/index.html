@@ -37046,6 +37046,7 @@ ${oneCopy}
       customers: t.customer_id ? { id: t.customer_id, first_name_cache: t.first_name_cache, last_name_cache: t.last_name_cache,
                                    phone_cache: t.phone_cache, email_cache: t.email_cache, sms_consent_at: t.sms_consent_at } : null,
       _lastOutbound: t.last_outbound_at, _inboundAfterReply: t.inbound_after_reply,
+      _lastInbound: t.last_inbound_at, _lastStaffReply: t.last_staff_reply_at,
     }));
 
     if (error) {
@@ -37101,22 +37102,46 @@ ${oneCopy}
           db_status: convRow?.status || null,
           resolved_at: convRow?.resolved_at || null,
           lastOutbound: m._lastOutbound || null,           // most recent outbound timestamp
-          inboundAfterReply: m._inboundAfterReply || 0,    // inbound msgs after last reply
+          inboundAfterReply: m._inboundAfterReply || 0,    // inbound msgs after last HUMAN reply
+          lastInbound: m._lastInbound || null,             // when the customer last texted
+          lastStaffReply: m._lastStaffReply || null,       // when a human last replied (null = never)
           hasInbound: true,                                // the RPC only returns threads with an inbound text
         };
       }
     });
 
+    // Fix-forward cutoff (David, 2026-10-15): applying the corrected rule to all history
+    // would have moved 282 archived threads into Needs Reply at once. David asked for
+    // today's missed messages only, so the reopen rule ignores customer texts older than
+    // this. DELETE THIS CONSTANT AND ITS USE BELOW to surface the full backlog
+    // (~118 threads worth a human look, listed in the 2026-10-15 session notes).
+    const INBOX_REOPEN_SINCE = Date.parse('2026-10-15T00:00:00-07:00');
+
     // Determine effective status
     const convs = Object.values(convMap).filter(c => c.hasInbound).map(c => {
-      const latestIsInbound = c.latest.direction === 'inbound';
-      const latestTime = new Date(c.latest.created_at).getTime();
       let status = c.db_status || 'open';
 
-      // Re-open archived/waiting conversations when customer has texted AFTER the archive
-      if (latestIsInbound && (status === 'waiting' || status === 'resolved')) {
+      // Re-open archived/waiting conversations when the CUSTOMER texted after the archive
+      // and no human has replied since (session 346).
+      //
+      // This used to test "the latest message in the thread is inbound", which an
+      // automated text silently defeated: order updates, rating asks, STOP
+      // confirmations and win-back nudges are all outbound, so one landing after a
+      // customer's question left the thread archived and showing 0 unread. Measured
+      // 2026-10-15: 258 threads in 30 days were hidden that way, 111 of which had
+      // never had a human reply at all. Anne Richmond's "let drivers know they can use
+      // our driveway" was buried by a delivery confirmation 22 seconds later.
+      //
+      // The lastStaffReply half matters as much as the lastInbound half: without it a
+      // thread a human HAS answered pops back into Needs Reply (Lili answered Jay
+      // Meissner's $300 credit question three minutes after he asked it, and that
+      // thread must stay archived).
+      const lastInboundTime   = c.lastInbound    ? new Date(c.lastInbound).getTime()    : 0;
+      const lastStaffReplyAt  = c.lastStaffReply ? new Date(c.lastStaffReply).getTime() : 0;
+      if (status === 'waiting' || status === 'resolved') {
         const archivedAt = c.resolved_at ? new Date(c.resolved_at).getTime() : 0;
-        if (latestTime > archivedAt) status = 'open';
+        if (lastInboundTime > archivedAt && lastInboundTime > lastStaffReplyAt
+            && lastInboundTime >= INBOX_REOPEN_SINCE) status = 'open';
       }
 
       // No auto-archive (David, 2026-10-09): a thread only moves to Archived when staff
