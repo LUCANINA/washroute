@@ -11,6 +11,16 @@
 //   backfill  { days, page_token } — one page (≤100) of older mail; the admin
 //             card loops until next_page_token is null. Does not move the cursor.
 //   status    — connection status for the Settings card (never secrets).
+//   attachments { limit } — staff/internal: copy photos for up to `limit` older
+//             rows whose attachments column is still NULL (newest first).
+//
+// Attachments (session 347): photos / PDFs / short videos on a customer email are
+// copied to storage bucket sms-media under email/<gmail_message_id>/ and listed in
+// email_messages.attachments as [{url, path, name, content_type, size}]. Images
+// under 15 KB are skipped (signature logos, tracking pixels). A copy that fails is
+// kept as {name, content_type, missing: true} so staff know to open Gmail. Rows
+// synced before session 347 have attachments NULL; every sync run fills a few of
+// them, newest first, until none are left.
 //
 // What gets saved: ONLY messages whose other party is a customer (matched on
 // customers.email_cache, case-insensitive). Vendors, invoices, newsletters and
@@ -36,6 +46,13 @@ const OWN_DOMAIN = '@familylaundry.com'
 const EMAIL_RE = /^[a-z0-9.!#$&'+/=?^_`{|}~-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/
 const MAX_BODY = 200_000
 const TIME_BUDGET_MS = 100_000
+const ATTACH_BUCKET = 'sms-media'
+// Must stay inside the sms-media bucket's allowed_mime_types (heif is not on it).
+const KEEP_MIME = /^(image\/(jpeg|jpg|png|webp|heic|gif)|application\/pdf|video\/(mp4|quicktime))$/
+const MIN_IMAGE_BYTES = 15_000
+const MAX_ATTACH_BYTES = 25 * 1024 * 1024 // bucket limit
+const MAX_ATTACH_PER_MSG = 12
+const FILL_PER_RUN = 15
 const ALERT_AFTER_FAILURES = 3
 const REALERT_HOURS = 12
 
@@ -105,6 +122,95 @@ function extractBody(payload: any): string {
   walk(payload)
   const out = html || (text ? `<div style="white-space:pre-wrap">${escapeHtml(text)}</div>` : '')
   return out.length > MAX_BODY ? out.slice(0, MAX_BODY) : out
+}
+
+// ── Attachments (session 347) ───────────────────────────────────────────────
+type AttPart = { mime: string; name: string; size: number; attachmentId?: string; data?: string }
+type SavedAtt = { url?: string; path?: string; name: string; content_type: string; size: number; missing?: true }
+
+function findAttachments(payload: any): AttPart[] {
+  const out: AttPart[] = []
+  const walk = (p: any) => {
+    if (!p) return
+    const mime = String(p.mimeType || '').toLowerCase()
+    const size = Number(p.body?.size || 0)
+    if (KEEP_MIME.test(mime) && (p.body?.attachmentId || p.body?.data)) {
+      const tooSmall = mime.startsWith('image/') && size < MIN_IMAGE_BYTES
+      if (!tooSmall && size <= MAX_ATTACH_BYTES) {
+        out.push({ mime, name: String(p.filename || ''), size, attachmentId: p.body.attachmentId, data: p.body.data })
+      }
+    }
+    for (const c of p.parts || []) walk(c)
+  }
+  walk(payload)
+  return out.slice(0, MAX_ATTACH_PER_MSG)
+}
+
+function b64urlToBytes(data: string): Uint8Array {
+  const bin = atob(data.replace(/-/g, '+').replace(/_/g, '/'))
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
+}
+
+function attName(a: AttPart, i: number): string {
+  const ext = a.mime.split('/')[1].replace('jpeg', 'jpg').replace('quicktime', 'mov')
+  const base = (a.name || `photo-${i + 1}.${ext}`).replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80)
+  return /\.[A-Za-z0-9]{2,5}$/.test(base) ? base : `${base}.${ext}`
+}
+
+async function copyAttachments(db: SupabaseClient, token: string, gmailId: string, payload: any): Promise<SavedAtt[]> {
+  if (!/^[0-9a-f]+$/i.test(gmailId)) return []
+  const out: SavedAtt[] = []
+  const parts = findAttachments(payload)
+  for (let i = 0; i < parts.length; i++) {
+    const a = parts[i]
+    const name = attName(a, i)
+    const contentType = a.mime === 'image/jpg' ? 'image/jpeg' : a.mime
+    const path = `email/${gmailId}/${i + 1}-${name}`
+    try {
+      const data = a.data ?? (await gget(token, `/messages/${gmailId}/attachments/${a.attachmentId}`)).data
+      const bytes = b64urlToBytes(String(data || ''))
+      if (!bytes.length) throw new Error('empty attachment')
+      const { error } = await db.storage.from(ATTACH_BUCKET).upload(path, bytes, { contentType, upsert: true })
+      if (error) throw new Error(error.message)
+      const { data: pub } = db.storage.from(ATTACH_BUCKET).getPublicUrl(path)
+      out.push({ url: pub.publicUrl, path, name, content_type: contentType, size: bytes.length })
+    } catch (e) {
+      console.error('gmail-sync attachment copy failed', gmailId, name, String((e as Error).message || e))
+      out.push({ name, content_type: contentType, size: a.size, missing: true })
+    }
+  }
+  return out
+}
+
+// Older rows (synced before session 347) have attachments NULL. Fill a few per run.
+async function fillMissingAttachments(db: SupabaseClient, token: string, limit: number, deadline: number) {
+  const { data, error } = await db.from('email_messages').select('id, gmail_message_id')
+    .not('gmail_message_id', 'is', null).is('attachments', null)
+    .order('created_at', { ascending: false }).limit(limit)
+  if (error) throw new Error(`attachment backlog lookup failed: ${error.message}`)
+  let filled = 0, photos = 0
+  for (const r of data || []) {
+    if (Date.now() > deadline) break
+    let atts: SavedAtt[] = []
+    try {
+      const full = await gget(token, `/messages/${r.gmail_message_id}?format=full`)
+      atts = await copyAttachments(db, token, r.gmail_message_id, full.payload)
+    } catch (e) {
+      // 404 = deleted from Gmail, 400 = Gmail refuses this id: nothing to copy, record
+      // [] so the backlog can't wedge on it. Anything else aborts this batch; the next
+      // run retries (gget has already retried rate limits and 5xx).
+      const st = (e as any).status
+      if (st !== 404 && st !== 400) throw e
+    }
+    const { error: uErr } = await db.from('email_messages').update({ attachments: atts }).eq('id', r.id).is('attachments', null)
+    if (uErr) throw new Error(`saving attachments failed: ${uErr.message}`)
+    filled++; photos += atts.filter(a => !a.missing).length
+  }
+  const { count } = await db.from('email_messages').select('id', { count: 'exact', head: true })
+    .not('gmail_message_id', 'is', null).is('attachments', null)
+  return { filled, photos, remaining: count ?? null }
 }
 
 // ── Customer matching ───────────────────────────────────────────────────────
@@ -192,6 +298,7 @@ async function processIds(db: SupabaseClient, token: string, ids: string[]) {
       gmail_message_id: c.id,
       gmail_thread_id: c.threadId,
       sent_by_name: c.outbound ? 'Gmail (info@)' : null,
+      attachments: await copyAttachments(db, token, c.id, full.payload),
     }
   })).filter(Boolean) as Record<string, unknown>[]
 
@@ -279,6 +386,7 @@ Deno.serve(async (req: Request) => {
 
   if (action === 'status') return json({ ok: true, status: publicStatus(s) })
   if (action === 'backfill' && auth.caller.kind !== 'staff') return json({ error: 'Staff only' }, 403)
+  const started = Date.now()
   if (!s.refresh_token || !s.client_id) {
     return json({ ok: true, skipped: 'Gmail not connected', status: publicStatus(s) })
   }
@@ -291,6 +399,15 @@ Deno.serve(async (req: Request) => {
       result = await backfill(db, token, days, String(body.page_token || ''))
     } else if (action === 'sync') {
       result = await incremental(db, s, token)
+      // Backlog of pre-session-347 rows. Never fails the sync (that would page David
+      // over a photo); the error is returned and logged instead.
+      if (Date.now() - started < 60_000) {
+        try { result.attachments = await fillMissingAttachments(db, token, FILL_PER_RUN, started + 100_000) }
+        catch (e) { console.error('gmail-sync attachment backfill', e); result.attachments_error = String((e as Error).message || e) }
+      }
+    } else if (action === 'attachments') {
+      const limit = Math.min(Math.max(parseInt(body.limit, 10) || FILL_PER_RUN, 1), 50)
+      result = await fillMissingAttachments(db, token, limit, started + 110_000)
     } else {
       return json({ error: 'Unknown action' }, 400)
     }

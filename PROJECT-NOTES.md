@@ -1,5 +1,23 @@
 # WashRoute — Project Notes
 
+## Session 347 — Oct 19, 2026: photos on customer emails + "Create issue" from an email — function LIVE, admin not pushed
+
+Trigger: Jennifer Louie emailed stain photos (order #17218); the Messages tab showed text only.
+- `migrations/session_347_email_attachments.sql`: `email_messages.attachments jsonb` (NULL = not checked yet).
+  Applied via MCP; data API visibility proven by REST before any code used it.
+- `gmail-sync` v4 (verify_jwt false, MCP deploy): copies image/PDF/video parts to bucket `sms-media` under
+  `email/<gmail_message_id>/`; images < 15 KB skipped (logos/pixels); failed copy kept as `{missing:true}`.
+  Backlog of pre-347 rows filled 15 per cron run, newest first (474 at start, ~2.5 h). Backlog errors never fail
+  the sync (no false alert SMS). New action `attachments {limit}` for staff/internal.
+- Admin: email bubbles show thumbnails (Supabase `render/image` thumbnails, link opens full size); a photo already
+  shown earlier in the same thread (same name+size — inline copy, or a reply re-attaching) is hidden.
+  Inbound email caption has "⚑ Create issue": prefilled title (customer's first sentence), category Damaged on
+  stain/damage words, order from "#NNNNN" in the subject, the thread as the note, all thread photos ticked
+  (click to leave one out) → saved to `cs_issues.photo_urls` ({url, content_type, source:'email'}).
+  Issue detail now shows `photo_urls` (also benefits Lost & Found issues); Issues tab rows show 📷 count.
+- Tested by clicking on Jennifer's profile with the new code patched into the live tab. No issue was created.
+- Known: same photo can be stored twice in storage (inline + attachment) — UI dedupes; harmless.
+
 ## Session 346 — Oct 16, 2026: monthly savings emails (savings-summary)
 
 David's design: subscribers get a usage summary at 3 pm PT the day before each renewal; pay-per-bag customers who'd

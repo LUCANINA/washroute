@@ -8487,6 +8487,7 @@
           <label>Initial note (optional)</label>
           <textarea id="ci-note" placeholder="Context, what happened, what needs to happen…"></textarea>
         </div>
+        <div id="ci-photos" style="display:none"></div>
       </div>
       <div class="issue-create-footer">
         <button class="btn btn-ghost" onclick="closeCreateIssue()">Cancel</button>
@@ -39395,12 +39396,18 @@ ${oneCopy}
     }
     if (!box) return;
     box.innerHTML = '';
+    // Session 347: photos stored on the issue itself (from an email, or Lost & Found).
+    const own = (Array.isArray(iss.photo_urls) ? iss.photo_urls : []).filter(p => p && p.url);
+    if (own.length) {
+      box.innerHTML = `<div class="issue-meta-label" style="margin:16px 0 8px">Photos (${own.length})</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">${own.map(p => emailAttThumb({ url: p.url, content_type: p.content_type || 'image/jpeg', name: 'Photo' }, 96)).join('')}</div>`;
+    }
     if (iss.created_by !== 'customer-feedback') return;
     const { data } = await db.from('customer_messages').select('photo_paths').eq('issue_id', iss.id);
     if (_currentIssueId !== iss.id) return;   // panel moved on
     const paths = (data || []).flatMap(m => m.photo_paths || []);
     if (!paths.length) return;
-    box.innerHTML = `<div class="issue-meta-label" style="margin:16px 0 8px">Customer photos</div>
+    box.innerHTML += `<div class="issue-meta-label" style="margin:16px 0 8px">Customer photos</div>
       <div class="fbk-photos" data-paths="${esc(JSON.stringify(paths))}" style="display:flex;gap:8px;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--gray-500)">Loading ${paths.length} photo${paths.length > 1 ? 's' : ''}…</span></div>`;
     await loadFeedbackPhotos(box, 96);
@@ -39532,6 +39539,8 @@ ${oneCopy}
 
   function openCreateIssue(customerId) {
     _ciCustomerId = customerId || null;
+    _ciFromEmail = null;   // session 347: cpIssueFromEmail sets it again right after
+    ciRenderEmailPhotos();
     const modal = document.getElementById('create-issue-modal');
     modal.style.display = '';
 
@@ -39549,7 +39558,7 @@ ${oneCopy}
     _ciOrders = [];
     const ciFolderLine = document.getElementById('ci-folder-line');
     if (ciFolderLine) { ciFolderLine.style.display = 'none'; ciFolderLine.innerHTML = ''; }
-    ciLoadOrders();
+    const ordersLoaded = ciLoadOrders();
 
     // Clear form
     document.getElementById('ci-title').value = '';
@@ -39558,11 +39567,13 @@ ${oneCopy}
     document.getElementById('ci-assignee').value = '';
     document.getElementById('ci-note').value = '';
     document.getElementById('ci-title').focus();
+    return ordersLoaded;
   }
 
   function closeCreateIssue() {
     document.getElementById('create-issue-modal').style.display = 'none';
     _ciCustomerId = null;
+    _ciFromEmail = null;
   }
 
   // Order picker for the Create Issue modal. The order carries the launderer
@@ -39626,6 +39637,10 @@ ${oneCopy}
     if (!title) { showToast('Please add a title.', 'error'); return; }
     if (!orderId) { showToast('Please select the order this issue relates to.', 'error'); return; }
 
+    // Session 347: photos ticked in the "from email" strip (same {url, content_type} shape Lost & Found uses).
+    const ctx = _ciFromEmail;
+    const photoRows = ctx ? ctx.photos.filter(p => ctx.picked.has(p.url)).map(p => ({ url: p.url, content_type: p.content_type, source: 'email' })) : [];
+
     const { data, error } = await db.from('cs_issues').insert({
       customer_id: custId,
       order_id: orderId,
@@ -39635,7 +39650,8 @@ ${oneCopy}
       assigned_to: assignee || null,
       notes: note || null,
       created_by: author,
-      status: 'open'
+      status: 'open',
+      photo_urls: photoRows
     }).select().single();
 
     if (error) { showToast('Failed to create issue: ' + error.message, 'error'); return; }
@@ -43657,8 +43673,10 @@ ${oneCopy}
       const shownText = long ? text.slice(0, 400) + '…' : text;
       const content = isEmail ? `<b>${esc(m.subject || '(no subject)')}</b>\n${esc(shownText)}` : esc(shownText);
       const who = isOut ? `${esc(m.sent_by_name)} · ` : '';
-      parts.push(`<div class="${cls}"><div class="cp2-bub ${bub}${failed ? ' fail' : ''}">${content}</div>
-        <div class="cp2-cap" style="font-size:11.5px">${who}${esc(t)}${isEmail ? ' · Email' : ''}${failed ? ' · <b style="color:var(--red)">not delivered</b>' : ''}</div></div>`);
+      const atts = isEmail ? emailAttStrip(m._newAtts || m.attachments, 88) : '';   // session 347
+      const mkIssue = (isEmail && !isOut) ? ` · <a href="#" onclick="event.preventDefault();cpIssueFromEmail('${escJS(m.id)}')" style="color:var(--accent);font-weight:600;text-decoration:none">⚑ Create issue</a>` : '';
+      parts.push(`<div class="${cls}"><div class="cp2-bub ${bub}${failed ? ' fail' : ''}">${content}${atts}</div>
+        <div class="cp2-cap" style="font-size:11.5px">${who}${esc(t)}${isEmail ? ' · Email' : ''}${failed ? ' · <b style="color:var(--red)">not delivered</b>' : ''}${mkIssue}</div></div>`);
     });
     if (all.length > _cp2MsgLimit) parts.push(`<button type="button" class="cp2-sys" style="color:var(--accent);font-weight:600" onclick="_cp2MsgLimit+=40;renderCpEngagement(true)">Show older messages</button>`);
     el.innerHTML = parts.join('');
@@ -43667,6 +43685,118 @@ ${oneCopy}
   function cp2ToggleSys(key) {
     if (_cp2OpenSys.has(key)) _cp2OpenSys.delete(key); else _cp2OpenSys.add(key);
     renderCpEngagement(true);
+  }
+
+  // ══ Session 347: photos on emails copied from Gmail, and "Create issue" from an email ══
+  // email_messages.attachments = [{url, name, content_type, size}] (gmail-sync copies them
+  // into the public sms-media bucket). {missing:true} = Gmail had it but the copy failed.
+  // Browsers other than Safari can't draw HEIC, so non-web images and PDFs/videos are links.
+  function emailAttThumb(a, size) {
+    const url = (a && typeof a.url === 'string' && /^https:\/\//.test(a.url)) ? a.url : '';
+    const name = (a && a.name) || 'attachment';
+    if (!url) return `<span style="font-size:11.5px;color:var(--gray-500);border:1px dashed var(--gray-300);border-radius:8px;padding:4px 8px;background:#fff" title="Couldn't be copied — open this email in Gmail">${esc(name)} · open in Gmail</span>`;
+    if (/^image\/(jpeg|png|webp|gif)$/.test(a.content_type || '')) {
+      return `<a href="${esc(url)}" target="_blank" rel="noopener" title="${esc(name)}" style="display:block;line-height:0"><img src="${esc(emailAttThumbUrl(url, a.content_type, size))}" alt="${esc(name)}" loading="lazy" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;border:1px solid var(--gray-200);background:var(--gray-50)"></a>`;
+    }
+    const icon = /^video\//.test(a.content_type || '') ? '🎞' : /pdf/.test(a.content_type || '') ? '📄' : '📷';
+    return `<a href="${esc(url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent);border:1px solid var(--gray-200);border-radius:8px;padding:4px 8px;background:#fff;text-decoration:none">${icon} ${esc(name)}</a>`;
+  }
+  // Phone photos are 2–3 MB; Supabase image transforms serve a few-KB thumbnail of
+  // the same public object. The link still opens the full-size original.
+  function emailAttThumbUrl(url, contentType, size) {
+    if (!/^image\/(jpeg|png|webp)$/.test(contentType || '') || url.indexOf('/storage/v1/object/public/') < 0) return url;
+    const px = Math.round(size * 2);
+    return url.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/') + `?width=${px}&height=${px}&resize=cover`;
+  }
+  // Same photo twice = same file name + byte size (an email carries it inline AND as an
+  // attachment; a reply re-attaches the photos it quotes).
+  const emailAttKey = a => `${a.name || ''}|${a.size || 0}`;
+  // Per email, the attachments not already shown in an earlier email of the same thread.
+  function emailMarkNewAtts(msgs) {
+    const seenByThread = new Map();
+    msgs.filter(m => m._ch === 'email').slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1)).forEach(m => {
+      const key = m.gmail_thread_id || ('solo:' + m.id);
+      const seen = seenByThread.get(key) || new Set();
+      seenByThread.set(key, seen);
+      m._newAtts = (Array.isArray(m.attachments) ? m.attachments : []).filter(a => {
+        if (!a) return false;
+        const k = emailAttKey(a);
+        if (seen.has(k)) return false;
+        seen.add(k); return true;
+      });
+    });
+  }
+  function emailAttStrip(atts, size) {
+    const list = Array.isArray(atts) ? atts.filter(Boolean) : [];
+    if (!list.length) return '';
+    return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;white-space:normal">${list.map(a => emailAttThumb(a, size)).join('')}</div>`;
+  }
+
+  // Opens the normal Create Issue modal, pre-filled from the email's thread: title from
+  // the customer's words, the exchange as the note, the order from "#12345" in the
+  // subject, and every photo in the thread ticked (staff can untick before saving).
+  let _ciFromEmail = null;   // { emailId, photos:[{url, content_type, name}], picked:Set<url> }
+  async function cpIssueFromEmail(emailId) {
+    const m = (_allCpMsgs || []).find(x => x._ch === 'email' && x.id === emailId);
+    if (!m || !panelCustomerId) return;
+    const thread = (m.gmail_thread_id
+      ? _allCpMsgs.filter(x => x._ch === 'email' && x.gmail_thread_id === m.gmail_thread_id)
+      : [m]).slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+    const photos = [], seen = new Set();
+    thread.forEach(x => (Array.isArray(x.attachments) ? x.attachments : []).forEach(a => {
+      if (a && a.url && !a.missing && !seen.has(emailAttKey(a))) { seen.add(emailAttKey(a)); photos.push({ url: a.url, content_type: a.content_type || '', name: a.name || '' }); }
+    }));
+    const when = d => new Date(d).toLocaleString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const firstInbound = thread.find(x => x.direction === 'inbound') || m;
+    const custText = _cpEmailText(firstInbound.body).replace(/\s+/g, ' ').trim();
+    const firstSentence = (custText.match(/^.{12,}?[.!?](\s|$)/) || [custText])[0].trim();
+    const cleanSubject = String(m.subject || '').replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, '').trim();
+    const title = (firstSentence || cleanSubject || 'Customer email').replace(/^(hi|hello|hey)\b[\s,!]*/i, '').slice(0, 120);
+    let note = `From email: ${cleanSubject || '(no subject)'}\n` + thread.map(x =>
+      `\n— ${x.direction === 'inbound' ? 'Customer' : (x.sent_by_name || 'Family Laundry')}, ${when(x.created_at)}:\n${_cpEmailText(x.body).trim()}`).join('\n');
+    if (note.length > 4000) note = note.slice(0, 3990) + '…';
+    const allText = thread.filter(x => x.direction === 'inbound').map(x => _cpEmailText(x.body)).join(' ');
+
+    const ordersLoaded = openCreateIssue(panelCustomerId);
+    _ciFromEmail = { emailId, photos, picked: new Set(photos.map(p => p.url)) };
+    document.getElementById('ci-title').value = title.charAt(0).toUpperCase() + title.slice(1);
+    document.getElementById('ci-note').value = note;
+    if (/\b(stain|stained|stains|damage|damaged|ruin|ruined|torn|ripped|hole|shrunk|shrank|bleach)/i.test(allText)) {
+      document.getElementById('ci-category').value = 'damaged';
+    }
+    ciRenderEmailPhotos();
+    const num = (String(m.subject || '').match(/#\s?(\d{3,})/) || [])[1];
+    if (num) {
+      await ordersLoaded;
+      if (!_ciFromEmail || _ciFromEmail.emailId !== emailId) return;   // modal closed / reused meanwhile
+      const o = _ciOrders.find(x => String(x.order_number) === num);
+      const sel = document.getElementById('ci-order');
+      if (o && sel && !sel.value) { sel.value = o.id; ciOnOrderChange(); }
+    }
+  }
+
+  function ciRenderEmailPhotos() {
+    const box = document.getElementById('ci-photos');
+    if (!box) return;
+    const ctx = _ciFromEmail;
+    if (!ctx || !ctx.photos.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = '';
+    box.innerHTML = `<label>Photos from the email <span style="font-weight:400;color:var(--gray-500)">— ${ctx.picked.size} of ${ctx.photos.length} attached · click to include / leave out</span></label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${ctx.photos.map((p, i) => {
+        const on = ctx.picked.has(p.url);
+        const img = /^image\/(jpeg|png|webp|gif)$/.test(p.content_type)
+          ? `<img src="${esc(emailAttThumbUrl(p.url, p.content_type, 72))}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:8px;display:block">`
+          : `<span style="display:flex;width:72px;height:72px;align-items:center;justify-content:center;font-size:11px;text-align:center;padding:4px;color:var(--gray-600)">${esc(p.name || 'file')}</span>`;
+        return `<button type="button" onclick="ciToggleEmailPhoto(${i})" aria-pressed="${on}" title="${on ? 'Included — click to leave out' : 'Left out — click to include'}"
+          style="position:relative;padding:0;border-radius:10px;cursor:pointer;background:var(--gray-50);border:2px solid ${on ? 'var(--accent)' : 'var(--gray-200)'};opacity:${on ? 1 : .45}">${img}
+          <span style="position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;font-size:11px;line-height:18px;color:#fff;background:${on ? 'var(--accent)' : 'var(--gray-400)'}">${on ? '✓' : ''}</span></button>`;
+      }).join('')}</div>`;
+  }
+  function ciToggleEmailPhoto(i) {
+    const ctx = _ciFromEmail; if (!ctx || !ctx.photos[i]) return;
+    const u = ctx.photos[i].url;
+    if (ctx.picked.has(u)) ctx.picked.delete(u); else ctx.picked.add(u);
+    ciRenderEmailPhotos();
   }
 
   // ══ Session 329: Issues tab — open first, then history ══
@@ -43696,7 +43826,7 @@ ${oneCopy}
       return `<button type="button" class="cp2-iss" onclick="openIssueDetail(${Number(iss.id)})">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
           <div style="min-width:0"><div style="font-weight:600;color:var(--gray-900);font-size:14px">${esc(iss.title || '(untitled)')}</div>
-          <div class="cp2-cap" style="margin-top:1px">${[cat, when, iss.created_by].filter(Boolean).map(esc).join(' · ')}</div></div>
+          <div class="cp2-cap" style="margin-top:1px">${[cat, when, iss.created_by, (Array.isArray(iss.photo_urls) && iss.photo_urls.length) ? `📷 ${iss.photo_urls.length}` : ''].filter(Boolean).map(esc).join(' · ')}</div></div>
           <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">${pri}${pill}</div>
         </div>
         ${iss.notes ? `<div style="font-size:13px;color:var(--gray-700);margin-top:7px;line-height:1.45;white-space:pre-line;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esc(iss.notes)}</div>` : ''}
@@ -44812,7 +44942,7 @@ ${oneCopy}
     const [smsRes, emailRes] = await Promise.all([
       db.from('sms_messages').select('id, direction, body, created_at, from_number, to_number, status, sent_by_name')
         .eq('customer_id', customerId).order('created_at', { ascending: false }).limit(100),
-      db.from('email_messages').select('id, direction, subject, body, created_at, to_email, sent_by_name')
+      db.from('email_messages').select('id, direction, subject, body, created_at, to_email, sent_by_name, attachments, gmail_thread_id')
         .eq('customer_id', customerId).order('created_at', { ascending: false }).limit(50),
     ]);
     if (customerId !== panelCustomerId) return; // panel moved on while loading
@@ -44822,6 +44952,7 @@ ${oneCopy}
       ...(smsRes.data || []).map(m => ({ ...m, _ch: 'sms' })),
       ...(emailRes.data || []).map(m => ({ ...m, _ch: 'email' })),
     ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    emailMarkNewAtts(_allCpMsgs);   // session 347
     renderCpEngagement();
   }
 
