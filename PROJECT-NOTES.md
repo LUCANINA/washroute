@@ -1,5 +1,29 @@
 # WashRoute — Project Notes
 
+## Session 348 — Oct 19, 2026: require a card at booking + show stalled unpaid orders — NOT pushed
+
+Daily audit found 3 orders delivered Oct 17–18 and never charged: #17660 ($65.20), #17715 ($107.95),
+#17747 ($80.95) = $264.10. All three were sign-up-and-book customers from Oct 16 with **no card on file** —
+`charge-order` refused cleanly (`no_card_on_file`, by design) leaving `billing_status` NULL, so nothing failed
+and nothing alerted. Service was simply given away.
+- `customer-app/index.html` `placeOrder()`: card-on-file gate, placed after the name/email completeness gates
+  so it covers both the signup path and logged-in customers. Reads `customer_payment_methods` directly (on the
+  signup path `currentCards` is empty by construction, not by fact). **Errors fail OPEN** — a network blip must
+  not block a customer who does have a card; an empty result is the real case and blocks.
+- `on_account` exempt — see the new CLAUDE.md rule. The first draft of this gate would have blocked all 66
+  commercial customers because nothing in the customer app had ever read `billing_type`.
+- Blast radius measured before shipping: 10 of 694 customers who booked in the last 30 days, all genuinely
+  cardless, 0 subscribers (every active subscription has a `customer_payment_methods` row), 34 on_account exempt.
+- `admin-dashboard/index.html` `loadUnpaidOrders()`: stalled `awaiting_payment` rows (>`UNPAID_SWEEP_STALL_HOURS`,
+  4h) now JOIN the list instead of only being counted in the warning banner. Session 291 hid all of them on the
+  grounds that the sweep settles them in minutes — true until the sweep *can't*, which is exactly the no-card
+  case. Fresh rows stay hidden; the "can a human act on it?" test is unchanged. `_deliveredActionBtn` already
+  had the no-card branch, so each row renders a working Request card button with no row-level change.
+- Both files syntax-checked (`node --check` on the extracted script blocks). **Not committed or pushed** — the
+  daily-audit session is read-only. David to commit; the pre-commit hook bumps `build-version.txt`.
+- Still owed: the $254.10 from the three orders needs chasing once deployed.
+
+
 ## Session 347 — Oct 19, 2026: photos on customer emails + "Create issue" from an email — function LIVE, admin not pushed
 
 Trigger: Jennifer Louie emailed stain photos (order #17218); the Messages tab showed text only.

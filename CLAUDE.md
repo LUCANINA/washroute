@@ -183,6 +183,17 @@ exactly the failure `docs/washroute/authorization.md` exists to prevent.
 
 Same rule for `rtk read` on the PROJECT-NOTES files: grep them, don't read them.
 
+- **Any gate on booking or delivery must exempt `on_account`.** 66 commercial customers — 40 of them still
+  ordering — are invoiced by design and hold no card at all, so a card check that doesn't carve them out takes
+  the whole commercial book offline. The trap is that `billing_type` IS loaded (`customers` is fetched with
+  `select('*')`) but was never *read* anywhere in `customer-app/index.html` before session 348 — so there is no
+  existing exemption to copy, nothing to grep for, and no error to warn you. Same applies to any future
+  delivery-side gate.
+- **Measure a new gate's blast radius in SQL before shipping it.** Count how many real, recently-active
+  customers it would block, and confirm they're the ones you mean. Session 348's card gate came out at 10 of 694
+  (1.4%), all genuinely cardless, 0 subscribers — that number is what made it safe to ship, not the reasoning
+  behind it.
+
 ## Route grunt work to cheaper agents
 
 Budget = tokens x model. Locating, verifying and mechanical edits don't need the
