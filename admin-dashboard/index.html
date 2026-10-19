@@ -6866,7 +6866,13 @@
         <textarea id="sms-compose-body" class="form-input" rows="4" maxlength="640" placeholder="Type your message…"
           style="resize:vertical;font-family:inherit;font-size:13.5px;line-height:1.5"
           oninput="document.getElementById('sms-char-count').textContent=(this.value.length)+' / 160'"></textarea>
-        <div style="text-align:right;font-size:11px;color:var(--gray-400);margin-top:3px" id="sms-char-count">0 / 160</div>
+        <!-- Photos (MMS) — same uploader as the Inbox reply box, target 'modal' -->
+        <div id="sms-modal-attach-row" class="compose-attach-row" style="display:none;padding:8px 0 0 0"></div>
+        <input type="file" id="sms-modal-attach-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="display:none" onchange="onAttachChange(event,'modal')" />
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+          <button type="button" class="btn btn-ghost" onclick="document.getElementById('sms-modal-attach-input').click()" style="font-size:12.5px;padding:5px 10px">📎 Add photo</button>
+          <div style="font-size:11px;color:var(--gray-400)" id="sms-char-count">0 / 160</div>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -35457,7 +35463,11 @@ ${oneCopy}
 
   async function sendBatchSMS() {
     const body = document.getElementById('sms-compose-body').value.trim();
-    if (!body) { showToast('Message cannot be empty.', 'error'); return; }
+    const _modalAtt = window._smsModalAttachments || [];
+    if (_modalAtt.some(a => a.status === 'uploading')) { showToast('Wait for photos to finish uploading', 'error'); return; }
+    const mediaUrls = _modalAtt.filter(a => a.status === 'ready' && a.url).map(a => a.url);
+    const _media = mediaUrls.length ? { media_urls: mediaUrls } : {};
+    if (!body && !mediaUrls.length) { showToast('Add a message or a photo.', 'error'); return; }
 
     // Single compose (from Inbox "Compose" button)
     if (!_smsBatchOrders.length) {
@@ -35476,7 +35486,7 @@ ${oneCopy}
         const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
-          body: JSON.stringify({ to, body, ...(_matchCust ? { customer_id: _matchCust.id } : {}) }),
+          body: JSON.stringify({ to, body, ..._media, ...(_matchCust ? { customer_id: _matchCust.id } : {}) }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Send failed');
@@ -35499,7 +35509,7 @@ ${oneCopy}
         const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
-          body: JSON.stringify({ to: o.phone, body, customer_id: o.customerId }),
+          body: JSON.stringify({ to: o.phone, body, customer_id: o.customerId, ..._media }),
         });
         if (res.ok) sent++; else failed++;
       } catch { failed++; }
@@ -35511,6 +35521,7 @@ ${oneCopy}
 
   function closeSMSCompose() {
     document.getElementById('modal-sms-compose').style.display = 'none';
+    _resetAttachments('modal');
     document.getElementById('sms-send-btn').disabled = false;
     document.getElementById('sms-send-btn').textContent = 'Send';
   }
@@ -38746,11 +38757,21 @@ ${oneCopy}
   // Stored on window so the inline event handlers in the rendered chip
   // markup can reach it without a closure.
   window._composeAttachments = [];
+  // The "Send SMS" modal (new message / batch) uses the same uploader.
+  // One set of helpers keyed by target so both composers validate,
+  // upload and preview identically.
+  window._smsModalAttachments = [];
+  const _ATTACH_TARGETS = {
+    compose: { key: '_composeAttachments',  row: 'compose-attach-row' },
+    modal:   { key: '_smsModalAttachments', row: 'sms-modal-attach-row' },
+  };
+  const _MAX_MMS_MEDIA = 10; // Twilio caps MediaUrl at 10 per message
 
-  function _renderComposeAttachRow() {
-    const row = document.getElementById('compose-attach-row');
+  function _renderAttachRow(target) {
+    const t = _ATTACH_TARGETS[target]; if (!t) return;
+    const row = document.getElementById(t.row);
     if (!row) return;
-    const items = window._composeAttachments || [];
+    const items = window[t.key] || [];
     if (items.length === 0) { row.style.display = 'none'; row.innerHTML = ''; return; }
     row.style.display = 'flex';
     row.innerHTML = items.map(it => {
@@ -38759,37 +38780,45 @@ ${oneCopy}
       return `<div class="${cls}" data-id="${esc(it.id)}">
         ${previewSrc ? `<img src="${esc(previewSrc)}" alt="${esc(it.name||'')}" />` : ''}
         ${it.status === 'uploading' ? '<div class="chip-spinner"></div>' : ''}
-        <button class="chip-x" onclick="removeComposeAttachment('${esc(it.id)}')" title="Remove">×</button>
+        <button class="chip-x" onclick="removeAttachment('${target}','${esc(it.id)}')" title="Remove">×</button>
       </div>`;
     }).join('');
   }
 
-  function removeComposeAttachment(id) {
-    const arr = window._composeAttachments || [];
+  function removeAttachment(target, id) {
+    const t = _ATTACH_TARGETS[target]; if (!t) return;
+    const arr = window[t.key] || [];
     const idx = arr.findIndex(i => i.id === id);
     if (idx >= 0) {
       try { if (arr[idx].blobUrl) URL.revokeObjectURL(arr[idx].blobUrl); } catch (_) {}
       arr.splice(idx, 1);
-      _renderComposeAttachRow();
+      _renderAttachRow(target);
     }
   }
 
-  function _resetComposeAttachments() {
-    const arr = window._composeAttachments || [];
+  function _resetAttachments(target) {
+    const t = _ATTACH_TARGETS[target]; if (!t) return;
+    const arr = window[t.key] || [];
     for (const it of arr) {
       try { if (it.blobUrl) URL.revokeObjectURL(it.blobUrl); } catch (_) {}
     }
-    window._composeAttachments = [];
-    _renderComposeAttachRow();
+    window[t.key] = [];
+    _renderAttachRow(target);
   }
 
-  async function onComposeAttachChange(ev) {
+  async function onAttachChange(ev, target) {
+    const t = _ATTACH_TARGETS[target]; if (!t) return;
     const files = Array.from(ev.target.files || []);
     ev.target.value = ''; // allow re-selecting the same file later
     if (!files.length) return;
+    if (!Array.isArray(window[t.key])) window[t.key] = [];
 
     const TEN_MB = 10 * 1024 * 1024;
     for (const f of files) {
+      if (window[t.key].length >= _MAX_MMS_MEDIA) {
+        showToast(`Max ${_MAX_MMS_MEDIA} photos per message — ${f.name} skipped`, 'error');
+        continue;
+      }
       if (f.size > TEN_MB) {
         showToast(`${f.name} is over 10 MB — skipped`, 'error');
         continue;
@@ -38805,8 +38834,8 @@ ${oneCopy}
       const localId = 'a-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
       const blobUrl = URL.createObjectURL(f);
       const item = { id: localId, status: 'uploading', url: '', blobUrl, name: f.name };
-      window._composeAttachments.push(item);
-      _renderComposeAttachRow();
+      window[t.key].push(item);
+      _renderAttachRow(target);
 
       // Path scheme mirrors the inbound side: outbound/<yyyy-mm-dd>/<rand>.<ext>
       const ext = (f.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
@@ -38826,12 +38855,18 @@ ${oneCopy}
         item.status = 'error';
         showToast(`Upload failed for ${f.name}: ${err.message || err}`, 'error');
         // Remove the failed chip so the user isn't stuck with it
-        removeComposeAttachment(localId);
+        removeAttachment(target, localId);
         continue;
       }
-      _renderComposeAttachRow();
+      _renderAttachRow(target);
     }
   }
+
+  // Original Inbox-reply names — still called elsewhere.
+  function _renderComposeAttachRow() { _renderAttachRow('compose'); }
+  function removeComposeAttachment(id) { removeAttachment('compose', id); }
+  function _resetComposeAttachments() { _resetAttachments('compose'); }
+  function onComposeAttachChange(ev) { return onAttachChange(ev, 'compose'); }
 
   // ── sendSMSReply ──
   async function sendSMSReply() {
