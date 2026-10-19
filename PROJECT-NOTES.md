@@ -1,5 +1,21 @@
 # WashRoute — Project Notes
 
+## Session 351 — Oct 19, 2026: closed "any logged-in user can read X" policies — LIVE (DB only)
+
+David flagged it as serious. SELECT policies `USING (true)` for `authenticated` let EVERY customer account read:
+route_stops (28k: driver notes, proof-photo URLs, order/address ids), routes, **drivers (license no./expiry, plates, GPS)**,
+**driver_locations (live GPS)**, billing_groups (B2B contacts), route_driver_overrides, loan_settled_write_attempts.
+Migration `session_351_lock_down_open_reads`: new `is_ops_staff()` (admin, manager, laundry_tech, attendant, pos_device) +
+definer helpers `current_customer_run_ids()`, `current_driver_route_ids()`, `current_driver_stop_route_ids()` (needed —
+a routes policy that reads orders recurses: routes → orders → route_stops → routes).
+Access now: ops staff all (unchanged); drivers own routes/stops/drivers row/GPS row; customers only own + upcoming route
+runs (customer app reschedule looks runs up by template+date); anon/CPA nothing. Verified live per role; 7 drivers keep
+identical addresses/orders/customers. No app code changed — every route-touching RPC is SECURITY DEFINER.
+- ⚠️ Still open: storage buckets `stop-photos`, `voicemails`, `sms-media` are PUBLIC — anyone with a link opens the file,
+  and stop-photo links were readable by every customer until today. Fix needs signed URLs in admin/driver/customer apps.
+- Also session 350b/350c: every RLS policy now wraps zero-arg auth helpers as `(SELECT f())` (initplan) — 10× less DB time.
+  Snapshots `_archive.rls_policies_20261019` / `_all`.
+
 ## Session 350 — Oct 19, 2026: Customers/Orders slow + false "Request card" + wrong risk status — DB LIVE, admin pending push
 
 David: Customers and Orders load slowly; real customers don't show and orders say "Request card" when a card is on file.
