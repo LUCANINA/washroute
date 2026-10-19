@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { fetchAllPaged } from "../_shared/paged-select.ts"
-import { perBagCost, planCost, subscriberVariant, money, addMonths, type Prices, type Usage } from "../_shared/savings-math.ts"
+import { perBagCost, planCost, orderBagOverLbs, subscriberVariant, money, addMonths, type Prices, type Usage } from "../_shared/savings-math.ts"
 
 // Session 346 — monthly savings emails.
 // AUTH  x-wr-internal header only (pg_cron + manual runs from SQL). verify_jwt FALSE.
@@ -50,7 +50,7 @@ async function isInternalCall(req: Request): Promise<boolean> {
 
 // Prices come from the live price tables, never typed in here (CLAUDE.md).
 async function loadPrices(): Promise<Prices> {
-  const { data: svc } = await db.from('services').select('base_price')
+  const { data: svc } = await db.from('services').select('base_price, lbs_per_bag, overage_rate_per_lb')
     .eq('pricelist', 'Delivery').eq('is_active', true).eq('is_addon', false).eq('pricing_type', 'per_bag')
     .order('sort_order').limit(1).maybeSingle()
   const { data: fee } = await db.from('service_fees').select('amount')
@@ -60,6 +60,7 @@ async function loadPrices(): Promise<Prices> {
   const p = {
     perBag: Number(svc?.base_price), deliveryFee: Number(fee?.amount), planPrice: Number(plan?.price_monthly),
     planLbs: Number(plan?.weight_limit_lbs), overagePerLb: Number(plan?.overage_price_per_lb),
+    bagLbs: Number(svc?.lbs_per_bag), bagOverPerLb: Number(svc?.overage_rate_per_lb),
   }
   for (const [k, v] of Object.entries(p)) if (!(v > 0)) throw new Error(`price lookup failed: ${k}=${v}`)
   return p
@@ -99,13 +100,14 @@ type PeriodUsage = Usage & { overagePaid: number, unweighed: number }
 // counted it (the order_ready usage log — apply_subscription_usage_fn fires at ready_for_delivery),
 // NOT the pickup time: a bag picked up the evening before a cycle starts and weighed the next
 // morning belongs to the NEW cycle and carries its overage (Laurel, Oct 16 test email).
-function usageOf(orders: any[], from: Date, to: Date): PeriodUsage {
-  const u: PeriodUsage = { orders: 0, bags: 0, lbs: 0, overagePaid: 0, unweighed: 0 }
+function usageOf(orders: any[], from: Date, to: Date, P: Prices): PeriodUsage {
+  const u: PeriodUsage = { orders: 0, bags: 0, lbs: 0, bagOverLbs: 0, overagePaid: 0, unweighed: 0 }
   for (const o of orders) {
     const t = new Date(o.counted_at || o.actual_pickup_at || o.pickup_window_start)
     if (t < from || t >= to || !COUNTED.includes(o.status)) continue
     u.orders++; u.bags += Number(o.total_bags || 0); u.lbs += Number(o.weight_lbs || 0)
     if (o.weight_lbs == null) u.unweighed++
+    u.bagOverLbs! += orderBagOverLbs(o.weight_lbs, Number(o.total_bags || 0), P.bagLbs)
     if (Array.isArray(o.line_items)) for (const li of o.line_items) if (li?.type === 'lb_overage') u.overagePaid += Number(li.amount || 0)
   }
   u.overagePaid = Math.round(u.overagePaid * 100) / 100
@@ -130,7 +132,7 @@ async function buildSubscriber(sub: any, cust: any, P: Prices) {
   for (const l of logs) if (l.order_id && (!countedAt[l.order_id] || l.created_at < countedAt[l.order_id])) countedAt[l.order_id] = l.created_at
   for (const o of orders) (o as any).counted_at = countedAt[(o as any).id] || null
 
-  const u = usageOf(orders || [], start, end)
+  const u = usageOf(orders || [], start, end, P)
   const paid = P.planPrice + u.overagePaid
   const would = perBagCost(u, P)
   const saved = Math.round((would - paid) * 100) / 100
@@ -142,7 +144,7 @@ async function buildSubscriber(sub: any, cust: any, P: Prices) {
     const ps = addMonths(start, -k), pe = addMonths(start, -k + 1)
     if (ps.getTime() < subStart.getTime() - 86400000) break
     if (sub.pause_starts_at && ps >= new Date(sub.pause_starts_at) && ps < new Date(sub.pause_ends_at)) continue
-    const hu = usageOf(orders || [], ps, pe)
+    const hu = usageOf(orders || [], ps, pe, P)
     history.push(Math.round((perBagCost(hu, P) - (P.planPrice + hu.overagePaid)) * 100) / 100)
   }
   const total3 = Math.round((saved + history.reduce((a, b) => a + b, 0)) * 100) / 100
@@ -158,6 +160,7 @@ async function buildSubscriber(sub: any, cust: any, P: Prices) {
     ${headRow('Without a subscription')}
     ${row(`${u.bags} ${u.bags === 1 ? 'bag' : 'bags'} × ${money(P.perBag)}`, money(u.bags * P.perBag))}
     ${row(`${u.orders} ${u.orders === 1 ? 'delivery' : 'deliveries'} × ${money(P.deliveryFee)}`, money(u.orders * P.deliveryFee))}
+    ${u.bagOverLbs ? row(`${lbsTxt(u.bagOverLbs)} lbs over ${P.bagLbs} per bag × ${money(P.bagOverPerLb)}`, money(u.bagOverLbs * P.bagOverPerLb)) : ''}
     ${row('Would have paid', money(would), 'border-top:2px solid #111827;font-weight:800;color:#111827;')}
     ${row('You paid (subscription' + (u.overagePaid ? ' + overage' : '') + ')', money(paid))}
   </table>`
@@ -183,7 +186,7 @@ async function buildSubscriber(sub: any, cust: any, P: Prices) {
       <table width="100%" cellpadding="0" cellspacing="0">${headRow('This month')}
         ${row('You paid (subscription' + (u.overagePaid ? ' + overage' : '') + ')', money(paid))}
         ${row('Pay-per-bag would have been', money(would))}
-        <tr><td colspan="2" style="color:#9ca3af;font-size:12.5px;">${u.bags} ${u.bags === 1 ? 'bag' : 'bags'} × ${money(P.perBag)} + ${u.orders} ${u.orders === 1 ? 'delivery' : 'deliveries'} × ${money(P.deliveryFee)}</td></tr></table>
+        <tr><td colspan="2" style="color:#9ca3af;font-size:12.5px;">${u.bags} ${u.bags === 1 ? 'bag' : 'bags'} × ${money(P.perBag)} + ${u.orders} ${u.orders === 1 ? 'delivery' : 'deliveries'} × ${money(P.deliveryFee)}${u.bagOverLbs ? ` + ${lbsTxt(u.bagOverLbs)} lbs over × ${money(P.bagOverPerLb)}` : ''}</td></tr></table>
       ${hero("You'd have saved", money(-total3), `by paying per bag over the last ${history.length + 1} months`, true)}
       We want you on the option that costs you least. Based on how you've used Family Laundry lately, paying per bag would save you money, with the same service and pickup windows.
       ${unweighedNote}${renew(`<b style="color:#7a1f3d;">We'll charge your ${price} renewal tomorrow, ${renewDay}.</b> To switch, tap the button below today and choose Cancel Subscription. You keep your plan through today, and we won't charge you tomorrow.`)}
@@ -249,7 +252,7 @@ async function runPerBag(opts: any, P: Prices) {
   for (const o of orders) (per[o.customer_id] ||= { cust: o.customers, months: [] })
   for (const [cid, v] of Object.entries(per)) {
     const mine = orders.filter((o: any) => o.customer_id === cid)
-    v.months = [0, 1, 2].map(i => usageOf(mine, bounds[i], bounds[i + 1]))
+    v.months = [0, 1, 2].map(i => usageOf(mine, bounds[i], bounds[i + 1], P))
   }
   const savingOf = (u: PeriodUsage) => Math.round((perBagCost(u, P) - planCost(u, P)) * 100) / 100
   const qualifiers = Object.entries(per).filter(([, v]) => v.months.every(u => u.orders > 0 && savingOf(u) > 0)
@@ -283,6 +286,7 @@ async function runPerBag(opts: any, P: Prices) {
         ${headRow(`Your ${monthName} at pay-per-bag prices`)}
         ${row(`${u.bags} bags × ${money(P.perBag)}`, money(u.bags * P.perBag))}
         ${row(`${u.orders} deliveries × ${money(P.deliveryFee)}`, money(u.orders * P.deliveryFee))}
+        ${u.bagOverLbs ? row(`${lbsTxt(u.bagOverLbs)} lbs over ${P.bagLbs} per bag × ${money(P.bagOverPerLb)}`, money(u.bagOverLbs * P.bagOverPerLb)) : ''}
         ${row('Total', money(would), 'border-top:2px solid #111827;font-weight:800;color:#111827;')}
         ${headRow('On the monthly subscription')}
         ${row(`Plan (${P.planLbs} lbs, free delivery)`, money(P.planPrice))}

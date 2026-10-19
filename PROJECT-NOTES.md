@@ -1,5 +1,22 @@
 # WashRoute — Project Notes
 
+## Session 349 — Oct 19, 2026: savings emails missed pay-per-bag overweight — fix LIVE, emails still PAUSED
+
+David caught it on Jennifer Helfrich's Friday email: 5 bags / 140 lbs, "pay-per-bag would have been $374.75, switch and
+save $79.60". Pay-per-bag also charges $3/lb over 25 lbs PER BAG, PER ORDER (services.lbs_per_bag / overage_rate_per_lb,
+same rule as the session-183 order pricing). Her orders were 23/33/28/25/31 lbs → 17 lbs over → $425.75; the plan SAVED
+her $40.75 that month. David's decision: no correction email to Jennifer.
+- `_shared/savings-math.ts`: `perBagCost` adds `bagOverLbs × bagOverPerLb`; `orderBagOverLbs()` per order (unweighed = 0).
+  `savings-summary`: prices read `lbs_per_bag` + `overage_rate_per_lb` live; `usageOf` sums overweight order by order;
+  every breakdown shows an "N lbs over 25 per bag × $3.00" line when non-zero. Tests: `tests/savings-math.test.mts` (17 pass).
+- Friday's real sends (3) recomputed: Jennifer should have been `saved` (+$40.75), Laurel saved $50.75 not $44.75, Linh
+  light month −$86.10 not −$125.10. All three renewed Oct 17; nobody cancelled.
+- Deployed by David via CLI (`--no-verify-jwt`, probed 403-in-own-words). Dry run (window_days 32): 108 candidates, 0 errors;
+  overweight cross-checked against an independent SQL calc for all 107 with figures — 0 mismatches; 30 subscribers carry overweight.
+- **Crons `wr-savings-subscribers` (42) and `wr-savings-perbag` (43) are still `active = false`.** Re-enable only when David
+  says so: `SELECT cron.alter_job(42, active := true); SELECT cron.alter_job(43, active := true);` (preflight first).
+- Same session: pushed inbox reopen fix (76da107) and Maya real-person / message-only / referral rules; Maya `/setup` run → Retell updated.
+
 ## Session 348 — Oct 19, 2026: require a card at booking + show stalled unpaid orders — NOT pushed
 
 Daily audit found 3 orders delivered Oct 17–18 and never charged: #17660 ($65.20), #17715 ($107.95),
