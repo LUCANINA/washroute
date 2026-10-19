@@ -1037,7 +1037,7 @@
     .issue-event.evt-comment::before { background:var(--accent); }
     .issue-event.evt-status::before { background:#10b981; }
     .issue-event.evt-system::before { background:var(--gray-300); }
-    .issue-event-body { font-size:13px;color:var(--gray-800);line-height:1.5; }
+    .issue-event-body { font-size:13px;color:var(--gray-800);line-height:1.5;white-space:pre-line;word-break:break-word; }
     .issue-event-meta { font-size:11px;color:var(--gray-400);margin-top:2px; }
     .issue-comment-box { display:flex;gap:8px;align-items:flex-end; }
     .issue-comment-input { flex:1;padding:9px 12px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit;resize:none;outline:none;min-height:38px;max-height:100px; }
@@ -39355,8 +39355,11 @@ ${oneCopy}
     // Created event
     events.push({ type: 'system', body: 'Issue created', author: iss.created_by || 'System', time: iss.created_at });
 
-    // Initial notes from the issue itself
-    if (iss.notes) {
+    // Initial notes from the issue itself. Create Issue also saves the note as the
+    // first comment, so skip it here when a comment repeats it word for word
+    // (session 347 — it showed twice on every issue created with a note).
+    const noteRepeated = iss.notes && (comments || []).some(c => (c.body || '').trim() === iss.notes.trim());
+    if (iss.notes && !noteRepeated) {
       events.push({ type: 'comment', body: iss.notes, author: iss.created_by || 'System', time: iss.created_at });
     }
 
@@ -39376,7 +39379,7 @@ ${oneCopy}
       const timeStr = dt.toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
       const cls = ev.type === 'comment' ? 'evt-comment' : ev.type === 'status' ? 'evt-status' : 'evt-system';
       return `<div class="issue-event ${cls}">
-        <div class="issue-event-body">${esc(ev.body)}</div>
+        <div class="issue-event-body">${esc(String(ev.body || '').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\n[ \t]*(\n[ \t]*)+\n/g, '\n\n').trim())}</div>
         <div class="issue-event-meta">${ev.author ? esc(ev.author) + ' · ' : ''}${dateStr} ${timeStr}</div>
       </div>`;
     }).join('');
@@ -43753,7 +43756,7 @@ ${oneCopy}
     const cleanSubject = String(m.subject || '').replace(/^\s*((re|fwd?|fw)\s*:\s*)+/i, '').trim();
     const title = (firstSentence || cleanSubject || 'Customer email').replace(/^(hi|hello|hey)\b[\s,!]*/i, '').slice(0, 120);
     let note = `From email: ${cleanSubject || '(no subject)'}\n` + thread.map(x =>
-      `\n— ${x.direction === 'inbound' ? 'Customer' : (x.sent_by_name || 'Family Laundry')}, ${when(x.created_at)}:\n${_cpEmailText(x.body).trim()}`).join('\n');
+      `\n— ${x.direction === 'inbound' ? 'Customer' : (x.sent_by_name || 'Family Laundry')}, ${when(x.created_at)}:\n${_cpEmailText(x.body).replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\n[ \t]*(\n[ \t]*)+\n/g, '\n\n').trim()}`).join('\n');
     if (note.length > 4000) note = note.slice(0, 3990) + '…';
     const allText = thread.filter(x => x.direction === 'inbound').map(x => _cpEmailText(x.body)).join(' ');
 
