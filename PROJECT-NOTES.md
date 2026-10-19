@@ -1,5 +1,25 @@
 # WashRoute — Project Notes
 
+## Session 350 — Oct 19, 2026: Customers/Orders slow + false "Request card" + wrong risk status — DB LIVE, admin pending push
+
+David: Customers and Orders load slowly; real customers don't show and orders say "Request card" when a card is on file.
+Root cause for two of the three was PostgREST's silent 1,000-row cap, not speed.
+- **False "Request card":** `loadOrders` prefetched `customer_payment_methods` in ONE unpaged select — 1,491 rows, so ~⅓
+  of card holders looked cardless. New `fetchAllCardRows()` / `loadFullCardCache()` page by `id`. Used by Orders + Customers.
+- **Customers page:** pages now fetch in parallel (count first), table shows "Loading customers…" instead of
+  "No customers yet", a search typed during loading queries the DB directly (`_custServerSearch`, first word, ilike on
+  name/email/phone), and the final render re-applies the search box (it used to ignore it). Failed page = retry once, then
+  a Retry button — never a silently partial list.
+- **risk_status:** the page recalculated it on every load from an unpaged `orders where delivered` select (oldest 1,000 of
+  13,818) and wrote it back row by row → 6,066/6,334 'churned' incl. 489 delivered in the last 14 days. Client code removed.
+  Migration `session_350_customer_risk_status_nightly`: `compute_customer_risk_status()` + `refresh_customer_risk_status()`
+  (service_role only), cron `wr-customer-risk-status` 10:17 UTC, uses LATER of newest delivered order / `last_order_at`.
+  Preflight: nothing reads risk_status to message anyone; customers not in realtime. One-time run changed 941 rows →
+  979 active / 185 at_risk / 5,170 churned. Snapshot: `_archive.customers_risk_status_20261019` (rollback in the migration file).
+- ⚠️ Until the admin push, any OPEN admin tab still runs the old recalculation on Customers load and re-breaks statuses.
+  After the push: `SELECT public.refresh_customer_risk_status();` once.
+- Not fixed (noted): other unpaged selects exist (e.g. `sendLaunchAnnouncementAll`), mostly date/customer-scoped and small.
+
 ## Session 349 — Oct 19, 2026: savings emails missed pay-per-bag overweight — fix LIVE, emails still PAUSED
 
 David caught it on Jennifer Helfrich's Friday email: 5 bags / 140 lbs, "pay-per-bag would have been $374.75, switch and

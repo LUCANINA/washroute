@@ -8985,6 +8985,36 @@
     }
     return all;
   }
+  // Full card cache, paged past PostgREST's 1,000-row cap. Session 350: with
+  // 1,491 saved cards the old single select silently dropped about a third, so
+  // the Orders page showed "Request card" for customers who had a card on file.
+  // Returns { data, error } like a supabase-js query.
+  async function fetchAllCardRows() {
+    const PAGE = 1000;
+    let rows = [], from = 0;
+    while (true) {
+      const { data, error } = await db.from('customer_payment_methods')
+        .select('customer_id, created_at')
+        .order('id', { ascending: true })   // unique sort so pages never skip or repeat rows
+        .range(from, from + PAGE - 1);
+      if (error) return { data: null, error };
+      rows = rows.concat(data || []);
+      if (!data || data.length < PAGE) break;
+      from += PAGE;
+    }
+    return { data: rows, error: null };
+  }
+  // Fills _custWithCard / _custCardAddedAt from ALL cards. Safe to call repeatedly.
+  async function loadFullCardCache() {
+    const { data, error } = await fetchAllCardRows();
+    if (error) { console.warn('card cache fetch failed:', error); return false; }
+    for (const r of data) {
+      _custWithCard.add(r.customer_id);
+      const prev = _custCardAddedAt.get(r.customer_id);
+      if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
+    }
+    return true;
+  }
   let allTemplates = [], allDriversCache = [];
   let allDriversList = [];
   let allSites = []; // [{id, name, color, is_active, is_default}] — populated by loadSites()
@@ -30967,159 +30997,117 @@ ${noActivityNote}
     return p;
   }
 
-  async function loadCustomers() {
-    // Supabase PostgREST defaults to 1000 rows — paginate to fetch all
-    const PAGE = 1000;
-    let allData = [];
-    let from = 0;
-    let keepGoing = true;
-    while (keepGoing) {
-      const { data, error } = await db.from('customers')
-          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, last_delivered_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, default_tip, default_tip_type, frozen_at, cancelled_at, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
-          .order('created_at', { ascending: false })
-          .order('id', { ascending: true })   // tiebreaker: ~half of customers share a created_at (imports), and without a unique sort Postgres can shuffle ties across pages — skipping some rows and duplicating others
-          .range(from, from + PAGE - 1);
-      if (error) {
-        console.error('loadCustomers error:', error);
-        if (!allData.length) {
-          const el = document.getElementById('customers-table-body');
-          if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load customers</div><div class="empty-sub">${error.message}</div></div>`;
-          return;
-        }
-        break;
+  // Session 350: the Customers page used to fetch 6,000+ customers one page at a
+  // time and showed "No customers yet" (and searched an empty list) until every
+  // page arrived. Now: pages load in parallel, the table shows a loading state,
+  // and a search typed during loading goes straight to the database.
+  const CUST_SELECT = 'id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, last_delivered_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, default_tip, default_tip_type, frozen_at, cancelled_at, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)';
+  let _customersLoaded = false;   // true once the full list is in allCustomers
+  let _custServerResults = null;  // interim database search results while loading
+  let _custSearchSeq = 0, _custSearchTimer = null;
+
+  // Normalise: pull lat/lng/city/addr_id from default address, fall back to address_cache
+  function _normaliseCustomer(c) {
+    const addrs = Array.isArray(c.addresses) ? c.addresses : (c.addresses ? [c.addresses] : []);
+    const def = addrs.find(a => a.is_default) || addrs[0] || {};
+    // Parse city from address_cache as fallback (format: "123 Main St, City, ST 12345")
+    let cacheCity = null;
+    if (!def.city && c.address_cache) {
+      const parts = c.address_cache.split(',').map(p => p.trim());
+      if (parts.length >= 2) {
+        // Second-to-last part is typically "City, ST ZIP" — grab the city token
+        const cityPart = parts[parts.length - 2];
+        // If it looks like "City" (not a street number), use it
+        if (cityPart && !/^\d/.test(cityPart) && !/^#/.test(cityPart)) cacheCity = cityPart;
       }
-      allData = allData.concat(data || []);
-      keepGoing = data && data.length === PAGE;
-      from += PAGE;
     }
-    // Normalise: pull lat/lng/city/addr_id from default address, fall back to address_cache
-    allCustomers = allData.map(c => {
-      const addrs = Array.isArray(c.addresses) ? c.addresses : (c.addresses ? [c.addresses] : []);
-      const def = addrs.find(a => a.is_default) || addrs[0] || {};
-      // Parse city from address_cache as fallback (format: "123 Main St, City, ST 12345")
-      let cacheCity = null;
-      if (!def.city && c.address_cache) {
-        const parts = c.address_cache.split(',').map(p => p.trim());
-        if (parts.length >= 2) {
-          // Second-to-last part is typically "City, ST ZIP" — grab the city token
-          const cityPart = parts[parts.length - 2];
-          // If it looks like "City" (not a street number), use it
-          if (cityPart && !/^\d/.test(cityPart) && !/^#/.test(cityPart)) cacheCity = cityPart;
-        }
-      }
-      return {
-        ...c,
-        lat:     def.lat  ? parseFloat(def.lat)  : null,
-        lng:     def.lng  ? parseFloat(def.lng)  : null,
-        city:    def.city || cacheCity || null,
-        addr_id: def.id   || null,
-      };
-    });
-    // Ensure _custWithCard is populated for payment indicators on customer list
-    if (!_custWithCard.size) {
-      const custIds = allCustomers.map(c => c.id);
-      const pmRows = await batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds);
-      pmRows.forEach(r => {
-        _custWithCard.add(r.customer_id);
-        const prev = _custCardAddedAt.get(r.customer_id);
-        if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
-      });
-    }
-    updateCustomerStats(allCustomers);
-    renderCustomers(allCustomers);
-    populateCustMapFilters();
-    recalcRiskStatuses(); // async — runs in background, re-renders only if any statuses changed
+    return {
+      ...c,
+      lat:     def.lat  ? parseFloat(def.lat)  : null,
+      lng:     def.lng  ? parseFloat(def.lng)  : null,
+      city:    def.city || cacheCity || null,
+      addr_id: def.id   || null,
+    };
   }
 
-  // ─── RISK STATUS AUTO-CALCULATION ───────────────────────────────────────────
-  // Definition: risk_status is calculated relative to each customer's own
-  // ordering frequency — not a fixed calendar threshold.
-  //
-  //   "active"  — gap since last order is within their normal ordering pattern
-  //   "at_risk" — gap is > 1.5× their average order interval
-  //   "churned" — gap is > 3.0× their average order interval
-  //
-  // For customers with fewer than 2 delivered orders (new or infrequent), we
-  // fall back to absolute thresholds:
-  //   "at_risk" if last order (or account creation) was > 30 days ago
-  //   "churned" if > 60 days ago
-  //
-  // Runs automatically after customers load. Supabase is only updated when
-  // the calculated status differs from the stored value, keeping writes minimal.
-  // ────────────────────────────────────────────────────────────────────────────
-  async function recalcRiskStatuses() {
-    // Fetch all delivered orders so we can compute per-customer intervals
-    const { data: orders, error } = await db
-      .from('orders')
-      .select('customer_id, created_at')
-      .eq('status', 'delivered')
-      .order('created_at', { ascending: true });
-    if (error) { console.warn('recalcRiskStatuses: could not fetch orders', error); return; }
+  async function loadCustomers() {
+    // Supabase PostgREST caps responses at 1,000 rows, so the list is paged.
+    const PAGE = 1000;
+    const fetchPage = (from, withCount) => db.from('customers')
+        .select(CUST_SELECT, withCount ? { count: 'exact' } : undefined)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })   // tiebreaker: ~half of customers share a created_at (imports), and without a unique sort Postgres can shuffle ties across pages — skipping some rows and duplicating others
+        .range(from, from + PAGE - 1);
+    const fetchPageRetry = async (from) => {
+      let r = await fetchPage(from);
+      if (r.error) r = await fetchPage(from);   // one retry before giving up
+      return r;
+    };
+    const showLoadError = (msg) => {
+      if (_customersLoaded) { console.error('loadCustomers refresh failed:', msg); return; }  // keep the list we have
+      const el = document.getElementById('customers-table-body');
+      if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Couldn't load all customers</div><div class="empty-sub">${esc(msg || '')}</div><button class="btn btn-primary" style="margin-top:16px" onclick="loadCustomers()">Retry</button></div>`;
+      const lbl = document.getElementById('cust-count-label');
+      if (lbl) lbl.textContent = 'Not loaded';
+    };
+    if (!_customersLoaded) renderCustomers([]);   // loading state, not "No customers yet"
 
-    // Group order timestamps by customer_id
-    const ordersByCustomer = {};
-    (orders || []).forEach(o => {
-      if (!o.customer_id) return;
-      if (!ordersByCustomer[o.customer_id]) ordersByCustomer[o.customer_id] = [];
-      ordersByCustomer[o.customer_id].push(new Date(o.created_at).getTime());
-    });
-
-    const now      = Date.now();
-    const DAY_MS   = 86_400_000;
-    const updates  = [];
-
-    allCustomers.forEach(c => {
-      const dates = (ordersByCustomer[c.id] || []).sort((a, b) => a - b);
-      const lastOrderTs = dates.length > 0 ? dates[dates.length - 1] : null;
-
-      // Days since last order; if no orders, use account age as the baseline
-      const daysSinceLast = lastOrderTs
-        ? (now - lastOrderTs) / DAY_MS
-        : (now - new Date(c.created_at).getTime()) / DAY_MS;
-
-      let newStatus = 'active';
-
-      if (dates.length >= 2) {
-        // Relative approach — compare gap to the customer's own average interval
-        let totalGap = 0;
-        for (let i = 1; i < dates.length; i++) totalGap += (dates[i] - dates[i - 1]);
-        let avgIntervalDays = (totalGap / (dates.length - 1)) / DAY_MS;
-
-        // Floor: if orders are very close together (e.g. same day), use the
-        // absolute thresholds instead — otherwise a 1-hour gap × 3 = 3 hours
-        // would falsely flag someone as churned the next morning.
-        if (avgIntervalDays < 7) {
-          if      (daysSinceLast > 60) newStatus = 'churned';
-          else if (daysSinceLast > 30) newStatus = 'at_risk';
-          else                         newStatus = 'active';
-        } else {
-          if      (daysSinceLast > avgIntervalDays * 3.0) newStatus = 'churned';
-          else if (daysSinceLast > avgIntervalDays * 1.5) newStatus = 'at_risk';
-          else                                             newStatus = 'active';
-        }
-      } else {
-        // Absolute fallback for customers with 0–1 orders
-        if      (daysSinceLast > 60) newStatus = 'churned';
-        else if (daysSinceLast > 30) newStatus = 'at_risk';
-        else                         newStatus = 'active';
+    const cardsP = loadFullCardCache();           // runs alongside the customer pages
+    const first = await fetchPage(0, true);
+    if (first.error) { console.error('loadCustomers error:', first.error); showLoadError(first.error.message); return; }
+    let allData = first.data || [];
+    const total = first.count ?? allData.length;
+    if (allData.length === PAGE) {
+      // Fetch the remaining pages in parallel instead of one after another.
+      const froms = [];
+      for (let f = PAGE; f < Math.max(total, PAGE * 2); f += PAGE) froms.push(f);
+      const results = await Promise.all(froms.map(fetchPageRetry));
+      const bad = results.find(r => r.error);
+      if (bad) { console.error('loadCustomers page error:', bad.error); showLoadError(bad.error.message); return; }
+      results.forEach(r => { allData = allData.concat(r.data || []); });
+      // Customers added since the count: keep going until a short page.
+      let from = froms[froms.length - 1] + PAGE;
+      let last = results[results.length - 1];
+      while ((last.data || []).length === PAGE) {
+        last = await fetchPageRetry(from);
+        if (last.error) { showLoadError(last.error.message); return; }
+        allData = allData.concat(last.data || []);
+        from += PAGE;
       }
-
-      if (newStatus !== c.risk_status) {
-        updates.push({ id: c.id, risk_status: newStatus });
-        c.risk_status = newStatus; // update in-memory immediately so UI is consistent
-      }
-    });
-
-    // Write only changed records back to Supabase
-    if (updates.length > 0) {
-      await Promise.all(
-        updates.map(u => db.from('customers').update({ risk_status: u.risk_status }).eq('id', u.id))
-      );
-      console.log(`recalcRiskStatuses: updated ${updates.length} customer(s)`);
-      // Re-render so stat cards and table badges show the new values
-      updateCustomerStats(allCustomers);
-      renderCustomers(allCustomers);
     }
+    // A sign-up during the parallel fetch shifts rows by one — drop any repeat.
+    const seen = new Set();
+    allData = allData.filter(c => (seen.has(c.id) ? false : (seen.add(c.id), true)));
+
+    allCustomers = allData.map(_normaliseCustomer);
+    await cardsP;
+    _customersLoaded = true;
+    _custServerResults = null;
+    updateCustomerStats(allCustomers);
+    // Re-apply whatever is in the search box / filter tabs (it used to be ignored here)
+    const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
+    applyCustomerFilters(q, custStatusFilter);
+    populateCustMapFilters();
+    // risk_status is recalculated nightly in the database (refresh_customer_risk_status,
+    // session 350) — no longer on every page load.
+  }
+
+  // Search the database directly while the full list is still loading.
+  function _custServerSearch(q) {
+    clearTimeout(_custSearchTimer);
+    _custSearchTimer = setTimeout(async () => {
+      const seq = ++_custSearchSeq;
+      const word = q.split(/\s+/)[0].replace(/[,()*"'\\]/g, '');
+      if (!word) return;
+      const ors = ['first_name_cache', 'last_name_cache', 'email_cache', 'phone_cache']
+        .map(col => `${col}.ilike.%${word}%`).join(',');
+      const { data, error } = await db.from('customers').select(CUST_SELECT).or(ors).limit(300);
+      if (seq !== _custSearchSeq || _customersLoaded) return;   // superseded, or full list arrived
+      if (error) { console.warn('customer quick search failed:', error); return; }
+      _custServerResults = (data || []).map(_normaliseCustomer);
+      const cur = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
+      applyCustomerFilters(cur, custStatusFilter);
+    }, 250);
   }
 
   function updateCustomerStats(data) {
@@ -31194,7 +31182,22 @@ ${noActivityNote}
 
   function renderCustomers(data) {
     const el = document.getElementById('customers-table-body');
-    document.getElementById('cust-count-label').textContent = `${data.length} customer${data.length!==1?'s':''}`;
+    const _q = (document.getElementById('cust-search')?.value || '').trim();
+    const _filtered = !!_q || custStatusFilter !== 'all' || custZoneFilter !== 'all';
+    if (!_customersLoaded && !data.length) {
+      document.getElementById('cust-count-label').textContent = 'Loading…';
+      el.innerHTML = (_q && _custServerResults)
+        ? `<div class="empty"><div class="empty-title">No matches yet</div><div class="empty-sub">Still loading the full customer list…</div></div>`
+        : `<div class="loading"><div class="spinner"></div> ${_q ? 'Searching…' : 'Loading customers…'}</div>`;
+      return;
+    }
+    document.getElementById('cust-count-label').textContent = _customersLoaded
+      ? `${data.length} customer${data.length!==1?'s':''}`
+      : `${data.length} match${data.length!==1?'es':''} so far · still loading…`;
+    if (!data.length && _filtered) {
+      el.innerHTML = `<div class="empty"><div class="empty-title">No matching customers</div><div class="empty-sub">Try a different name, email or phone.</div></div>`;
+      return;
+    }
     if (!data.length) {
       el.innerHTML = `<div class="empty"><div class="empty-icon">👥</div><div class="empty-title">No customers yet</div><div class="empty-sub">Add your first customer to get started.</div><button class="btn btn-primary" style="margin-top:16px" onclick="openModal('add-customer')">+ Add Customer</button></div>`;
       return;
@@ -31268,6 +31271,10 @@ ${noActivityNote}
   function searchCustomers(raw) {
     const q = raw.trim().toLowerCase();
     custPage = 1;
+    if (!_customersLoaded) {
+      _custServerResults = null;
+      if (q) _custServerSearch(q); else { ++_custSearchSeq; clearTimeout(_custSearchTimer); }
+    }
     applyCustomerFilters(q, custStatusFilter);
   }
 
@@ -31303,7 +31310,7 @@ ${noActivityNote}
   }
 
   function applyCustomerFilters(q, status) {
-    let data = allCustomers;
+    let data = _customersLoaded ? allCustomers : (q ? (_custServerResults || []) : []);
     // time-based activity filter
     if (status && status !== 'all') {
       const daysMap = { '7d': 7, '30d': 30, '90d': 90 };
@@ -31657,14 +31664,14 @@ ${noActivityNote}
 
     // Fetch orders + the full card cache IN PARALLEL so the payment icon
     // renders correctly on the first paint (no "no card on file" flash).
-    // customer_payment_methods is small (~800 rows) so a full unfiltered
+    // customer_payment_methods is small (~1,500 rows, 2 pages) so a full
     // fetch is cheap and runs alongside the orders query.
     const [activeResult, cardsResult] = await Promise.all([
       db.from('orders')
         .select(_orderSelectCols)
         .in('status', activeStatuses)
         .order('created_at', { ascending: false }),
-      db.from('customer_payment_methods').select('customer_id, created_at'),
+      fetchAllCardRows(),   // all cards, not just the first 1,000 (session 350)
     ]);
     const { data: activeData, error } = activeResult;
     if (error) {
