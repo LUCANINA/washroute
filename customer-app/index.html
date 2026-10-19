@@ -5896,6 +5896,47 @@ async function placeOrder() {
     goTo('account');
     return;
   }
+
+  // ── Card-on-file gate (2026-10-19, David) ─────────────────────────────────
+  // Three orders — #17660, #17715, #17747, $264.10 — were collected, washed,
+  // folded and delivered for customers with NO card on file. The autocharge
+  // sweep can only ever refuse those, so nothing failed and nothing alerted:
+  // the service was simply given away. Until today this function asked for a
+  // name, phone, email, password and SMS consent, and never once for a card.
+  // All three were sign-up-and-book customers, which is why the gate sits HERE
+  // (after the account exists) rather than in the signup form.
+  //
+  // on_account is EXEMPT and must stay exempt: 66 commercial customers, 40 of
+  // them ordering in the last 90 days, are invoiced by design and hold no card
+  // at all. Blocking them here would take the commercial book offline — a far
+  // worse failure than the one this guard fixes.
+  //
+  // Read the table directly instead of trusting `currentCards`: on the
+  // sign-up-and-book path the account is seconds old and that list has never
+  // been loaded, so it is empty by construction rather than by fact.
+  //
+  // The error branch deliberately lets the order THROUGH. The asymmetry: a
+  // transient network blip that blocks a customer who DOES have a card costs a
+  // booking and a complaint, while one that lets an uncharged order past costs
+  // one order we can still chase — and since today it shows up in the admin's
+  // Unpaid Orders list instead of hiding there. An empty result is the real
+  // case, and that is what blocks.
+  if (currentCustomer.billing_type !== 'on_account') {
+    const { data: _pmRows, error: _pmErr } = await db.from('customer_payment_methods')
+      .select('id').eq('customer_id', currentCustomer.id).limit(1);
+    if (_pmErr) {
+      console.warn('card gate: could not read payment methods — allowing order', _pmErr);
+    } else if (!_pmRows || !_pmRows.length) {
+      if (errEl) {
+        errEl.textContent = 'Please add a payment method, then tap Place Order to finish.';
+        errEl.classList.add('show');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
+      await reloadCards();
+      openAddCardSheet();
+      return;
+    }
+  }
   if (!draft.addressId && !draft._addrComponents) {
     toast('Please add a delivery address.');
     if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }

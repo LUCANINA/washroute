@@ -30336,10 +30336,11 @@ ${noActivityNote}
   //                      a human can act on.
   //   awaiting_payment — washed, not charged yet. Clears on the next autocharge
   //                      sweep (wr-autocharge-ready-sweep, every 5 min; median lag
-  //                      ~0 min). Session 291 (David): NOT displayed. Nobody can do
-  //                      anything about a row that the system is about to settle by
-  //                      itself, and a list that is supposed to mean "act on this"
-  //                      loses its meaning the moment it carries rows that need no act.
+  //                      ~0 min). Session 291 (David): not displayed WHILE FRESH.
+  //                      Nobody can do anything about a row that the system is about
+  //                      to settle by itself, and a list that is supposed to mean
+  //                      "act on this" loses its meaning the moment it carries rows
+  //                      that need no act. A STALLED one is the exception — see below.
   //
   // The catch, and why UNPAID_SWEEP_STALL_HOURS exists: hiding awaiting_payment is
   // safe only while the sweep works. If the sweep wedges (see the 15-hour charging
@@ -30348,6 +30349,16 @@ ${noActivityNote}
   // off as bad debt. So the hidden rows are still counted, and if any has been sitting
   // chargeable for more than UNPAID_SWEEP_STALL_HOURS the card says so in a warning
   // line. Silence and success must not look identical.
+  //
+  // 2026-10-19 (David): the warning line was not enough. Three orders — #17660,
+  // #17715, #17747, $264.10 — sat delivered-and-uncharged for two days because
+  // those customers had NO CARD ON FILE, so the sweep could never settle them. The
+  // banner counted them correctly and the table showed only the one declined card,
+  // which left the money named but not actionable: no row, so no Request-card
+  // button to press. A stalled row now JOINS the list. This does not reopen what
+  // session 291 closed — fresh awaiting_payment rows are still held back, and the
+  // test for belonging here is unchanged ("can a human act on it?"). A stalled row
+  // passes that test; a fresh one still does not.
   // on_account was removed from this widget entirely — see loadUnpaidOrders.
 
   // How long an order may sit chargeable-but-uncharged before the widget calls it
@@ -30393,17 +30404,20 @@ ${noActivityNote}
       },
     }));
 
-    // Session 291 (David): only FAILED charges are shown. awaiting_payment rows are
-    // held back — the sweep settles them, there is nothing to act on. See the note
-    // above the function for why they are still counted rather than discarded.
-    const due     = data.filter(o => o.bucket !== 'awaiting_payment');
-    const pending = data.filter(o => o.bucket === 'awaiting_payment');
-
     // The stall check. A pending row past the threshold means the sweep is not doing
     // its job — either it is wedged, or (has_card_on_file = false) it never could
     // charge this customer in the first place. Both need a human; neither shows up
     // as a failed charge, which is exactly why this line exists.
-    const stalled     = pending.filter(o => Number(o.hours_unpaid || 0) > UNPAID_SWEEP_STALL_HOURS);
+    const _isStalled = (o) => Number(o.hours_unpaid || 0) > UNPAID_SWEEP_STALL_HOURS;
+
+    // Session 291 (David): FAILED charges are shown and FRESH awaiting_payment rows
+    // are held back — the sweep settles those, there is nothing to act on. Amended
+    // 2026-10-19: a STALLED awaiting_payment row is shown too. See the note above
+    // the function. _deliveredActionBtn already renders the right action for these
+    // (Request card / Requested / Update card), so no row-level change is needed.
+    const pending = data.filter(o => o.bucket === 'awaiting_payment');
+    const stalled = pending.filter(_isStalled);
+    const due     = data.filter(o => o.bucket !== 'awaiting_payment' || _isStalled(o));
     const stalledNoCard = stalled.filter(o => !o.has_card_on_file).length;
     const stalledTotal  = stalled.reduce((s2, o) => s2 + Number(o.amount_due || 0), 0);
     const stallHtml = stalled.length
@@ -30459,8 +30473,11 @@ ${noActivityNote}
     const chaseable      = due;
     const chaseableTotal = chaseable.reduce((s, o) => s + Number(o.amount_due || 0), 0);
 
-    // "N card declined" was dropped in session 291: every row here IS a declined
-    // card now, so it restated the count immediately to its left.
+    // "N card declined" was dropped in session 291, when every row here WAS a
+    // declined card and the label restated the count immediately to its left.
+    // Since 2026-10-19 stalled no-card rows sit here too, so the list is no longer
+    // all-declined — but the per-row Billing chip (FAILED vs UNPAID) already says
+    // which is which, so the header still does not need to.
     const parts = chaseable.length
       ? [`${chaseable.length} to chase`, fmtMoney(chaseableTotal)]
       : ['Nothing to chase'];
