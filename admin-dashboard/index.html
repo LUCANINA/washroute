@@ -39273,7 +39273,7 @@ ${oneCopy}
 
     // Load issue + comments
     const [{ data: iss, error }, { data: comments }] = await Promise.all([
-      db.from('cs_issues').select('*, customers(first_name_cache, last_name_cache)').eq('id', issueId).single(),
+      db.from('cs_issues').select('*, customers(first_name_cache, last_name_cache), orders(order_number)').eq('id', issueId).single(),
       db.from('cs_issue_comments').select('*').eq('issue_id', issueId).order('created_at', { ascending: true })
     ]);
 
@@ -39315,6 +39315,10 @@ ${oneCopy}
       <div class="issue-meta-item">
         <div class="issue-meta-label">Customer</div>
         <div class="issue-meta-value">${iss.customer_id ? `<a href="#" onclick="event.preventDefault();closeIssueDetail();openCustomerPanel('${iss.customer_id}')" style="color:var(--accent);text-decoration:none">${esc(custName)}</a>` : '—'}</div>
+      </div>
+      <div class="issue-meta-item">
+        <div class="issue-meta-label">Order</div>
+        <div class="issue-meta-value">${iss.order_id && iss.orders ? `<a href="#" onclick="event.preventDefault();closeIssueDetail();openOrderPanel('${escJS(iss.order_id)}')" style="color:var(--accent);text-decoration:none">#${esc(String(iss.orders.order_number))}</a>` : '—'}</div>
       </div>
       <div class="issue-meta-item">
         <div class="issue-meta-label">Category</div>
