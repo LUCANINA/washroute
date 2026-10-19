@@ -30419,22 +30419,40 @@ ${noActivityNote}
     const stalled = pending.filter(_isStalled);
     const due     = data.filter(o => o.bucket !== 'awaiting_payment' || _isStalled(o));
     const stalledNoCard = stalled.filter(o => !o.has_card_on_file).length;
-    const stalledTotal  = stalled.reduce((s2, o) => s2 + Number(o.amount_due || 0), 0);
-    const stallHtml = stalled.length
+
+    // 2026-10-19 (David): the banner now only fires when the rows CANNOT explain
+    // themselves. Since stalled rows joined the list earlier today, a stall caused
+    // by a missing card is already legible on the row — UNPAID chip, "Request card"
+    // button — and the banner was saying it a second time.
+    //
+    // The case it still owns: a stalled order whose customer HAS a card. Nothing
+    // was attempted, so there is no FAILED chip, and _deliveredActionBtn returns an
+    // EMPTY action for that combination — the row renders as Delivered / UNPAID /
+    // $X / (nothing). That is the signature of a wedged sweep (sessions 176/177,
+    // 15 hours), and without this line it is indistinguishable from an ordinary
+    // unpaid order. Blame the machine only when the customer is not to blame.
+    //
+    // If _deliveredActionBtn ever grows a real action for the has-card-never-charged
+    // row, revisit: the banner could go entirely at that point.
+    const stalledUnexplainedRows = stalled.filter(o => o.has_card_on_file);
+    const stalledUnexplained      = stalledUnexplainedRows.length;
+    const stalledUnexplainedTotal = stalledUnexplainedRows.reduce((s2, o) => s2 + Number(o.amount_due || 0), 0);
+    const stallHtml = stalledUnexplained
       ? `<div style="display:flex;gap:8px;align-items:flex-start;padding:10px 14px;background:var(--red-light);border-bottom:1px solid var(--gray-100)">
            <span style="color:var(--red);font-weight:700;font-size:12px;line-height:1.5">⚠</span>
            <div style="font-size:12px;color:var(--red);line-height:1.5">
              <strong>Card charging may be stalled.</strong>
-             ${stalled.length} delivered order${stalled.length !== 1 ? 's' : ''}
-             (${fmtMoney(stalledTotal)}) ${stalled.length !== 1 ? 'have' : 'has'} been
-             chargeable for over ${UNPAID_SWEEP_STALL_HOURS} hours with no charge attempted.
-             ${stalledNoCard ? `${stalledNoCard} of them ${stalledNoCard !== 1 ? 'have' : 'has'} no card on file.` : 'Check that the autocharge sweep is running.'}
+             ${stalledUnexplained} delivered order${stalledUnexplained !== 1 ? 's' : ''}
+             (${fmtMoney(stalledUnexplainedTotal)}) with a card on file
+             ${stalledUnexplained !== 1 ? 'have' : 'has'} been chargeable for over
+             ${UNPAID_SWEEP_STALL_HOURS} hours with no charge attempted — check that the
+             autocharge sweep is running.${stalledNoCard ? ` (${stalledNoCard} more ${stalledNoCard !== 1 ? 'are' : 'is'} simply waiting on a card — listed below.)` : ''}
            </div>
          </div>`
       : '';
 
     if (!due.length) {
-      if (subEl) subEl.textContent = stalled.length ? 'Charging may be stalled' : 'All clear';
+      if (subEl) subEl.textContent = stalledUnexplained ? 'Charging may be stalled' : 'All clear';
       const badgeEmpty = document.getElementById('unpaid-count-badge');
       if (badgeEmpty) badgeEmpty.style.display = 'none';
       el.innerHTML = stallHtml +
@@ -30481,7 +30499,9 @@ ${noActivityNote}
     const parts = chaseable.length
       ? [`${chaseable.length} to chase`, fmtMoney(chaseableTotal)]
       : ['Nothing to chase'];
-    if (stalled.length) parts.push('charging may be stalled');
+    // Same rule as the banner: only call it a stall when the rows can't explain
+    // themselves. A no-card row reads as unpaid, not as a broken sweep.
+    if (stalledUnexplained) parts.push('charging may be stalled');
     if (subEl) subEl.textContent = parts.join(' · ');
     const unpaidBadge = document.getElementById('unpaid-count-badge');
     if (unpaidBadge) {
