@@ -1,4 +1,4 @@
--- Session 352f — Phase 1: voicemails + sms-media private. Apply ONLY after the admin build with the
+-- Session 352f — Phase 1 APPLIED 2026-10-20 (voicemails + sms-media private). Phase 2 (stop-photos) pending.
 -- wrSignStorageUrl watcher (session 352) is live and maya v29 (signed email links) is deployed.
 UPDATE storage.buckets SET public = false WHERE id IN ('voicemails', 'sms-media');
 -- Rollback: UPDATE storage.buckets SET public = true WHERE id IN ('voicemails', 'sms-media');

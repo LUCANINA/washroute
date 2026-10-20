@@ -64,8 +64,9 @@ Retail (Foothill) reported: can't split an order between launderers; can't edit 
     photo link already texted.** send-order-notification v62 puts this link in pickup/delivery texts.
   - Voicemail emails (twilio-voicemail-recorded v25, source now in repo; maya — needs CLI deploy) use 30-day signed links.
   - 352e: storage SELECT policy `voicemails_admin_select` (is_admin).
-  - **352f flips voicemails + sms-media private after the push + maya deploy. stop-photos flips ~Nov 20** (texts before
-    Oct 20 carry raw URLs and will break then).
+  - **352f APPLIED Oct 20 ~17:10 UTC** (after push 42bbeb2 + maya v32): voicemails + sms-media private; David confirmed
+    the inbox plays/shows them. First 17 photo texts after the change all used /functions/v1/photo links.
+    **stop-photos flips ~Nov 20** (reminder scheduled; texts before Oct 20 carry raw URLs and will break then).
   - Noted, not changed: drivers/attendants (is_staff) can read/list every stop photo.
 
 ## Session 352 — Oct 20, 2026: closed 6 public-endpoint holes from the safety check — ALL LIVE (admin pushed aab7a36, 352b applied)
