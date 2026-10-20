@@ -13,7 +13,9 @@ const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
 
 // Roles allowed to charge a customer's saved card. profiles.role values are:
 // customer, attendant, driver, manager, admin, pos_device, laundry_tech.
-// Only staff who handle billing may charge: admin, manager, attendant.
+// Staff who handle billing may charge: admin, manager, attendant, and laundry_tech —
+// laundry techs rack card sales on the kanban, and racking charges the card (session 227;
+// leaving laundry_tech out marked valid cards 'failed' and fired dunning texts).
 const CHARGE_ROLES = new Set(['admin', 'manager', 'attendant', 'laundry_tech'])
 
 async function authorize(req: Request): Promise<{ ok: true; internal?: boolean } | { ok: false; status: number; reason: string }> {

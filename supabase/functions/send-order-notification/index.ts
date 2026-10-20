@@ -200,6 +200,23 @@ async function authorize(req: Request, orderId: string): Promise<{ ok: true } | 
   return { ok: false, status: 403, reason: `Role '${profile.role}' not allowed to send notifications` };
 }
 
+// Session 352: permanent photo link — must match supabase/functions/photo (token =
+// first 20 hex of HMAC-SHA256(wr_internal_auth.secret, "photo:" + stop id)).
+async function photoLink(stopId: string): Promise<string | null> {
+  try {
+    const rows = await dbGet('wr_internal_auth?select=secret&limit=1');
+    const secret = Array.isArray(rows) ? rows[0]?.secret : null;
+    if (!secret || !stopId) return null;
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('photo:' + String(stopId).toLowerCase())));
+    const t = Array.from(sig).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 20);
+    return `${SUPABASE_URL}/functions/v1/photo?s=${stopId}&t=${t}`;
+  } catch (e) {
+    console.error('[send-order-notification] photo link failed:', e);
+    return null;
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
 
@@ -298,15 +315,18 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Proof photo lookup
+    // Proof photo lookup.
+    // Session 352: the text carries a permanent /functions/v1/photo link (HMAC-signed stop id),
+    // not the raw storage URL — the stop-photos bucket is going private.
     let pickupPicture = '', dropoffPicture = '';
     const stopType = EVENT_STOP_TYPE[event];
     if (stopType) {
-      const stops = await dbGet(`route_stops?order_id=eq.${orderId}&stop_type=eq.${stopType}&select=proof_photo_url&limit=1`);
+      const stops = await dbGet(`route_stops?order_id=eq.${orderId}&stop_type=eq.${stopType}&select=id,proof_photo_url&limit=1`);
       const stop = Array.isArray(stops) ? stops[0] : null;
       if (stop?.proof_photo_url) {
-        if (stopType === 'pickup') pickupPicture = `View pickup photo: ${stop.proof_photo_url}`;
-        else dropoffPicture = `View delivery photo: ${stop.proof_photo_url}`;
+        const link = (await photoLink(stop.id)) || stop.proof_photo_url;
+        if (stopType === 'pickup') pickupPicture = `View pickup photo: ${link}`;
+        else dropoffPicture = `View delivery photo: ${link}`;
       }
     }
 

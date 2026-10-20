@@ -1358,6 +1358,88 @@ const db = supabase.createClient(SUPA_URL, SUPA_KEY, {
   global: PREVIEW_MODE ? { fetch: _wrGuardedFetch } : undefined,
 });
 
+// ── Session 352: private storage links ──────────────────────────────────────
+// The stop-photos, voicemails and sms-media buckets are going PRIVATE, but the
+// database keeps the old /storage/v1/object/public/... URLs. Instead of changing
+// every render site, this watcher finds any <img>/<audio>/<video>/<source>/<a>
+// pointing into one of those buckets and swaps in a 1-hour signed URL; window.open
+// of such a URL is handled the same way. Works whether a bucket is public or not.
+// wrSignStorageUrl(url, seconds) signs one URL on demand (e.g. MMS for Twilio).
+(function () {
+  const RE = /\/storage\/v1\/(?:object|render\/image)\/(?:public|sign)\/(stop-photos|voicemails|sms-media)\/([^?#]+)/;
+  const TTL = 3600;
+  const ATTR = { IMG: 'src', AUDIO: 'src', VIDEO: 'src', SOURCE: 'src', A: 'href' };
+  const cache = new Map(), queue = new Map(), issued = new Set(), failed = new Set();
+  let timer = null;
+  const refOf = (u) => {
+    const s = String(u || ''); if (!s || issued.has(s)) return null;
+    const m = RE.exec(s); return m ? { bucket: m[1], path: decodeURIComponent(m[2]) } : null;
+  };
+  const keyOf = (r) => r.bucket + '/' + r.path;
+  const cached = (r) => { const c = cache.get(keyOf(r)); return c && c.exp > Date.now() ? c.url : null; };
+  async function flush() {
+    timer = null;
+    const byBucket = {};
+    for (const [k, v] of queue) (byBucket[v.ref.bucket] = byBucket[v.ref.bucket] || []).push([k, v]);
+    queue.clear();
+    for (const [bucket, items] of Object.entries(byBucket)) {
+      let data = null;
+      try { ({ data } = await db.storage.from(bucket).createSignedUrls(items.map(([, v]) => v.ref.path), TTL)); }
+      catch (e) { console.warn('[wr-sign] sign failed', bucket, e); }
+      items.forEach(([k, v], i) => {
+        const url = data && data[i] && !data[i].error ? data[i].signedUrl : null;
+        if (url) { cache.set(k, { url, exp: Date.now() + (TTL - 300) * 1000 }); issued.add(url); }
+        else failed.add(k);
+        v.cbs.forEach(cb => cb(url));
+      });
+    }
+  }
+  function sign(r) {
+    const c = cached(r); if (c) return Promise.resolve(c);
+    if (failed.has(keyOf(r))) return Promise.resolve(null);
+    return new Promise(res => {
+      const k = keyOf(r), q = queue.get(k) || { ref: r, cbs: [] };
+      q.cbs.push(res); queue.set(k, q);
+      if (!timer) timer = setTimeout(flush, 0);
+    });
+  }
+  window.wrSignStorageUrl = async function (u, seconds) {
+    const r = refOf(u); if (!r) return u;
+    if (!seconds || seconds === TTL) return (await sign(r)) || u;
+    const { data } = await db.storage.from(r.bucket).createSignedUrl(r.path, seconds);
+    return data?.signedUrl || u;
+  };
+  function fix(el) {
+    const attr = ATTR[el.tagName]; if (!attr) return;
+    const v = el.getAttribute(attr), r = refOf(v); if (!r || failed.has(keyOf(r))) return;
+    const c = cached(r); if (c) { el.setAttribute(attr, c); return; }
+    if (attr === 'src') el.removeAttribute('src'); // don't hit the public URL while signing
+    sign(r).then(url => {
+      el.setAttribute(attr, url || v);
+      if (el.tagName === 'SOURCE' && el.parentElement && el.parentElement.load) el.parentElement.load();
+    });
+  }
+  const SEL = 'img[src*="/storage/v1/"],audio[src*="/storage/v1/"],video[src*="/storage/v1/"],source[src*="/storage/v1/"],a[href*="/storage/v1/"]';
+  function scan(n) {
+    if (!n || n.nodeType !== 1) return;
+    if (ATTR[n.tagName]) fix(n);
+    if (n.querySelectorAll) n.querySelectorAll(SEL).forEach(fix);
+  }
+  new MutationObserver(ms => {
+    for (const m of ms) { if (m.type === 'attributes') fix(m.target); else m.addedNodes.forEach(scan); }
+  }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['src', 'href'] });
+  if (document.body) scan(document.body); else document.addEventListener('DOMContentLoaded', () => scan(document.body));
+  const _open = window.open.bind(window);
+  window.open = function (u, ...rest) {
+    const r = refOf(u); if (!r) return _open(u, ...rest);
+    const c = cached(r); if (c) return _open(c, ...rest);
+    const w = _open('about:blank', ...rest);
+    sign(r).then(url => { if (w) w.location.href = url || u; });
+    return w;
+  };
+})();
+
+
 if (PREVIEW_MODE) {
   document.documentElement.classList.add('wr-preview-boot');
 

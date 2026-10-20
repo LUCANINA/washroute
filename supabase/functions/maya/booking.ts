@@ -45,15 +45,23 @@ export function decodeSlot(id: string): { date: string; templateId: string; hhmm
   } catch { return null; }
 }
 
-// Open pickup slots for a zone (honours the customer's route override), today + `days`.
+// Open pickup slots for a zone (honours the pickup ADDRESS's route override), today + `days`.
 // sameDay=true → only morning slots whose order can come back the same evening, with that delivery.
+// Session 354: the override lives on the address. Pass addressId (the pickup address) and the
+// override is read from it, so the template list and get_slot_availability always agree.
 export async function findSlots(db: Db, o: {
-  zoneId: string; customerId?: string | null; overrideId?: string | null; sameDay?: boolean; days?: number;
+  zoneId: string; customerId?: string | null; overrideId?: string | null; addressId?: string | null; sameDay?: boolean; days?: number;
 }): Promise<Slot[]> {
   const days = o.days ?? 7;
+  let overrideId = o.overrideId ?? null;
+  if (o.addressId !== undefined) {
+    overrideId = o.addressId
+      ? ((await db(`addresses?id=eq.${o.addressId}&select=route_template_override_id&limit=1`))?.[0]?.route_template_override_id || null)
+      : null;
+  }
   const [holRows, tmplRows] = await Promise.all([
     db('holidays?select=holiday_date'),
-    db('route_templates?is_active=eq.true&' + (o.overrideId ? `id=eq.${o.overrideId}` : `zone_id=eq.${o.zoneId}`) +
+    db('route_templates?is_active=eq.true&' + (overrideId ? `id=eq.${overrideId}` : `zone_id=eq.${o.zoneId}`) +
       '&select=id,schedule_days,turnaround_days,turnaround_hours,booking_cutoff_minutes'),
   ]);
   const hol = new Set<string>((holRows || []).map((h: any) => h.holiday_date));
@@ -68,7 +76,8 @@ export async function findSlots(db: Db, o: {
   }
   const perDate = await Promise.all(dates.map((dt) =>
     db('rpc/get_slot_availability', { method: 'POST',
-      body: JSON.stringify({ p_zone_id: o.zoneId, p_date: dt.date, p_customer_id: o.customerId ?? null }) })
+      body: JSON.stringify({ p_zone_id: o.zoneId, p_date: dt.date, p_customer_id: o.customerId ?? null,
+        ...(o.addressId !== undefined ? { p_address_id: o.addressId } : {}) }) })
       .catch(() => [])));
 
   const hm = (t: string) => String(t).split(':').map(Number);
@@ -180,7 +189,7 @@ export async function customerBookingContext(db: Db, customerId: string) {
   const [lastRows, custRows] = await Promise.all([
     db(`orders?customer_id=eq.${customerId}&status=eq.delivered&order=created_at.desc&limit=1` +
       '&select=zone_id,pickup_address_id,delivery_address_id,total_bags'),
-    db(`customers?id=eq.${customerId}&select=pricelist,route_template_override_id,stripe_default_payment_method_id,sms_notifications_opt_out_at,phone_cache,fee_exempt,preferences&limit=1`),
+    db(`customers?id=eq.${customerId}&select=pricelist,stripe_default_payment_method_id,sms_notifications_opt_out_at,phone_cache,fee_exempt,preferences&limit=1`),
   ]);
   const last = lastRows?.[0] || null, cust = custRows?.[0] || {};
   let zoneId: string | null = last?.zone_id || null;
@@ -195,9 +204,13 @@ export async function customerBookingContext(db: Db, customerId: string) {
     }
   }
   const cards: any[] = await db(`customer_payment_methods?customer_id=eq.${customerId}&select=id&limit=1`).catch(() => []);
+  // Session 354: the route override belongs to the pickup ADDRESS, not the customer.
+  const overrideId: string | null = pickupAddrId
+    ? ((await db(`addresses?id=eq.${pickupAddrId}&select=route_template_override_id&limit=1`))?.[0]?.route_template_override_id || null)
+    : null;
   return {
     zoneId, pickupAddrId, deliveryAddrId, lastBags: last?.total_bags || null,
-    pricelist: cust.pricelist || 'Delivery', overrideId: cust.route_template_override_id || null,
+    pricelist: cust.pricelist || 'Delivery', overrideId,
     hasCard: (cards?.length || 0) > 0 || !!cust.stripe_default_payment_method_id,
     textsOff: !!cust.sms_notifications_opt_out_at, phone: cust.phone_cache || null, feeExempt: !!cust.fee_exempt,
     preferences: (cust.preferences && typeof cust.preferences === 'object') ? cust.preferences : {},

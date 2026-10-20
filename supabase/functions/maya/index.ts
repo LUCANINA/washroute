@@ -342,6 +342,7 @@ async function applyLaterDelivery(a: any, slot: Slot, zoneId: string, customerId
 
 async function toolFindTimes(call: any, a: any) {
   let zoneId: string | null = null, customerId: string | null = null, overrideId: string | null = null;
+  let pickupAddrId: string | null = null;   // session 354: override is per address
   let usualAddons: string | null = null, usualNotes = '';
   if (a?.address_token) {
     const tok = await readTok(a.address_token);
@@ -352,12 +353,12 @@ async function toolFindTimes(call: any, a: any) {
     if (v.fail) return v.fail;
     const ctx = await customerBookingContext(db, v.c.id);
     if (!ctx.zoneId) return { ok: false, say: "I can't confirm the service area for this account. Take a message for the team." };
-    zoneId = ctx.zoneId; customerId = v.c.id; overrideId = ctx.overrideId;
+    zoneId = ctx.zoneId; customerId = v.c.id; overrideId = ctx.overrideId; pickupAddrId = ctx.pickupAddrId;
     const usual = resolveAddons(await prefGroups(db), ctx.preferences as any, [], []).map((g) => g.name);
     usualAddons = usual.length ? usual.join(', ') : 'none';
     usualNotes = typeof (ctx.preferences as any)._notes === 'string' ? (ctx.preferences as any)._notes : '';
   }
-  const all = await findSlots(db, { zoneId: zoneId!, customerId, overrideId, sameDay: !!a?.same_day });
+  const all = await findSlots(db, { zoneId: zoneId!, customerId, overrideId, addressId: pickupAddrId, sameDay: !!a?.same_day });
   const day = parseDay(a?.day);
   const pool = day ? all.filter((s) => s.date === day) : all;
   if (!all.length) return { ok: true, options: [], say: a?.same_day
@@ -427,7 +428,7 @@ async function toolBook(call: any, a: any, live: boolean) {
     if (up.length) return { ok: false, already_scheduled: true, existing_pickup: between(up[0].pickup_window_start, up[0].pickup_window_end),
       say: 'They already have a pickup booked. Tell them when, and offer to move it with reschedule_pickup instead of booking a second one.' };
   }
-  const slots = await findSlots(db, { zoneId: nc ? tok.zoneId : ctx.zoneId, customerId: custId, overrideId: ctx?.overrideId, sameDay: want.sameDay });
+  const slots = await findSlots(db, { zoneId: nc ? tok.zoneId : ctx.zoneId, customerId: custId, overrideId: ctx?.overrideId, addressId: nc ? null : (ctx?.pickupAddrId ?? null), sameDay: want.sameDay });
   const found = slots.find((s) => s.id === a.slot_id);
   if (!found) return { ok: false, slot_taken: true, say: 'That time is no longer available. Call find_pickup_times again and offer new options.' };
   const ld = await applyLaterDelivery(a, found, nc ? tok.zoneId : ctx.zoneId, custId);
@@ -550,7 +551,7 @@ async function toolReschedule(call: any, a: any, live: boolean) {
   if (!want) return { ok: false, say: 'Call find_pickup_times and use a slot_id from it.' };
   const ctx = await customerBookingContext(db, v.c.id);
   const zoneId = old.zone_id || ctx.zoneId;
-  const found = (await findSlots(db, { zoneId, customerId: v.c.id, overrideId: ctx.overrideId, sameDay: want.sameDay })).find((s) => s.id === a.new_slot_id);
+  const found = (await findSlots(db, { zoneId, customerId: v.c.id, overrideId: ctx.overrideId, addressId: old.pickup_address_id || ctx.pickupAddrId || null, sameDay: want.sameDay })).find((s) => s.id === a.new_slot_id);
   if (!found) return { ok: false, slot_taken: true, say: 'That time is no longer available. Call find_pickup_times again.' };
   const ld = await applyLaterDelivery(a, found, zoneId, v.c.id);
   if ('fail' in ld) return ld.fail;
@@ -1194,6 +1195,27 @@ function dur(ms: number) {
   return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}s`;
 }
 
+// Session 352: the voicemails bucket is going private. Stored URLs keep the /object/public/
+// form (the admin inbox signs them on display); emailed links get a 30-day signed URL.
+async function signedRecordingLink(storedUrl: string, seconds = 30 * 86400): Promise<string> {
+  const marker = '/storage/v1/object/public/voicemails/';
+  const i = storedUrl.indexOf(marker);
+  if (i < 0) return storedUrl;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/voicemails/${storedUrl.slice(i + marker.length)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${SVC}`, apikey: SVC, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresIn: seconds }),
+    });
+    const j = await res.json();
+    if (res.ok && j?.signedURL) return `${SUPABASE_URL}/storage/v1${j.signedURL}`;
+    console.error('maya: recording sign failed', res.status);
+  } catch (e) {
+    console.error('maya: recording sign error', (e as Error).message);
+  }
+  return storedUrl;
+}
+
 async function saveRecording(callId: string, url?: string): Promise<string | null> {
   if (!url) return null;
   try {
@@ -1272,12 +1294,13 @@ async function handleCall(call: any) {
   if (c.needs_callback || c.urgent) {
     const esc = (x: unknown) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const callerLabel = [fileName || c.caller_name, callback ? `callback ${callback}` : from].filter(Boolean).join(' · ');
+    const listenUrl = recording ? await signedRecordingLink(recording) : '';
     const html = `<div style="font-family:-apple-system,system-ui,sans-serif;max-width:600px;margin:0 auto;padding:24px">
       <h2 style="margin:0 0 12px">${c.urgent ? '⚠️ URGENT — ' : ''}Call back: ${esc(callerLabel)}</h2>
       <p style="color:#666;margin:0 0 12px">${esc(flags)} · ${esc(dur(ms))} call with Maya · ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short' })} PT</p>
       <div style="background:#f7f7f7;padding:16px;border-left:4px solid ${c.urgent ? '#d0021b' : '#4a90e2'};border-radius:4px">${esc(a.call_summary || '(no summary)')}</div>
-      ${recording ? `<p><a href="${recording}" style="display:inline-block;background:#4a90e2;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600">▶ Listen to the call</a></p>` : ''}
-      <p style="color:#666;font-size:13px">Also in the admin inbox under this caller.</p></div>`;
+      ${listenUrl ? `<p><a href="${listenUrl}" style="display:inline-block;background:#4a90e2;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600">▶ Listen to the call</a></p>` : ''}
+      <p style="color:#666;font-size:13px">Also in the admin inbox under this caller.${listenUrl ? ' The listen link works for 30 days.' : ''}</p></div>`;
     const r = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, { method: 'POST',
       headers: { Authorization: `Bearer ${SVC}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ to_email: 'info@familylaundry.com',

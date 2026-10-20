@@ -7,7 +7,9 @@
 //      is saved to that customer's history (email_messages, inbound). email_messages has no
 //      triggers, so this write cannot fan out. gmail-sync will NOT copy the info@ email again
 //      (its sender is info@, which gmail-sync skips), so there is no duplicate.
-// Spam guards: Origin allowlist, honeypot field, minimum fill time, size limits, per-IP throttle.
+// Spam guards: Origin allowlist, honeypot field, minimum fill time, size limits, and (session 352)
+// a database-backed rate limit (website_contact_log): per IP, per email, and an overall hourly cap.
+// Anyone can type a customer's email, so history entries are labelled "sender not verified".
 // Accepts JSON (fetch from the site) or a plain form post (no-JS fallback → 303 to /thankyou).
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -21,12 +23,24 @@ const SITE = 'https://www.familylaundry.com';
 const ORIGIN_OK = (o: string) =>
   /^https:\/\/(www\.)?familylaundry\.com$/i.test(o) || /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(o) || /^http:\/\/localhost(:\d+)?$/.test(o);
 
-const recent = new Map<string, number[]>(); // ip → timestamps (per warm instance; a speed bump, not a wall)
-function throttled(ip: string) {
-  const now = Date.now(), win = 10 * 60_000;
-  const list = (recent.get(ip) || []).filter(t => now - t < win);
-  list.push(now); recent.set(ip, list);
-  return list.length > 5;
+// Session 352: durable rate limit. The old in-memory throttle reset whenever a new
+// function instance started, so it barely slowed anyone down.
+const LIMITS = { ipPer10Min: 5, ipPerDay: 20, emailPerHour: 3, allPerHour: 60 };
+async function sha256(s: string) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join('');
+}
+async function rateLimited(db: any, ipHash: string, email: string): Promise<boolean> {
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+  const count = async (q: any) => { const { count, error } = await q; if (error) throw error; return count || 0; };
+  const base = () => db.from('website_contact_log').select('id', { count: 'exact', head: true });
+  const [ip10, ipDay, em, all] = await Promise.all([
+    count(base().eq('ip_hash', ipHash).gte('created_at', ago(10 * 60_000))),
+    count(base().eq('ip_hash', ipHash).gte('created_at', ago(24 * 3600_000))),
+    count(base().eq('email', email).gte('created_at', ago(3600_000))),
+    count(base().gte('created_at', ago(3600_000))),
+  ]);
+  return ip10 >= LIMITS.ipPer10Min || ipDay >= LIMITS.ipPerDay || em >= LIMITS.emailPerHour || all >= LIMITS.allPerHour;
 }
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -94,9 +108,21 @@ Deno.serve(async (req) => {
   if (!EMAIL_RE.test(email)) return reply(400, { ok: false, error: 'Please check your email address.' });
 
   const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
-  if (throttled(ip)) return reply(429, { ok: false, error: 'Too many messages. Please call or text us instead.' });
-
   const db = createClient(SUPABASE_URL, SUPABASE_SVC_KEY, { auth: { persistSession: false } });
+  const ipHash = await sha256(ip);
+  try {
+    if (await rateLimited(db, ipHash, email)) {
+      console.warn('website-contact rate limited', ipHash.slice(0, 12));
+      return reply(429, { ok: false, error: 'Too many messages. Please call or text us instead.' });
+    }
+    const { error: logErr } = await db.from('website_contact_log').insert({ ip_hash: ipHash, email });
+    if (logErr) console.error('contact log insert failed', logErr);
+    // Keep the log small: drop entries older than 30 days.
+    await db.from('website_contact_log').delete().lt('created_at', new Date(Date.now() - 30 * 864e5).toISOString());
+  } catch (e) {
+    // Fail open: a real lead matters more than a missed rate check.
+    console.error('rate limit check failed', e);
+  }
   let match: { c: any; how: string } = { c: null, how: '' };
   try { match = await findCustomer(db, email, phone); } catch (e) { console.error('customer lookup failed', e); }
 
@@ -108,8 +134,10 @@ Deno.serve(async (req) => {
   //    throws, and the info@ email below must say truthfully whether the message was saved.
   let saved = false;
   if (match.c) {
+    // Session 352: anyone can type a customer's email or phone into the form, so say so.
+    const histHtml = `<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;padding:6px 9px;margin-bottom:8px">Sent through the website form — sender's email/phone not verified (matched by ${esc(match.how)}).</div>${msgHtml}`;
     const { error } = await db.from('email_messages').insert({
-      customer_id: match.c.id, direction: 'inbound', subject, body: msgHtml,
+      customer_id: match.c.id, direction: 'inbound', subject, body: histHtml,
       from_email: email, to_email: INFO,
     });
     if (error) console.error('history insert failed', error); else saved = true;

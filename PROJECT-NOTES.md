@@ -34,6 +34,27 @@ Retail (Foothill) reported: can't split an order between launderers; can't edit 
    POS now calls the RPC; on error it falls back to 0, which still prints the order's own 'credit' item row.
    Rare: 1 Foothill order used credit in 60 days (162 system-wide). Receipt click-test 6/6.
 
+## Session 352 (cont.) — Oct 20, 2026: lower-priority safety items
+
+- **nightly-smoke-test**: cron `wr-nightly-smoke-test` now sends `x-wr-internal` (was the anon key); function v20
+  refuses anything else (403). Follow-up check scheduled for the Oct 21 3am run.
+- **website-contact** v5: DB rate limit (`website_contact_log`, 352d): 5/10 min + 20/day per IP (sha-256 hashed),
+  3/hour per email, 60/hour total; fails open. History entries now say "sender's email/phone not verified".
+- **charge-order**: laundry_tech KEEPS charge rights — racking a card sale charges it (session 227). Comment fixed only
+  (repo ahead of deployed by a comment; no redeploy needed).
+- **Private storage — phased (David chose):**
+  - Admin + driver apps: `wrSignStorageUrl` watcher swaps any stop-photos/voicemails/sms-media URL in
+    img/audio/video/source/a and `window.open` for a 1-hour signed URL. Outbound MMS (inbox compose + batch) gets
+    1-day signed links for Twilio; send-sms stores those, and display re-signs them.
+  - `photo` function (new, verify_jwt false): `/functions/v1/photo?s=<stop>&t=<HMAC>` → 5-min signed redirect.
+    Token = first 20 hex of HMAC-SHA256(wr_internal_auth.secret, "photo:"+stop). **Rotating that secret kills every
+    photo link already texted.** send-order-notification v62 puts this link in pickup/delivery texts.
+  - Voicemail emails (twilio-voicemail-recorded v25, source now in repo; maya — needs CLI deploy) use 30-day signed links.
+  - 352e: storage SELECT policy `voicemails_admin_select` (is_admin).
+  - **352f flips voicemails + sms-media private after the push + maya deploy. stop-photos flips ~Nov 20** (texts before
+    Oct 20 carry raw URLs and will break then).
+  - Noted, not changed: drivers/attendants (is_staff) can read/list every stop photo.
+
 ## Session 352 — Oct 20, 2026: closed 6 public-endpoint holes from the safety check — ALL LIVE (admin pushed aab7a36, 352b applied)
 
 From the Oct 19 safety check (edge functions with verify_jwt=false and no auth in code). David: "fix items 1-6".

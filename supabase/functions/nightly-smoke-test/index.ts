@@ -63,10 +63,23 @@ async function logResult(db: any, ok: boolean, severity: string, message: string
   })
 }
 
+// Session 352c: this inserts/deletes a test order and can text the owner, so it is
+// internal-only. pg_cron (wr-nightly-smoke-test) sends x-wr-internal from
+// public.wr_internal_secret(); anything else is refused. verify_jwt stays FALSE.
+async function isInternalCall(db: any, req: Request): Promise<boolean> {
+  const provided = req.headers.get('x-wr-internal') || ''
+  if (!provided) return false
+  const { data } = await db.from('wr_internal_auth').select('secret').maybeSingle()
+  return !!data?.secret && provided === data.secret
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
   const db = createClient(supabaseUrl, supabaseKey)
+  if (!(await isInternalCall(db, req))) {
+    return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
+  }
   const startedAt = new Date()
 
   const fail = async (step: string, err: any) => {
