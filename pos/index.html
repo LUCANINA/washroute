@@ -486,6 +486,18 @@
   }
   .queue-card-reprint-btn:hover { background: var(--gray-200); }
   .queue-card-reprint-btn:disabled { opacity: .55; cursor: default; }
+  /* Session 353: intake add-on chips */
+  .pi-addons { margin-bottom: 14px; }
+  .pi-addons-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-500); margin-bottom: 6px; }
+  .pi-addons-label span { font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .pi-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pi-chip { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: 1.5px solid var(--gray-200);
+    border-radius: 999px; background: white; font-size: 14px; font-weight: 600; color: var(--gray-700); cursor: pointer; font-family: inherit; }
+  .pi-chip.on { border-color: var(--accent); background: #f5f4ff; color: var(--accent); }
+  .pi-chip .pi-qty { display: inline-flex; align-items: center; gap: 4px; }
+  .pi-chip .pi-qty b { min-width: 16px; text-align: center; }
+  .pi-chip .pi-qbtn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid currentColor; background: white;
+    color: inherit; font-size: 15px; line-height: 1; cursor: pointer; padding: 0; }
   .queue-card-top {
     display: flex;
     align-items: center;
@@ -665,6 +677,19 @@
     background: #f5f4ff;
     color: var(--accent);
   }
+  .laun-share {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px;
+    font-size: 13px; color: var(--gray-600);
+  }
+  .laun-share input {
+    width: 84px; padding: 9px 10px; border: 1.5px solid var(--gray-200);
+    border-radius: 8px; font-size: 15px; font-family: inherit; text-align: center;
+  }
+  .laun-share input:focus { outline: none; border-color: var(--accent); }
+  .laun-share-lbs { color: var(--gray-500); }
+  .laun-split-total { font-size: 13px; font-weight: 600; text-align: center; margin: 4px 0 2px; }
+  .laun-split-total.ok  { color: var(--green); }
+  .laun-split-total.bad { color: var(--red); }
   .laun-split-info {
     font-size: 12px;
     color: var(--gray-500);
@@ -1003,6 +1028,17 @@
     font-size: 13px; font-weight: 600; color: var(--gray-600); cursor: pointer;
   }
   .emp-disc-btn.on { border-style: solid; border-color: var(--green); color: var(--green); background: var(--green-light); }
+  /* Session 353: discount picker */
+  .disc-pick-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 14px; }
+  .disc-pick-opt { padding: 14px 10px; border: 1.5px solid var(--gray-200); border-radius: 10px; background: white;
+    font-size: 15px; font-weight: 700; color: var(--gray-800); cursor: pointer; font-family: inherit; text-align: center; }
+  .disc-pick-opt small { display: block; font-weight: 500; color: var(--gray-500); font-size: 12px; margin-top: 2px; }
+  .disc-pick-opt.on { border-color: var(--green); background: var(--green-light); color: var(--green); }
+  .disc-pick-none { grid-column: 1 / -1; padding: 10px; font-weight: 600; font-size: 13px; color: var(--gray-600); }
+  .disc-pick-save { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--gray-700);
+    background: var(--gray-50); border-radius: 10px; padding: 12px; cursor: pointer; }
+  .disc-pick-save input { width: 20px; height: 20px; margin-top: 1px; flex-shrink: 0; }
+  .disc-pick-hint { font-size: 12px; color: var(--gray-500); margin-top: 8px; }
   .total-row {
     display: flex;
     justify-content: space-between;
@@ -1969,6 +2005,7 @@
           <div class="cart-totals">
             <div class="total-row"><span data-i18n>Subtotal</span><span id="subtotal">$0.00</span></div>
             <div class="total-row" id="discountRow" style="display:none;color:var(--green);"><span id="discountLabel">Discount</span><span id="discountAmt">-$0.00</span></div>
+            <button type="button" class="emp-disc-btn" id="discPickBtn" style="display:none;" onclick="openDiscountPicker()"></button>
             <button type="button" class="emp-disc-btn" id="empDiscBtn" style="display:none;" onclick="toggleEmployeeDiscount()"></button>
             <div class="total-row"><span id="taxLabel">Tax</span><span id="tax">$0.00</span></div>
             <div class="total-row grand"><span data-i18n>Total</span><span id="grand">$0.00</span></div>
@@ -2422,6 +2459,9 @@
               </div>
             </div>
 
+            <!-- Session 353: add-ons (Oxi, Vinegar, Double Wash, Air Dry...) -->
+            <div id="posIntakeAddons" class="pi-addons" style="display:none"></div>
+
             <div id="posIntakeSummary" style="background:var(--gray-50);border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;"></div>
 
             <!-- Session 293: shows the note already on the order (from the
@@ -2441,6 +2481,23 @@
               <button class="btn" style="flex:1; background:var(--gray-100); border:none; color:var(--gray-700); padding:12px; border-radius:8px; font-weight:600; cursor:pointer;" onclick="closePosIntake()" data-i18n>Cancel</button>
               <button class="btn btn-primary" id="posIntakeConfirmBtn" style="flex:2; padding:12px; border-radius:8px; font-weight:700; cursor:pointer;" onclick="confirmPosIntake()" data-i18n>⚖️ Save &amp; Start Processing</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Discount picker (session 353) ───────────────────── -->
+      <div class="modal-overlay" id="discPickModal">
+        <div class="modal" style="max-width: 440px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title" data-i18n>Apply a discount</div>
+              <div class="modal-sub" data-i18n>Laundry services only — not snacks or supplies.</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="disc-pick-list" id="discPickList"></div>
+            <div id="discPickSaveWrap"></div>
           </div>
         </div>
       </div>
@@ -2927,6 +2984,32 @@
     'processed': 'procesado',
     'Launderer': 'Lavandero',
     'incl. $': 'incl. $',
+    'Bags': 'Bolsas',
+    'Lbs': 'Libras',
+    'Assigned': 'Asignado',
+    'Must add up to': 'Debe sumar',
+    'Split adds up': 'La división cuadra',
+    'Shares must add up to the order total': 'Las partes deben sumar el total de la orden',
+    'Add-ons': 'Extras',
+    'tap to add or remove': 'toque para agregar o quitar',
+    'Edit order': 'Editar orden',
+    '✏️ Edit weight / add-ons': '✏️ Editar peso / extras',
+    '💾 Save changes': '💾 Guardar cambios',
+    'Changes saved': 'Cambios guardados',
+    'tap the order to reprint the tag': 'toque la orden para reimprimir la etiqueta',
+    'This order used account credit — edit it in the admin dashboard.': 'Esta orden usó crédito de cuenta — edítela en el panel de administración.',
+    'Current': 'Actual',
+    'Discount': 'Descuento',
+    'Apply a discount': 'Aplicar un descuento',
+    'Laundry services only — not snacks or supplies.': 'Solo servicios de lavandería — no bocadillos ni productos.',
+    'No discount': 'Sin descuento',
+    'tap to change': 'toque para cambiar',
+    'On profile': 'En el perfil',
+    'Save to this customer\'s profile so it applies every time': 'Guardar en el perfil del cliente para que se aplique siempre',
+    'Attach the customer to save it to their profile.': 'Adjunte al cliente para guardarlo en su perfil.',
+    'Discount saved to profile': 'Descuento guardado en el perfil',
+    'Could not save discount to profile': 'No se pudo guardar el descuento en el perfil',
+    'No discounts set up — ask a manager': 'No hay descuentos configurados — pregunte a un gerente',
   };
 
   function t(en) {
@@ -3613,7 +3696,10 @@
     if (!d || !cart.length) return none;
     // A customer's standing discount belongs to that customer. The POS
     // "Employee discount" (manual) belongs to the sale — works with no customer.
-    if (!d.manual && (!hasAttachedCustomer() || d.customerId !== currentCustomer.id)) return none;
+    // Session 353: an attendant-picked discount (atPos) belongs to the sale too,
+    // but if it was picked FOR a customer it never follows a customer swap.
+    if (!d.manual && !d.atPos && (!hasAttachedCustomer() || d.customerId !== currentCustomer.id)) return none;
+    if (d.atPos && d.customerId && (!hasAttachedCustomer() || d.customerId !== currentCustomer.id)) return none;
     // Standing discounts: laundry services only. Employee discount: everything,
     // snacks and drinks included.
     const groups = [{ kind: 'service', tag: 'laundry', lines: cart.filter(_isServiceLine) }];
@@ -3638,7 +3724,7 @@
       // split and the monthly cash reclass (both key on li.kind) book NET sales.
       const lbl = live.length > 1 ? `${label} · ${g.tag}` : label;
       const row = { type: 'discount', kind: g.kind, label: lbl, name: lbl, amount: -g.amt, qty: 0, taxable: false, discount_id: d.id };
-      if (d.manual) {
+      if (d.manual || d.atPos) {
         // Attendant-applied at the register: record who, for the Discounts-page review.
         row.applied_at_pos = true;
         row.applied_by_name = d.appliedByName || null;
@@ -3690,8 +3776,115 @@
     btn.textContent = on ? `✓ ${t('Employee discount')} · ${t('tap to remove')}` : `+ ${t('Employee discount')}`;
   }
 
+  // ── Discount picker (session 353) ───────────────────────────────────
+  // Retail team: a senior / non-profit / educator / veteran walking in got no
+  // discount unless someone had tagged their profile in admin first. The
+  // attendant can now pick one at the register. Same scope as a standing
+  // discount (laundry services only), stamped with who applied it, and
+  // optionally saved to the customer's profile — only if they have none yet.
+  let _posPickableDiscounts = null;
+  async function _loadPickableDiscounts() {
+    if (_posPickableDiscounts) return _posPickableDiscounts;
+    const { data, error } = await db.from('discounts')
+      .select('id, name, type, value, active, deleted_at, admin_only, max_orders_per_customer')
+      .eq('active', true).is('deleted_at', null).eq('type', 'percent')
+      .eq('admin_only', false).is('max_orders_per_customer', null)
+      .order('name');
+    if (error) { console.warn('[POS] discount list failed:', error.message); return []; }
+    _posPickableDiscounts = data || [];
+    return _posPickableDiscounts;
+  }
+  let _discPickProfileHasOne = false;
+  async function openDiscountPicker() {
+    if (!cart.length) return;
+    const list = await _loadPickableDiscounts();
+    if (!list.length) { showToast(t('No discounts set up — ask a manager'), 'error'); return; }
+    // Fresh read of the profile: only offer "save" when the customer has none.
+    _discPickProfileHasOne = false;
+    if (hasAttachedCustomer()) {
+      const { data: c } = await db.from('customers').select('discount_id').eq('id', currentCustomer.id).maybeSingle();
+      _discPickProfileHasOne = !!(c && c.discount_id);
+    }
+    const cur = _posCartDiscount && !_posCartDiscount.manual ? _posCartDiscount.id : null;
+    document.getElementById('discPickList').innerHTML = list.map(d => `
+      <button type="button" class="disc-pick-opt${cur === d.id ? ' on' : ''}" onclick="pickPosDiscount('${d.id}')">
+        ${esc(d.name)}<small>${Number(d.value)}% ${t('off')}${(_posCartDiscount && _posCartDiscount.onProfile && cur === d.id) ? ' · ' + t('On profile') : ''}</small>
+      </button>`).join('') + (cur ? `<button type="button" class="disc-pick-opt disc-pick-none" onclick="pickPosDiscount(null)">✕ ${t('No discount')}</button>` : '');
+    const saveWrap = document.getElementById('discPickSaveWrap');
+    if (hasAttachedCustomer() && !_discPickProfileHasOne) {
+      const checked = !!(_posCartDiscount && _posCartDiscount.atPos && _posCartDiscount.saveToProfile);
+      saveWrap.innerHTML = `<label class="disc-pick-save"><input type="checkbox" id="discPickSave"${checked ? ' checked' : ''}>
+        <span>${t('Save to this customer\'s profile so it applies every time')}<br><b>${esc(currentCustomer.name || '')}</b></span></label>`;
+    } else if (!hasAttachedCustomer()) {
+      saveWrap.innerHTML = `<div class="disc-pick-hint">${t('Attach the customer to save it to their profile.')}</div>`;
+    } else {
+      saveWrap.innerHTML = '';
+    }
+    showModal('discPickModal');
+  }
+  async function pickPosDiscount(id) {
+    const saveEl = document.getElementById('discPickSave');
+    const saveToProfile = !!(saveEl && saveEl.checked);
+    closeAll();
+    if (!id) {
+      // Remove: fall back to the customer's own standing discount, if any.
+      _posCartDiscount = null;
+      if (hasAttachedCustomer()) await _loadCartDiscount(currentCustomer.id);
+      updateTotals();
+      return;
+    }
+    const d = (_posPickableDiscounts || []).find(x => x.id === id);
+    if (!d) return;
+    _posCartDiscount = {
+      customerId: hasAttachedCustomer() ? currentCustomer.id : null,
+      id: d.id, name: d.name, type: d.type, value: d.value, atPos: true,
+      saveToProfile: saveToProfile && hasAttachedCustomer() && !_discPickProfileHasOne,
+      appliedByName: shift ? `${shift.cashier_first_name || ''} ${shift.cashier_last_name || ''}`.trim() : null,
+      appliedById:   shift ? (shift.cashier_profile_id || null) : null,
+    };
+    updateTotals();
+  }
+  function _renderDiscPickBtn() {
+    const btn = document.getElementById('discPickBtn');
+    if (!btn) return;
+    if (!cart.length || (_posCartDiscount && _posCartDiscount.manual)) { btn.style.display = 'none'; return; }
+    const d = _posCartDiscount;
+    btn.style.display = '';
+    btn.classList.toggle('on', !!d);
+    btn.textContent = d ? `✓ ${d.name} ${Number(d.value)}% · ${t('tap to change')}` : `+ ${t('Discount')}`;
+  }
+  // Runs after the sale's order row exists. Log first, then change the profile
+  // (CLAUDE.md rule); never overwrites a discount someone else set meanwhile.
+  async function _savePickedDiscountToProfile(order, disc) {
+    try {
+      if (!disc || !disc.atPos || !disc.saveToProfile || !disc.customerId || !order || !order.id) return;
+      const who = disc.appliedByName || 'POS Attendant';
+      const { error: logErr } = await db.from('order_events').insert({
+        order_id: order.id, event_type: 'note', actor_name: `${who} (POS)`,
+        description: `${disc.name} discount saved to customer profile at the register`,
+        new_value: disc.id,
+      });
+      if (logErr) throw new Error(logErr.message);
+      const { data: upd, error: updErr } = await db.from('customers')
+        .update({ discount_id: disc.id, updated_at: new Date().toISOString() })
+        .eq('id', disc.customerId).is('discount_id', null)
+        .select('id');
+      if (updErr) throw new Error(updErr.message);
+      if (upd && upd.length) showToast(`✓ ${t('Discount saved to profile')}`, 'success');
+    } catch (e) {
+      console.warn('[POS] save discount to profile failed:', e && e.message);
+      showToast(t('Could not save discount to profile'), 'error');
+    }
+  }
+
   async function _loadCartDiscount(customerId) {
     if (_posCartDiscount && _posCartDiscount.manual) return;   // employee discount wins for this sale
+    // Session 353: an attendant-picked discount wins too — unless it was picked
+    // for a different customer than the one now being attached.
+    if (_posCartDiscount && _posCartDiscount.atPos && (!_posCartDiscount.customerId || _posCartDiscount.customerId === customerId)) {
+      if (!_posCartDiscount.customerId) _posCartDiscount.customerId = customerId || null;
+      return;
+    }
     _posCartDiscount = null;
     if (!customerId) return;
     try {
@@ -3702,9 +3895,9 @@
       if (!d || !d.active || d.deleted_at) return;
       // Customer may have been swapped while we were fetching.
       if (!currentCustomer || currentCustomer.id !== customerId) return;
-      // Attendant already tapped "Employee discount" for this customer — keep it.
-      if (_posCartDiscount && _posCartDiscount.manual) return;
-      _posCartDiscount = { customerId, id: d.id, name: d.name, type: d.type, value: d.value };
+      // Attendant already tapped "Employee discount" (or picked one) — keep it.
+      if (_posCartDiscount && (_posCartDiscount.manual || _posCartDiscount.atPos)) return;
+      _posCartDiscount = { customerId, id: d.id, name: d.name, type: d.type, value: d.value, onProfile: true };
       updateTotals();
     } catch (e) {
       console.warn('[POS] discount load failed:', e && e.message);
@@ -3791,6 +3984,7 @@
     const grand      = subtotal - disc.amount + tax;
     document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
     _renderEmpDiscBtn();
+    _renderDiscPickBtn();
     const discRowEl = document.getElementById('discountRow');
     if (discRowEl) {
       discRowEl.style.display = disc.amount > 0 ? '' : 'none';
@@ -4760,13 +4954,19 @@
       if (hasAssignment) {
         let assignedNames;
         if (splitRows.length > 1) {
+          const useBags = Number(order.total_bags) > 0;
           assignedNames = splitRows
-            .map(r => _activeLaunderers.find(l => l.id === r.launderer_id)?.name || '?')
+            .map(r => {
+              const nm = esc(_activeLaunderers.find(l => l.id === r.launderer_id)?.name || '?');
+              const sh = useBags ? r.bags : r.weight_lbs;
+              return (sh !== null && sh !== undefined) ? `${nm} (${Number(sh)}${useBags ? '' : ' ' + t('lb')})` : nm;
+            })
             .join(' + ');
         } else {
           assignedNames = _activeLaunderers.find(l => l.id === order.folded_by_id)?.name || t('Launderer');
         }
-        const reassignBtn = (status === 'processing')
+        // Session 353: also fixable after Mark Ready (poundage corrections).
+        const reassignBtn = (status === 'processing' || status === 'ready_for_delivery')
           ? `<button class="laun-reassign" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">${t('Reassign')}</button>`
           : '';
         launHtml = `
@@ -4837,9 +5037,16 @@
     // bags too (Kasa, Kidango, Extended Stay). Still hidden for picked_up
     // status — at that point the bag hasn't been weighed yet, so the
     // receipt has no line items to print meaningfully.
+    // Session 353: fix weight / bags / add-ons after intake, until Mark Ready.
+    // Delivery-bound orders only: walk-ins are charged at the counter, so their
+    // corrections go through Refund (or a new sale), not a re-price.
+    // Processing only: record_order_intake always sets status='processing', so
+    // offering it on a 'folding' order would quietly move it backwards.
+    const canEdit = isDelivery && status === 'processing' && Number(order.weight_lbs) > 0;
     const cardActions = (isSelected && status !== 'picked_up') ? `
       <div class="queue-card-actions">
         <button class="queue-card-reprint-btn" onclick="event.stopPropagation();reprintQueueOrder('${order.id}')">${t('🖨 Reprint receipt')}</button>
+        ${canEdit ? `<button class="queue-card-reprint-btn" style="margin-top:6px" onclick="event.stopPropagation();openPosIntake('${order.id}','edit')">${t('✏️ Edit weight / add-ons')}</button>` : ''}
       </div>
     ` : '';
 
@@ -4888,6 +5095,104 @@
   // actually need at the counter.
   // ───────────────────────────────────────────────────────────────
   let _posIntakeOrder = null;
+  // Session 353: edit mode (re-open intake on a Processing/Folding order to fix
+  // weight, bags or add-ons) + add-on chips. Same RPC as first intake.
+  let _posIntakeEdit    = false;
+  let _posIntakeAddons  = [];     // [{ key, svc|null, type, name, on, qty, verbatim }]
+  let _posAddonCatalog  = null;   // active is_addon services
+  const _POS_ADDON_TYPES = ['addon', 'addon_service', 'pref_service'];
+  function _isAddonLine(li) {
+    return li && (li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && Number(li.amount || 0) > 0));
+  }
+  async function _loadPosAddonCatalog() {
+    if (_posAddonCatalog) return _posAddonCatalog;
+    const { data, error } = await db.from('services')
+      .select('id, name, base_price, pricing_type, pricelist, linked_preference_id')
+      .eq('is_addon', true).eq('is_active', true).order('name');
+    if (error) { console.warn('[POS] add-on catalog failed:', error.message); return []; }
+    _posAddonCatalog = data || [];
+    return _posAddonCatalog;
+  }
+  // Mirrors admin _addonUnits: per_item = its own quantity, everything else = per bag.
+  function _posAddonUnits(pricingType, qty, bags) {
+    const q = parseInt(qty, 10);
+    if (pricingType === 'per_item') return q > 0 ? q : 1;
+    return bags > 0 ? bags : 1;
+  }
+  function _buildPosIntakeAddonState(order, svc, catalog) {
+    // Same pricelist rule as admin _buildIntakeLineItems (session 281 guard).
+    const pl = svc?.pricing_type === 'per_lb' ? 'Commercial' : 'Delivery';
+    const offered = (catalog || []).filter(c => !c.pricelist || c.pricelist === pl || c.pricelist === 'Both');
+    const state = offered.map(c => ({ key: c.id, svc: c, type: 'addon_service', name: c.name, on: false, qty: 1, verbatim: null }));
+    const existing = Array.isArray(order.line_items) ? order.line_items : [];
+    existing.filter(_isAddonLine).forEach((li, i) => {
+      const hit = li.service_id ? state.find(x => x.key === li.service_id && !x.on) : null;
+      if (hit) {
+        hit.on = true;
+        hit.type = li.type;   // keep pref_service vs addon_service as booked
+        const m = String(li.label || '').match(/×\s*(\d+)/);
+        if (m && hit.svc.pricing_type === 'per_item') hit.qty = parseInt(m[1], 10) || 1;
+      } else {
+        // Not in this pricelist's catalog (or no service id): keep it exactly as
+        // booked unless the attendant taps it off.
+        state.push({ key: 'v' + i, svc: null, type: li.type, name: li.label || li.type, on: true, qty: 1, verbatim: li });
+      }
+    });
+    return state;
+  }
+  function _posIntakeAddonLines(bags) {
+    return _posIntakeAddons.filter(a => a.on).map(a => {
+      if (a.verbatim) return a.verbatim;
+      const price = parseFloat(a.svc.base_price) || 0;
+      const isItem = a.svc.pricing_type === 'per_item';
+      const units = _posAddonUnits(a.svc.pricing_type, a.qty, bags);
+      const unit = isItem ? 'item' : 'bag';
+      return { type: a.type, service_id: a.svc.id,
+        label: `${a.svc.name} × ${units} ${unit}${units !== 1 ? 's' : ''}`,
+        amount: Math.round(price * units * 100) / 100 };
+    });
+  }
+  function renderPosIntakeAddons() {
+    const el = document.getElementById('posIntakeAddons');
+    if (!el) return;
+    if (!_posIntakeAddons.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = '';
+    el.innerHTML = `
+      <div class="pi-addons-label">${t('Add-ons')} <span>(${t('tap to add or remove')})</span></div>
+      <div class="pi-chips">${_posIntakeAddons.map((a, i) => {
+        const price = a.verbatim ? `$${Number(a.verbatim.amount || 0).toFixed(2)}`
+          : `$${(parseFloat(a.svc.base_price) || 0).toFixed(2)}${a.svc.pricing_type === 'per_item' ? '/' + t('item') : '/' + t('bag')}`;
+        const qty = (a.on && a.svc && a.svc.pricing_type === 'per_item') ? `
+          <span class="pi-qty">
+            <button type="button" class="pi-qbtn" onclick="event.stopPropagation();bumpPosIntakeAddon(${i},-1)">−</button>
+            <b>${a.qty}</b>
+            <button type="button" class="pi-qbtn" onclick="event.stopPropagation();bumpPosIntakeAddon(${i},1)">+</button>
+          </span>` : '';
+        // A div, not a <button>: the qty +/− are buttons, and buttons can't nest.
+        return `<div role="button" tabindex="0" class="pi-chip${a.on ? ' on' : ''}" onclick="togglePosIntakeAddon(${i})">${a.on ? '✓ ' : '+ '}${esc(a.name)} <span style="font-weight:400;opacity:.75">${price}</span>${qty}</div>`;
+      }).join('')}</div>`;
+  }
+  function togglePosIntakeAddon(i) {
+    const a = _posIntakeAddons[i]; if (!a) return;
+    a.on = !a.on;
+    renderPosIntakeAddons(); recalcPosIntake();
+  }
+  function bumpPosIntakeAddon(i, d) {
+    const a = _posIntakeAddons[i]; if (!a) return;
+    a.qty = Math.max(1, (parseInt(a.qty, 10) || 1) + d);
+    renderPosIntakeAddons(); recalcPosIntake();
+  }
+  // Session 353: one place that builds the non-base rows for both the preview
+  // and the save, so they can never drift. Add-ons are DERIVED (like base,
+  // overage and discount); fees keep the session-219 preserve-or-compute rule.
+  function _posIntakeExtraLines(bags) {
+    const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
+    const fees = _ensurePosIntakeFeesSync(
+      existing.filter(li => li.type !== 'base' && li.type !== 'overage' && li.type !== 'discount' && !_isAddonLine(li)),
+      !!_posIntakeOrder.is_same_day
+    );
+    return [..._posIntakeAddonLines(bags), ...fees];
+  }
   let _posIntakeSvc   = null;
   // Session 196: the subscription (+ plan) this order is billed against, or null.
   // Subscription orders are priced from a POOLED monthly allowance, never per bag.
@@ -4992,9 +5297,17 @@
     return { type: 'discount', label, amount: -amt };
   }
 
-  async function openPosIntake(orderId) {
+  async function openPosIntake(orderId, mode) {
     const order = (queueOrders || []).find(o => o.id === orderId);
     if (!order) { showToast(t('Order not found'), 'error'); return; }
+    // Session 353: an edit re-runs record_order_intake, which first refunds any
+    // account credit used on the order (refund_order_credits). The POS never
+    // re-applies credit, so a credit-paid order is edited in admin only.
+    if (mode === 'edit' && (order.line_items || []).some(li => li && li.type === 'credit')) {
+      showToast(t('This order used account credit — edit it in the admin dashboard.'), 'error');
+      return;
+    }
+    _posIntakeEdit = (mode === 'edit');
     _posIntakeOrder = order;
 
     // Fetch the service row to know pricing (base, lbs/bag, overage rate).
@@ -5049,6 +5362,7 @@
       }
     }
     await loadPosServiceFees();
+    _posIntakeAddons = _buildPosIntakeAddonState(order, svc, await _loadPosAddonCatalog());
 
     // Session 196: subscription customers are NOT priced per bag. Their plan includes a
     // pooled monthly weight allowance (100 lbs) and charges overage at the PLAN's rate
@@ -5070,15 +5384,17 @@
     }
 
     // Populate the panel
-    document.getElementById('posIntakeTitle').textContent = `${t('Intake order')} #${order.order_number}`;
+    document.getElementById('posIntakeTitle').textContent = `${_posIntakeEdit ? t('Edit order') : t('Intake order')} #${order.order_number}`;
     document.getElementById('posIntakeSub').textContent = svc.name || t('Wash & Fold');
     document.getElementById('posIntakeCustomer').innerHTML = `
       <div style="font-size:14px;font-weight:700">${esc(order._customerName || t('Customer'))}</div>
       <div style="font-size:12px;color:var(--gray-500);margin-top:2px">
         ${t('Customer estimate')}: ${order.total_bags || 1} ${t('bag')}${order.total_bags === 1 ? '' : 's'}
       </div>`;
-    document.getElementById('posIntakeWeight').value = '';
+    document.getElementById('posIntakeWeight').value = _posIntakeEdit && Number(order.weight_lbs) > 0 ? Number(order.weight_lbs) : '';
     document.getElementById('posIntakeBags').value   = order.total_bags || 1;
+    document.getElementById('posIntakeConfirmBtn').textContent = _posIntakeEdit ? t('💾 Save changes') : t('⚖️ Save & Start Processing');
+    renderPosIntakeAddons();
     // Session 293: surface any existing special instructions, and prefill the
     // notes box with them. record_order_intake does
     // COALESCE(p_notes, special_instructions) — so a blank box never erased the
@@ -5198,17 +5514,18 @@
     // Session 291L: 'discount' joins base + overage as a DERIVED row — dropped from
     // the preserved set and recomputed below. Preserving it is what let a stale $2.95
     // ride on top of a $65 base for four months. See _posDiscountLine.
-    const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
-    const preserved = _ensurePosIntakeFeesSync(
-      existing.filter(li => li.type !== 'base' && li.type !== 'overage' && li.type !== 'discount'),
-      !!_posIntakeOrder.is_same_day
-    );
+    const preserved = _posIntakeExtraLines(bags);
     const discLine = _posDiscountLine(p.base, p.overage, preserved);
     const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
 
     const total = Math.round((p.base + p.overage + preservedTotal + (discLine ? discLine.amount : 0)) * 100) / 100;
 
     const fmt = n => '$' + Number(n).toFixed(2);
+    // Session 353: in edit mode show what the order is now, so the change is visible.
+    const _curTotal = Number(_posIntakeOrder.total_amount);
+    const curHtml = (_posIntakeEdit && isFinite(_curTotal)) ? `<div style="display:flex;justify-content:space-between;padding:2px 0;color:var(--gray-500);font-size:12px">
+        <span>${t('Current')}: ${Number(_posIntakeOrder.weight_lbs) || 0} ${t('lbs')} · ${_posIntakeOrder.total_bags || 0} ${t('bags')}</span>
+        <span>${fmt(_curTotal)}</span></div>` : '';
     const summary = document.getElementById('posIntakeSummary');
     summary.innerHTML = `
       <div style="display:flex;justify-content:space-between;padding:3px 0">
@@ -5239,7 +5556,7 @@
       <div style="display:flex;justify-content:space-between;padding:8px 0 2px;margin-top:6px;border-top:1px solid var(--gray-200);font-weight:800;font-size:15px">
         <span>${t('Total')}</span>
         <span>${fmt(total)}</span>
-      </div>`;
+      </div>${curHtml}`;
   }
 
   async function confirmPosIntake() {
@@ -5274,11 +5591,7 @@
     // Session 219: same fee resolution as recalcPosIntake's preview — must
     // match exactly, or the total charged would drift from what the attendant
     // saw on screen a moment ago.
-    const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
-    const preserved = _ensurePosIntakeFeesSync(
-      existing.filter(li => li.type !== 'base' && li.type !== 'overage' && li.type !== 'discount'),
-      !!_posIntakeOrder.is_same_day
-    );
+    const preserved = _posIntakeExtraLines(bags);
     const discLine = _posDiscountLine(p.base, p.overage, preserved);
     const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
     const total = Math.round((p.base + p.overage + preservedTotal + (discLine ? discLine.amount : 0)) * 100) / 100;
@@ -5320,7 +5633,15 @@
     if (error) {
       errEl.textContent = error.message;
       errEl.style.display = '';
-      btn.disabled = false; btn.textContent = t('⚖️ Save & Start Processing');
+      btn.disabled = false; btn.textContent = _posIntakeEdit ? t('💾 Save changes') : t('⚖️ Save & Start Processing');
+      return;
+    }
+    if (_posIntakeEdit) {
+      // Edit: no auto-print (the bag is already tagged) — reprint is one tap away.
+      const editedNum = _posIntakeOrder.order_number;
+      closePosIntake();
+      showToast(`✓ ${t('Changes saved')} · #${editedNum} — ${t('tap the order to reprint the tag')}`, 'success');
+      await loadWalkInQueue();
       return;
     }
 
@@ -5354,6 +5675,8 @@
   function closePosIntake() {
     closeAll();
     _posIntakeOrder = null;
+    _posIntakeEdit = false;
+    _posIntakeAddons = [];
     _posIntakeSvc = null;
     _posIntakeSub = null;
     const btn = document.getElementById('posIntakeConfirmBtn');
@@ -5371,6 +5694,32 @@
   let _launActiveOrderId  = null;
   let _launSplitCount     = 1;
   let _launSlotSelections = [null, null, null];
+  // Session 353: per-person share for uneven splits (poundage allocation).
+  // Unit is bags when the order has a bag count, otherwise lbs.
+  let _launSlotShares     = [null, null, null];
+
+  function _launOrderTotals(order) {
+    const bags = Number(order && order.total_bags) || 0;
+    const lbs  = Number(order && order.weight_lbs) || 0;
+    return { bags, lbs, unit: bags > 0 ? 'bags' : (lbs > 0 ? 'lbs' : null) };
+  }
+  function _launEvenShares(order, n) {
+    const { bags, lbs, unit } = _launOrderTotals(order);
+    const total = unit === 'bags' ? bags : lbs;
+    const out = [null, null, null];
+    if (!unit || n < 2) return out;
+    // Even split rounded to 0.5 (bags) / 0.1 (lbs); remainder goes to person 1
+    // so the shares always add up exactly to the order total.
+    const step = unit === 'bags' ? 0.5 : 0.1;
+    const each = Math.floor((total / n) / step) * step;
+    for (let i = 0; i < n; i++) out[i] = Math.round(each * 100) / 100;
+    out[0] = Math.round((total - each * (n - 1)) * 100) / 100;
+    return out;
+  }
+  function _launSharesSum() {
+    return Math.round(_launSlotShares.slice(0, _launSplitCount)
+      .reduce((s, v) => s + (Number(v) || 0), 0) * 100) / 100;
+  }
 
   function openLaundererPicker(orderId) {
     const order = (queueOrders || []).find(o => o.id === orderId);
@@ -5383,26 +5732,42 @@
 
     _launActiveOrderId  = orderId;
     _launSlotSelections = [null, null, null];
+    _launSlotShares     = [null, null, null];
 
     // Pre-populate from existing assignment so "Reassign" shows current state
     const splitRows = _foldAssignmentsByOrder[orderId] || [];
+    const { unit } = _launOrderTotals(order);
     if (splitRows.length > 1) {
       _launSplitCount = Math.min(splitRows.length, 3);
-      splitRows.slice(0, 3).forEach((r, i) => { _launSlotSelections[i] = r.launderer_id; });
+      splitRows.slice(0, 3).forEach((r, i) => {
+        _launSlotSelections[i] = r.launderer_id;
+        const v = unit === 'bags' ? r.bags : r.weight_lbs;
+        _launSlotShares[i] = (v === null || v === undefined || v === '') ? null : Number(v);
+      });
+      // Older rows without shares (or totals that changed since): fall back to even.
+      const tot = _launOrderTotals(order);
+      const want = unit === 'bags' ? tot.bags : tot.lbs;
+      if (_launSlotShares.slice(0, _launSplitCount).some(v => v === null) || Math.abs(_launSharesSum() - want) > 0.01) {
+        _launSlotShares = _launEvenShares(order, _launSplitCount);
+      }
     } else {
       _launSplitCount = 1;
       _launSlotSelections[0] = order.folded_by_id || null;
     }
 
     document.getElementById('laundererModalSub').textContent = `${t('Order #')}${order.order_number}`;
-    setLaundererSplitCount(_launSplitCount, /*skipRender=*/false);
+    setLaundererSplitCount(_launSplitCount, /*skipRender=*/false, /*keepShares=*/true);
     showModal('laundererModal');
   }
 
-  function setLaundererSplitCount(n, skipRender) {
+  function setLaundererSplitCount(n, skipRender, keepShares) {
     _launSplitCount = n;
     // Clear slots beyond the new count
     for (let i = n; i < 3; i++) _launSlotSelections[i] = null;
+    if (!keepShares) {
+      const order = (queueOrders || []).find(o => o.id === _launActiveOrderId);
+      _launSlotShares = _launEvenShares(order, n);
+    }
     // Update tab visuals
     [1, 2, 3].forEach(k => {
       const t = document.getElementById('laun-tab-' + k);
@@ -5415,17 +5780,16 @@
     const order = (queueOrders || []).find(o => o.id === _launActiveOrderId);
     if (!order) return;
 
-    // Per-slot bag + weight (shown for split mode)
-    const totalBags = Number(order.total_bags) || 0;
-    const totalLbs  = Number(order.weight_lbs) || 0;
+    // Session 353: uneven splits. Each person gets an editable share (bags if
+    // the order has a bag count, else lbs), defaulting to an even split.
+    const tot = _launOrderTotals(order);
+    const splitting = _launSplitCount > 1 && !!tot.unit;
     const infoEl = document.getElementById('laun-split-info');
-    if (_launSplitCount > 1 && (totalBags || totalLbs)) {
-      const perBags = totalBags ? (totalBags / _launSplitCount).toFixed(1) : null;
-      const perLbs  = totalLbs  ? (totalLbs  / _launSplitCount).toFixed(1) : null;
-      const parts = [];
-      if (perBags) parts.push(`${perBags} ${perBags === '1.0' ? t('bag') : t('bags')}`);
-      if (perLbs)  parts.push(`${perLbs} ${t('lb')}`);
-      infoEl.textContent = `${t('Each person gets')} ${parts.join(' / ')}`;
+    if (splitting) {
+      const totalTxt = tot.unit === 'bags'
+        ? `${tot.bags} ${tot.bags === 1 ? t('bag') : t('bags')}` + (tot.lbs ? ` · ${tot.lbs} ${t('lb')}` : '')
+        : `${tot.lbs} ${t('lb')}`;
+      infoEl.textContent = `${t('Must add up to')} ${totalTxt}`;
       infoEl.style.display = '';
     } else {
       infoEl.style.display = 'none';
@@ -5442,22 +5806,75 @@
         .map(l => `<option value="${l.id}"${_launSlotSelections[i] === l.id ? ' selected' : ''}>👤 ${l.name}</option>`)
         .join('');
       const label = _launSplitCount === 1 ? t('Launderer') : `${t('Person')} ${i + 1}`;
+      const shareVal = _launSlotShares[i] === null || _launSlotShares[i] === undefined ? '' : _launSlotShares[i];
+      const shareHtml = splitting ? `
+          <div class="laun-share">
+            <span>${tot.unit === 'bags' ? t('Bags') : t('Lbs')}</span>
+            <input type="number" inputmode="decimal" min="0" step="${tot.unit === 'bags' ? '0.5' : '0.1'}"
+                   value="${shareVal}" data-share-slot="${i}" oninput="setLaundererShare(${i}, this.value)">
+            <span class="laun-share-lbs" id="laun-share-lbs-${i}"></span>
+          </div>` : '';
       slots.push(`
         <div class="laun-picker-row">
           <div class="laun-picker-label">${label}</div>
           <select class="laun-picker-select" data-slot="${i}" onchange="pickLaundererForSlot(${i}, this.value)">
             <option value="">${t('— Choose someone —')}</option>
             ${opts}
-          </select>
+          </select>${shareHtml}
         </div>`);
     }
+    if (splitting) slots.push(`<div class="laun-split-total" id="laun-split-total"></div>`);
     slotsEl.innerHTML = slots.join('');
+    _refreshLaundererSaveState();
+  }
 
-    // Save button enabled only when every slot has a (different) selection
+  // Lightweight refresh while typing a share — no innerHTML rebuild, so the
+  // input keeps focus and the on-screen keyboard stays up.
+  function setLaundererShare(slot, val) {
+    const v = parseFloat(val);
+    _launSlotShares[slot] = isFinite(v) ? v : null;
+    _refreshLaundererSaveState();
+  }
+
+  function _launSplitValid(order) {
+    const tot = _launOrderTotals(order);
+    if (_launSplitCount < 2 || !tot.unit) return true;
+    const shares = _launSlotShares.slice(0, _launSplitCount);
+    if (shares.some(v => !(Number(v) > 0))) return false;
+    const want = tot.unit === 'bags' ? tot.bags : tot.lbs;
+    return Math.abs(_launSharesSum() - want) <= 0.01;
+  }
+
+  function _refreshLaundererSaveState() {
+    const order = (queueOrders || []).find(o => o.id === _launActiveOrderId);
+    if (!order) return;
+    const tot = _launOrderTotals(order);
+    const splitting = _launSplitCount > 1 && !!tot.unit;
+    if (splitting) {
+      // Show each person's resulting pounds when shares are in bags.
+      for (let i = 0; i < _launSplitCount; i++) {
+        const el = document.getElementById('laun-share-lbs-' + i);
+        if (!el) continue;
+        const sh = Number(_launSlotShares[i]) || 0;
+        el.textContent = (tot.unit === 'bags' && tot.lbs && tot.bags)
+          ? `≈ ${(tot.lbs * sh / tot.bags).toFixed(1)} ${t('lb')}` : '';
+      }
+      const totalEl = document.getElementById('laun-split-total');
+      if (totalEl) {
+        const want = tot.unit === 'bags' ? tot.bags : tot.lbs;
+        const ok = _launSplitValid(order);
+        totalEl.className = 'laun-split-total ' + (ok ? 'ok' : 'bad');
+        totalEl.textContent = ok
+          ? `✓ ${t('Split adds up')} (${_launSharesSum()} / ${want})`
+          : `${t('Assigned')}: ${_launSharesSum()} / ${want}`;
+      }
+    }
+    // Save enabled only when every slot has a (different) selection and shares add up
     const allFilled = _launSlotSelections.slice(0, _launSplitCount).every(Boolean);
+    const ok = allFilled && _launSplitValid(order);
     const saveBtn = document.getElementById('laun-save-btn');
-    saveBtn.disabled = !allFilled;
-    saveBtn.style.opacity = allFilled ? '1' : '0.5';
+    saveBtn.disabled = !ok;
+    saveBtn.style.opacity = ok ? '1' : '0.5';
   }
 
   function pickLaundererForSlot(slot, launId) {
@@ -5477,19 +5894,35 @@
       showToast(t('Each person must be different'), 'error');
       return;
     }
+    if (!_launSplitValid(order)) {
+      showToast(t('Shares must add up to the order total'), 'error');
+      return;
+    }
 
     const btn = document.getElementById('laun-save-btn');
     btn.disabled = true; btn.textContent = t('Saving…');
 
-    const totalBags = Number(order.total_bags) || 0;
-    const totalLbs  = Number(order.weight_lbs) || 0;
-    const perBags = totalBags ? totalBags / _launSplitCount : null;
-    const perLbs  = totalLbs  ? totalLbs  / _launSplitCount : null;
-    const assignments = selected.map(launId => ({
-      launderer_id: launId,
-      bags:         perBags !== null ? Math.round(perBags * 100) / 100 : null,
-      weight_lbs:   perLbs  !== null ? Math.round(perLbs  * 100) / 100 : null,
-    }));
+    // Session 353: each person's actual share. Shares are in bags when the
+    // order has a bag count (lbs derived proportionally), else in lbs.
+    // Single launderer = the whole order.
+    const tot = _launOrderTotals(order);
+    const r2 = v => Math.round(v * 100) / 100;
+    const assignments = selected.map((launId, i) => {
+      let bags = tot.bags || null, lbs = tot.lbs || null;
+      if (_launSplitCount > 1) {
+        const sh = Number(_launSlotShares[i]) || 0;
+        if (tot.unit === 'bags') { bags = r2(sh); lbs = tot.lbs ? r2(tot.lbs * sh / tot.bags) : null; }
+        else if (tot.unit === 'lbs') { bags = null; lbs = r2(sh); }
+        else { bags = null; lbs = null; }
+      }
+      return { launderer_id: launId, bags, weight_lbs: lbs };
+    });
+    // Rounding can leave the lbs a cent off the order weight; give the
+    // difference to person 1 so the poundage report totals exactly.
+    if (_launSplitCount > 1 && tot.lbs && assignments.every(a => a.weight_lbs !== null)) {
+      const diff = r2(tot.lbs - assignments.reduce((s, a) => s + a.weight_lbs, 0));
+      if (diff) assignments[0].weight_lbs = r2(assignments[0].weight_lbs + diff);
+    }
 
     const actorName = [shift?.cashier_first_name, shift?.cashier_last_name]
       .filter(Boolean).join(' ').trim() || 'POS Attendant';
@@ -6309,6 +6742,8 @@
       order._cashierFirstName = shift?.cashier_first_name || '';
       order._cashierLastName  = shift?.cashier_last_name  || '';
       lastPosOrder = order;
+      // Session 353: picked discount → customer profile, if the attendant ticked it.
+      _savePickedDiscountToProfile(order, _posCartDiscount);
       // session 114: For laundry drop-offs (status = 'processing'),
       // fire the "order placed — we'll text you when it's ready" SMS
       // automatically. Fire-and-forget; any failure is logged but
@@ -6826,15 +7261,20 @@ ${detailXml}
     // CARD" lines when mixed-tender. Today POS doesn't apply account credit
     // (verified 0 such orders historically) — this is future-proofing so the
     // receipt stays honest if a credit-using path is ever added.
+    // Session 353: via get_order_credit_applied (staff-only, net of credit
+    // refunds). The POS can't read customer_transactions under RLS, so the old
+    // direct select always returned 0 and the split-tender lines never printed.
+    // On error, leave it at 0 — the item list then still shows the order's own
+    // 'credit' line, so the receipt is never silently missing the credit.
     if (order && order.id && order._creditApplied == null) {
       try {
-        const { data: _txns } = await db.from('customer_transactions')
-          .select('amount')
-          .eq('order_id', order.id)
-          .eq('type', 'credit_use');
-        const _sum = (_txns || []).reduce((s, t) => s + Number(t.amount || 0), 0);
-        order._creditApplied = Math.round(_sum * 100) / 100;
-      } catch (_e) { order._creditApplied = 0; }
+        const { data: _net, error: _credErr } = await db.rpc('get_order_credit_applied', { p_order_id: order.id });
+        if (_credErr) throw new Error(_credErr.message);
+        order._creditApplied = Math.max(0, Math.round(Number(_net || 0) * 100) / 100);
+      } catch (_e) {
+        console.warn('[POS] credit lookup for receipt failed:', _e && _e.message);
+        order._creditApplied = 0;
+      }
     }
 
     const markup = buildPosReceiptMarkup(order);

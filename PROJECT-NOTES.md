@@ -1,5 +1,39 @@
 # WashRoute — Project Notes
 
+## Session 353 — Oct 20, 2026: Retail team POS feedback — splits, edit after intake, discount picker, receipt credit — DB LIVE, POS NOT YET PUSHED
+
+Retail (Foothill) reported: can't split an order between launderers; can't edit an order once logged; customer discounts not applied.
+1. **Splits were saving but invisible.** `assign_order_launderers` (SECURITY DEFINER) wrote `order_folding_assignments`, but the
+   only SELECT policy was `is_admin()` (no attendant/pos_device), so the POS read 0 rows and the card showed only the primary
+   (`folded_by_id`). Attendants concluded the split failed; POS split rate ~5% vs ~11% from the plant.
+   Migration `session_353a_pos_read_fold_assignments` (APPLIED): SELECT for `is_ops_staff()`. Verified per role: admin/manager/
+   laundry_tech/attendant/pos_device see all rows; driver/customer 0.
+   POS: **uneven splits** (per-person bags, or lbs when no bag count; default even; Save blocked until shares = order total;
+   lbs derived proportionally, rounding remainder to person 1). Card shows "Ana (2) + Maria (1)". Reassign also on Ready orders.
+   Poundage report already credits per-row bags/lbs — no admin change needed.
+2. **Edit after intake** (David: edits are mostly weight + add-ons). Selected Processing delivery card → "✏️ Edit weight /
+   add-ons" re-opens the intake panel in edit mode → same `record_order_intake` RPC (which already refuses to drop a paid order
+   below what was charged). NOT offered on walk-ins (paid at the counter → Refund), on `folding` (RPC forces status
+   'processing'), or on orders with a `credit` line (RPC refunds the credit and the POS never re-applies it → admin only).
+   **Add-on chips now in the intake panel (first intake too)**: active `is_addon` services on the admin pricelist rule
+   (per_lb svc → Commercial, else Delivery, or 'Both'); add-on lines are DERIVED like base/overage/discount, so a per-bag
+   add-on rescales with the bag count. Booked lines whose service isn't in that catalog are kept verbatim unless tapped off.
+3. **Discounts**: since the Sept 22 fix, every profile discount at Foothill applied (0 misses). Real gap: 62% of Foothill
+   walk-ins (311/501) have no customer attached, and an untagged senior can't get one. New "+ Discount" button at checkout:
+   percent, non-admin-only, unlimited-use discounts (SENIORS, NON PROFIT, EDUCATORS, VETERANS). Laundry services only;
+   stamped `applied_at_pos` + attendant (shows on admin Discounts page). Optional "save to profile" — written only after the
+   sale exists, logged first as an `order_events` 'note', and only `WHERE discount_id IS NULL`.
+- Verified by clicking the real page in headless Chromium with a stubbed data layer: 45/45 behaviour checks (one test-parser
+  miss), zero page errors. Caught + fixed a nested-<button> bug in the add-on qty stepper.
+4. **POS receipts: account-credit split never printed.** `queuePosPrintJob` read `customer_transactions` directly; RLS
+   admits only admins + the customer, so the POS always got 0 and never printed "Credit applied / Paid by card".
+   Migration `session_353b_get_order_credit_applied` (APPLIED): staff-only SECURITY DEFINER RPC returning ONE number per
+   order — net credit (credit_use − credit_refund; the old code ignored refunds). Deliberately not an RLS widening: the
+   counter doesn't need every customer's payment history. Role-tested: admin/manager/laundry_tech/driver/attendant/
+   pos_device/no-JWT allow, customer DENY, anon no EXECUTE; PostgREST reachability proven (anon → 42501, not PGRST202).
+   POS now calls the RPC; on error it falls back to 0, which still prints the order's own 'credit' item row.
+   Rare: 1 Foothill order used credit in 60 days (162 system-wide). Receipt click-test 6/6.
+
 ## Session 352 — Oct 20, 2026: closed 6 public-endpoint holes from the safety check — ALL LIVE (admin pushed aab7a36, 352b applied)
 
 From the Oct 19 safety check (edge functions with verify_jwt=false and no auth in code). David: "fix items 1-6".
