@@ -28798,9 +28798,14 @@ ${noActivityNote}
 
   // ── SETTINGS ──
   async function loadSettings() {
-    const { data } = await db.from('settings').select('timezone, printer_token, print_transport, review_link, invoice_config, sales_tax_rate').eq('id', 1).single();
+    // Session 352: printer_token is no longer readable by every login (customers could
+    // read it and pull receipts from the printer queue). Staff read it via an RPC.
+    const [{ data }, ptRes] = await Promise.all([
+      db.from('settings').select('timezone, print_transport, review_link, invoice_config, sales_tax_rate').eq('id', 1).single(),
+      db.rpc('get_printer_token'),
+    ]);
     if (data?.timezone)        BIZ_TZ              = data.timezone;
-    if (data?.printer_token)   BIZ_PRINTER_TOKEN   = data.printer_token;
+    if (!ptRes.error && ptRes.data) BIZ_PRINTER_TOKEN = ptRes.data;
     if (data?.print_transport) BIZ_PRINT_TRANSPORT = data.print_transport;
     if (data?.review_link !== undefined) BIZ_REVIEW_LINK = data.review_link || '';
     // session 140: cached so reports + invoice rendering can read without
@@ -36305,9 +36310,12 @@ ${oneCopy}
     if (!planId) { showToast('Pick a plan first', ''); return; }
     if (btn) { btn.disabled = true; btn.textContent = 'Opening checkout…'; }
     try {
+      // Session 352: create-checkout now requires the signed-in staff member's own token.
+      const { data: { session: _coSess } } = await db.auth.getSession();
+      if (!_coSess?.access_token) throw new Error('Not signed in — refresh the page');
       const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${SUPA_ANON_KEY}` },
+        headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${_coSess.access_token}` },
         body: JSON.stringify({
           type: 'subscription',
           planId,
@@ -56079,9 +56087,12 @@ ${oneCopy}
     if (ls) { _squareLaborCache.set(key, ls); return ls; }
     const empty = { driver_hours: {}, laundry_hours: {}, total_hours: {}, laundry_titles: {} };
     try {
+      // Session 352: square-labor requires the signed-in admin/manager/CPA's own token.
+      const { data: { session: _sqSess } } = await db.auth.getSession();
+      if (!_sqSess?.access_token) { console.warn('square-labor: not signed in'); return empty; }
       const res = await fetch(`${SUPA_URL}/functions/v1/square-labor`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, Authorization: `Bearer ${_sqSess.access_token}` },
         body: JSON.stringify({ from, to })
       });
       if (!res.ok) { console.warn('square-labor returned', res.status); return empty; }

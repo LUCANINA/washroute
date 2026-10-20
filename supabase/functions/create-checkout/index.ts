@@ -91,6 +91,43 @@ function resolveTrialEndEpoch(startDate: string | undefined | null): number | nu
 }
 // ─────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────
+// Session 352 — CALLER AUTHENTICATION + REDIRECT ALLOWLIST.
+// This function used to trust the request body: anyone with the public URL
+// could pass any customerId/userId, get that customer's email back, create
+// Stripe objects on their account, and choose where Stripe redirects after
+// checkout (an open redirect on a real Stripe page = a convincing phishing
+// link). Now:
+//   - the caller must present a real signed-in user JWT (anon key refused);
+//   - staff (admin, manager, laundry_tech) may act for any customer;
+//   - everyone else may only act for THEIR OWN customer record, and an order
+//     checkout must be for one of their own orders;
+//   - success/cancel URLs must be on our own domains, else the default is used;
+//   - the response no longer includes the customer's email.
+const STAFF_ROLES = new Set(['admin', 'manager', 'laundry_tech'])
+const ALLOWED_REDIRECT_HOSTS = new Set([
+  'app.familylaundry.com', 'admin.familylaundry.com', 'familylaundry.com',
+  'www.familylaundry.com', 'washroute.vercel.app',
+])
+const DEFAULT_RETURN_URL = 'https://app.familylaundry.com/'
+
+function safeReturnUrl(u: unknown, fallback: string): string {
+  if (typeof u !== 'string' || !u) return fallback
+  try {
+    const url = new URL(u)
+    if (url.protocol === 'https:' && ALLOWED_REDIRECT_HOSTS.has(url.hostname)) return url.toString()
+  } catch (_) { /* fall through */ }
+  console.warn('create-checkout: refused redirect URL, using default:', String(u).slice(0, 200))
+  return fallback
+}
+
+function jsonError(status: number, message: string) {
+  return new Response(JSON.stringify({ error: message }), {
+    status, headers: { ...cors, 'Content-Type': 'application/json' },
+  })
+}
+// ─────────────────────────────────────────────────────────────────────────
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
@@ -106,7 +143,22 @@ Deno.serve(async (req) => {
       })
     }
 
-    const { type, orderId, planId, userId, customerId, successUrl, cancelUrl, startDate } = await req.json()
+    // Who is calling? (Session 352)
+    const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '')
+    if (!jwt) return jsonError(401, 'Please sign in again.')
+    const { data: authData, error: authErr } = await db.auth.getUser(jwt)
+    const caller = authData?.user
+    if (authErr || !caller) return jsonError(401, 'Please sign in again.')
+    const { data: callerProfile } = await db.from('profiles').select('role').eq('id', caller.id).maybeSingle()
+    const isStaff = STAFF_ROLES.has(callerProfile?.role || '')
+
+    const body = await req.json()
+    const { type, orderId, planId, startDate } = body
+    // Non-staff can only ever act on their own customer record.
+    const customerId = isStaff ? body.customerId : undefined
+    const userId     = isStaff ? body.userId : caller.id
+    const successUrl = safeReturnUrl(body.successUrl, DEFAULT_RETURN_URL)
+    const cancelUrl  = safeReturnUrl(body.cancelUrl,  DEFAULT_RETURN_URL)
 
     // Throws (500, caught below) if startDate is malformed or out of the allowed range.
     const trialEndEpoch = resolveTrialEndEpoch(startDate)
@@ -130,6 +182,7 @@ Deno.serve(async (req) => {
     }
 
     if (!customer) throw new Error('Customer not found')
+    if (!isStaff && !customerId && !userId) return jsonError(403, 'Not allowed.')
 
     let stripeCustomerId = customer.stripe_customer_id
     if (!stripeCustomerId) {
@@ -146,10 +199,12 @@ Deno.serve(async (req) => {
 
     if (type === 'order') {
       const { data: order } = await db.from('orders')
-        .select('id, order_number, total_amount, services(name)')
+        .select('id, order_number, total_amount, customer_id, services(name)')
         .eq('id', orderId)
         .single()
       if (!order) throw new Error('Order not found')
+      // Session 352: the order must belong to the customer being charged.
+      if (order.customer_id !== customer.id) return jsonError(403, 'That order is not on this account.')
 
       session = await stripe.checkout.sessions.create({
         customer: stripeCustomerId,
@@ -235,8 +290,9 @@ Deno.serve(async (req) => {
 
     } else if (type === 'setup') {
       // successUrl for admin-initiated: point to customer app
-      const resolvedSuccessUrl = successUrl || 'https://washroute.vercel.app/customer-app/?payment=success&setup=true'
-      const resolvedCancelUrl  = cancelUrl  || 'https://washroute.vercel.app/customer-app/'
+      // successUrl/cancelUrl are already allowlisted above (default: the customer app).
+      const resolvedSuccessUrl = successUrl
+      const resolvedCancelUrl  = cancelUrl
 
       session = await stripe.checkout.sessions.create({
         customer: stripeCustomerId,
@@ -251,7 +307,7 @@ Deno.serve(async (req) => {
       throw new Error('Invalid type: must be order, subscription, or setup')
     }
 
-    return new Response(JSON.stringify({ url: session.url, customer_id: customer.id, email: customer.email_cache }), {
+    return new Response(JSON.stringify({ url: session.url, customer_id: customer.id }), {
       headers: { ...cors, 'Content-Type': 'application/json' },
     })
 

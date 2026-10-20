@@ -1,5 +1,26 @@
 # WashRoute — Project Notes
 
+## Session 352 — Oct 20, 2026: closed 6 public-endpoint holes from the safety check — functions LIVE, admin needs push, 352b pending
+
+From the Oct 19 safety check (edge functions with verify_jwt=false and no auth in code). David: "fix items 1-6".
+1. **square-labor** (every employee's name/title/hours to anyone) → v30 requires a signed-in admin/manager/cpa
+   (in-code `auth.getUser` + profiles.role). Source now in repo (`supabase/functions/square-labor/`). Admin
+   `fetchSquareLaborHours` sends the session token. Until the admin push, Reports show 0 Square hours.
+2. **create-checkout** (returned customer email; any customerId; attacker-chosen Stripe redirect) → v52 requires a
+   real user JWT; staff (admin/manager/laundry_tech) may act for any customer, others only their own record and own
+   orders; success/cancel URLs allowlisted to our domains (else default app URL); email dropped from the response.
+   Admin "Assign plan" sends the session token (was the anon key) — broken until the admin push.
+3. **receive-email** (SendGrid inbound, no signature; unused — Gmail sync replaced it) → 410 stub.
+4. **klaviyo-subscribe** (anyone → marketing list; Klaviyo retired Oct 5) → 410 stub.
+5. **Printer token**: `get_printer_token()` RPC (352a, applied); admin `loadSettings` uses it. **352b (hide the
+   column from `authenticated`) runs only after the admin push is live.**
+6. **Old functions** send-order-notification-debug, backfill-stripe-ids, geocode-addresses → 410 stubs (create-test-user,
+   diag-schema-check, diag-paypal2, sync-stripe-customer-email already were). No callers in apps/cron/DB; 0 calls in 24h.
+   The MCP has no delete — full delete is `npx -y supabase@latest functions delete <name> --project-ref umjpbuxrdydwejqtensq`.
+Verified unauthenticated + anon-key calls get 401 (1, 2) / 410 (3, 4, 6).
+Still open from the check: nightly-smoke-test callable by anyone; website-contact injection/throttle; public storage
+buckets; charge-order allows laundry_tech.
+
 ## Session 351 — Oct 19, 2026: closed "any logged-in user can read X" policies — LIVE (DB only)
 
 David flagged it as serious. SELECT policies `USING (true)` for `authenticated` let EVERY customer account read:
