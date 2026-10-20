@@ -1,6 +1,6 @@
 # WashRoute — Project Notes
 
-## Session 352 — Oct 20, 2026: closed 6 public-endpoint holes from the safety check — functions LIVE, admin needs push, 352b pending
+## Session 352 — Oct 20, 2026: closed 6 public-endpoint holes from the safety check — ALL LIVE (admin pushed aab7a36, 352b applied)
 
 From the Oct 19 safety check (edge functions with verify_jwt=false and no auth in code). David: "fix items 1-6".
 1. **square-labor** (every employee's name/title/hours to anyone) → v30 requires a signed-in admin/manager/cpa
@@ -12,8 +12,10 @@ From the Oct 19 safety check (edge functions with verify_jwt=false and no auth i
    Admin "Assign plan" sends the session token (was the anon key) — broken until the admin push.
 3. **receive-email** (SendGrid inbound, no signature; unused — Gmail sync replaced it) → 410 stub.
 4. **klaviyo-subscribe** (anyone → marketing list; Klaviyo retired Oct 5) → 410 stub.
-5. **Printer token**: `get_printer_token()` RPC (352a, applied); admin `loadSettings` uses it. **352b (hide the
-   column from `authenticated`) runs only after the admin push is live.**
+5. **Printer token**: `get_printer_token()` RPC (352a, applied); admin `loadSettings` uses it. 352b applied
+   Oct 20 after the push: `authenticated` has column-level SELECT on settings WITHOUT printer_token — **a new settings
+   column must be added to that grant to be readable by logged-in users.** Verified live: admin settings/reports/
+   bookkeeping reads OK, RPC returns the token; customer/driver/POS blocked from the token, tax-rate read OK.
 6. **Old functions** send-order-notification-debug, backfill-stripe-ids, geocode-addresses → 410 stubs (create-test-user,
    diag-schema-check, diag-paypal2, sync-stripe-customer-email already were). No callers in apps/cron/DB; 0 calls in 24h.
    The MCP has no delete — full delete is `npx -y supabase@latest functions delete <name> --project-ref umjpbuxrdydwejqtensq`.

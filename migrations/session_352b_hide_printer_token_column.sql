@@ -1,4 +1,4 @@
--- Session 352b (2026-10-20). Apply ONLY after the admin dashboard that uses
+-- Session 352b (2026-10-20) — APPLIED after admin push aab7a36.
 -- get_printer_token() (session 352) is live — the old loadSettings() selects
 -- printer_token directly and would fail as a whole once this runs.
 --
