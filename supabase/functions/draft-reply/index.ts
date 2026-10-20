@@ -109,6 +109,14 @@ function detectIntent(msg: string): string {
 
   // reschedule_request: explicit move/change verb required.
   if (/reschedule|postpone|move (my|the).*(pickup|delivery|order)|change (my|the).*(pickup|delivery|order|time|date|day)|different (day|time) for (my|the)|push (my|the).*(pickup|delivery)/.test(m)) return 'reschedule_request';
+  // session 349: "change delivery to tomorrow instead of today" fell through to
+  // 'general' (no "my/the"), so the draft hedged and asked the customer to
+  // confirm what she had just asked for. Also catch a bare "change delivery"
+  // and "<leg> ... instead" phrasings. Drafts are admin-reviewed and the
+  // agent dry-runs before proposing, so a near-miss costs a reworded draft.
+  // Guard (corpus replay, 120 days): "two bags instead of one" and a weight
+  // question matched the "instead" form but aren't date moves.
+  if (!/bags? instead|instead of (?:one|two|three|\d)\b|weigh/.test(m) && /\bchange (?:our )?(?:pickup|pick up|delivery|drop ?off)\b|\b(?:deliver|delivery|drop ?off|pickup|pick up)\b.*\binstead\b|\binstead of\b.*\b(?:deliver|delivery|drop ?off|pickup|pick up)\b/.test(m)) return 'reschedule_request';
 
   return 'general';
 }
@@ -130,6 +138,25 @@ function fmtDate(d: string): string {
   if (!d) return '';
   try { return new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ }); }
   catch { return ''; }
+}
+
+// session 349: the agent was handed raw UTC timestamps, so a 6–8 pm delivery
+// read as "tomorrow 01:00" — wrong day AND wrong window. Give it Pacific text.
+function ptLeg(s: string, e: string): string | null {
+  if (!s || !e) return null;
+  try {
+    const d = new Date(s);
+    const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+    const ymd = d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const hr = parseInt(d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: BIZ_TZ }), 10);
+    const label = hr < 12 ? 'AM' : hr < 17 ? 'PM' : 'evening';
+    return `${ymd} (${day}), ${fmtWindow(s, e)} — window ${label}`;
+  } catch { return null; }
+}
+
+// Model rationales occasionally leak tool-call markup ("</anionale></invoke>").
+function cleanRationale(r: any): string {
+  return String(r || '').split('<')[0].trim();
 }
 
 function fmtWindow(s: string, e: string): string {
@@ -509,6 +536,8 @@ async function resolveAgentAction(
       pickup_window_end:     o.pickup_window_end,
       delivery_window_start: o.delivery_window_start,
       delivery_window_end:   o.delivery_window_end,
+      current_pickup_pacific:   ptLeg(o.pickup_window_start, o.pickup_window_end),
+      current_delivery_pacific: ptLeg(o.delivery_window_start, o.delivery_window_end),
       bags:                  o.total_bags,
       recurring:             !!o.recurring_interval,
     }));
@@ -617,6 +646,10 @@ The user message lists the customer's zone's available pickup windows. You MUST 
 - pickup leg can only be moved while the order status is 'scheduled'.
 - delivery leg can be moved through 'ready_for_delivery'.
 - If two or more active orders match the customer's reference equally well, decline.
+- Read the order's CURRENT day and time ONLY from current_pickup_pacific / current_delivery_pacific. The *_window_start/_end fields are UTC — an evening window shows the next calendar day there. Never derive a day from them.
+- SAME TIME FRAME: when the customer asks to move a leg to another day and does not name a time, keep the window it is in now. "Tomorrow instead of today" for a delivery currently in the evening window → tomorrow, evening. Only change the window if the customer asks for a different time of day.
+- Honor the exact day asked for. "Tomorrow" means today + 1 day — never substitute a later day.
+- Turnaround only limits how SOON delivery can follow pickup. Moving a delivery LATER than it is now never breaks turnaround, so never use turnaround as a reason to pick a different date for a later delivery.
 
 ## You do NOT write the confirmation message
 
@@ -647,6 +680,15 @@ Example B — reschedule with single clear target:
   → Tool: reschedule_order {
       order_id: "<#3850 uuid>", leg: "pickup", new_date: "<Friday>", new_window: "AM",
       rationale: "Move scheduled Wed AM pickup to Fri AM as requested."
+    }
+
+Example B2 — move delivery to the next day (same time frame):
+  Today: 2026-10-20 (Tue). Active order #17959, status ready_for_delivery,
+  current_delivery_pacific: "2026-10-20 (Tue, Oct 20), 6 pm–8 pm — window evening".
+  Customer: "Is it possible to change delivery to tomorrow instead of today?"
+  → Tool: reschedule_order {
+      order_id: "<#17959 uuid>", leg: "delivery", new_date: "2026-10-21", new_window: "evening",
+      rationale: "Move today's evening delivery to tomorrow evening, same time frame, as requested."
     }
 
 Example C — ambiguous, decline:
@@ -752,7 +794,7 @@ Propose at most one action by calling a tool, applying defaults where appropriat
         bags:                args.bags,
         same_day_delivery:   !!args.same_day_delivery,
         notes:               args.notes || null,
-        rationale:           args.rationale || '',
+        rationale:           cleanRationale(args.rationale),
         delivery_date:       deliveryDate,
         delivery_window:     deliveryWindow,
         delivery_preference: (args.delivery_preference || '').trim(),
@@ -771,7 +813,7 @@ Propose at most one action by calling a tool, applying defaults where appropriat
         leg:          args.leg,
         new_date:     args.new_date,
         new_window:   args.new_window,
-        rationale:    args.rationale || '',
+        rationale:    cleanRationale(args.rationale),
         // confirmation_draft built by server after dry-run, see below.
       };
     } else {
@@ -1051,7 +1093,9 @@ Deno.serve(async (req: Request) => {
     const systemPrompt = `You are a writing assistant for Family Laundry, a laundry pickup and delivery service in the East Bay. You help the admin team compose SMS replies to customers.
 
 Voice and style rules:
-- SHORT: 1 to 3 sentences maximum.
+- SHORT: 1 to 2 sentences. Aim for one text message — under 160 characters whenever possible.
+- Never make the customer ask twice. If they have clearly asked for something (move a delivery, skip, add a bag), do not reply "just let us know" or ask them to confirm it again. Acknowledge it plainly; if a team member still has to confirm details, say that in a few words. Still never promise a date or time that is not in the order data.
+- Don't restate what the customer already knows (e.g. their current time) unless it is needed to answer.
 - Use the customer's first name at the start if you have it.
 - Direct and specific — always include actual dates, times, or amounts when available from the order data.
 - Subdued and professional. Warm without being effusive.
