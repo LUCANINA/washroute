@@ -2500,11 +2500,72 @@ function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
 function orderChargedTotal(o) {
   const sub = Number(o?.total_amount || 0);
   const tip = Number(o?.tip_amount || 0);
-  if (!tip) return Math.round(sub * 100) / 100;
+  // Session 2026-10-20: net out account credit (Madeline Zepeda #17988 saw
+  // $79.95 with no credit after booking and thought her $20 had vanished).
+  const cr  = orderCreditInfo(o).amount;
+  if (!tip) return Math.round((sub - cr) * 100) / 100;
   const tipDol = (o.tip_type === 'pct')
     ? Math.round(sub * tip) / 100
     : Math.round(tip * 100) / 100;
-  return Math.round((sub + tipDol) * 100) / 100;
+  return Math.round((sub - cr + tipDol) * 100) / 100;
+}
+// Account credit on an order, mirroring charge-order v34: credit comes off the
+// PRE-TIP total_amount, capped at that total; the tip is never reduced (and a %
+// tip is still figured on the pre-credit total). Display only — billing decides.
+//   • Billed orders: the credit_use ledger rows for that order (loaded by
+//     loadOrderCreditUse). billing_notes ("$20.00 credit applied") is only a
+//     fallback — just 211 of 1,492 credit uses carry it.
+//   • Not-yet-billed orders: preview from the customer's current balance. The
+//     balance is spent by whichever open order bills first, so it is walked
+//     across known open orders in pickup order — never shown twice.
+//   • on_account customers are invoiced and never go through charge-order.
+// Returns { amount, pending }.
+// One small query for this customer's credit_use rows → { order_id: dollars }.
+// Never throws: on failure the totals just fall back to billing_notes.
+async function loadOrderCreditUse() {
+  if (!currentCustomer?.id) return;
+  try {
+    const { data, error } = await db.from('customer_transactions')
+      .select('order_id, amount')
+      .eq('customer_id', currentCustomer.id)
+      .eq('type', 'credit_use')
+      .not('order_id', 'is', null);
+    if (error) throw error;
+    const map = {};
+    (data || []).forEach(r => { map[r.order_id] = Math.round(((map[r.order_id] || 0) + Number(r.amount || 0)) * 100) / 100; });
+    window._orderCreditUsed = map;
+  } catch (e) { console.warn('loadOrderCreditUse:', e); }
+}
+function orderIsCreditPending(o) {
+  if (!o || currentCustomer?.billing_type === 'on_account') return false;
+  if (['cancelled', 'skipped', 'pickup_failed', 'delivery_failed'].includes(o.status)) return false;
+  if (o.billing_status === 'paid' || o.billing_status === 'written_off' || o.stripe_payment_intent_id) return false;
+  return Number(o.total_amount || 0) > 0;
+}
+function orderCreditInfo(o) {
+  if (!o) return { amount: 0, pending: false };
+  if (o.billing_status === 'paid') {
+    const used = window._orderCreditUsed?.[o.id];
+    if (used != null) return { amount: used > 0 ? used : 0, pending: false };
+    const m = /\$([\d,]+(?:\.\d+)?) credit applied/.exec(o.billing_notes || '');
+    const amt = m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+    return { amount: amt > 0 ? amt : 0, pending: false };
+  }
+  const bal = Math.max(0, parseFloat(currentCustomer?.credits || 0));
+  if (!(bal > 0) || !orderIsCreditPending(o)) return { amount: 0, pending: false };
+  const byId = new Map();
+  [...(window._cachedOrders || []), ...(window._homeActiveOrders || [])].forEach(x => { if (x?.id) byId.set(x.id, x); });
+  byId.set(o.id, o);
+  const pool = [...byId.values()].filter(orderIsCreditPending).sort((a, b) =>
+    String(a.pickup_window_start || a.created_at || '').localeCompare(String(b.pickup_window_start || b.created_at || '')));
+  let left = bal;
+  for (const x of pool) {
+    const use = Math.round(Math.min(left, Number(x.total_amount || 0)) * 100) / 100;
+    if (x.id === o.id) return { amount: use, pending: use > 0 };
+    left = Math.round((left - use) * 100) / 100;
+    if (left <= 0) break;
+  }
+  return { amount: 0, pending: false };
 }
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ }) : '—'; }
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:BIZ_TZ}).toLowerCase() : ''; }
@@ -3936,13 +3997,17 @@ async function loadHome() {
 
   if (!currentCustomer) { renderNoActive(); return; }
   try {
-    const { data: orders, error } = await db.from('orders')
-      .select('*, services(name)')
-      .eq('customer_id', currentCustomer.id)
-      .in('status', ['scheduled','picked_up','processing','ready_for_delivery','out_for_delivery'])
-      .order('pickup_window_start', { ascending: true });
+    const [{ data: orders, error }] = await Promise.all([
+      db.from('orders')
+        .select('*, services(name)')
+        .eq('customer_id', currentCustomer.id)
+        .in('status', ['scheduled','picked_up','processing','ready_for_delivery','out_for_delivery'])
+        .order('pickup_window_start', { ascending: true }),
+      loadOrderCreditUse(),
+    ]);
     if (error) throw error;
     const active = orders || [];
+    window._homeActiveOrders = active;
     if (!active.length) { renderNoActive(); return; }
     document.getElementById('home-active').innerHTML = active.map(o => buildActiveCard(o)).join('');
   } catch (err) {
@@ -6479,10 +6544,13 @@ async function loadOrders() {
   }
   el.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
 
-  const { data } = await db.from('orders')
-    .select('*, services(name)')
-    .eq('customer_id', currentCustomer.id)
-    .order('created_at', { ascending: false });
+  const [{ data }] = await Promise.all([
+    db.from('orders')
+      .select('*, services(name)')
+      .eq('customer_id', currentCustomer.id)
+      .order('created_at', { ascending: false }),
+    loadOrderCreditUse(),
+  ]);
 
   window._cachedOrders = data || [];
   // Reset to current tab when loading fresh
@@ -6510,6 +6578,8 @@ async function loadOrders() {
             loadOrders(); return;
           }
           renderOrdersList(window._cachedOrders);
+          // Just billed → pull the credit_use row so the card shows the net charge
+          if (updated.billing_status === 'paid') loadOrderCreditUse().then(() => renderOrdersList(window._cachedOrders || []));
         }
         // If the detail screen is open for this order, re-render it with fresh data
         const detailActive = document.getElementById('screen-detail')?.classList.contains('active');
@@ -6527,7 +6597,10 @@ async function loadOrders() {
 /* ── ORDER DETAIL ── */
 async function openDetail(orderId) {
   showScreen('detail');
-  const { data: o } = await db.from('orders').select('*, services(name), pickup_address:addresses!pickup_address_id(*), delivery_address:addresses!delivery_address_id(*)').eq('id', orderId).single();
+  const [{ data: o }] = await Promise.all([
+    db.from('orders').select('*, services(name), pickup_address:addresses!pickup_address_id(*), delivery_address:addresses!delivery_address_id(*)').eq('id', orderId).single(),
+    loadOrderCreditUse(),
+  ]);
   if (!o) { toast('Order not found'); return; }
   window._currentDetailOrder = o; // cache for edit modal
 
@@ -6565,6 +6638,7 @@ async function openDetail(orderId) {
     <div class="d-row"><span class="d-key">Delivery</span><span class="d-val">${deliveryDisplay}</span></div>
     ${!sameAddr && dAddr ? `<div class="d-row"><span class="d-key">Delivery address</span><span class="d-val" style="font-size:14px">${escHtml(fmtAddrOneLiner(dAddr))}<br><span style="font-size:12px;color:var(--gray-400);font-weight:400">Updated by your service team · SMS us to change</span></span></div>` : ''}
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${escHtml(o.special_instructions)}</span></div>` : ''}
+    ${(() => { const ci = orderCreditInfo(o); if (!(ci.amount > 0)) return ''; return `<div class="d-row"><span class="d-key" style="color:var(--green);font-weight:600">Account credit${ci.pending ? '<br><span style="font-size:12px;color:var(--gray-400);font-weight:400">Applied when we bill</span>' : ''}</span><span class="d-val" style="color:var(--green);font-weight:600">−${$m(ci.amount)}</span></div>`; })()}
     ${(() => { const ta = parseFloat(o.tip_amount || 0); if (ta <= 0) return ''; const td = o.tip_type === 'pct' ? Math.round(Number(o.total_amount || 0) * ta) / 100 : ta; const tl = o.tip_type === 'pct' ? `Team Tip (${ta}%)` : 'Team Tip'; return `<div class="d-row"><span class="d-key">${tl}</span><span class="d-val" style="color:var(--green);font-weight:600">+${$m(td)}</span></div>`; })()}
     <div class="d-row"><span class="d-key" style="font-weight:700;font-size:16px">Total</span><span class="d-val" style="font-size:19px;font-weight:800;color:var(--navy)">${(() => {
       // Session 167: for subscriber orders, total is always known (base $0 + any overage), even when 0.
@@ -6572,7 +6646,7 @@ async function openDetail(orderId) {
       const isSub = o.subscription_id || o.is_subscription_order;
       const ta = parseFloat(o.tip_amount || 0);
       const td = ta > 0 ? (o.tip_type === 'pct' ? Math.round(Number(o.total_amount || 0) * ta) / 100 : ta) : 0;
-      const ttl = Number(o.total_amount || 0) + td;
+      const ttl = Math.round((Number(o.total_amount || 0) - orderCreditInfo(o).amount + td) * 100) / 100;
       if (isSub) return ttl === 0 ? '$0.00' : $m(ttl);
       return o.total_amount ? $m(ttl) : 'Confirmed at pickup';
     })()}</span></div>`;
