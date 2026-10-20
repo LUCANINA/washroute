@@ -341,7 +341,7 @@ async function handlePickup(
       `orders?customer_id=eq.${customerId}&status=eq.delivered&order=created_at.desc&limit=1` +
       `&select=zone_id,pickup_address_id,delivery_address_id,service_id,total_bags`
     ),
-    dbGet(`customers?id=eq.${customerId}&select=pricelist,route_template_override_id&limit=1`),
+    dbGet(`customers?id=eq.${customerId}&select=pricelist&limit=1`),
     dbGet(`services?is_active=eq.true&is_addon=eq.false&order=sort_order.asc&select=id,pricelist`),
     dbGet('holidays?select=holiday_date'),
     // Last 6 real bookings — used to find the customer's usual pickup time.
@@ -421,7 +421,10 @@ async function handlePickup(
   // before it ENDS). If the customer has a usual pickup time we book the earliest
   // open slot at that time; otherwise the earliest open slot, tonight included.
   const holidaySet = new Set((Array.isArray(holRows) ? holRows : []).map((h: { holiday_date: string }) => h.holiday_date));
-  const overrideId: string | null = (Array.isArray(custRows) ? custRows[0]?.route_template_override_id : null) || null;
+  // Session 354: the route override belongs to the pickup ADDRESS (it used to be the
+  // customer, which forced every address onto one route).
+  const ovRows = pickupAddrId ? await dbGet(`addresses?id=eq.${pickupAddrId}&select=route_template_override_id&limit=1`) : null;
+  const overrideId: string | null = (Array.isArray(ovRows) ? ovRows[0]?.route_template_override_id : null) || null;
 
   const tmplRows = await dbGet(
     `route_templates?is_active=eq.true&` +
@@ -444,7 +447,7 @@ async function handlePickup(
     fetch(`${SUPABASE_URL}/rest/v1/rpc/get_slot_availability`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${SUPABASE_SVC_KEY}`, apikey: SUPABASE_SVC_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ p_zone_id: zoneId, p_date: dt.date, p_customer_id: customerId }),
+      body: JSON.stringify({ p_zone_id: zoneId, p_date: dt.date, p_customer_id: customerId, p_address_id: pickupAddrId }),
     }).then(r => r.ok ? r.json() : []).catch(() => [])
   ));
 

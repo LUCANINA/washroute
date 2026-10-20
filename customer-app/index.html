@@ -2572,11 +2572,11 @@ function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', mo
 // Returns the next day that has an active route running, starting from day after pickup.
 // Queries route_templates for the given zone (or all zones if no zoneId).
 // JS weekday: 0=Sun … 6=Sat → ISO weekday: 0=Mon … 6=Sun via (jsDay + 6) % 7
-async function getNextDeliveryDay(afterDateOrStr, zoneId) {
+async function getNextDeliveryDay(afterDateOrStr, zoneId, addrId) {
   let validDays = null;
   try {
     let q = db.from('route_templates').select('schedule_days').eq('is_active', true);
-    if (zoneId) q = _scopeRouteTemplateQuery(q, zoneId);
+    if (zoneId) q = _scopeRouteTemplateQuery(q, zoneId, addrId);
     const { data: templates } = await q;
     if (templates?.length) {
       validDays = new Set(templates.flatMap(t => t.schedule_days || []));
@@ -4587,8 +4587,31 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
 // customer-facing slot list; pass p_customer_id through to
 // get_slot_availability / get_nearest_available_slots so the DB applies the
 // same precedence server-side.
-function _scopeRouteTemplateQuery(query, zoneId) {
-  const overrideId = currentCustomer?.route_template_override_id;
+//
+// Session 354: the override now lives on each ADDRESS (it used to be on the
+// customer, which forced every address onto one route). addrId:
+//   a saved address id → that address's override
+//   null               → no saved address (new, unsaved) → zone-based
+//   undefined          → caller doesn't know → the default address, exactly like
+//                        route_override_for() in the DB
+function _defaultAddrId() {
+  const list = _savedAddresses || [];
+  return (list.find(a => a.is_default) || list[list.length - 1] || {}).id || null;
+}
+function _routeOverrideFor(addrId) {
+  const id = addrId === undefined ? _defaultAddrId() : addrId;
+  if (!id) return null;
+  return ((_savedAddresses || []).find(a => a.id === id) || {}).route_template_override_id || null;
+}
+// RPC args that make get_slot_availability / get_nearest_available_slots apply
+// the same per-address override server-side.
+function _overrideRpcArgs(addrId) {
+  const id = addrId === undefined ? _defaultAddrId() : addrId;
+  return id ? { p_customer_id: currentCustomer?.id || null, p_address_id: id }
+            : { p_customer_id: null, p_address_id: null };
+}
+function _scopeRouteTemplateQuery(query, zoneId, addrId) {
+  const overrideId = _routeOverrideFor(addrId);
   return overrideId ? query.eq('id', overrideId) : query.eq('zone_id', zoneId);
 }
 
@@ -4614,9 +4637,10 @@ async function fetchWindowsForDate(iso) {
         .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
         .eq('is_active', true)
         .contains('schedule_days', [isoDay]),
-      draft.zoneId
+      draft.zoneId,
+      draft.addressId || null
     ),
-    db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: iso, p_customer_id: currentCustomer?.id || null })
+    db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: iso, ..._overrideRpcArgs(draft.addressId || null) })
   ]);
 
   const templates = tmplRes.data;
@@ -5075,7 +5099,7 @@ async function _renderAltSlotsInto(which, hostEl) {
       p_stop_type: which,
       p_limit: 3,
       p_day_radius: 3,
-      p_customer_id: currentCustomer?.id || null,
+      ..._overrideRpcArgs(which === 'delivery' ? (draft.deliveryAddressId || draft.addressId || null) : (draft.addressId || null)),
     });
     const row = document.getElementById(rowId);
     // Bail if the row was removed or replaced since we kicked off the request.
@@ -5235,7 +5259,7 @@ async function _updateSchedDelivery() {
   let deliveryDays = null;
   try {
     let q = db.from('route_templates').select('turnaround_days, schedule_days').eq('is_active', true);
-    if (draft.zoneId) q = _scopeRouteTemplateQuery(q, draft.zoneId);
+    if (draft.zoneId) q = _scopeRouteTemplateQuery(q, draft.zoneId, draft.deliveryAddressId || draft.addressId || null);
     const { data: templates } = await q;
     if (templates?.length) {
       const t = templates.find(r => r.turnaround_days > 0);
@@ -5306,7 +5330,7 @@ async function _fetchDeliveryCapacity() {
     return;
   }
   try {
-    const { data } = await db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: draft.deliveryDate, p_customer_id: currentCustomer?.id || null });
+    const { data } = await db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: draft.deliveryDate, ..._overrideRpcArgs(draft.deliveryAddressId || draft.addressId || null) });
     const capMap = {};
     (data || []).forEach(row => { capMap[`${row.template_id}|${row.sub_window_start}`] = { activeStops: Number(row.active_stops), subWindowLimit: row.sub_window_limit }; });
     // Clone availableWindows with delivery-date per-sub-window capacity
@@ -5348,7 +5372,8 @@ async function _checkSameDayAvailable() {
       .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
       .eq('is_active', true)
       .contains('schedule_days', [isoDay]),
-    draft.zoneId
+    draft.zoneId,
+    draft.deliveryAddressId || draft.addressId || null   // same-day = the delivery leg
   );
 
   if (!templates?.length) return [];
@@ -6022,7 +6047,7 @@ async function placeOrder() {
   // Same-day: delivery is same day. Otherwise use chosen date or fallback calculation.
   let deliveryDate = draft.isSameDay
     ? pickupDate
-    : (draft.deliveryDate || await getNextDeliveryDay(pickupDate, draft.zoneId));
+    : (draft.deliveryDate || await getNextDeliveryDay(pickupDate, draft.zoneId, draft.deliveryAddressId || draft.addressId || null));
 
   // Build line_items from prefs
   // session 140 pt 3: each line_item carries a per-row taxable: bool snapshot
@@ -6217,7 +6242,7 @@ async function placeOrder() {
   // another day without losing "same-day"); they already block with a clear toast.
   if (!draft.isSameDay && pw?.slotStart && _delivStart
       && new Date(_delivStart).getTime() <= new Date(pw.slotStart).getTime()) {
-    const fixedDate = await getNextDeliveryDay(pickupDate, draft.zoneId);
+    const fixedDate = await getNextDeliveryDay(pickupDate, draft.zoneId, draft.deliveryAddressId || draft.addressId || null);
     if (fixedDate) {
       const dw = _effectiveDW || pw;
       deliveryDate = fixedDate;
@@ -6521,7 +6546,7 @@ async function openDetail(orderId) {
   if (o.delivery_window_start) {
     deliveryDisplay = fmtDate(o.delivery_window_start) + (o.delivery_window_end ? ' · ' + fmtSlot(o.delivery_window_start, o.delivery_window_end) : '');
   } else if (o.pickup_window_start) {
-    const nextDay = await getNextDeliveryDay(o.pickup_window_start, o.zone_id || null);
+    const nextDay = await getNextDeliveryDay(o.pickup_window_start, o.zone_id || null, o.delivery_address_id || o.pickup_address_id || undefined);
     deliveryDisplay = fmtDate(nextDay);
   }
 
@@ -7120,6 +7145,8 @@ async function checkAddressWithCoords(lat, lng, displayAddr) {
 
 /* ── ORDER EDITING ── */
 async function openEditOrder() {
+  // Session 354: route overrides are per address — make sure they're loaded.
+  if (!_savedAddresses.length) { try { await loadAddresses(); } catch (e) { console.warn('[openEditOrder] addresses', e); } }
   const o = window._currentDetailOrder;
   if (!o) return;
   const existing = document.getElementById('edit-order-modal');
@@ -7621,7 +7648,8 @@ async function fetchEditWindows(iso) {
     db.from('route_templates')
       .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes')
       .eq('is_active', true).contains('schedule_days', [isoDay]),
-    es.zoneId
+    es.zoneId,
+    window._editPickupAddressId || undefined
   );
   if (!templates?.length) return;
   const windows = [];
@@ -7650,7 +7678,7 @@ async function _computeEditDeliveryOptions() {
   let turnaround = 2, deliveryDays = null;
   try {
     let q = db.from('route_templates').select('turnaround_days, schedule_days').eq('is_active', true);
-    if (es.zoneId) q = _scopeRouteTemplateQuery(q, es.zoneId);
+    if (es.zoneId) q = _scopeRouteTemplateQuery(q, es.zoneId, window._editDeliveryAddressId || window._editPickupAddressId || undefined);
     const { data: templates } = await q;
     if (templates?.length) {
       const t = templates.find(r => r.turnaround_days > 0);

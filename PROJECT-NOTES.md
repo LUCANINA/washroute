@@ -1,5 +1,18 @@
 # WashRoute — Project Notes
 
+## Session 354 — Oct 20, 2026: Route override is now PER ADDRESS — DB LIVE (354a), apps pushed, Maya + twilio-webhook need CLI deploy
+
+**Bug (admins):** route override lived on the customer, so a customer with 2 addresses had BOTH forced onto the override route.
+**Fix:** `addresses.route_template_override_id` (migration `session_354a_address_route_override.sql`, applied by David in the SQL editor; rollback `session_354a_ROLLBACK.sql`, function snapshot in `_archive.fn_snapshot_354a`).
+- `route_override_for(customer, address)` — address's override; no address → default address (old callers keep today's behaviour).
+- 7 DB readers rewritten: `auto_route_order` (pickup leg = pickup address, delivery leg = delivery address), `trg_auto_route_new_order`, `sync_pickup/delivery_stop_on_window_change`, `trg_create_recurring_order_fn`, `get_slot_availability` + `get_nearest_available_slots` (new optional `p_address_id`).
+- `trg_enforce_protected_address_columns`: customers can't set/change it (silently kept); staff can. Tested both with mock JWTs (rolled back).
+- Backfill: all 86 addresses of the 83 override customers inherited the customer value → replay of 8,270 orders (120 days): 0 pickup / 0 delivery differences.
+- Admin: dropdown moved from Settings tab to each address's Edit form; "Forced route: X" pill on the card. Customer app, admin new-order + route picker, Maya (`booking.ts`, `index.ts`), twilio-webhook all read the address's override.
+- `customers.route_template_override_id` is DEPRECATED (unread by routing, kept for rollback). Drop in a later session.
+- **TODO admins:** clear the override on the wrong address for Emily Buddeke, Angela Hobson, Ellie Johnson (only multi-address override customers).
+- **Known gap:** Maya's "later delivery" (`laterDelivery`) still uses the default address's override.
+
 ## Session 353 — Oct 20, 2026: Retail team POS feedback — splits, edit after intake, discount picker, receipt credit — DB LIVE, POS NOT YET PUSHED
 
 Retail (Foothill) reported: can't split an order between launderers; can't edit an order once logged; customer discounts not applied.
