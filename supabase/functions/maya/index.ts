@@ -11,6 +11,7 @@
 //   POST /maya/tool/account x-maya-token + X-Retell-Signature → caller's pickups/orders, ONLY after
 //                                                they confirm their street name (caller ID can be spoofed)
 //   POST /maya/tool/{find_times,check_address,book,skip,reschedule,cancel,notes,card_link}  same checks → phone booking (phase 3)
+//   POST /maya/tool/dropoff  same checks → is a laundromat drop-off order ready (caller ID match or order number; read-only)
 //   POST /maya/transcripts x-maya-admin, body {since_hours?} → recent calls with full transcripts (read-only; daily review)
 //   POST /maya/admin-tool  x-maya-admin → run a booking tool as a given caller number, ALWAYS dry-run (tests)
 //
@@ -245,7 +246,7 @@ async function accountLookup(call: any, args: any) {
   if (v.fail) return { verified: false, ...v.fail };
   const c = v.c;
 
-  const orders: any[] = await db(`orders?customer_id=eq.${c.id}&archived_at=is.null&status=in.(${OPEN.join(',')})` +
+  const orders: any[] = await db(`orders?customer_id=eq.${c.id}&archived_at=is.null&source=neq.walk_in&status=in.(${OPEN.join(',')})` +
     `&select=order_number,status,pickup_window_start,pickup_window_end,delivery_window_start,delivery_window_end,is_same_day,recurring_interval&order=pickup_window_start.asc&limit=6`);
   const last: any[] = await db(`orders?customer_id=eq.${c.id}&status=eq.delivered&select=actual_delivery_at,delivery_window_start&order=actual_delivery_at.desc.nullslast&limit=1`);
   // Order history predates the orders table (Starchup) — use the later of the two (CLAUDE.md rule).
@@ -257,7 +258,7 @@ async function accountLookup(call: any, args: any) {
       case 'scheduled': return `Pickup scheduled ${p}${o.delivery_window_start ? `; delivery ${d}` : ''}${o.is_same_day ? ' (same-day)' : ''}${o.recurring_interval ? ` (repeats ${o.recurring_interval})` : ''}.`;
       case 'processing': return `Picked up; being washed now. Delivery ${d}.`;
       case 'ready_for_delivery': return `Clean and ready; delivery ${d}.`;
-      case 'pickup_failed': return `Pickup on ${p} was missed. The team needs to follow up — take a message and mark it urgent.`;
+      case 'pickup_failed': return `Pickup on ${p} was missed. Offer to book a new pickup now (find_pickup_times, then book_pickup), and take a short message marked urgent.`;
       case 'delivery_failed': return `Delivery on ${d} did not go through. The team needs to follow up — take a message and mark it urgent.`;
       default: return `An order is on hold. The team needs to follow up — take a message.`;
     }
@@ -745,7 +746,47 @@ async function toolServiceArea(_call: any, a: any) {
   return yes(key, zoneFor(key, c.zone));
 }
 
+// Drop-off (walk-in) orders at the laundromat: is it ready? (David, 2026-10-19 — 3 of 5 calls on Oct 18 were
+// drop-off customers stuck at the street check: walk-in customers have no address on file, and 347 of 557
+// recent walk-ins have no customer at all.) Check: the caller's number matches the order's customer, OR they
+// say the order number from their receipt / "thanks for dropping off" text. Shares ONLY ready / not ready /
+// already picked up — never amounts, items or names. Read-only.
+const DROPOFF_FIELDS = 'order_number,status,customer_id,created_at,ready_for_delivery_at,actual_delivery_at';
+function dropoffLine(o: any): string {
+  const n = `Order ${o.order_number}`;
+  switch (o.status) {
+    case 'ready_for_delivery': return `${n}: clean and READY for pickup at the laundromat.`;
+    case 'delivered': return `${n}: already picked up${o.actual_delivery_at ? ' on ' + ptDay(o.actual_delivery_at) : ''}.`;
+    case 'processing': case 'folding': case 'picked_up':
+      return `${n}: dropped off ${ptDay(o.created_at)}, still being washed. Not ready yet.`;
+    default: return `${n}: the team needs to check this one. Take a message.`;
+  }
+}
+async function toolDropoff(call: any, a: any) {
+  const num = String(a?.order_number ?? '').replace(/\D/g, '').slice(0, 9); // digits only: safe in the PostgREST path
+  const c = await customerByPhone(call?.from_number);
+  const after = 'Say it simply. If it is not ready, add that we text them as soon as it is. Get hours from get_business_info if they ask. Never mention prices or amounts.';
+  if (num) {
+    const rows: any[] = await db(`orders?order_number=eq.${num}&source=eq.walk_in&archived_at=is.null&select=${DROPOFF_FIELDS}&limit=1`);
+    const o = rows?.[0];
+    if (!o) return { ok: false, found: false, say: "I couldn't find a drop-off order with that number. Ask them to read it again from their receipt or text, one digit at a time. If it still isn't found, take a message." };
+    console.log(`maya: dropoff ${call?.call_id} order=#${o.order_number} phone_match=${!!(c && c.id === o.customer_id)}`);
+    return { ok: true, orders: [dropoffLine(o)], say: after };
+  }
+  if (!c || c.cancelled_at) return { ok: false, needs_order_number: true,
+    say: "I can't match the number they're calling from. Ask for the order number on their drop-off receipt or text, then call check_dropoff_order again with it. If they don't have it, take a message." };
+  const rows: any[] = await db(`orders?customer_id=eq.${c.id}&source=eq.walk_in&archived_at=is.null` +
+    `&created_at=gte.${new Date(Date.now() - 14 * 86_400_000).toISOString()}&select=${DROPOFF_FIELDS}&order=created_at.desc&limit=5`);
+  // Open ones first; a recent pickup only if nothing is open (so "already picked up" can answer the question).
+  const open = (rows || []).filter((o) => o.status !== 'delivered' && o.status !== 'cancelled');
+  const shown = open.length ? open : (rows || []).slice(0, 1);
+  console.log(`maya: dropoff ${call?.call_id} customer=${c.id} open=${open.length}`);
+  if (!shown.length) return { ok: true, orders: [], say: "No recent drop-off order on this number. Ask for the order number on their receipt or text and call check_dropoff_order again. If they don't have it, take a message." };
+  return { ok: true, orders: shown.map(dropoffLine), say: after };
+}
+
 const BOOKING_TOOLS: Record<string, (call: any, a: any, live: boolean) => Promise<any>> = {
+  dropoff: (c, a) => toolDropoff(c, a),
   find_times: (c, a) => toolFindTimes(c, a), check_address: (c, a) => toolCheckAddress(c, a),
   book: toolBook, skip: toolSkip, reschedule: toolReschedule, cancel: toolCancel, notes: toolDeliveryNotes,
   card_link: toolCardLink,
@@ -835,6 +876,10 @@ const PROMPT = `You are Maya, the phone assistant for Family Laundry, a family-r
 - Unknown callers: you can't look up an account. Answer general questions and take a message.
 - If someone calls for another person (a parent, an employer), don't share that person's account details; take a message.
 - Don't do the security check just to take a message. If the caller only wants to report a problem, question a charge, or reach the team, skip it and take the message.
+- If you can't find the account from the number they're calling from, ask for their name and best callback number first, then what it's about.
+- If a caller asks where the driver is, say: "Your pickup window is [their window]. We text you when the driver is on the way, and they arrive within about 15 minutes of that text." Don't guess a time.
+- Laundry dropped off at our laundromat (Sudzee): don't ask for the street name. Call check_dropoff_order right away (with the order number if they said it) and tell them what it returns. Drop-off customers usually have no address with us.
+  If you're not sure whether they mean a drop-off or a pickup, ask once: "Did you drop it off at our laundromat, or did a driver pick it up?"
 
 ## FAQ answers that mean something different on this call
 - If an FAQ answer says to call us, leave a voicemail or leave a message, that's you: take the message yourself. Never tell a caller to call this number.
@@ -872,6 +917,7 @@ Share these only when asked, one or two sentences at a time, warmly. Then offer 
 
 ## What you can do on this call
 - Answer questions, take messages, and tell a VERIFIED known caller about their pickups and orders.
+- Tell a caller whether laundry they dropped off at the laundromat is ready (check_dropoff_order). Don't take a message for it unless the tool says to.
 - Book a pickup (known callers and new callers), skip a pickup, move a pickup to another time, or cancel pickups (including stopping a repeating schedule).
 - Bring an order back later than usual, on another day and/or at another time, if the caller asks and that time has room.
 - Save delivery notes for the driver (gate code, call on arrival, where to leave the bags) on a VERIFIED known caller's address.
@@ -897,6 +943,8 @@ Share these only when asked, one or two sentences at a time, warmly. Then offer 
 7. Only after a clear yes, call book_pickup again with the same details and caller_confirmed=true. Then tell them it's booked, and say what the result tells you to (repeat schedule, saved preferences, bags outside, missed-pickup fee, payment), kindly and briefly. Don't rush; one or two sentences at a time.
 - If they already have a pickup booked, offer to move it instead of booking a second one.
 - Gate, door code, "call me when you arrive", or where to leave the bags: known caller → call save_delivery_notes (any time in the call, booking or not); new caller → put it in new_customer.access_notes. Never take a message for it.
+- If a caller can't leave the bags outside, offer right away: "I can ask the driver to call you when they arrive, so you can bring the bag out. Would that help?" If yes, call save_delivery_notes.
+- If they want the driver to reach a different person or number, save it with save_delivery_notes (for example "Call Sam at 510-555-0123 on arrival"). Don't take a message for it.
 - Never offer a time that find_pickup_times did not return. Never book an address that check_new_address did not return.
 
 ## Getting it back later
@@ -916,6 +964,7 @@ Share these only when asked, one or two sentences at a time, warmly. Then offer 
   If they say "cancel all", "cancel future orders", "stop coming", "stop my weekly pickups" or similar, use what="everything". That cancels every upcoming pickup and stops the repeating schedule.
   If they want to cancel ONE pickup that repeats, ask whether they mean skip just that one (schedule continues) or stop everything.
   Never tell a caller their repeating pickups are stopped unless cancel_pickups said so.
+- Missed pickup: apologize, do the security check, then offer to book the next open time (find_pickup_times, then book_pickup). Never promise the driver will come back today unless find_pickup_times offers a time today. Also take a short message marked urgent so the team knows.
 
 ${BOOKING_LIVE
   ? '## Changes are real\nThis line is LIVE. Every booking, skip, move or cancellation you confirm really happens. Never say the line is in test mode or that nothing was changed, unless a tool result literally contains the words TEST MODE.\n'
@@ -933,7 +982,7 @@ If any tool fails, or its result says to take a message, apologize and take a me
 4. Repeat the message back in one sentence, then tell them the team will call back, usually the same day.
 
 ## Never
-- Never ask for, repeat or accept card numbers, bank details or passwords. If a caller starts reading a card number, stop them politely: "Please don't share card details with me. The team will help with payment."
+- Never ask for, repeat or accept card numbers, bank details or passwords. Phone numbers are fine: take them when a caller gives one. If a caller starts reading a card number, stop them politely: "Please don't share card details with me. The team will help with payment."
 - Never promise refunds, credits or exceptions. Take a message instead.
 - Never tell callers to text CANCEL or STOP to skip a pickup. Those words unsubscribe them from all our texts. To skip a pickup by text, they reply SKIP to the reminder text we send the day before (or they can call).
 
@@ -949,7 +998,7 @@ const ANALYSIS = [
   { type: 'system-presets', name: 'call_summary' },
   { type: 'string', name: 'caller_name', description: "The caller's name if they gave it, otherwise empty." },
   { type: 'string', name: 'callback_number', description: 'Callback phone number the caller said and confirmed, digits only. Empty if they chose the number they are calling from, or gave none.' },
-  { type: 'boolean', name: 'needs_callback', description: 'True only if the caller left a message or still needs the team to do something. False if Maya fully handled it (e.g. booked, skipped or moved a pickup, saved delivery notes, texted a card link, or answered their question).' },
+  { type: 'boolean', name: 'needs_callback', description: 'True only if the caller left a message or still needs the team to do something. False if Maya fully handled it (e.g. booked, skipped or moved a pickup, saved delivery notes, texted a card link, told them whether a drop-off order was ready, or answered their question).' },
   { type: 'boolean', name: 'urgent', description: 'True if the caller was upset, complained, or reported a lost/damaged item or missed pickup.' },
   { type: 'enum', name: 'reason', description: 'Main reason for the call.',
     choices: ['question_answered', 'book_pickup', 'change_or_skip_pickup', 'new_customer', 'order_status', 'billing', 'complaint', 'business_inquiry', 'other'] },
@@ -963,6 +1012,10 @@ const DAY_ARG = { type: 'string', description: 'today, tomorrow, a weekday, or Y
 const DELIVER_ON = { type: 'string', description: 'ONLY if the caller asked to get their laundry back LATER than the usual return day: the day they want it back (a weekday or YYYY-MM-DD). Omit otherwise.' };
 const DELIVER_AT = { type: 'string', description: 'ONLY if the caller asked for a different delivery time: "morning", "afternoon", "evening", or a deliver_at value from delivery_options. Omit otherwise.' };
 const BOOKING_TOOL_DEFS = [
+  { name: 'check_dropoff_order', route: 'dropoff',
+    description: 'Laundry the caller DROPPED OFF at our laundromat (Sudzee): is it ready? No security check needed. Call it first with no order number; it matches the number they are calling from. If it asks for the order number, ask for the one on their receipt or text and call again.',
+    parameters: { type: 'object', properties: {
+      order_number: { type: 'string', description: 'Digits only, e.g. "17869". Only if the caller gave it.' } } } },
   { name: 'check_service_area', route: 'area',
     description: 'Check whether we pick up in a ZIP code or city, and the pickup windows there. Use it whenever a caller asks "do you come to ..." or gives a ZIP. Pass zip if they gave one, else city.',
     parameters: { type: 'object', properties: {
@@ -1274,7 +1327,7 @@ Deno.serve(async (req) => {
     }
 
     // Phone booking tools — same token + signature as the account tool.
-    const bm = path.match(/\/tool\/(find_times|check_address|book|skip|reschedule|cancel|notes|card_link|area)$/);
+    const bm = path.match(/\/tool\/(find_times|check_address|book|skip|reschedule|cancel|notes|card_link|area|dropoff)$/);
     if (bm) {
       const raw = await req.text();
       if (!RETELL_KEY || !safeEq(req.headers.get('x-maya-token') || '', await toolToken())) return json({ error: 'forbidden' }, 403);
