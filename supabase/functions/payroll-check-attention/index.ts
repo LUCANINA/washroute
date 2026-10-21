@@ -62,7 +62,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 // Flags: unmapped_employees | stub_mismatch | insufficient_balance | xero_check_failed
 // This function never posts to Xero and never changes an import's status.
 
-import { cashDraw, overdraws, stubMismatches, describeStubMismatches,
+import { cashDraw, overdraws, stubMismatches, describeStubMismatches, splitStubMismatches,
          ACCT_DIRECT_WAGES, ACCT_DIRECT_PAYROLL_TAXES, BALANCE_TOLERANCE }
   from '../_shared/payroll-clearing.ts'
 
@@ -170,7 +170,9 @@ async function handleRequest(_req: Request): Promise<Response> {
     let detail: string | null = null
     // Session 353: judged on parsed AND reviewed periods, so a stub that is a
     // cent out shows up the moment it is uploaded, not when Xero refuses it.
-    const badStubs = stubMismatches(impLines)
+    // A one-cent stub is Square rounding and posts to Rounding (260) with its
+    // own line in the preview -- not an issue to flag. Only larger ones are.
+    const badStubs = splitStubMismatches(stubMismatches(impLines)).real
 
     if (unmatched.length) {
       flag = 'unmapped_employees'
@@ -178,8 +180,8 @@ async function handleRequest(_req: Request): Promise<Response> {
       detail = `On the pay period ${imp.pay_period_start} to ${imp.pay_period_end}, these names on the Square report don't match anyone in the department mapping yet: ${[...new Set(unmatched.map((u: any) => u.raw_full_name))].join(', ')}. Open the review screen to map them.`
     } else if (badStubs.length) {
       flag = 'stub_mismatch'
-      summary = `${badStubs.length === 1 ? "A pay stub doesn't" : `${badStubs.length} pay stubs don't`} add up -- Xero will reject this journal`
-      detail = `On the pay period ${imp.pay_period_start} to ${imp.pay_period_end}: ${describeStubMismatches(badStubs)}. Pay + tips minus withholdings should equal Square's Net Pay to the cent, and Xero rejects a journal that is off by even one cent. Check the stub in Square.`
+      summary = `${badStubs.length === 1 ? "A pay stub doesn't" : `${badStubs.length} pay stubs don't`} add up -- this can't post`
+      detail = `On the pay period ${imp.pay_period_start} to ${imp.pay_period_end}: ${describeStubMismatches(badStubs)}. That is more than Square's one-cent rounding, so a pay or deduction column is probably missing from what we read. Check the stub in Square, or send this to Claude.`
     } else if (imp.status === 'reviewed') {
       const missingFields = impLines.some((l: any) => l.net_pay_amount === null || l.ee_health_amount === null)
       // v5 (Sep 3, 2026): the split and the overdraw rule come from

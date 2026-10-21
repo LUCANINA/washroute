@@ -95,6 +95,7 @@ import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 // admin/manager/cpa may preview; only admin/manager may post.
 
 import { cashDraw, overdraws, shortfall, stubMismatches, describeStubMismatches,
+         splitStubMismatches, roundingTotal, ACCT_ROUNDING,
          ACCT_DIRECT_WAGES, ACCT_DIRECT_PAYROLL_TAXES }
   from '../_shared/payroll-clearing.ts'
 
@@ -278,12 +279,22 @@ async function handleRequest(req: Request): Promise<Response> {
     // this used to allow $0.01 and the Oct 16, 2026 payroll failed at Xero
     // three times. Name the stub first -- it is the usual cause and the one
     // thing a person can go and check.
-    const badStubs = stubMismatches(lines || [])
+    const { rounding: roundedStubs, real: badStubs } = splitStubMismatches(stubMismatches(lines || []))
     if (badStubs.length) {
       return new Response(JSON.stringify({
-        error: `Not posted: ${badStubs.length === 1 ? "one employee's pay stub doesn't" : `${badStubs.length} employees' pay stubs don't`} add up -- ${describeStubMismatches(badStubs)}. Pay + tips minus withholdings must equal Square's Net Pay to the cent, or Xero rejects the journal. Check the stub in Square.`,
+        error: `Not posted: ${badStubs.length === 1 ? "one employee's pay stub doesn't" : `${badStubs.length} employees' pay stubs don't`} add up -- ${describeStubMismatches(badStubs)}. That is more than Square's one-cent rounding, so a pay or deduction column is probably missing from what we read. Check the stub in Square, or send this to Claude.`,
         stub_mismatches: badStubs,
       }), { status: 400 })
+    }
+    // Session 353 cont.: a stub exactly one cent out is Square rounding its
+    // net pay. Book it, visibly, to Xero's Rounding account -- one line, the
+    // employees named -- and only when the journal's whole imbalance is
+    // exactly those cents. If anything else is also off, the exact check
+    // below still refuses.
+    const preRoundingSum = money(journalLines.reduce((s, l) => s + l.LineAmount, 0))
+    const rounding = roundingTotal(roundedStubs)
+    if (roundedStubs.length && Math.round(preRoundingSum * 100) === Math.round(rounding * 100) && rounding !== 0) {
+      journalLines.push({ AccountCode: ACCT_ROUNDING, LineAmount: -rounding, Description: `Square net-pay rounding (${roundedStubs.map(x => x.employee).join(', ')})`, TaxType: 'NONE' })
     }
     const journalSum = money(journalLines.reduce((s, l) => s + l.LineAmount, 0))
     if (Math.round(journalSum * 100) !== 0) {

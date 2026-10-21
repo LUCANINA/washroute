@@ -113,6 +113,7 @@ export function shortfall(draw: number, balance: { ok: boolean; available?: numb
  * Used by payroll-ingest (refuses the upload), payroll-check-attention (flags
  * an already-imported period) and payroll-xero-post (refuses to post, naming
  * the employee). One test, three call sites -- do not reimplement it.
+ * A one-cent stub is Square rounding, not a mismatch: see splitStubMismatches.
  *
  * Rows parsed before the full pay-stub parser (net_pay_amount null) cannot be
  * judged and are skipped; reimbursement-only rows carry no stub.
@@ -145,6 +146,34 @@ export function stubMismatches(lines: any[]): StubMismatch[] {
     }
   }
   return out
+}
+
+/**
+ * Square rounding vs. a real mismatch (session 353 cont., David's call on the
+ * Oct 16 stub: "Square rounded the pay").
+ *
+ * Square computes net pay from unrounded withholdings, so a stub can come out
+ * exactly one cent from the sum of its rounded lines. That cent is not a
+ * missing column -- it is rounding, and it is booked as such: payroll-xero-post
+ * adds ONE visible line to Xero's Rounding account (260) for those stubs,
+ * named in the preview, so the journal balances exactly and nothing is
+ * absorbed silently. Anything over one cent per stub is still a real mismatch
+ * and is still refused everywhere.
+ *
+ * The cut is per STUB, never per journal: two stubs each a cent out are two
+ * roundings; one stub two cents out is a column we don't read.
+ */
+export const ACCT_ROUNDING = '260'
+export const SQUARE_ROUNDING_MAX_CENTS = 1
+
+export function splitStubMismatches(m: StubMismatch[]): { rounding: StubMismatch[]; real: StubMismatch[] } {
+  const isRounding = (x: StubMismatch) => Math.round(Math.abs(x.difference) * 100) <= SQUARE_ROUNDING_MAX_CENTS
+  return { rounding: m.filter(isRounding), real: m.filter(x => !isRounding(x)) }
+}
+
+/** Net effect of the rounding stubs on the journal, in dollars (debits minus credits). */
+export function roundingTotal(rounding: StubMismatch[]): number {
+  return rounding.reduce((c, x) => c + Math.round(x.difference * 100), 0) / 100
 }
 
 /** "Andres Higuera (off by $0.01)" -- one phrase for every surface that names them. */

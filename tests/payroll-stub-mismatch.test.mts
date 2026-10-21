@@ -2,7 +2,7 @@
 // payroll-ingest, payroll-check-attention and payroll-xero-post.
 // Run: node --experimental-strip-types tests/payroll-stub-mismatch.test.mts
 // Rows are production-shaped: PostgREST returns numeric columns as STRINGS.
-import { stubMismatches, describeStubMismatches } from '../supabase/functions/_shared/payroll-clearing.ts'
+import { stubMismatches, describeStubMismatches, splitStubMismatches, roundingTotal, ACCT_ROUNDING } from '../supabase/functions/_shared/payroll-clearing.ts'
 
 let pass = 0, fail = 0
 const eq = (got: unknown, want: unknown, msg: string) => {
@@ -38,6 +38,18 @@ const oldRule = (l: any) => { const n = (v: any) => Number(v ?? 0); const d = n(
   - n(l.ee_ca_state_disability_amount) - n(l.ee_health_amount) - n(l.ee_401k_amount)
   return Math.abs(Math.round(d * 100) / 100 - Math.round(n(l.net_pay_amount) * 100) / 100) > 0.01 }
 eq(oldRule(andres), false, 'the OLD one-cent tolerance passed this row -- which is the bug')
+
+// Session 353 cont. -- David: "Square rounded the pay". One cent per stub is
+// rounding (booked to 260); more than that is still a real mismatch.
+const twoCents = { ...andres, raw_full_name: 'Two Cents', net_pay_amount: '408.47' }
+const under = { ...andres, raw_full_name: 'Paid A Cent More', net_pay_amount: '408.50' }
+const split = splitStubMismatches(stubMismatches([andres, twoCents, under, andresFixed]))
+eq(split.rounding.map(m => m.employee), ['Andres Higuera', 'Paid A Cent More'], 'one cent either way is Square rounding')
+eq(split.real.map(m => m.employee), ['Two Cents'], 'two cents on one stub is NOT rounding -- still refused')
+eq(roundingTotal(split.rounding), 0, 'roundings in opposite directions net to zero')
+eq(roundingTotal(splitStubMismatches(stubMismatches([andres])).rounding), 0.01, 'the Oct 16 journal needs exactly $0.01 of rounding')
+eq(ACCT_ROUNDING, '260', "rounding posts to Xero's Rounding account, 260")
+eq(splitStubMismatches(stubMismatches([andres, { ...andres, raw_full_name: 'B' }])).real, [], 'two stubs a cent each are two roundings, judged per stub, not per journal')
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

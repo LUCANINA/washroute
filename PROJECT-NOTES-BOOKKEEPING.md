@@ -36,8 +36,15 @@ container — the laptop VM cannot fetch Chromium: the CDN redirects to a host n
 **Deploy state (checked Oct 21 by `list_edge_functions`, not inferred):** NOT deployed. verify_jwt read first:
 payroll-xero-post TRUE (no flag); payroll-ingest and payroll-check-attention FALSE (`--no-verify-jwt`).
 
-**Still open:** Oct 16 itself is not posted — Andres's stub needs checking in Square (a missing 1-cent deduction, or
-Square rounding). Decide with David before posting; do not "correct" his figure here.
+**Cont. — David's call: "Square rounded the pay."** A stub exactly ONE cent out is now Square net-pay rounding:
+`splitStubMismatches()` separates it from real mismatches (per STUB, never per journal), and payroll-xero-post adds
+one visible line to Xero's **Rounding (260)** naming the employees — only when the journal's whole imbalance equals
+those cents exactly. Ingest lets a one-cent stub through; check-attention no longer flags it. Two cents or more on
+one stub is still refused everywhere. Oct 16 needs exactly $0.01 to 260 (credit). The stored figures are untouched —
+$408.48 is what Square paid. Tests: payroll-stub-mismatch 16/16.
+
+**Oct 9 tips (David asked, with the CSV):** file shows Paycheck Tips $6,447.00, gross $27,332.06 — matches the
+import to the cent; Xero journal 86511fe0 carries them ($2,645.00 in 173, $3,802.00 in 172). Display-only gap.
 
 ## Session 344 — Oct 12, 2026: Dexter 2's new rate schedule was rejected as a "duplicate" — because it had never been read
 

@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
-import { stubMismatches, describeStubMismatches } from "../_shared/payroll-clearing.ts"
+import { stubMismatches, describeStubMismatches, splitStubMismatches } from "../_shared/payroll-clearing.ts"
 
 // payroll-ingest v20 (Aug 17, 2026)
 //
@@ -398,10 +398,12 @@ async function handleRequest(req: Request): Promise<Response> {
       // (session 353: this allowed $0.01 and let a stub through that Xero then
       // rejected). The test lives in _shared/payroll-clearing.ts so upload,
       // Check for issues and posting cannot disagree about it.
-      const identityMismatches = stubMismatches(employeeLines)
+      // A one-cent stub is Square rounding net pay and is let through: posting
+      // books it to Rounding (260) on its own line (session 353 cont.).
+      const identityMismatches = splitStubMismatches(stubMismatches(employeeLines)).real
       if (identityMismatches.length) {
         return new Response(JSON.stringify({
-          error: `This CSV does not add up: ${describeStubMismatches(identityMismatches)}. Pay + tips minus every deduction we read must equal Square's own Net Pay to the cent, because Xero rejects a journal that is off by even one cent. A difference of a cent or two is usually rounding on that stub in Square; a larger one usually means Square added a pay or deduction column this parser doesn't know about. Import stopped so nothing wrong reaches Xero -- send this to Claude.`,
+          error: `This CSV does not add up: ${describeStubMismatches(identityMismatches)}. Pay + tips minus every deduction we read must equal Square's own Net Pay (Square's one-cent rounding is allowed). A larger difference usually means Square added a pay or deduction column this parser doesn't know about. Import stopped so nothing wrong reaches Xero -- send this to Claude.`,
           identity_mismatches: identityMismatches.slice(0, 20),
         }), { status: 400 })
       }
