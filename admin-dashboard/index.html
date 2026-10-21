@@ -2273,7 +2273,7 @@
               </div>
               <div style="display:flex;gap:6px">
                 <button class="btn btn-primary" style="font-size:12px;padding:5px 12px" onclick="openCreateIssue()">+ New Issue</button>
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('inbox',document.getElementById('nav-inbox'))">Inbox →</button>
+                <button class="btn btn-ghost" id="ov-issues-mode-btn" style="font-size:12px;padding:5px 10px" onclick="toggleOverviewIssuesMode()">History →</button>
               </div>
             </div>
             <div id="overview-issues-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
@@ -30402,16 +30402,85 @@ ${noActivityNote}
   }
 
   // ── loadOverviewIssues ──
+  // Session (2026-10-21, David): the card's "Inbox →" button became "History →".
+  // It flips this same card between the open list and a running list of every
+  // issue (open + resolved), newest first. Every existing loadOverviewIssues()
+  // refresh call keeps working -- it re-renders whichever mode is showing.
+  let _ovIssuesMode = 'open';
+  let _ovIssuesHistLimit = 25;
+  function toggleOverviewIssuesMode() {
+    _ovIssuesMode = _ovIssuesMode === 'open' ? 'history' : 'open';
+    _ovIssuesHistLimit = 25;
+    const btn = document.getElementById('ov-issues-mode-btn');
+    const title = document.querySelector('.issues-panel .card-title');
+    if (btn) btn.textContent = _ovIssuesMode === 'open' ? 'History →' : '← Open issues';
+    if (title) title.textContent = _ovIssuesMode === 'open' ? 'Open Issues' : 'Issues History';
+    const el = document.getElementById('overview-issues-body');
+    if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+    loadOverviewIssues();
+  }
+  function ovIssuesHistMore() { _ovIssuesHistLimit += 25; loadOverviewIssues(); }
+
+  // Shared by the open list and the history list: customer name + cleaned title.
+  function _ovIssueNameTitle(iss) {
+    let custName = iss.customers
+      ? `${iss.customers.first_name_cache||''} ${iss.customers.last_name_cache||''}`.trim()
+      : '—';
+    let title = iss.title || '';
+    const auto = title.match(/^(NON-CUSTOMER|Customer)\s+(\+?\d[\d\s()-]*)\s+[—-]\s*(.+)$/);
+    if (auto) {
+      title = auto[3].charAt(0).toUpperCase() + auto[3].slice(1);
+      if (auto[1] === 'NON-CUSTOMER') custName = `Non-customer ${_prettyPhone(auto[2])}`;
+      else if (custName === '—')      custName = _prettyPhone(auto[2]);
+    }
+    return { custName: custName || '—', title };
+  }
+
+  async function loadOverviewIssuesHistory(el, subEl) {
+    const lim = _ovIssuesHistLimit;
+    // Ask for one extra row so we know whether "Show more" is needed.
+    const { data: rows, error } = await db.from('cs_issues')
+      .select('*, customers(first_name_cache, last_name_cache)')
+      .order('created_at', { ascending: false })
+      .limit(lim + 1);
+    if (_ovIssuesMode !== 'history') return; // user flipped back mid-load
+    if (error || !rows) { el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load issue history.</div>'; return; }
+    if (subEl) subEl.textContent = 'All issues, newest first';
+    if (!rows.length) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">No issues yet</div>'; return; }
+    const hasMore = rows.length > lim;
+    const list = rows.slice(0, lim);
+    const fmtD = iso => iso ? new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:BIZ_TZ}) : '';
+    el.innerHTML = list.map(iss => {
+      const { custName, title } = _ovIssueNameTitle(iss);
+      const isOpen = iss.status === 'open' || iss.status === 'in_progress';
+      const chip = isOpen
+        ? `<span class="issue-cat-badge" style="min-width:72px;background:#fef3c7;color:#92400e">${iss.status === 'in_progress' ? 'IN PROGRESS' : 'OPEN'}</span>`
+        : `<span class="issue-cat-badge" style="min-width:72px">${esc(String(iss.status||'').toUpperCase())}</span>`;
+      const catLabel = ISSUE_CATEGORIES[iss.category] || iss.category || '';
+      const metaText = `${custName} · ${fmtD(iss.created_at)}${!isOpen && iss.resolved_at ? ' → ' + fmtD(iss.resolved_at) : ''}`;
+      return `<div class="issue-row issue-row-ov" onclick="openIssueDetail(${iss.id})"${isOpen ? '' : ' style="opacity:.8"'}>
+        ${chip}
+        <span class="issue-row-title" title="${esc(title)}">${esc(title)}</span>
+        <span class="issue-row-cat">${catLabel ? `<span class="issue-cat-badge">${esc(catLabel)}</span>` : ''}</span>
+        <span class="issue-row-meta" title="${esc(metaText)}">${esc(metaText)}</span>
+      </div>`;
+    }).join('') + (hasMore
+      ? `<div style="padding:12px;text-align:center"><button class="btn btn-ghost" style="font-size:12px;padding:5px 12px" onclick="ovIssuesHistMore()">Show more</button></div>`
+      : '');
+  }
+
   async function loadOverviewIssues() {
     const el = document.getElementById('overview-issues-body');
     const subEl = document.getElementById('issues-count-sub');
     if (!el) return;
+    if (_ovIssuesMode === 'history') return loadOverviewIssuesHistory(el, subEl);
 
     const { data: issues, error } = await db.from('cs_issues')
       .select('*, customers(first_name_cache, last_name_cache)')
       .in('status', ['open', 'in_progress'])
       .order('created_at', { ascending: false })
       .limit(10);
+    if (_ovIssuesMode !== 'open') return; // user flipped to History mid-load
 
     if (error || !issues) { el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load issues.</div>'; return; }
     if (!issues.length) {
