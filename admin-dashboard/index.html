@@ -3343,6 +3343,7 @@
                   <div class="card-title">Requests by ZIP</div>
                   <div class="card-sub" id="area-req-sub">From the "Check if we serve your area" box on familylaundry.com. All time.</div>
                 </div>
+                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap" onclick="exportAreaRequestsCsv()">Export all (CSV)</button>
               </div>
               <div id="area-req-body">
                 <div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>
@@ -55118,17 +55119,24 @@ ${oneCopy}
           <td style="text-align:right;font-variant-numeric:tabular-nums">${list.length}${waiting < list.length ? `<div style="font-size:11px;color:var(--gray-400);font-weight:400">${waiting} not yet told</div>` : ''}</td>
           <td style="white-space:nowrap">${fmtD(list[0].created_at)}</td>
           <td style="font-size:12px;color:var(--gray-600);max-width:420px">${list.slice(0, 3).map(r => esc(r.email)).join(', ')}${list.length > 3 ? ` and ${list.length - 3} more` : ''}</td>
-          <td style="text-align:right"><button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap" onclick="copyAreaRequestEmails('${esc(z)}')">Copy emails</button></td>
+          <td style="text-align:right"><button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap" onclick="exportAreaRequestsCsv('${esc(z)}')">Export CSV</button></td>
         </tr>`;
       }).join('')}</tbody></table>`;
   }
-  function copyAreaRequestEmails(zip) {
-    const emails = (_areaReqByZip[zip] || []).map(r => r.email).join(', ');
-    if (!emails) return;
-    navigator.clipboard.writeText(emails)
-      .then(() => showToast(`Copied ${(_areaReqByZip[zip] || []).length} emails for ${zip}`, 'success'))
-      .catch(() => showToast('Could not copy. Select the emails in the table instead.', 'error'));
+  // One ZIP, or every ZIP when zip is omitted (header button).
+  function exportAreaRequestsCsv(zip) {
+    const rows = zip ? (_areaReqByZip[zip] || []) : Object.values(_areaReqByZip).flat();
+    if (!rows.length) { showToast('Nothing to export yet', 'error'); return; }
+    const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const day = iso => iso ? new Date(iso).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '';
+    const csv = [['ZIP', 'Email', 'Requested', 'Notified'].map(q).join(',')]
+      .concat(rows.map(r => [r.zip, r.email, day(r.created_at), day(r.notified_at)].map(q).join(','))).join('\n');
+    const url = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `area-requests-${zip || 'all'}-${day(new Date().toISOString())}.csv`; a.click();
+    URL.revokeObjectURL(url);
   }
+  window.exportAreaRequestsCsv = exportAreaRequestsCsv;
 
   // ── RETENTION REPORT (session 356) ──
   // Trailing windows, independent of the shared date picker:
