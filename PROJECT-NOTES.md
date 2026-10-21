@@ -1,5 +1,20 @@
 # WashRoute — Project Notes
 
+## Session 355 — Oct 21, 2026: Free rewash orders + admin "How To" page — DB LIVE, apps committed (David to push)
+
+**Ask (David):** a customer complaint (stain/smell) gets a free rewash, but launderers couldn't tell and it was charged like a normal order. Decisions: staff-only, whole-order note, pickup + delivery free, 14-day window.
+- **DB** (`session_355_rewash_orders.sql`, applied by David in SQL editor; rollback `session_355_ROLLBACK.sql`, snapshots `_archive.fn_rewash_355_20261021`): `orders.is_rewash / rewash_of_order_id / rewash_reason (stain|smell|damage|other) / rewash_note`.
+  - `trg_zzz_rewash_is_free` (last BEFORE trigger) forces $0, no tip/tax/discount/plan/recurrence, single "Rewash … — no charge" line, `billing_status='paid'`, `billing_payment_method='rewash'`. Only `is_admin()`/service role may insert one.
+  - Being born paid is what keeps it off every charge path: charge-order refuses paid, sweep skips, `rack_order` → already_charged, `trg_referral_on_paid` (UPDATE-only) never fires.
+  - Guards injected: `link_subscription_on_order_fn`, `apply_subscription_usage_fn`, `trg_create_recurring_order_fn`, `update_customer_last_order_at`, `apply_customer_credit_to_order` (no-op for rewash); rewash columns added to `enforce_protected_order_columns`.
+  - `create_rewash_order(...)` RPC: delivered + within 14 days (`actual_delivery_at`, fallback `delivery_window_end`), one open rewash per original, logs `rewash_created` on both orders.
+  - Tested with mock JWTs (rolled back): customer/driver refused, >14d refused, dup refused, $55+$5 tip intake stays $0, subscriber plan lbs unchanged, customer can't flip the flag.
+- **Admin:** "🔁 Create free rewash" on delivered orders (order panel strip) → add-order modal in rewash mode (reason + note, tip/coupon hidden) → RPC. Red `rewashBadgeHtml()` on Fold/Rack/Processing/Intake cards + panels; bag tag `*** REWASH ***`; `calcProcTotal` returns $0; `_chargeOrderCall` skips; on-account report `.eq('is_rewash', false)`; billing label "(Free rewash)".
+- **POS:** queue + intake banner, intake shows "Free rewash $0.00" and sends $0, printed tag + HTML receipt REWASH block. **Driver app:** "REWASH pickup/delivery" chip + stop header.
+- **How To page** (Help → How To, open to every staff role, `canAccessPage('howto')` always true): static `<details class="howto-guide">` cards with search. First guide: "How to issue a free rewash". Add guides by copying a block.
+- **Not click-tested yet** (no staff login from Claude) — David to create one rewash on a real delivered order after deploy.
+- Low/known: rewashes count as $0 orders in order-count/AOV reports; `update_customer_last_delivered_at` still stamps on rewash delivery.
+
 ## Session 354 — Oct 20, 2026: Route override is now PER ADDRESS — DB LIVE (354a), apps pushed, Maya + twilio-webhook need CLI deploy
 
 **Bug (admins):** route override lived on the customer, so a customer with 2 addresses had BOTH forced onto the override route.
