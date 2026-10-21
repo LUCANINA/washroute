@@ -3350,6 +3350,34 @@
             </div>
           </div>
 
+          <!-- ── TAB: RETENTION (session 356, Oct 2026) ──
+               Trailing windows, so it picks its own period (date row hidden).
+               90-day retention = of customers who ordered 91-180 days ago, the share who
+               ordered again in the last 90 days. Data: loadRetentionReport(). -->
+          <div id="rpttab-retention" style="display:none">
+            <div id="ret-status" style="padding:16px 0;color:var(--gray-500);font-size:13px">Loading…</div>
+            <div class="rpt-kpi-grid" id="ret-kpis" style="margin-top:16px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))"></div>
+            <div class="card" style="margin-top:4px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Ordered again the next month</div>
+                  <div class="card-sub">Of everyone who ordered in a month, the share who also ordered in the following month.</div>
+                </div>
+              </div>
+              <div id="ret-monthly"></div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Stopped ordering</div>
+                  <div class="card-sub" id="ret-lapsed-sub">Ordered 91–180 days ago, nothing in the last 90 days.</div>
+                </div>
+                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap" onclick="exportRetentionLapsedCsv()">Download CSV</button>
+              </div>
+              <div id="ret-lapsed"></div>
+            </div>
+          </div>
+
           <div id="rpttab-referrals" style="display:none">
             <!-- Session 314: the funnel. Invites and link opens come from referral_events
                  (written by the customer app); sign-ups and first orders from referrals. -->
@@ -55042,6 +55070,7 @@ ${oneCopy}
     else if (rptTab === 'onaccount')     loadOnAccountReport();
     else if (rptTab === 'invoices')      loadInvoicesReport();
     else if (rptTab === 'registrations') loadRegistrationsReport();
+    else if (rptTab === 'retention')     loadRetentionReport();
     else if (rptTab === 'deliverykpis')  loadDeliveryKpis();
     else if (rptTab === 'ontime')        loadOnTimeReport();
     else if (rptTab === 'subscriptions') loadSubscriptionReport();
@@ -55100,6 +55129,198 @@ ${oneCopy}
       .then(() => showToast(`Copied ${(_areaReqByZip[zip] || []).length} emails for ${zip}`, 'success'))
       .catch(() => showToast('Could not copy. Select the emails in the table instead.', 'error'));
   }
+
+  // ── RETENTION REPORT (session 356) ──
+  // Trailing windows, independent of the shared date picker:
+  //   90-day retention = customers who ordered 91–180 days ago and ordered again in the
+  //   last 90 days, ÷ customers who ordered 91–180 days ago.
+  //   Monthly repeat   = customers in month M who also ordered in month M+1.
+  // An order counts once it was really picked up — skipped, cancelled, pickup_failed
+  // and still-scheduled orders don't. Order date = actual pickup, else the pickup
+  // window, else created_at (walk-in orders have no pickup).
+  // Orders start 2026-03-22, so both 90-day windows sit inside the orders table. The
+  // "last order" shown for a lapsed customer is still the LATER of their newest order
+  // and customers.last_order_at (CLAUDE.md: order history predates the orders table).
+  const RET_STATUSES = ['delivered', 'ready_for_delivery', 'processing', 'picked_up', 'folding', 'delivery_failed', 'on_hold'];
+  const RET_FIRST_MONTH = '2026-04';   // March 2026 was a 10-day launch month
+  const RET_SEG_LABEL = { residential: 'Residential', commercial: 'Commercial', retail: 'Counter (walk-in)' };
+  let _retLapsed = [];
+  let _retLapsedShowAll = false;
+
+  // Pure: orders [{customer_id, source, d(ms)}], custs {id: row}, now(ms) → summary.
+  function _retCompute(orders, custs, now) {
+    const DAY = 86400000, t90 = now - 90 * DAY, t180 = now - 180 * DAY;
+    const monthOf = ms => new Date(ms).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }).slice(0, 7);
+    const byCust = {};
+    for (const o of orders) {
+      if (!o.customer_id || !Number.isFinite(o.d) || o.d > now) continue;
+      const c = byCust[o.customer_id] || (byCust[o.customer_id] = { prev: false, cur: false, last: 0, allWalkIn: true, months: new Set() });
+      if (o.d >= t180 && o.d < t90) c.prev = true;
+      if (o.d >= t90) c.cur = true;
+      if (o.d > c.last) c.last = o.d;
+      if (o.source !== 'walk_in') c.allWalkIn = false;
+      c.months.add(monthOf(o.d));
+    }
+    const segOf = id => {
+      const cu = custs[id];
+      if (cu && _isBusinessCustomer(cu)) return 'commercial';
+      return byCust[id].allWalkIn ? 'retail' : 'residential';
+    };
+    const segs = { all: { prev: 0, kept: 0, cur: 0 }, residential: { prev: 0, kept: 0, cur: 0 }, commercial: { prev: 0, kept: 0, cur: 0 }, retail: { prev: 0, kept: 0, cur: 0 } };
+    const lapsed = [];
+    let gained = 0;
+    for (const id of Object.keys(byCust)) {
+      const c = byCust[id], seg = segOf(id);
+      for (const k of ['all', seg]) {
+        if (c.prev) segs[k].prev++;
+        if (c.prev && c.cur) segs[k].kept++;
+        if (c.cur) segs[k].cur++;
+      }
+      if (c.cur && !c.prev) gained++;
+      if (c.prev && !c.cur) {
+        const cu = custs[id] || {};
+        const legacy = cu.last_order_at ? Date.parse(cu.last_order_at) : 0;
+        lapsed.push({ id, seg, cu, last: Math.max(c.last, legacy || 0), ltv: Number(cu.lifetime_value) || 0, orders: Number(cu.total_orders) || 0 });
+      }
+    }
+    lapsed.sort((a, b) => b.ltv - a.ltv || b.last - a.last);
+    // Month M → M+1
+    const monthSets = {};
+    for (const id of Object.keys(byCust)) byCust[id].months.forEach(m => { (monthSets[m] = monthSets[m] || new Set()).add(id); });
+    const nextMonth = m => { let [y, mo] = m.split('-').map(Number); mo++; if (mo > 12) { mo = 1; y++; } return `${y}-${String(mo).padStart(2, '0')}`; };
+    const thisMonth = monthOf(now);
+    const monthly = Object.keys(monthSets).filter(m => m >= RET_FIRST_MONTH && m < thisMonth).sort().map(m => {
+      const n = nextMonth(m), a = monthSets[m], b = monthSets[n] || new Set();
+      let kept = 0; a.forEach(id => { if (b.has(id)) kept++; });
+      return { month: m, customers: a.size, kept, partial: n === thisMonth };
+    });
+    return { segs, lapsed, gained, monthly };
+  }
+
+  async function loadRetentionReport() {
+    const status = document.getElementById('ret-status');
+    const kpis = document.getElementById('ret-kpis');
+    if (!status || !kpis) return;
+    status.style.display = ''; status.style.color = 'var(--gray-500)'; status.textContent = 'Loading…';
+    try {
+      // 1. Every counted order from the last ~13 months (paged; PostgREST caps at 1000).
+      const since = new Date(Date.now() - 400 * 86400000).toISOString();
+      const base = (cols, opts) => db.from('orders').select(cols, opts).in('status', RET_STATUSES).gte('created_at', since);
+      const { count, error: cErr } = await base('id', { count: 'exact', head: true });
+      if (cErr) throw cErr;
+      const pages = [];
+      for (let from = 0; from < (count || 0); from += 1000) pages.push(from);
+      const orders = [];
+      for (let i = 0; i < pages.length; i += 5) {
+        const res = await Promise.all(pages.slice(i, i + 5).map(from =>
+          base('id, customer_id, source, actual_pickup_at, pickup_window_start, created_at').order('id').range(from, from + 999)));
+        for (const r of res) {
+          if (r.error) throw r.error;
+          for (const o of (r.data || [])) orders.push({ customer_id: o.customer_id, source: o.source, d: Date.parse(o.actual_pickup_at || o.pickup_window_start || o.created_at) });
+        }
+      }
+      // 2. The customers behind them (batched 100 — long .in() lists fail opaquely).
+      const ids = [...new Set(orders.map(o => o.customer_id).filter(Boolean))];
+      const custs = {};
+      const batches = [];
+      for (let i = 0; i < ids.length; i += 100) batches.push(ids.slice(i, i + 100));
+      for (let i = 0; i < batches.length; i += 5) {
+        const res = await Promise.all(batches.slice(i, i + 5).map(b => db.from('customers')
+          .select('id, first_name_cache, last_name_cache, phone_cache, email_cache, billing_type, customer_type, account_type, last_order_at, total_orders, lifetime_value')
+          .in('id', b)));
+        for (const r of res) { if (r.error) throw r.error; (r.data || []).forEach(c => { custs[c.id] = c; }); }
+      }
+      if (rptTab !== 'retention') return;   // moved on while loading
+      _renderRetention(_retCompute(orders, custs, Date.now()));
+      status.style.display = 'none';
+    } catch (e) {
+      status.style.color = 'var(--red)';
+      status.textContent = 'Could not load retention: ' + (e?.message || e);
+    }
+  }
+
+  function _renderRetention(r) {
+    const pct = (a, b) => b ? Math.round(1000 * a / b) / 10 + '%' : '—';
+    const tile = (label, s, note) => `<div class="stat-card"><div class="stat-label">${label}</div>
+      <div class="stat-value">${pct(s.kept, s.prev)}</div>
+      <div class="stat-sub">${s.kept.toLocaleString()} of ${s.prev.toLocaleString()} came back${note ? ' · ' + note : ''}</div></div>`;
+    const a = r.segs.all;
+    document.getElementById('ret-kpis').innerHTML =
+      tile('90-day retention', a, 'all customers') +
+      tile('Residential', r.segs.residential) +
+      tile('Commercial', r.segs.commercial) +
+      (r.segs.retail.prev ? tile('Counter (walk-in)', r.segs.retail) : '') +
+      `<div class="stat-card"><div class="stat-label">Active, last 90 days</div>
+        <div class="stat-value">${a.cur.toLocaleString()}</div>
+        <div class="stat-sub">+${r.gained.toLocaleString()} new or returning · −${r.lapsed.length.toLocaleString()} stopped</div></div>`;
+
+    const mName = m => new Date(m + '-15T12:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const rows = r.monthly.slice(-12).reverse();
+    document.getElementById('ret-monthly').innerHTML = rows.length ? `<table><thead><tr>
+        <th>Month</th><th style="text-align:right">Customers</th><th style="text-align:right">Ordered next month</th><th style="width:40%">Rate</th>
+      </tr></thead><tbody>${rows.map(x => {
+        const p = x.customers ? 100 * x.kept / x.customers : 0;
+        return `<tr>
+          <td class="td-name" style="white-space:nowrap">${mName(x.month)}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">${x.customers.toLocaleString()}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">${x.kept.toLocaleString()}</td>
+          <td><div style="display:flex;align-items:center;gap:10px">
+            <div style="flex:1;height:8px;border-radius:4px;background:var(--gray-100);overflow:hidden"><div style="height:100%;width:${p.toFixed(1)}%;background:${x.partial ? 'var(--gray-300)' : 'var(--accent, var(--blue))'}"></div></div>
+            <span style="min-width:48px;text-align:right;font-variant-numeric:tabular-nums">${p.toFixed(1)}%</span>
+          </div>${x.partial ? '<div style="font-size:11px;color:var(--gray-400);margin-top:2px">Next month still in progress — will rise</div>' : ''}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`
+      : '<div style="padding:16px;color:var(--gray-500);font-size:13px">Not enough months of orders yet.</div>';
+
+    _retLapsed = r.lapsed;
+    _retLapsedShowAll = false;
+    _renderRetentionLapsed();
+  }
+
+  function _renderRetentionLapsed() {
+    const el = document.getElementById('ret-lapsed');
+    const sub = document.getElementById('ret-lapsed-sub');
+    if (!el) return;
+    const list = _retLapsed;
+    const ltv = list.reduce((s, x) => s + x.ltv, 0);
+    if (sub) sub.textContent = list.length
+      ? `${list.length.toLocaleString()} customers ordered 91–180 days ago and not since — ${fmtMoney(ltv)} of lifetime spend. Highest-value first.`
+      : 'Ordered 91–180 days ago, nothing in the last 90 days.';
+    if (!list.length) { el.innerHTML = '<div style="padding:16px;color:var(--gray-500);font-size:13px">Nobody — every customer from that window ordered again.</div>'; return; }
+    const shown = _retLapsedShowAll ? list : list.slice(0, 100);
+    const fmtD = ms => ms ? new Date(ms).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+    el.innerHTML = `<table><thead><tr>
+        <th>Customer</th><th>Type</th><th>Last order</th><th style="text-align:right">Orders</th><th style="text-align:right">Lifetime value</th>
+      </tr></thead><tbody>${shown.map(x => {
+        const name = `${x.cu.first_name_cache || ''} ${x.cu.last_name_cache || ''}`.trim() || 'Unnamed customer';
+        return `<tr style="cursor:pointer" onclick="openCustomerPanel('${esc(x.id)}')">
+          <td class="td-name">${esc(name)}</td>
+          <td>${RET_SEG_LABEL[x.seg]}</td>
+          <td style="white-space:nowrap">${fmtD(x.last)}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">${x.orders ? x.orders.toLocaleString() : '—'}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">${fmtMoney(x.ltv)}</td>
+        </tr>`;
+      }).join('')}</tbody></table>${list.length > shown.length
+        ? `<div style="padding:12px 16px"><button class="btn btn-ghost" style="padding:5px 12px;font-size:12px" onclick="retShowAllLapsed()">Show all ${list.length.toLocaleString()}</button></div>` : ''}`;
+  }
+
+  function exportRetentionLapsedCsv() {
+    if (!_retLapsed.length) { showToast('Nothing to download yet', 'error'); return; }
+    const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const day = ms => ms ? new Date(ms).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '';
+    const csv = [['Name', 'Phone', 'Email', 'Type', 'Last order', 'Orders', 'Lifetime value'].map(q).join(',')]
+      .concat(_retLapsed.map(x => [
+        `${x.cu.first_name_cache || ''} ${x.cu.last_name_cache || ''}`.trim(), x.cu.phone_cache, x.cu.email_cache,
+        RET_SEG_LABEL[x.seg], day(x.last), x.orders || '', x.ltv.toFixed(2)].map(q).join(','))).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `stopped-ordering-${today()}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+  window.loadRetentionReport = loadRetentionReport;
+  function retShowAllLapsed() { _retLapsedShowAll = true; _renderRetentionLapsed(); }
+  window.retShowAllLapsed = retShowAllLapsed;
+  window.exportRetentionLapsedCsv = exportRetentionLapsedCsv;
 
   // ── BAD DEBT REPORT (session 291e) ──
   // Every write-off in the selected period: what was lost, from whom, when, why,
@@ -55198,6 +55419,7 @@ ${oneCopy}
         ['ontime',        'On-Time',       'Windows hit and missed, by month.'] ] },
     { key: 'customers',   label: 'Customers',   tabs: [
         ['registrations', 'Registrations', 'New sign-ups, and where they came from.'],
+        ['retention',     'Retention',     'Who keeps ordering, and who stopped.'],
         ['subscriptions', 'Subscriptions', 'Active plans, new and churned.'],
         ['referrals',     'Referrals',     'Who refers, and what it is worth.'],
         ['arearequests',  'Area Requests', 'ZIPs we don\'t serve yet, asking us to come.'],
@@ -55218,6 +55440,7 @@ ${oneCopy}
     deliverykpis:  '<rect x="5" y="5" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="14" y="5" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="5" y="14" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.2" stroke="currentColor" stroke-width="1.5"/>',
     ontime:        '<circle cx="13" cy="13" r="8.2" stroke="currentColor" stroke-width="1.5"/><path d="M13 8.2V13l3.2 2.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
     registrations: '<path d="M4 19.5 10 13l4 3 8-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 7h5v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+    retention:     '<circle cx="13" cy="13" r="8.2" stroke="currentColor" stroke-width="1.5"/><path d="M9.2 13.2l2.6 2.6 5-5.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
     subscriptions: '<path d="M20.6 10.2A8 8 0 1 0 21 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M21.4 5.4v5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
     referrals:     '<circle cx="8" cy="8.5" r="3.2" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="17.5" r="3.2" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.7 15.5 15.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
     feedback:      '<path d="M5 6.5h16v10h-8.5L8 21v-4.5H5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>',
@@ -55474,7 +55697,7 @@ ${oneCopy}
     // Session 323: the Launderers report picks its own month, so the shared
     // Today / 7 days / Custom row is hidden while it is open. Session 336: the
     // Drivers report does the same.
-    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items' || tab === 'possales' || tab === 'arearequests');
+    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items' || tab === 'possales' || tab === 'arearequests' || tab === 'retention');
     _rptSyncPeriodUI();
     runCurrentReport();
   }
