@@ -42078,6 +42078,7 @@ ${oneCopy}
     if (!canCreateRewash(o)) { showToast('Rewashes can only be offered within 14 days of delivery', 'error'); return; }
     const custId = o.customers?.id;
     if (!custId) { showToast('This order has no customer — a rewash needs one', 'error'); return; }
+    closeOrderPanel();   // the order panel sits above modals — close it so the form is fully visible
     document.getElementById('modal-add-order').classList.add('open');
     await populateOrderModal(custId);
     // Same address and bag count as the original; staff only picks the pickup slot.
