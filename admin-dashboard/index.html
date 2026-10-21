@@ -7282,10 +7282,32 @@
 <div class="modal-overlay" id="modal-add-order">
   <div class="modal" style="width:580px;max-width:95vw">
     <div class="modal-header">
-      <div class="modal-title">New Order</div>
+      <div class="modal-title" id="o-modal-title">New Order</div>
       <button class="modal-close" onclick="closeModal('add-order')"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </div>
     <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+
+      <!-- Session 355: free rewash mode (shown only when opened from a delivered order) -->
+      <div id="o-rewash-box" style="display:none;background:#fee2e2;border:1.5px solid #dc2626;border-radius:12px;padding:12px 14px">
+        <div id="o-rewash-title" style="font-size:14px;font-weight:800;color:#991b1b">🔁 Free rewash</div>
+        <div style="font-size:12px;color:#991b1b;margin:2px 0 10px">No charge for pickup, cleaning or delivery. Launderers will see a red REWASH tag.</div>
+        <div style="display:grid;grid-template-columns:160px 1fr;gap:10px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Reason</label>
+            <select class="form-select" id="o-rewash-reason">
+              <option value="">Choose…</option>
+              <option value="stain">Stain</option>
+              <option value="smell">Smell</option>
+              <option value="damage">Damage</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">What to re-treat</label>
+            <input class="form-input" id="o-rewash-note" type="text" maxlength="200" placeholder="e.g. red wine stain on white shirts" />
+          </div>
+        </div>
+      </div>
 
       <!-- Customer + Address -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -7404,7 +7426,7 @@
       <input type="hidden" id="o-service" />
 
       <!-- Tip + Coupon -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div id="o-tip-coupon-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group" style="margin:0">
           <label class="form-label">Coupon / Discount</label>
           <select class="form-select" id="o-coupon"><option value="">No discount</option></select>
@@ -7431,7 +7453,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('add-order')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveOrder()">Create Order</button>
+      <button class="btn btn-primary" id="o-save-btn" onclick="saveOrder()">Create Order</button>
     </div>
   </div>
 </div>
@@ -8845,7 +8867,21 @@
   // 2026-08-22 the old catch-all did exactly that, and 21 customers with valid
   // cards were recorded as declined by requests that never reached Stripe,
   // because session 227's auth hardening started returning 401 to stale tabs.
+  // Session 355: free rewash orders. One shared badge for every station card,
+  // panel and tag so launderers always see the same red REWASH marker.
+  const REWASH_REASON_LABEL = { stain: 'Stain', smell: 'Smell', damage: 'Damage', other: 'Other' };
+  function rewashBadgeHtml(o, big) {
+    if (!o || !o.is_rewash) return '';
+    const reason = REWASH_REASON_LABEL[o.rewash_reason] || 'Rewash';
+    const note = o.rewash_note ? ` — ${esc(o.rewash_note)}` : '';
+    return `<div style="background:#fee2e2;border:1.5px solid #dc2626;color:#991b1b;border-radius:8px;padding:${big ? '8px 12px' : '5px 9px'};margin:${big ? '8px 0' : '4px 0'};font-size:${big ? '13.5px' : '12px'};font-weight:700;line-height:1.35">🔁 REWASH — free, re-treat: ${esc(reason)}${note}</div>`;
+  }
+
   async function _chargeOrderCall(orderId) {
+    // Session 355: a free rewash is never charged (the DB also marks it paid).
+    if (allOrders.find(x => x.id === orderId)?.is_rewash) {
+      return { outcome: 'charged', card: '', alreadyPaid: true };
+    }
     const jwt = await _staffJwt();
     if (!jwt) {
       return { outcome: 'unauthorized', error: 'Staff session expired — nothing was charged.' };
@@ -31726,7 +31762,7 @@ ${noActivityNote}
     return { pricelist: _covered ? 'Subscription' : _fallback, subRow: _covered ? subRow : null, covered: _covered };
   }
 
-  const _orderSelectCols = `id, order_number, status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, billing_status, billing_payment_method, card_brand, card_last4,
+  const _orderSelectCols = `id, order_number, status, is_rewash, rewash_of_order_id, rewash_reason, rewash_note, total_amount, tip_amount, tip_type, stripe_payment_intent_id, billing_status, billing_payment_method, card_brand, card_last4,
                weight_lbs, total_bags, service_id, special_instructions, line_items,
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
@@ -32406,6 +32442,20 @@ ${noActivityNote}
       routeErrEl.innerHTML = `▲ <strong>Over base capacity:</strong> booked within 125% soft ceiling — route is running hot.`;
     } else {
       routeErrEl.style.display = 'none';
+    }
+
+    // Session 355: rewash marker / "Create free rewash" button
+    let rwEl = document.getElementById('op-rewash-strip');
+    if (!rwEl && routeErrEl.parentNode) {
+      rwEl = document.createElement('div');
+      rwEl.id = 'op-rewash-strip';
+      rwEl.style.cssText = 'margin:0 16px 8px';
+      routeErrEl.after(rwEl);
+    }
+    if (rwEl) {
+      const _rwHtml = opRewashStripHtml(o);
+      rwEl.innerHTML = _rwHtml;
+      rwEl.style.display = _rwHtml ? '' : 'none';
     }
 
     // Recurring control
@@ -34796,7 +34846,7 @@ ${noActivityNote}
     const { orderNum, custName, custAddr, custPhone, weightLbs, bags,
             pickupStr, delivStr, pickupRouteName, deliveryRouteName,
             stopNum, routeName, addonTags, lineItems, total,
-            tipAmount, tipType } = data;
+            tipAmount, tipType, rewash } = data;
 
     // Timestamp
     const now = new Date();
@@ -34893,7 +34943,7 @@ ${noActivityNote}
 ${custPhone ? `  <text-line>${_escXml(custPhone)}</text-line>\n` : ''}${custAddr ? `  <text-line>${_escXml(custAddr)}</text-line>\n` : ''}
   <ruled-line/>
   <text-line><bold>${orderLine}</bold></text-line>
-  <ruled-line/>
+${rewash ? `  <ruled-line/>\n  <text-line size="2:2"><bold>*** REWASH ***</bold></text-line>\n  <text-line><bold>${_escXml(('Re-treat: ' + rewash.reason + (rewash.note ? ' - ' + rewash.note : '')).substring(0, 92))}</bold></text-line>\n` : ''}  <ruled-line/>
   <text-line><bold>PICKUP   </bold>${_escXml(pickupStr || '\u2014')}</text-line>
   <text-line><bold>DELIVERY </bold>${_escXml(delivStr || '\u2014')}</text-line>
 ${pickupRouteXml ? pickupRouteXml + '\n' : ''}${delivRouteXml ? delivRouteXml + '\n' : ''}  <ruled-line/>
@@ -35439,6 +35489,7 @@ ${oneCopy}
       stopNum, routeName, addonTags, lineItems, total,
       tipAmount: o.tip_amount, tipType: o.tip_type,
       orderId: targetId,
+      rewash: o.is_rewash ? { reason: REWASH_REASON_LABEL[o.rewash_reason] || 'Rewash', note: o.rewash_note || '' } : null, // session 355
     };
 
     // Route to the configured transport
@@ -41802,6 +41853,7 @@ ${oneCopy}
   let _noPickupLabel  = null;   // time-window label for pickup slot (e.g. "7am – 9am")
   let _noPickupDate   = null;   // LOCAL date (YYYY-MM-DD) — avoids UTC shift for evening slots
   let _noTipType      = 'dollar';
+  let _noRewash       = null;   // session 355: { id, number } when the modal is creating a free rewash
   let _noDiscounts    = [];   // active discounts loaded by populateOrderModal (audit 2026-09-15)
   let _noDayLimit     = 28;   // how many days the pickup day picker shows
   let _noDelivStart   = null;
@@ -41886,6 +41938,73 @@ ${oneCopy}
     if (opts[_custComboHighlight]) opts[_custComboHighlight].scrollIntoView({ block: 'nearest' });
   }
 
+  // ── Session 355: free rewash ─────────────────────────────────────────────
+  // A rewash is offered for a delivered order within 14 days of delivery. The DB
+  // (create_rewash_order) enforces the same rules and forces the order to $0.
+  function _rewashDeliveredAt(o) {
+    const t = o?.actual_delivery_at || o?.delivery_window_end;
+    return t ? new Date(t) : null;
+  }
+  function canCreateRewash(o) {
+    if (!o || o.status !== 'delivered' || o.archived_at) return false;
+    const d = _rewashDeliveredAt(o);
+    return !!d && (Date.now() - d.getTime()) <= 14 * 86_400_000;
+  }
+  function opRewashStripHtml(o) {
+    if (o?.is_rewash) {
+      const orig = o.rewash_of_order_id ? allOrders.find(x => x.id === o.rewash_of_order_id) : null;
+      const link = o.rewash_of_order_id
+        ? `<a href="#" onclick="openOrderPanel('${o.rewash_of_order_id}');return false" style="color:#991b1b;font-weight:700;text-decoration:underline">order #${orig?.order_number || 'original'}</a>`
+        : 'a previous order';
+      return rewashBadgeHtml(o, true) + `<div style="font-size:12px;color:#991b1b;margin-top:-2px">Free rewash of ${link}. No charge — billing is locked at $0.</div>`;
+    }
+    if (canCreateRewash(o)) {
+      const d = _rewashDeliveredAt(o);
+      const daysLeft = Math.max(0, 14 - Math.floor((Date.now() - d.getTime()) / 86_400_000));
+      return `<button class="btn btn-ghost" style="border:1px solid #fca5a5;color:#b91c1c;font-weight:700;padding:6px 12px;font-size:12.5px" onclick="openRewashModal('${o.id}')">🔁 Create free rewash</button>
+        <span style="font-size:11.5px;color:var(--gray-400);margin-left:6px">${daysLeft} day${daysLeft === 1 ? '' : 's'} left to offer</span>`;
+    }
+    return '';
+  }
+  function _noSetRewashMode(rw) {
+    _noRewash = rw || null;
+    const on = !!_noRewash;
+    const box = document.getElementById('o-rewash-box');
+    if (box) box.style.display = on ? '' : 'none';
+    const tipRow = document.getElementById('o-tip-coupon-row');
+    if (tipRow) tipRow.style.display = on ? 'none' : 'grid';
+    const title = document.getElementById('o-modal-title');
+    if (title) title.textContent = on ? `Free Rewash of Order #${_noRewash.number || ''}` : 'New Order';
+    const btn = document.getElementById('o-save-btn');
+    if (btn) btn.textContent = on ? 'Create Free Rewash' : 'Create Order';
+    const t = document.getElementById('o-rewash-title');
+    if (t && on) t.textContent = `🔁 Free rewash of order #${_noRewash.number || ''}`;
+    if (on) {
+      document.getElementById('o-rewash-reason').value = '';
+      document.getElementById('o-rewash-note').value = '';
+      document.getElementById('o-tip').value = '';
+      const coupon = document.getElementById('o-coupon'); if (coupon) coupon.value = '';
+    }
+  }
+  async function openRewashModal(orderId) {
+    const o = allOrders.find(x => x.id === orderId);
+    if (!o) { showToast('Could not load that order — refresh and try again', 'error'); return; }
+    if (!canCreateRewash(o)) { showToast('Rewashes can only be offered within 14 days of delivery', 'error'); return; }
+    const custId = o.customers?.id;
+    if (!custId) { showToast('This order has no customer — a rewash needs one', 'error'); return; }
+    document.getElementById('modal-add-order').classList.add('open');
+    await populateOrderModal(custId);
+    // Same address and bag count as the original; staff only picks the pickup slot.
+    const addrSel = document.getElementById('o-address');
+    const want = o.pickup_address_id;
+    if (want && addrSel && [...addrSel.options].some(op => op.value === want) && addrSel.value !== want) {
+      addrSel.value = want;
+      await onOrderAddressChange();
+    }
+    document.getElementById('o-bags').value = String(o.total_bags || 1);
+    _noSetRewashMode({ id: o.id, number: o.order_number });
+  }
+
   async function populateOrderModal(prefillCustomerId) {
     try {
     // Reset all state
@@ -41905,6 +42024,7 @@ ${oneCopy}
     _noDayLimit     = 28;
     _noTipType      = 'dollar';
     _noAddressCity  = '';
+    _noSetRewashMode(null);   // session 355: every open starts as a normal order
     document.getElementById('no-route-expanded').style.display   = '';
     document.getElementById('no-route-bar').style.display        = 'none';
     document.getElementById('no-day-section').style.display      = 'none';
@@ -42796,6 +42916,58 @@ ${oneCopy}
       const { data: dr } = await db.from('routes')
         .select('id').eq('template_id', delivTmplId).eq('run_date', delivDate).maybeSingle();
       if (dr) delivRunId = dr.id;
+    }
+
+    // Session 355: free rewash — its own trusted door. The DB forces $0, marks it
+    // paid ('rewash'), keeps it off any plan, and enforces the 14-day rule.
+    if (_noRewash) {
+      const rwReason = document.getElementById('o-rewash-reason').value;
+      const rwNote   = document.getElementById('o-rewash-note').value.trim();
+      if (!rwReason) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Create Free Rewash'; }
+        err.textContent = 'Pick a reason for the rewash.'; err.style.display = 'block'; return;
+      }
+      const { data: rw, error: rwErr } = await db.rpc('create_rewash_order', {
+        p_original_order_id:     _noRewash.id,
+        p_reason:                rwReason,
+        p_note:                  rwNote || null,
+        p_total_bags:            bags,
+        p_address_id:            addressId,
+        p_pickup_window_start:   _noPickupStart,
+        p_pickup_window_end:     _noPickupEnd,
+        p_delivery_window_start: _noDelivStart || null,
+        p_delivery_window_end:   _noDelivEnd   || null,
+        p_zone_id:               _noSelectedTmpl?.zone_id || null,
+        p_pickup_run_id:         pickupRunId,
+        p_delivery_run_id:       delivRunId,
+        p_special_instructions:  notes || null,
+        p_actor_name:            currentUserDisplayName || currentUserFirstName || 'Admin'
+      });
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Free Rewash'; }
+      if (rwErr) { err.textContent = rwErr.message; err.style.display = 'block'; return; }
+      const rwId = rw.order_id;
+      if (pickupRunId) {
+        const { error: psErr } = await db.from('route_stops').insert({ route_id: pickupRunId, order_id: rwId, stop_type:'pickup', address_id: addressId, status:'pending' });
+        if (psErr) showToast('Rewash created, but the pickup stop was not added to the route — add it from Routes', 'error');
+        else autoOptimizeRoute(pickupRunId);
+      }
+      if (delivRunId) {
+        const { error: dsErr } = await db.from('route_stops').insert({ route_id: delivRunId, order_id: rwId, stop_type:'delivery', address_id: addressId, status:'pending' });
+        if (dsErr) showToast('Rewash created, but the delivery stop was not added to the route — add it from Routes', 'error');
+        else autoOptimizeRoute(delivRunId);
+      }
+      showToast(`Free rewash #${rw.order_number} created for order #${rw.original_order_number}`, 'success');
+      closeModal('add-order');
+      _noSetRewashMode(null);
+      loadOrders(currentOrderFilter);
+      loadOverview();
+      // Pickup-confirmation text only (no price in that template). No booking email.
+      fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
+        body: JSON.stringify({ orderId: rwId, event: 'confirmed' })
+      }).catch(() => {});
+      return;
     }
 
     // Session 147: routed through create_order_for_customer RPC (single trusted door).
@@ -46838,7 +47010,7 @@ ${oneCopy}
             </tr>` : '';
       // Payment status row — uses charged total so the "PAID" amount matches
       // what Stripe actually collected (subtotal + tip), not the pre-tip subtotal.
-      const paidMethodLabel = o.billing_payment_method === 'credit' ? ' (Account Credit)' : o.billing_payment_method === 'check' ? ' (Check)' : o.billing_payment_method === 'cash' ? ' (Cash)' : o.stripe_payment_intent_id ? ' (Card)' : '';
+      const paidMethodLabel = o.billing_payment_method === 'rewash' ? ' (Free rewash)' : o.billing_payment_method === 'credit' ? ' (Account Credit)' : o.billing_payment_method === 'check' ? ' (Check)' : o.billing_payment_method === 'cash' ? ' (Cash)' : o.stripe_payment_intent_id ? ' (Card)' : '';
       const paidRow = isPaid ? `
             <tr>
               <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600;color:#059669">✓ PAID${paidMethodLabel}</td>
@@ -52761,7 +52933,7 @@ ${oneCopy}
       allLaunCache = data || [];
     }
     const { data: orders } = await _procSiteApply(db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id, site_id,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, is_rewash, rewash_reason, rewash_note, source, rack_id, folded_by_id, zone_id, site_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
@@ -52879,7 +53051,7 @@ ${oneCopy}
           ? `<div style="font-size:12px;color:var(--gray-500)">👥 Split: <strong style="color:var(--gray-700)">${splitAsgn.map(a => allLaunCache.find(l=>l.id===a.launderer_id)?.name?.split(' ')[0]||'?').join(', ')}</strong> <span style="color:var(--gray-400)">(${splitAsgn[0]?.bags} bags · ${splitAsgn[0]?.weight_lbs||'—'} lbs each)</span></div>`
           : folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
         ${noFolderBadge}
-        ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${esc(n)}"</div>` : ''; })()}
+        ${rewashBadgeHtml(o)}${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${esc(n)}"</div>` : ''; })()}
         ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
@@ -52952,8 +53124,8 @@ ${oneCopy}
       if (li.type === 'credit') return `<div style="display:flex;justify-content:space-between;font-size:12px;color:#059669"><span>${li.label||'Credit'}</span><span>−${fmtMoney(Math.abs(amt))}</span></div>`;
       return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
     }).join('');
-    const notesHTML = o.special_instructions
-      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${esc(o.special_instructions)}"</div>` : '';
+    const notesHTML = rewashBadgeHtml(o, true) + (o.special_instructions
+      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${esc(o.special_instructions)}"</div>` : '');
     const existingAsgn = foldAssignmentsMap[o.id] || [];
     const folderName = existingAsgn.length > 1
       ? null // split — handled separately
@@ -53180,7 +53352,7 @@ ${oneCopy}
       allRacksCache = data || [];
     }
     const { data } = await _procSiteApply(db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, billing_status, rack_id, folded_by_id, source, special_instructions, site_id,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, billing_status, rack_id, folded_by_id, source, special_instructions, is_rewash, rewash_reason, rewash_note, site_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
@@ -53325,8 +53497,8 @@ ${oneCopy}
       if (li.type === 'credit') return `<div style="display:flex;justify-content:space-between;font-size:12px;color:#059669"><span>${li.label||'Credit'}</span><span>−${fmtMoney(Math.abs(amt))}</span></div>`;
       return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
     }).join('');
-    const notesHTML = o.special_instructions
-      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${esc(o.special_instructions)}"</div>` : '';
+    const notesHTML = rewashBadgeHtml(o, true) + (o.special_instructions
+      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${esc(o.special_instructions)}"</div>` : '');
     const folderName = o.folded_by_id ? (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null) : null;
     document.getElementById('rack-body').innerHTML = `
       <div class="intake-section">
@@ -53569,7 +53741,7 @@ ${oneCopy}
     // Kick off all 4 columns in parallel
     const [{ data: pickedUp }] = await Promise.all([
       _procSiteApply(db.from('orders')
-        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, subscription_id, site_id, customer_id,
+        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, is_rewash, rewash_reason, rewash_note, service_id, subscription_id, site_id, customer_id,
                  stripe_payment_intent_id, pickup_window_start, delivery_window_start, total_amount, line_items,
                  pickup_address_id, delivery_address_id,
                  customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, address_cache, addresses(id, line1, city)),
@@ -53612,7 +53784,7 @@ ${oneCopy}
 
   async function loadIntakeCol() {
     const { data } = await _procSiteApply(db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, subscription_id, site_id,
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, is_rewash, rewash_reason, rewash_note, service_id, subscription_id, site_id,
                stripe_payment_intent_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                actual_pickup_at, pickup_address_id, delivery_address_id,
@@ -53634,7 +53806,7 @@ ${oneCopy}
     const wrap = document.getElementById('clean-queue-wrap');
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
     const { data } = await _procSiteApply(db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, site_id,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, is_rewash, rewash_reason, rewash_note, source, rack_id, folded_by_id, site_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
@@ -53682,7 +53854,7 @@ ${oneCopy}
           <span>⚖️ ${lbs}</span>
           <span>${_serviceLabelForOrder(o)}</span>
         </div>
-        ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${esc(n)}"</div>` : ''; })()}
+        ${rewashBadgeHtml(o)}${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${esc(n)}"</div>` : ''; })()}
         ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
@@ -53737,7 +53909,7 @@ ${oneCopy}
           <span>${svcName}</span>
         </div>
         ${premiumOpts.length ? `<div class="proc-card-prefs">${premiumOpts.map(l=>`<span class="proc-card-pref-chip">${l}</span>`).join('')}</div>` : ''}
-        ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${esc(n)}"</div>` : ''; })()}
+        ${rewashBadgeHtml(o)}${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${esc(n)}"</div>` : ''; })()}
         ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
@@ -53771,7 +53943,7 @@ ${oneCopy}
     // Fresh-fetch the order so bags/notes/dates are always current
     // (admin may have changed them in the order panel since the proc queue last loaded)
     const { data: freshOrder } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, subscription_id, created_at,
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, is_rewash, rewash_reason, rewash_note, service_id, subscription_id, created_at,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id, total_amount, line_items, tip_amount, tip_type, discount_id,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, addresses(id,label,line1,city)),
@@ -53854,6 +54026,7 @@ ${oneCopy}
     const ln = order.customers?.last_name_cache  || '';
     document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || 'Process Order';
     document.getElementById('intake-subtitle').textContent = `Order #${order.order_number||'—'} · ${procSvc?.name||''}`;
+    if (order.is_rewash) document.getElementById('intake-subtitle').insertAdjacentHTML('beforeend', rewashBadgeHtml(order, true)); // session 355
     _intakeFillSiteRow();   // session 326: confirm WHERE this is being processed
     // Configure footer button — Intake only
     const nextBtn = document.getElementById('intake-next-btn');
@@ -54297,6 +54470,13 @@ ${oneCopy}
     const tipDollars = tipRaw > 0
       ? (tipType === 'pct' ? Math.round(preTipTotal * tipRaw) / 100 : tipRaw)
       : 0;
+    // Session 355: a free rewash is always $0 — no charge, no credit used, no tip.
+    if (procActiveOrder?.is_rewash) {
+      return { bags, weight, base: 0, overage_lbs, overage_charge: 0, addons_total: 0, addonSvc_total: 0, prefLinkedSvc_total: 0,
+               planEffCap, planOvgRate, isSubscription: false,
+               deliveryFee: 0, sameDaySurcharge: 0, deliveryTotal: 0, discountAmt: 0, subtotal: 0, creditApplied: 0,
+               preTipTotal: 0, tipDollars: 0, tipType, tipRaw: 0, total: 0 };
+    }
     const total = preTipTotal + tipDollars;
     return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
              planEffCap, planOvgRate, isSubscription: procOrderIsSubscription || !!procSubscription, // session 292: the ORDER decides
@@ -62408,6 +62588,7 @@ async function _dvIframeLoaded() {
     let query = db.from('orders')
       .select('id, order_number, total_amount, tip_amount, tip_type, status, billing_status, billed_at, actual_delivery_at, created_at, pickup_window_start, source, customer_id, line_items, total_bags, weight_lbs, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
       .eq('customers.billing_type', 'on_account')
+      .eq('is_rewash', false)   // session 355: free rewashes never go on an invoice
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery', 'picked_up', 'processing', 'folding', 'scheduled'])
       .order('pickup_window_start', { ascending: false, nullsFirst: false });
 

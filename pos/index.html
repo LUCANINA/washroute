@@ -4642,7 +4642,7 @@
       // The badge in the card render distinguishes walk-in counter-pickups
       // (🏪 Retail) from delivery-bound bags (🚚 For delivery).
       let query = db.from('orders')
-        .select('id, order_number, status, source, site_id, customer_id, service_id, subscription_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, special_instructions, created_at, updated_at, ready_for_delivery_at, card_brand, card_last4, pos_shift_id, pickup_window_start, delivery_window_start, pickup_run_id, delivery_run_id')
+        .select('id, order_number, status, source, site_id, customer_id, service_id, subscription_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, special_instructions, created_at, updated_at, ready_for_delivery_at, card_brand, card_last4, pos_shift_id, pickup_window_start, delivery_window_start, pickup_run_id, delivery_run_id, is_rewash, rewash_of_order_id, rewash_reason, rewash_note')
         // Session 156: include 'folding' so bags stay visible through the
         // folding stage. Earlier filter missed it — when an admin assigned
         // a launderer, the bag advanced processing→folding and silently
@@ -5056,9 +5056,10 @@
     // the printed bag tag. Render it above the line-item detail so it's the
     // first thing read on the card.
     const _note = String(order.special_instructions || '').trim();
-    const noteHtml = _note
+    // Session 355: free rewash — the first thing the launderer reads.
+    const noteHtml = _posRewashBanner(order) + (_note
       ? `<div class="queue-card-note"><span>📝</span><span>${esc(_note)}</span></div>`
-      : '';
+      : '');
 
     // Time-line label varies by status: dropped off / dropped here / ready
     let timeLabel;
@@ -5390,7 +5391,7 @@
       <div style="font-size:14px;font-weight:700">${esc(order._customerName || t('Customer'))}</div>
       <div style="font-size:12px;color:var(--gray-500);margin-top:2px">
         ${t('Customer estimate')}: ${order.total_bags || 1} ${t('bag')}${order.total_bags === 1 ? '' : 's'}
-      </div>`;
+      </div>${_posRewashBanner(order)}`;
     document.getElementById('posIntakeWeight').value = _posIntakeEdit && Number(order.weight_lbs) > 0 ? Number(order.weight_lbs) : '';
     document.getElementById('posIntakeBags').value   = order.total_bags || 1;
     document.getElementById('posIntakeConfirmBtn').textContent = _posIntakeEdit ? t('💾 Save changes') : t('⚖️ Save & Start Processing');
@@ -5426,6 +5427,20 @@
   // plus an overage band when weight exceeds bags × lbs_per_bag.
   //
   // Returns { base, baseLabel, overage, overageLbs, overageRate, overageLabel? }.
+  // Session 355: free rewash orders (orders.is_rewash). The DB forces them to $0;
+  // these helpers make sure the launderer SEES it and the screen never shows a price.
+  const _POS_REWASH_REASONS = { stain: 'Stain', smell: 'Smell', damage: 'Damage', other: 'Other' };
+  function _posRewashText(order) {
+    if (!order || !order.is_rewash) return '';
+    const r = _POS_REWASH_REASONS[order.rewash_reason] || 'Other';
+    const n = String(order.rewash_note || '').trim();
+    return r + (n ? ' — ' + n : '');
+  }
+  function _posRewashBanner(order) {
+    if (!order || !order.is_rewash) return '';
+    return `<div style="display:flex;gap:8px;align-items:flex-start;background:#fee2e2;border:2px solid #dc2626;color:#7f1d1d;border-radius:8px;padding:8px 10px;margin:6px 0;font-weight:800;font-size:13px;line-height:1.35"><span>🔁</span><span>${esc(t('REWASH — free, re-treat'))}: ${esc(_posRewashText(order))}</span></div>`;
+  }
+
   function _computeIntakePrice(svc, weight, bags, sub) {
     const pricingType = svc?.pricing_type || 'per_bag';
     const basePrice   = parseFloat(svc?.base_price || 0);
@@ -5521,6 +5536,14 @@
     const total = Math.round((p.base + p.overage + preservedTotal + (discLine ? discLine.amount : 0)) * 100) / 100;
 
     const fmt = n => '$' + Number(n).toFixed(2);
+    // Session 355: a rewash is free — never show a price for it.
+    if (_posIntakeOrder.is_rewash) {
+      document.getElementById('posIntakeSummary').innerHTML = `
+      <div style="display:flex;justify-content:space-between;padding:8px 0 2px;font-weight:800;font-size:15px;color:#b91c1c">
+        <span>${esc(t('Free rewash'))}</span><span>$0.00</span>
+      </div>`;
+      return;
+    }
     // Session 353: in edit mode show what the order is now, so the change is visible.
     const _curTotal = Number(_posIntakeOrder.total_amount);
     const curHtml = (_posIntakeEdit && isFinite(_curTotal)) ? `<div style="display:flex;justify-content:space-between;padding:2px 0;color:var(--gray-500);font-size:12px">
@@ -5607,6 +5630,8 @@
     }
     preserved.forEach(li => lineItems.push(li));
     if (discLine) lineItems.push(discLine);
+    // Session 355: a rewash is always $0 (the DB enforces it too).
+    const _isRewash = !!_posIntakeOrder.is_rewash;
 
     // Attribute the action to the active cashier (PIN-locked) or the device.
     const actorName = (shift?.cashier_first_name && shift?.cashier_last_name)
@@ -5617,12 +5642,12 @@
       p_order_id:       _posIntakeOrder.id,
       p_weight_lbs:     weight,
       p_bags:           bags,
-      p_total_amount:   total,
-      p_line_items:     lineItems,
+      p_total_amount:   _isRewash ? 0 : total,
+      p_line_items:     _isRewash ? [{ type: 'base', label: 'Rewash — no charge', amount: 0, taxable: false }] : lineItems,
       p_service_id:     _posIntakeSvc.id,
       // Session 291L: was hardcoded null, which erased the order's discount
       // reference at intake even when one applied.
-      p_discount_id:    _posIntakeDiscount ? _posIntakeDiscount.id : null,
+      p_discount_id:    (!_isRewash && _posIntakeDiscount) ? _posIntakeDiscount.id : null,
       p_is_same_day:    !!_posIntakeOrder.is_same_day,
       p_notes:          notes || null,
       p_credit_applied: 0,
@@ -7446,6 +7471,19 @@ ${taxAmt > 0 ? `    <text-line>${('Tax (' + (TAX_RATE * 100).toFixed(2) + '%)').
     // point of the printed copy for the laundering team — a note like "customer
     // requests an additional FL bag" has to travel with the bag, not sit in admin.
     const _rcptNote = escMarkup(String(order.special_instructions || '').trim());
+    // Session 355: a rewash bag must be impossible to miss on the tag.
+    const _rwTxt = escMarkup(_posRewashText(order));
+    const rewashXml = order.is_rewash ? `
+  <align mode="center">
+    <text-line><bold>********************************</bold></text-line>
+    <text-line><bold>*** REWASH *** REWASH ***</bold></text-line>
+    <text-line><bold>********************************</bold></text-line>
+    <text-line><bold>FREE - NO CHARGE</bold></text-line>
+  </align>
+  <align mode="left">
+${_rwTxt.replace(/\S{39,}/g, m => m.match(/.{1,38}/g).join(' ')).match(/.{1,38}(\s|$)|\S+/g).map(l => `    <text-line>${l.trim()}</text-line>`).join('\n')}
+  </align>
+  <ruled-line/>` : '';
     const noteXml = _rcptNote ? `
   <align mode="left">
     <text-line><bold>** NOTE **</bold></text-line>
@@ -7463,7 +7501,7 @@ ${_pickupDate   ? `    <text-line>Pickup:   ${_pickupDate}</text-line>\n`   : ''
     <text-line size="1:2"><bold>Order ${orderNum}</bold></text-line>
     <text-line>${now}</text-line>
   </align>
-  <ruled-line/>${deliveryInfoXml}${noteXml}
+  <ruled-line/>${rewashXml}${deliveryInfoXml}${noteXml}
   <align mode="left">
 ${lineItemsXml}
   </align>
@@ -7549,9 +7587,11 @@ ${_routeNameH    ? `<tr><td>Route</td><td style="text-align:right">${_routeNameH
 </table>` : '';
     // Session 293: same note block as the thermal builder.
     const _rcptNoteH = esc(String(order.special_instructions || '').trim());
-    const noteH = _rcptNoteH
+    const noteH = (order.is_rewash
+      ? `<div class="rcpt-note" style="border:2px solid #000;text-align:center"><strong style="font-size:18px">*** REWASH ***</strong><br>FREE - NO CHARGE<br>${esc(_posRewashText(order))}</div>`
+      : '') + (_rcptNoteH
       ? `<div class="rcpt-note"><strong>** NOTE **</strong><br>${_rcptNoteH}</div>`
-      : '';
+      : '');
     return `<!doctype html><html><head><title>Receipt ${orderNum}</title>
 <style>body{font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:18px;width:280px;}
 .cust{font-size:22px;font-weight:800;text-align:center;letter-spacing:.02em;text-transform:uppercase;margin:0 0 2px}

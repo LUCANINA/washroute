@@ -3221,10 +3221,14 @@ function renderRoute() {
     const reassignedTag = stop._reassigned
       ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 7px;border-radius:5px;margin-left:5px">↗ reassigned</span>`
       : '';
+    // Session 355: free rewash — tell the driver so they can reassure the customer.
+    const rewashTag = stop.orders?.is_rewash
+      ? `<span style="font-size:10px;font-weight:800;color:#b91c1c;background:#fee2e2;border:1px solid #fca5a5;padding:2px 7px;border-radius:5px;margin-left:5px">🔁 REWASH ${stop.stop_type === 'delivery' ? 'delivery' : 'pickup'}</span>`
+      : '';
     return `<div class="stop-card${cardClass}" onclick="openStop('${stop.id}')">
       <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isFailed ? '✕' : isEnRoute ? '↑' : (stop._displayNum || stop.stop_number)}</div>
       <div class="stop-body">
-        <div>${typePill}${showBadge ? ` <span class="stop-badge ${badgeClass}">${badgeText}</span>` : ''}${reassignedTag}</div>
+        <div>${typePill}${showBadge ? ` <span class="stop-badge ${badgeClass}">${badgeText}</span>` : ''}${reassignedTag}${rewashTag}</div>
         <div class="stop-name">${custName}</div>
         <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
         <div class="stop-meta">${stop.orders?.total_bags||1} bag${(stop.orders?.total_bags||1)!==1?'s':''} · ${stop.orders?.services?.name||'Service'}${(() => { const w = stopWindow(stop); return w.start ? ' · ' + fmtSlot(w.start, w.end) : ''; })()}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}${!isDone && !isSkip && !isFailed && stop.estimated_arrival ? ` · <span style="color:var(--accent);font-weight:600">ETA ${fmtTime(stop.estimated_arrival)}</span>` : ''}</div>
@@ -3419,6 +3423,7 @@ function renderStopDetail(stopOrId) {
   // Update header with type-colored eyebrow
   const eyebrowEl = document.getElementById('stop-eyebrow');
   eyebrowEl.textContent = `${stop.stop_type.toUpperCase()} · STOP ${stop._displayNum || stop.stop_number}`;
+  if (stop.orders?.is_rewash) eyebrowEl.textContent += ' · 🔁 FREE REWASH';
   eyebrowEl.style.color = isPickup ? '#93c5fd' : '#6ee7b7';
   eyebrowEl.style.opacity = '1';
   document.getElementById('stop-title').textContent = custName || 'Customer';
