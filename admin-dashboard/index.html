@@ -12334,7 +12334,7 @@
     });
     (_allPayrollImports || []).filter(i => i.status === 'parsed' || i.status === 'reviewed').forEach(imp => {
       const lines = (_allPayrollLines || []).filter(l => l.import_id === imp.id);
-      const wage = lines.reduce((s, l) => s + Number(l.wage_amount || 0), 0);
+      const wage = _pkWageTotals(lines).total;
       const emps = lines.filter(l => l.line_type !== 'reimbursement_only').length;
       items.push({
         key: 'appr-pimp-' + imp.id, dot: 'green',
@@ -16076,6 +16076,19 @@
     return (_allPayrollImports || []).filter(i => i.attention_flag).length + (_allPayrollNotices || []).length;
   }
 
+  // Session 353: the ONE place a payroll's "Wages" figure is computed. Tips are
+  // paid once a month and ARE wages -- payroll-xero-post debits wage + tips to
+  // each department's wage account, and the review modal has shown them that
+  // way since session 291. The list and the Overview line kept summing
+  // wage_amount alone, so the tipped payroll each month (Oct 9: $20,885.06
+  // shown, $27,332.06 paid) read about $6-7k short. Every surface showing a
+  // payroll's wages calls this.
+  function _pkWageTotals(lines) {
+    const wage = (lines || []).reduce((s, l) => s + Number(l.wage_amount || 0), 0);
+    const tips = (lines || []).reduce((s, l) => s + Number(l.paycheck_tips_amount || 0), 0);
+    return { wage, tips, total: wage + tips };
+  }
+
   // Session 223 cont.: the payroll queue moved to the Overview. What remains
   // page-side is a small staleness hint on the Payroll Reports card — if the
   // background issue check (payroll-check-attention, every 2h) hasn't run in
@@ -16204,7 +16217,7 @@
     const statusBadgeMap = { parsed: ['badge-amber','Needs Review'], reviewed: ['badge-blue','Reviewed'], posted: ['badge-green','Posted'], void: ['badge-gray','Void'] };
     const rows = _allPayrollImports.map(imp => {
       const lines = _allPayrollLines.filter(l => l.import_id === imp.id);
-      const wage = lines.reduce((s,l) => s + Number(l.wage_amount||0), 0);
+      const wt = _pkWageTotals(lines);
       const tax = lines.reduce((s,l) => s + Number(l.er_tax_amount||0), 0);
       const isReimbOnly = lines.length === 1 && lines[0].line_type === 'reimbursement_only';
       const employeeLines = lines.filter(l => l.line_type !== 'reimbursement_only');
@@ -16214,7 +16227,7 @@
         <td>${esc(fmtDate(imp.pay_period_start))} – ${esc(fmtDate(imp.pay_period_end))}${imp.import_type === 'adjustment' ? ' <span class="badge badge-amber" title="Off-cycle adjustment -- a separate correction run for this same pay period">Adjustment</span>' : ''}</td>
         <td>${esc(fmtDate(imp.pay_date))}</td>
         <td>${isReimbOnly ? '<span style="color:var(--gray-500)">Insurance reimbursement only</span>' : `${employeeLines.length}${unmatched ? ` <span style="color:var(--red);font-weight:700">(${unmatched} unmatched)</span>` : ''}`}</td>
-        <td>${fmtMoney(wage)}</td>
+        <td${wt.tips > 0 ? ` title="${fmtMoney(wt.wage)} wages + ${fmtMoney(wt.tips)} tips"` : ''}>${fmtMoney(wt.total)}</td>
         <td>${fmtMoney(tax)}</td>
         <td><span class="badge ${cls}">${label}</span></td>
       </tr>`;
@@ -16710,7 +16723,16 @@
       showToast('Posted to Xero.', 'success');
       loadPayroll();
     } catch (e) {
-      showToast(e.message || 'Posting failed', 'error');
+      // Session 353: the reason stays in the modal. A toast alone fades in a
+      // few seconds, and "Xero journal post failed" was all it ever said.
+      const msg = e.message || 'Posting failed';
+      showToast('Not posted to Xero', 'error');
+      const body = document.getElementById('payroll-xero-review-body');
+      if (body) {
+        const old = document.getElementById('payroll-xero-post-error');
+        if (old) old.remove();
+        body.insertAdjacentHTML('afterbegin', `<div id="payroll-xero-post-error" style="background:#fef2f2;color:var(--red);font-size:13px;padding:10px 12px;border-radius:8px;margin-bottom:14px">${esc(msg)}</div>`);
+      }
       if (btn) { btn.disabled = false; btn.textContent = 'Approve & Post to Xero'; }
     }
   }

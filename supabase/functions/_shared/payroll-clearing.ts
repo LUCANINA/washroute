@@ -96,3 +96,58 @@ export function shortfall(draw: number, balance: { ok: boolean; available?: numb
   if (draw <= 0 || !balance.ok) return null
   return money(draw - (balance.available ?? 0))
 }
+
+/**
+ * Pay stubs that do not add up, TO THE CENT.
+ *
+ * A stub adds up when wage + tips + insurance reimbursement, minus every
+ * withholding we read, equals Square's own Net Pay. The journal's debits are
+ * built from the first side and its credits from the second, so a stub that is
+ * off by a cent makes the whole journal off by a cent -- and Xero rejects any
+ * manual journal that does not balance EXACTLY.
+ *
+ * No tolerance, deliberately. Oct 16, 2026: Andres Higuera's stub was $0.01
+ * out, every check here allowed "up to $0.01", and the first thing to refuse it
+ * was Xero, as a bare "Xero journal post failed" with no reason on screen.
+ *
+ * Used by payroll-ingest (refuses the upload), payroll-check-attention (flags
+ * an already-imported period) and payroll-xero-post (refuses to post, naming
+ * the employee). One test, three call sites -- do not reimplement it.
+ *
+ * Rows parsed before the full pay-stub parser (net_pay_amount null) cannot be
+ * judged and are skipped; reimbursement-only rows carry no stub.
+ */
+export interface StubMismatch {
+  employee: string
+  derived_net_pay: number
+  square_net_pay: number
+  difference: number
+}
+
+export function stubMismatches(lines: any[]): StubMismatch[] {
+  const n = (v: unknown) => Number(v ?? 0) || 0
+  const out: StubMismatch[] = []
+  for (const l of lines || []) {
+    if (l.line_type === 'reimbursement_only') continue
+    if (l.net_pay_amount === null || l.net_pay_amount === undefined) continue
+    const derived = n(l.wage_amount) + n(l.paycheck_tips_amount) + n(l.insurance_reimbursement_amount)
+      - n(l.ee_fed_income_amount) - n(l.ee_social_security_amount) - n(l.ee_medicare_amount)
+      - n(l.ee_ca_state_income_amount) - n(l.ee_ca_state_disability_amount)
+      - n(l.ee_health_amount) - n(l.ee_401k_amount)
+    const diffCents = Math.round(derived * 100) - Math.round(n(l.net_pay_amount) * 100)
+    if (diffCents !== 0) {
+      out.push({
+        employee: String(l.raw_full_name || 'Unnamed employee'),
+        derived_net_pay: money(derived),
+        square_net_pay: money(n(l.net_pay_amount)),
+        difference: diffCents / 100,
+      })
+    }
+  }
+  return out
+}
+
+/** "Andres Higuera (off by $0.01)" -- one phrase for every surface that names them. */
+export function describeStubMismatches(m: StubMismatch[]): string {
+  return m.map(x => `${x.employee} (off by $${Math.abs(x.difference).toFixed(2)})`).join(', ')
+}

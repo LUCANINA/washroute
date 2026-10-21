@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import { stubMismatches, describeStubMismatches } from "../_shared/payroll-clearing.ts"
 
 // payroll-ingest v20 (Aug 17, 2026)
 //
@@ -344,7 +345,6 @@ async function handleRequest(req: Request): Promise<Response> {
       // to 0. (This money now arrives via the totals-only branch above.)
       const insReimbCol = col('Insurance reimbursement (max $300)')
 
-      const identityMismatches: any[] = []
       for (let i = headerIdx + 1; i < lines.length; i++) {
         const raw = lines[i]
         if (!raw || !raw.trim()) break
@@ -367,17 +367,6 @@ async function handleRequest(req: Request): Promise<Response> {
         const insurance_reimbursement_amount = insReimbCol === -1 ? 0 : num(cells[insReimbCol])
         const net_pay_amount = num(cells[idx.netPay])
         const gross_pay = num(cells[idx.gross])
-
-        // Guard the identity that the whole Xero posting depends on. If Square
-        // ever adds a new deduction column we don't read, this catches it here
-        // rather than silently stranding money in 170 later.
-        const derivedNet = wage_amount + paycheck_tips_amount
-          - ee_fed_income_amount - ee_social_security_amount - ee_medicare_amount
-          - ee_ca_state_income_amount - ee_ca_state_disability_amount
-          - ee_health_amount - ee_401k_amount + insurance_reimbursement_amount
-        if (Math.abs(r2(derivedNet) - r2(net_pay_amount)) > 0.01) {
-          identityMismatches.push({ employee: `${first} ${last}`.trim(), derived_net_pay: r2(derivedNet), square_net_pay: r2(net_pay_amount), difference: r2(derivedNet - net_pay_amount) })
-        }
 
         const raw_full_name = `${first} ${last}`.trim()
         employeeLines.push({
@@ -405,9 +394,14 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!employeeLines.length) {
         return new Response(JSON.stringify({ error: 'No employee rows found between the header row and the Total row.' }), { status: 400 })
       }
+      // Guard the identity the whole Xero posting depends on, to the cent
+      // (session 353: this allowed $0.01 and let a stub through that Xero then
+      // rejected). The test lives in _shared/payroll-clearing.ts so upload,
+      // Check for issues and posting cannot disagree about it.
+      const identityMismatches = stubMismatches(employeeLines)
       if (identityMismatches.length) {
         return new Response(JSON.stringify({
-          error: `This CSV does not reconcile: for ${identityMismatches.length} employee(s), gross + tips minus every deduction we read does not equal Square's own Net Pay. That usually means Square added a pay or deduction column this parser doesn't know about. Import stopped so nothing wrong reaches Xero -- send this to Claude to update the parser.`,
+          error: `This CSV does not add up: ${describeStubMismatches(identityMismatches)}. Pay + tips minus every deduction we read must equal Square's own Net Pay to the cent, because Xero rejects a journal that is off by even one cent. A difference of a cent or two is usually rounding on that stub in Square; a larger one usually means Square added a pay or deduction column this parser doesn't know about. Import stopped so nothing wrong reaches Xero -- send this to Claude.`,
           identity_mismatches: identityMismatches.slice(0, 20),
         }), { status: 400 })
       }

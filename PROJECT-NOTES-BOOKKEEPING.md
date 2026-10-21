@@ -1,5 +1,44 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 353 — Oct 21, 2026: a one-cent pay stub, three tolerances that allowed it, and tips missing from the list
+
+**What David saw.** Oct 16 payroll: "Approve & Post to Xero" → red toast "Xero journal post failed", three
+times (Oct 20, 21:16 / 21:17 / 21:23 UTC). Nothing reached Xero (`xero_manual_journal_id` null).
+
+**Cause.** Andres Higuera's Square stub does not add up: $558.68 pay − $150.19 withholdings = $408.49, Square's
+Net Pay says $408.48. Debits $22,472.14, credits $22,472.13. Xero rejects any manual journal that is not exact.
+Every check on our side allowed "up to $0.01" (`> 0.01` in payroll-ingest's identity check, `> BALANCE_TOLERANCE`
+in payroll-xero-post's self-check), so the first thing to refuse it was Xero — and the function returned Xero's
+reason in `details`, which the screen never showed. Blast radius measured: every other period since August foots to
+the cent; July rows predate net pay and cannot be judged.
+
+**Fix — one test, three call sites (§231).** `stubMismatches()` / `describeStubMismatches()` in
+`_shared/payroll-clearing.ts`, exact to the cent, no tolerance:
+- `payroll-ingest` refuses the upload and names the employee (replaces the inline `> 0.01` check).
+- `payroll-check-attention` raises new flag `stub_mismatch` on parsed AND reviewed periods (no CHECK constraint on
+  `attention_flag`; the dashboard renders summary/detail generically).
+- `payroll-xero-post` refuses before Xero, naming the employee; journal self-check is now `Math.round(sum*100) !== 0`.
+  A Xero rejection now returns Xero's own ValidationErrors text. `BALANCE_TOLERANCE` itself is UNCHANGED — it still
+  governs the cash-overdraw check, where a cent of slack is right.
+- Dashboard: a failed post keeps the reason inside the modal, not only in a fading toast.
+
+**Tips (David, same morning: "not seeing tips in the first payroll of the month" — pay date Oct 9).** s291 fixed the
+review modal; the Payroll Reports list and the Overview approval line still summed `wage_amount` alone. Oct 9 read
+$20,885.06 against $27,332.06 paid ($6,447.00 tips). Same on Sep 4 and Jul 10. Journals were always right — display
+only. New `_pkWageTotals()` is the one source; both surfaces call it; the cell carries a wages + tips hover.
+Aug 7 shows no tips because its tips sit inside `wage_amount` (older parse) — totals right, label only.
+
+**Tests.** `tests/payroll-stub-mismatch.test.mts` 10/10 (real Andres row; proves the old rule passed it).
+`payroll-clearing.test.mts` 17/17. Harness `payroll-tips-in-wages` + s353a–e 15/15 incl. discrimination;
+payroll-notices, payroll-fix-cards, two-surfaces, cold-boot, work-band 147/147. (Harness run in the cloud
+container — the laptop VM cannot fetch Chromium: the CDN redirects to a host not on the allowlist.)
+
+**Deploy state (checked Oct 21 by `list_edge_functions`, not inferred):** NOT deployed. verify_jwt read first:
+payroll-xero-post TRUE (no flag); payroll-ingest and payroll-check-attention FALSE (`--no-verify-jwt`).
+
+**Still open:** Oct 16 itself is not posted — Andres's stub needs checking in Square (a missing 1-cent deduction, or
+Square rounding). Decide with David before posting; do not "correct" his figure here.
+
 ## Session 344 — Oct 12, 2026: Dexter 2's new rate schedule was rejected as a "duplicate" — because it had never been read
 
 David uploaded "Dexter 2 - NEW amort Schedule.pdf" (lender re-issued 2026-10-07: rate 6.64% →

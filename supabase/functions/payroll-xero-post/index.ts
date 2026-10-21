@@ -94,8 +94,8 @@ import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
 // Body: { import_id, confirm?, posted_by? }. Default is a dry run.
 // admin/manager/cpa may preview; only admin/manager may post.
 
-import { cashDraw, overdraws, shortfall,
-         ACCT_DIRECT_WAGES, ACCT_DIRECT_PAYROLL_TAXES, BALANCE_TOLERANCE }
+import { cashDraw, overdraws, shortfall, stubMismatches, describeStubMismatches,
+         ACCT_DIRECT_WAGES, ACCT_DIRECT_PAYROLL_TAXES }
   from '../_shared/payroll-clearing.ts'
 
 const ACCT_401K = '358'
@@ -272,13 +272,23 @@ async function handleRequest(req: Request): Promise<Response> {
     if (tEeHealth > 0) journalLines.push({ AccountCode: ACCT_HEALTH, LineAmount: -tEeHealth, Description: `EE health withheld`, TaxType: 'NONE' })
     if (tEe401k > 0) journalLines.push({ AccountCode: ACCT_401K, LineAmount: -tEe401k, Description: `EE 401k withheld`, TaxType: 'NONE' })
 
-    // Self-check: the journal must balance to zero. If it doesn't, the pay-stub
-    // identity broke (Square added a column we don't read) -- refuse rather than
-    // let Xero silently absorb the difference.
-    const journalSum = money(journalLines.reduce((s, l) => s + l.LineAmount, 0))
-    if (Math.abs(journalSum) > BALANCE_TOLERANCE) {
+    // Self-check: the journal must balance EXACTLY. Xero rejects a manual
+    // journal that is off by even one cent, so a tolerance here only moves the
+    // refusal to Xero, where it arrives with no reason attached. Session 353:
+    // this used to allow $0.01 and the Oct 16, 2026 payroll failed at Xero
+    // three times. Name the stub first -- it is the usual cause and the one
+    // thing a person can go and check.
+    const badStubs = stubMismatches(lines || [])
+    if (badStubs.length) {
       return new Response(JSON.stringify({
-        error: `Refusing to post: the computed journal does not balance (off by $${journalSum.toFixed(2)}). This means the Square pay-stub figures no longer reconcile -- most likely a new pay or deduction column. Send this to Claude.`,
+        error: `Not posted: ${badStubs.length === 1 ? "one employee's pay stub doesn't" : `${badStubs.length} employees' pay stubs don't`} add up -- ${describeStubMismatches(badStubs)}. Pay + tips minus withholdings must equal Square's Net Pay to the cent, or Xero rejects the journal. Check the stub in Square.`,
+        stub_mismatches: badStubs,
+      }), { status: 400 })
+    }
+    const journalSum = money(journalLines.reduce((s, l) => s + l.LineAmount, 0))
+    if (Math.round(journalSum * 100) !== 0) {
+      return new Response(JSON.stringify({
+        error: `Not posted: debits and credits differ by $${Math.abs(journalSum).toFixed(2)}, and Xero only accepts a journal that balances exactly. Every pay stub adds up, so Square has likely added a pay or deduction column we don't read. Send this to Claude.`,
         debug: { tWage, tTips, tErTax, tEeCa, tEeFed, tEeHealth, tEe401k, tInsReimb, tNetPay, creditFrom170, creditFrom171 },
       }), { status: 400 })
     }
@@ -359,7 +369,16 @@ async function handleRequest(req: Request): Promise<Response> {
     const postRes = await fetch('https://api.xero.com/api.xro/2.0/ManualJournals', { method: 'POST', headers: xeroHeaders, body: JSON.stringify(journalPayload) })
     const postJson = await postRes.json().catch(() => null)
     if (!postRes.ok || postJson?.Elements?.[0]?.ValidationErrors?.length) {
-      return new Response(JSON.stringify({ error: 'Xero journal post failed', status: postRes.status, details: postJson }), { status: 502 })
+      // Session 353: say WHY. This used to return the bare words "Xero journal
+      // post failed" and leave Xero's own reason in a field the screen never
+      // showed. Xero puts it in ValidationErrors (or Message / Detail).
+      const xeroReasons = [
+        ...((postJson?.Elements?.[0]?.ValidationErrors || []).map((v: any) => v?.Message)),
+        ...((postJson?.Elements || []).flatMap((e: any) => (e?.JournalLines || []).flatMap((jl: any) => (jl?.ValidationErrors || []).map((v: any) => v?.Message)))),
+        postJson?.Message, postJson?.Detail,
+      ].filter((m: any) => typeof m === 'string' && m.trim())
+      const reason = [...new Set(xeroReasons)].join(' ') || `HTTP ${postRes.status}, no reason given`
+      return new Response(JSON.stringify({ error: `Xero rejected the journal: ${reason} Nothing was posted.`, status: postRes.status, details: postJson }), { status: 502 })
     }
     const journal = postJson.ManualJournals?.[0]
 

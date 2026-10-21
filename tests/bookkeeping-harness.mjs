@@ -14769,6 +14769,48 @@ GROUPS.push({
     // Repaint the real one so nothing downstream inherits the broken render.
     await p.page.evaluate(() => renderPayrollReviewModal());
 
+    /* ── SESSION 353: THE LIST, NOT JUST THE MODAL ──────────────────────────
+     * s291 fixed the review modal and left the Payroll Reports list and the
+     * Overview approval line summing wage_amount alone. David, Oct 21 2026:
+     * "I'm not seeing tips included in the first payroll of the month" -- the
+     * Oct 9 row read $20,885.06 against $27,332.06 paid. Both now go through
+     * _pkWageTotals(); the list row for the same tipped import must show the
+     * same figure the modal (and the journal) does.
+     */
+    const listRow = async () => p.evaluate((id) => {
+      renderPayrollTable();
+      const tr = [...document.querySelectorAll('#payroll-table-wrap tbody tr')]
+        .find(r => (r.getAttribute('onclick') || '').includes(id));
+      if (!tr) return null;
+      return { shown: Number(tr.children[3].textContent.replace(/[^0-9.-]/g, '')),
+               title: tr.children[3].getAttribute('title') || '' };
+    }, seen.importId);
+
+    const row = await listRow();
+    t.ok(!!row, 's353a: the tipped import has a row in the Payroll Reports list', seen.importId);
+    t.eq(row && row.shown, expectTotal,
+         's353b: ⭐ the list\'s Wages column equals wages + tips -- the figure the modal and the journal use',
+         'shown=' + (row && row.shown) + ' expected=' + expectTotal);
+    t.ok(!!row && /wages/.test(row.title) && row.title.includes(tipsText),
+         's353c: ...and the split is one hover away on that cell, not a new column',
+         row && row.title);
+
+    const brokenList = await p.evaluate(() => {
+      const src = _pkWageTotals.toString();
+      const mutated = src.replace('total: wage + tips', 'total: wage');
+      if (mutated === src) return { installed: false };
+      window.__s353_orig = _pkWageTotals;
+      // Function declarations are rebindable from page scope by assignment.
+      _pkWageTotals = new Function('return ' + mutated)();
+      return { installed: true };
+    });
+    const brokenRow = await listRow();
+    t.ok(brokenList.installed, 's353d: the tips-excluded regression could be installed in _pkWageTotals');
+    t.ok(brokenList.installed && brokenRow && brokenRow.shown !== expectTotal,
+         's353e: ⭐ DISCRIMINATION -- dropping tips out of the shared helper makes s353b fail',
+         'broken=' + (brokenRow && brokenRow.shown) + ' vs expected=' + expectTotal);
+    await p.evaluate(() => { _pkWageTotals = window.__s353_orig; renderPayrollTable(); });
+
     await p.close();
   },
 });
