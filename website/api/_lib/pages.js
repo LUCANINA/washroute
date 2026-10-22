@@ -603,7 +603,7 @@ const SERVICE_AREA = v => (v.cities || []).map(c => ({ '@type': 'City', name: c 
 function relatedLinks(paths) {
   const label = p => (TOPICS.find(t => t.path === p) || {}).nav
     || ({ '/laundry-service-cost': 'How much laundry service costs', '/commercial-laundry': 'Commercial laundry',
-          '/laundry-delivery-services': 'Wash & fold service', '/faq': 'FAQ', '/laundry-delivery-oakland': 'Laundry delivery in Oakland' })[p] || p;
+          '/laundry-delivery-services': 'Wash & fold service', '/faq': 'FAQ', '/laundry-delivery-oakland': 'Laundry delivery in Oakland', '/laundry-delivery-sf': 'Laundry delivery in San Francisco' })[p] || p;
   return paths && paths.length ? `<div class="related"><h2>Related</h2><ul>${paths.map(p => `<li><a href="${esc(p)}">${esc(label(p))}</a></li>`).join('')}</ul></div>` : '';
 }
 
@@ -698,6 +698,100 @@ function cost(v) {
   <h2>Questions</h2>
   ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}
   ${relatedLinks(['/first-laundry-pickup', '/laundry-delivery-services', '/drop-off-laundry-oakland'])}
+</section>`,
+    jsonld: { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
+  };
+}
+
+// "Best laundry delivery in San Francisco": an honest comparison (Oct 22 2026, David's #1 priority is SF).
+// We say who we are up front, name no winner, and say where others fit better. Competitor facts live in
+// content/compare-sf.js with their sources; our own numbers come from the live price list.
+const COMPARE_SF = require('../../content/compare-sf.js');
+function compareSf(v) {
+  const n = x => Number(x || 0), m = C.money;
+  const bag = n(v.price?.['Wash & Fold']?.amount), del = n(v.fee?.['Delivery Fee']);
+  const plan = n(v.plan?.price), lbs = n(v.plan?.lbs);
+  const days = C.renderPlain('{site:service_days}', v);
+  const sf = CITIES.find(c => c.slug === 'sf');
+  const wins = sf ? cityWindows(sf, v) : [];
+  const hh = (DETAILS.sf || {}).households;
+  const asOf = COMPARE_SF.asOf;
+  const comp = COMPARE_SF.competitors;
+  const byName = k => comp.find(c => c.name === k) || {};
+  const us = {
+    name: 'Family Laundry (us)',
+    price: `${m(bag)} per bag (up to 25 lbs), or ${m(plan)}/month for ${lbs} lbs`,
+    load25: `${m(bag + del)} with delivery${lbs ? ` (${m(plan / (lbs / 25))} on the subscription)` : ''}`,
+    turnaround: 'Next service day',
+    pickup: `Evenings, ${days}${wins.length ? ` (${wins.map(w => w.range).join(', ')})` : ''}`,
+    deliveryFee: `${m(del)} per order, included in the subscription`,
+    dryCleaning: 'No, wash & fold only',
+    whoWashes: 'Our own team, at our own plant in Oakland',
+  };
+  const cell = x => `<td>${esc(x)}</td>`;
+  const row = (c, link) => `<tr${link ? '' : ' class="us"'}><th scope="row">${link ? `<a href="${esc(c.url)}" rel="nofollow noopener">${esc(c.name)}</a>` : esc(c.name)}</th>${[c.price, c.load25, c.turnaround, c.pickup, c.deliveryFee, c.dryCleaning, c.whoWashes].map(cell).join('')}</tr>`;
+  const faqs = [
+    ['What is the cheapest laundry delivery in San Francisco?', `Of the services compared here, Poplin lists the lowest price: ${byName('Poplin').price} (as of ${asOf}). Family Laundry costs more, at ${m(bag)} per 25-lb bag plus ${m(del)} delivery.`],
+    ['What is the fastest laundry delivery in San Francisco?', `Tumble says its turnaround is ${String(byName('Tumble').turnaround || '').toLowerCase()}. Family Laundry brings laundry back the next service day.`],
+    ['Does Family Laundry deliver in San Francisco?', `Yes. We pick up and deliver across San Francisco in the evening, ${days}. Your laundry crosses the Bay Bridge to our own plant in Oakland.`],
+    ['Does Family Laundry offer same-day service in San Francisco?', 'No. San Francisco orders come back the next service day.'],
+    ['Who washes my laundry at Family Laundry?', 'Our own employees, at our own plant in Oakland. We never hand laundry to a third party.'],
+  ];
+  return {
+    path: '/best-laundry-delivery-san-francisco',
+    title: 'Best Laundry Delivery in San Francisco: How the Options Compare | Family Laundry',
+    description: 'An honest side-by-side of laundry pickup and delivery in San Francisco: Family Laundry, Tumble, Poplin, PurpleTie, Rinse, Mulberrys and The Laundry Hub. Prices, turnaround, dry cleaning and who does the washing.',
+    body: `<section class="wrap section topic">
+  <div class="narrow">
+  <p class="eyebrow">San Francisco</p>
+  <h1>Best laundry delivery in San Francisco: how the options compare</h1>
+  <p class="lead">We're Family Laundry, so we're not neutral. We wrote the guide we'd want to read: each company's real prices from its own website, and an honest word on where others are a better fit than us.</p>
+  <p class="muted">Competitor details as of ${esc(asOf)}, from each company's website (linked below). Prices change, so check before you book.</p>
+  <h2>The short answer</h2>
+  <ul>
+    ${comp.map(c => `<li><strong>${esc(c.name)}:</strong> ${esc(c.bestFor)}</li>`).join('\n    ')}
+    <li><strong>Family Laundry (us):</strong> washed by one in-house team, fragrance-free by default, back the next service day.</li>
+  </ul>
+  </div>
+  <h2 class="narrow">Side by side</h2>
+  <div class="table-wrap"><table class="price-table compare-table">
+    <thead><tr><th scope="col">Service</th><th scope="col">Price</th><th scope="col">About 25 lbs of laundry</th><th scope="col">Turnaround</th><th scope="col">Pickup</th><th scope="col">Delivery fee</th><th scope="col">Dry cleaning</th><th scope="col">Who washes it</th></tr></thead>
+    <tbody>
+      ${row(us, false)}
+      ${comp.map(c => row(c, true)).join('\n      ')}
+    </tbody>
+  </table></div>
+  <div class="narrow">
+  <p class="muted">"About 25 lbs" is roughly 2–3 home loads. Where a company doesn't publish a price, we say so rather than guess.</p>
+  <h2>Where we're not the best fit</h2>
+  <ul>
+    <li><strong>You need it back today.</strong> We bring San Francisco orders back the next service day.</li>
+    <li><strong>You need dry cleaning.</strong> We only do wash &amp; fold.</li>
+    <li><strong>Price is what matters most.</strong> Per pound, several services above cost less than we do.</li>
+    <li><strong>You want a Sunday pickup.</strong> We pick up ${esc(days)}.</li>
+  </ul>
+  <h2>Why San Francisco customers choose us anyway</h2>
+  ${ratingBlock(v)}
+  <ul>
+    <li><strong>One team, one plant.</strong> Our own employees wash and fold everything at our plant in Oakland. Your laundry never goes to a third party.</li>
+    <li><strong>Fragrance-free by default.</strong> Free &amp; Clear hypoallergenic detergent and ozone, with no bleach, softener or fragrance.</li>
+    <li><strong>Back the next service day,</strong> folded, socks balled, and bundled by family member.</li>
+    <li><strong>A local family business,</strong> family-owned since 2018 and delivering since 2019.</li>
+  </ul>
+  ${hh ? `<p class="city-stat"><strong>${esc(hh.charAt(0).toUpperCase() + hh.slice(1))} San Francisco households</strong> used Family Laundry in the past year.</p>` : ''}
+  <h2>How to choose</h2>
+  <ol>
+    <li><strong>How fast do you need it?</strong> Same-day, next-day and 3–4 days are all common.</li>
+    <li><strong>Do you need dry cleaning?</strong> If so, pick a service that does both, so it's one pickup.</li>
+    <li><strong>How much laundry a month?</strong> At a few bags a month, a subscription often beats paying per bag.</li>
+    <li><strong>Who washes it?</strong> Some services wash everything at one plant; others use individual washers with residential machines. Ask.</li>
+    <li><strong>Sensitive skin?</strong> Ask whether fragrance-free detergent is the default or an add-on.</li>
+  </ol>
+  <div class="card"><h2>Try us in San Francisco</h2><p>New customers: your friend's referral code takes ${mdi('{referral:friend}', v)} off your first order. <a href="/laundry-delivery-sf">Our San Francisco service</a>.</p><p>${cta()}</p></div>
+  <h2>Questions</h2>
+  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}
+  ${relatedLinks(['/laundry-delivery-sf', '/laundry-service-cost', '/fragrance-free-laundry-service'])}
+  </div>
 </section>`,
     jsonld: { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
   };
@@ -949,6 +1043,7 @@ const ROUTES = {
   ...Object.fromEntries(CITIES.flatMap(c => (HOODS[c.slug] || []).map(h => [hoodPath(c, h), v => neighborhood(c, h, v)]))),
   ...Object.fromEntries(TOPICS.map(t => [t.path, v => topic(t, v)])),
   '/laundry-service-cost': cost,
+  '/best-laundry-delivery-san-francisco': compareSf,
   '/': home,
   '/faq': faq,
   '/laundry-delivery-services': services,

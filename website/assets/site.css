@@ -505,3 +505,10 @@ strong { font-weight: 700; }
   .zc-row { height: 56px; }
   .zc-btn { padding: 0 20px; }
 }
+
+/* SF comparison page (Oct 22 2026) */
+.compare-table { min-width: 980px; font-size: 15px; }
+.compare-table th[scope=row] { white-space: nowrap; }
+.compare-table tr.us td, .compare-table tr.us th { background: var(--cream); font-weight: 600; }
+.compare-table tbody th { background: transparent; }
+.compare-table tbody tr.us th { background: var(--cream); }
