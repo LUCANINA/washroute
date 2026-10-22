@@ -3377,6 +3377,28 @@
               </div>
               <div id="ret-lapsed"></div>
             </div>
+
+            <!-- ── Win-back credits (session 357, Oct 2026) ──
+                 What we did about the list above. Every number comes from the
+                 public.winback_report() RPC — the definitions live there so this
+                 card and the daily win-back report can never drift apart.
+                 Nothing on this card is computed in the browser. -->
+            <div style="margin-top:28px;font-size:15px;font-weight:600;color:var(--gray-800)">Win-back credits</div>
+            <div style="font-size:13px;color:var(--gray-500);margin-top:2px">
+              A $20 credit sent to lapsed customers, then one text if they haven't booked, then the unused part taken back after 30 days.
+              "Came back" counts people, not orders — an order that was cancelled, skipped or missed at the door doesn't count.
+            </div>
+            <div class="rpt-kpi-grid" id="wb-kpis" style="margin-top:14px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))"></div>
+            <div id="wb-attention"></div>
+            <div class="card" style="margin-top:4px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">By batch</div>
+                  <div class="card-sub">Newest first. Revenue is what was delivered and billed; credit used is the credit actually redeemed against those same orders. Net revenue is the difference.</div>
+                </div>
+              </div>
+              <div id="wb-table"></div>
+            </div>
           </div>
 
           <div id="rpttab-referrals" style="display:none">
@@ -55071,7 +55093,7 @@ ${oneCopy}
     else if (rptTab === 'onaccount')     loadOnAccountReport();
     else if (rptTab === 'invoices')      loadInvoicesReport();
     else if (rptTab === 'registrations') loadRegistrationsReport();
-    else if (rptTab === 'retention')     loadRetentionReport();
+    else if (rptTab === 'retention')   { loadRetentionReport(); loadWinbackReport(); }
     else if (rptTab === 'deliverykpis')  loadDeliveryKpis();
     else if (rptTab === 'ontime')        loadOnTimeReport();
     else if (rptTab === 'subscriptions') loadSubscriptionReport();
@@ -55153,6 +55175,7 @@ ${oneCopy}
   const RET_SEG_LABEL = { residential: 'Residential', commercial: 'Commercial', retail: 'Counter (walk-in)' };
   let _retLapsed = [];
   let _retLapsedShowAll = false;
+  let _retGrants = {};   // session 357: customer_id -> their winback_grants row, if any
 
   // Pure: orders [{customer_id, source, d(ms)}], custs {id: row}, now(ms) → summary.
   function _retCompute(orders, custs, now) {
@@ -55238,7 +55261,26 @@ ${oneCopy}
         for (const r of res) { if (r.error) throw r.error; (r.data || []).forEach(c => { custs[c.id] = c; }); }
       }
       if (rptTab !== 'retention') return;   // moved on while loading
-      _renderRetention(_retCompute(orders, custs, Date.now()));
+      const r = _retCompute(orders, custs, Date.now());
+      // Session 357: by the time someone lands on this list (90+ days silent) the
+      // win-back programme has usually already tried them at 60 days. Without this
+      // the list reads as a to-do; with it, it says who we actually failed to get
+      // back. Staff can read winback_grants directly (winback_grants_staff_read).
+      // Best-effort: a failure here must not take down the retention report.
+      _retGrants = {};
+      try {
+        const lapsedIds = r.lapsed.map(x => x.id);
+        const gb = [];
+        for (let i = 0; i < lapsedIds.length; i += 100) gb.push(lapsedIds.slice(i, i + 100));   // .in() must be batched
+        for (let i = 0; i < gb.length; i += 5) {
+          const res = await Promise.all(gb.slice(i, i + 5).map(b => db.from('winback_grants')
+            .select('customer_id, grant_status, granted_at, expires_at, expired_at, release_at')
+            .in('customer_id', b)));
+          for (const q of res) { if (q.error) throw q.error; (q.data || []).forEach(g => { _retGrants[g.customer_id] = g; }); }
+        }
+      } catch (e) { _retGrants = {}; console.warn('[retention] win-back status unavailable:', e?.message || e); }
+      if (rptTab !== 'retention') return;
+      _renderRetention(r);
       status.style.display = 'none';
     } catch (e) {
       status.style.color = 'var(--red)';
@@ -55284,6 +55326,24 @@ ${oneCopy}
     _renderRetentionLapsed();
   }
 
+  // Session 357: plain-English win-back status for one lapsed customer.
+  // Anyone on this list has been silent 90+ days, so a credit that was sent and
+  // has run out is a miss, not a pending hope — say so.
+  function _wbStatus(id) {
+    const g = _retGrants[id];
+    if (!g) return { text: 'Not tried', tone: 'var(--gray-400)' };
+    const dd = v => v ? new Date(v).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' }) : '';
+    if (g.grant_status === 'pending')
+      return g.release_at
+        ? { text: 'Queued', tone: 'var(--gray-500)' }
+        : { text: 'Never sent', tone: 'var(--amber)' };
+    if (g.grant_status !== 'granted') return { text: 'Skipped', tone: 'var(--gray-400)' };
+    const expired = g.expired_at || (g.expires_at && Date.parse(g.expires_at) < Date.now());
+    return expired
+      ? { text: 'Credit expired ' + dd(g.expired_at || g.expires_at) + ' — no order', tone: 'var(--gray-600)' }
+      : { text: 'Credit live, expires ' + dd(g.expires_at), tone: 'var(--blue, var(--gray-700))' };
+  }
+
   function _renderRetentionLapsed() {
     const el = document.getElementById('ret-lapsed');
     const sub = document.getElementById('ret-lapsed-sub');
@@ -55297,7 +55357,7 @@ ${oneCopy}
     const shown = _retLapsedShowAll ? list : list.slice(0, 100);
     const fmtD = ms => ms ? new Date(ms).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' }) : '—';
     el.innerHTML = `<table><thead><tr>
-        <th>Customer</th><th>Type</th><th>Last order</th><th style="text-align:right">Orders</th><th style="text-align:right">Lifetime value</th>
+        <th>Customer</th><th>Type</th><th>Last order</th><th style="text-align:right">Orders</th><th style="text-align:right">Lifetime value</th><th>Win-back</th>
       </tr></thead><tbody>${shown.map(x => {
         const name = `${x.cu.first_name_cache || ''} ${x.cu.last_name_cache || ''}`.trim() || 'Unnamed customer';
         return `<tr style="cursor:pointer" onclick="openCustomerPanel('${esc(x.id)}')">
@@ -55306,6 +55366,7 @@ ${oneCopy}
           <td style="white-space:nowrap">${fmtD(x.last)}</td>
           <td style="text-align:right;font-variant-numeric:tabular-nums">${x.orders ? x.orders.toLocaleString() : '—'}</td>
           <td style="text-align:right;font-variant-numeric:tabular-nums">${fmtMoney(x.ltv)}</td>
+          <td style="white-space:nowrap;font-size:12px;color:${_wbStatus(x.id).tone}">${esc(_wbStatus(x.id).text)}</td>
         </tr>`;
       }).join('')}</tbody></table>${list.length > shown.length
         ? `<div style="padding:12px 16px"><button class="btn btn-ghost" style="padding:5px 12px;font-size:12px" onclick="retShowAllLapsed()">Show all ${list.length.toLocaleString()}</button></div>` : ''}`;
@@ -55315,10 +55376,10 @@ ${oneCopy}
     if (!_retLapsed.length) { showToast('Nothing to download yet', 'error'); return; }
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const day = ms => ms ? new Date(ms).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '';
-    const csv = [['Name', 'Phone', 'Email', 'Type', 'Last order', 'Orders', 'Lifetime value'].map(q).join(',')]
+    const csv = [['Name', 'Phone', 'Email', 'Type', 'Last order', 'Orders', 'Lifetime value', 'Win-back'].map(q).join(',')]
       .concat(_retLapsed.map(x => [
         `${x.cu.first_name_cache || ''} ${x.cu.last_name_cache || ''}`.trim(), x.cu.phone_cache, x.cu.email_cache,
-        RET_SEG_LABEL[x.seg], day(x.last), x.orders || '', x.ltv.toFixed(2)].map(q).join(','))).join('\n');
+        RET_SEG_LABEL[x.seg], day(x.last), x.orders || '', x.ltv.toFixed(2), _wbStatus(x.id).text].map(q).join(','))).join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url; a.download = `stopped-ordering-${today()}.csv`; a.click();
@@ -55328,6 +55389,122 @@ ${oneCopy}
   function retShowAllLapsed() { _retLapsedShowAll = true; _renderRetentionLapsed(); }
   window.retShowAllLapsed = retShowAllLapsed;
   window.exportRetentionLapsedCsv = exportRetentionLapsedCsv;
+
+  // ── WIN-BACK CREDITS (session 357) ──
+  // One RPC, public.winback_report(), one row per batch. The definitions of
+  // "came back", net cash and credit left all live in that function so this card
+  // and the daily win-back report share them. Do NOT recompute any of it here —
+  // two definitions of the same number is how the two reports start disagreeing.
+  //
+  // Three things that look like bugs and are not:
+  //  - Net cash can read $0 while credit is spent: the orders are still in flight.
+  //    That is what the "Credit committed" number is for.
+  //  - A subscription conversion shows $0 of gross, because subscription orders
+  //    bill $0 each. It is reported separately, never folded into net cash.
+  //  - Failed texts are normal background on old phone numbers (reassigned,
+  //    disconnected). They are a column, not an alert — only stuck rows and failed
+  //    emails raise the red line, because only those need somebody to do something.
+  // PostgREST returns numeric as strings — everything numeric goes through Number().
+  async function loadWinbackReport() {
+    const kpis = document.getElementById('wb-kpis');
+    const table = document.getElementById('wb-table');
+    const att = document.getElementById('wb-attention');
+    if (!kpis || !table || !att) return;
+    table.innerHTML = '<div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>';
+    const { data, error } = await db.rpc('winback_report');
+    if (rptTab !== 'retention') return;   // moved on while loading
+    if (error) {
+      kpis.innerHTML = ''; att.innerHTML = '';
+      table.innerHTML = '<div style="padding:16px;color:var(--red);font-size:13px">Could not load win-back: '
+        + esc(error.message || String(error)) + '</div>';
+      return;
+    }
+    _renderWinback(data || []);
+  }
+
+  function _renderWinback(rows) {
+    const kpis = document.getElementById('wb-kpis');
+    const table = document.getElementById('wb-table');
+    const att = document.getElementById('wb-attention');
+    const N = v => Number(v || 0);
+    const sum = k => rows.reduce((a, r) => a + N(r[k]), 0);
+
+    if (!rows.length) {
+      kpis.innerHTML = ''; att.innerHTML = '';
+      table.innerHTML = '<div style="padding:16px;color:var(--gray-500);font-size:13px">No win-back credits have been sent yet.</div>';
+      return;
+    }
+
+    // Local money formatter: the shared fmtMoney renders -5 as "$-5.00". This is a
+    // money report and net cash legitimately goes negative, so show "-$5.00".
+    const m = v => (Number(v || 0) < 0 ? '-' : '') + fmtMoney(Math.abs(Number(v || 0)));
+    const sent = sum('sent'), back = sum('came_back'), reps = sum('repeat_customers');
+    const net = sum('net_cash'), subs = sum('subscription_revenue');
+    const pct = (a, b) => b ? (Math.round(1000 * a / b) / 10) + '%' : '—';
+    const tile = (label, value, sub) => '<div class="stat-card"><div class="stat-label">' + label
+      + '</div><div class="stat-value">' + value + '</div><div class="stat-sub">' + sub + '</div></div>';
+
+    kpis.innerHTML =
+      tile('Credits sent', sent.toLocaleString(), m(sum('granted_amount')) + ' handed out') +
+      tile('Came back', back.toLocaleString(), pct(back, sent) + ' of everyone sent one') +
+      tile('Ordered again since', reps.toLocaleString(), reps ? pct(reps, back) + ' of those who came back' : 'nobody yet — a second order is the real save') +
+      tile('Net revenue', m(net), 'delivered and billed, less the credit spent on it') +
+      (subs ? tile('Subscriptions taken', m(subs), 'on top of net revenue — subscription orders bill $0 each') : '');
+
+    // Only genuine faults. Failed texts live in the table, not here.
+    const stuck = sum('stuck_rows'), badEmail = sum('email_failed');
+    const bits = [];
+    if (stuck) bits.push(stuck.toLocaleString() + (stuck === 1 ? ' row is stuck' : ' rows are stuck') + ' part-way through sending');
+    if (badEmail) bits.push(badEmail.toLocaleString() + ' email' + (badEmail === 1 ? '' : 's') + ' failed to send');
+    att.innerHTML = bits.length
+      ? '<div style="margin:10px 0 0;padding:10px 14px;border-radius:8px;background:var(--red-light);color:var(--red);font-size:13px">'
+        + esc(bits.join(' · ')) + '</div>'
+      : '';
+
+    const d = v => v ? new Date(v + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }) : '—';
+    const when = r => r.first_grant_on === r.last_grant_on ? d(r.first_grant_on) : d(r.first_grant_on) + '–' + d(r.last_grant_on);
+    const num = v => '<td style="text-align:right;font-variant-numeric:tabular-nums">' + v + '</td>';
+
+    // Three money columns, all measured over the SAME orders — the ones delivered
+    // and billed. Revenue - Credit used = Net revenue, and it reads as arithmetic
+    // because the three share a denominator. "Credit used" is credit actually
+    // redeemed against those orders (the cost we really bore), NOT the $20 x N
+    // handed out; what is still outstanding is its own column.
+    // RPC column net_cash is the UI's "Net revenue" — same number, David's wording.
+    table.innerHTML = '<table><thead><tr>'
+      + '<th>Batch</th><th style="text-align:right">Sent</th><th style="text-align:right">Came back</th>'
+      + '<th style="text-align:right">Ordered again</th>'
+      + '<th style="text-align:right">Revenue</th><th style="text-align:right">Credit used</th>'
+      + '<th style="text-align:right">Net revenue</th>'
+      + '</tr></thead><tbody>' + rows.map(r => {
+        const s = N(r.sent), cb = N(r.came_back), fl = N(r.in_flight_orders);
+        const sub = N(r.subscription_revenue), com = N(r.credit_committed), pend = N(r.still_pending);
+        const small = t => '<div style="font-size:11px;color:var(--gray-500)">' + t + '</div>';
+        return '<tr>'
+          + '<td class="td-name"><div>' + esc(r.batch) + '</div>'
+            + small(esc(r.pool) + ' · ' + when(r) + (pend ? ' · ' + pend + ' never sent' : '')) + '</td>'
+          + num(s.toLocaleString())
+          + num(cb.toLocaleString() + ' <span style="color:var(--gray-500)">(' + pct(cb, s) + ')</span>')
+          + num(N(r.repeat_customers).toLocaleString())
+          // in-flight orders sit under Revenue: they are the revenue not counted yet
+          + num(m(r.gross_delivered)
+                + (sub ? small('+ ' + m(sub) + ' subscription') : '')
+                + (fl ? small(fl + ' order' + (fl === 1 ? '' : 's') + ' still in flight') : ''))
+          + num(m(r.credit_used) + (com ? small(m(com) + ' on orders in flight') : ''))
+          + num(m(r.net_cash))
+          + '</tr>';
+      }).join('')
+      + '</tbody><tfoot><tr style="font-weight:600;border-top:2px solid var(--gray-200)">'
+        + '<td class="td-name">All batches</td>'
+        + num(sent.toLocaleString())
+        + num(back.toLocaleString() + ' <span style="color:var(--gray-500);font-weight:400">(' + pct(back, sent) + ')</span>')
+        + num(reps.toLocaleString())
+        + num(m(sum('gross_delivered')))
+        + num(m(sum('credit_used')))
+        + num(m(net))
+      + '</tr></tfoot></table>';
+  }
+  window.loadWinbackReport = loadWinbackReport;
 
   // ── BAD DEBT REPORT (session 291e) ──
   // Every write-off in the selected period: what was lost, from whom, when, why,
