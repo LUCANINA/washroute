@@ -3832,17 +3832,22 @@
               <div class="stat-card">
                 <div class="stat-label">Average Usage</div>
                 <div class="stat-value" id="rpt-sub-avg-usage">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs per subscriber who used it</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs per subscriber · period</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Average Bags</div>
                 <div class="stat-value" id="rpt-sub-avg-bags">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">bags per subscriber who used it</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">bags per subscriber · period</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Idle Subscribers</div>
+                <div class="stat-value" id="rpt-sub-idle">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-sub-idle-sub">paid, sent nothing</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Average Revenue</div>
                 <div class="stat-value" id="rpt-sub-avg-rev">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">per subscriber billed in period</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">per subscriber · period</div>
               </div>
             </div>
             <!-- Analytics sub-tabs -->
@@ -57411,33 +57416,41 @@ ${oneCopy}
       }
     }
 
-    // ── Average Usage (lbs per subscriber who used the service in the period) ──
+    // ── Subscribers active DURING the period (session 358c) ──
+    //   The denominator for all three averages. Not today's active count (that
+    //   understates every past month as the book grows) and not "subscribers who
+    //   used it" (that hides the ones paying and sending nothing — 15 of them this
+    //   month, up from 5 in August, and they are the likeliest cancellations).
+    //   A subscription counts if it existed before the period ended and had not
+    //   already been cancelled when it began.
+    const activeInPeriod = (periodStartUtc && periodEndUtc)
+      ? allSubs.filter(s => {
+          const created = s.created_at ? new Date(s.created_at) : null;
+          if (!created || created > periodEndUtc) return false;
+          if (s.cancelled_at && new Date(s.cancelled_at) < periodStartUtc) return false;
+          return true;
+        }).length
+      : active.length;
+    const idleSubs = Math.max(0, activeInPeriod - custsWithUsage.size);
+
+    // ── Average Usage (lbs per subscriber active in the period) ──
     //   Was reading subscriptions.usage_lbs_this_period, a live counter for whatever
     //   billing cycle each subscriber is in right now — so it read the same (58.0)
     //   whichever month you picked. Now it is the lbs actually applied in the period.
     //   Denominator is subscribers who ordered IN the period, not today's active
     //   count: dividing June's lbs by today's subscriber list makes old months look
     //   artificially light as the book grows.
-    const avgUsage = custsWithUsage.size
-      ? (periodLbs / custsWithUsage.size).toFixed(1)
-      : (periodStartUtc && periodEndUtc ? '0' : '—');
+    const avgUsage = activeInPeriod ? (periodLbs / activeInPeriod).toFixed(1) : '—';
 
-    // ── Average Bags (same period, same denominator rule as Average Usage) ──
-    const avgBags = custsWithBags.size
-      ? (periodBags / custsWithBags.size).toFixed(1)
-      : (periodStartUtc && periodEndUtc ? '0' : '—');
+    // ── Average Bags (same period, same denominator) ──
+    const avgBags = activeInPeriod ? (periodBags / activeInPeriod).toFixed(1) : '—';
 
     // ── Summary totals (received revenue, period) ──
     const _revVals    = Object.values(revByCust);
     const recurringRev = _revVals.reduce((s, r) => s + r.sub, 0);
     const overageRev   = _revVals.reduce((s, r) => s + r.overage, 0);
     const grandRev     = _revVals.reduce((s, r) => s + r.sub + r.overage + r.addon + r.tips, 0);
-    // Session 358: per subscriber BILLED IN THE PERIOD, matching Average Usage.
-    // Dividing by today's active count understated every past month as the book
-    // grew — the same flaw Average Usage had, just less obvious because the
-    // numerator did at least move.
-    const billedInPeriod = _revVals.filter(r => (r.sub + r.overage + r.addon + r.tips) > 0).length;
-    const avgRev       = billedInPeriod ? grandRev / billedInPeriod : 0;
+    const avgRev       = activeInPeriod ? grandRev / activeInPeriod : 0;
 
     document.getElementById('rpt-sub-active').textContent       = active.length;
     document.getElementById('rpt-sub-cancelled').textContent    = cancelled.length;
@@ -57445,6 +57458,10 @@ ${oneCopy}
     document.getElementById('rpt-sub-overage-rev').textContent  = fmtMoney(overageRev);
     document.getElementById('rpt-sub-avg-usage').textContent    = avgUsage;
     document.getElementById('rpt-sub-avg-bags').textContent     = avgBags;
+    document.getElementById('rpt-sub-idle').textContent         = activeInPeriod ? idleSubs : '—';
+    document.getElementById('rpt-sub-idle-sub').textContent     = activeInPeriod
+      ? `paid, sent nothing · ${Math.round(100 * idleSubs / activeInPeriod)}% of ${activeInPeriod}`
+      : 'paid, sent nothing';
     document.getElementById('rpt-sub-avg-rev').textContent      = fmtMoney(avgRev);
     document.getElementById('rpt-sub-count-label').textContent  = `${allSubs.length} total`;
 
