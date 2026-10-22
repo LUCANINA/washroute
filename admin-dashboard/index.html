@@ -3835,6 +3835,11 @@
                 <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs per subscriber who used it</div>
               </div>
               <div class="stat-card">
+                <div class="stat-label">Average Bags</div>
+                <div class="stat-value" id="rpt-sub-avg-bags">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">bags per subscriber who used it</div>
+              </div>
+              <div class="stat-card">
                 <div class="stat-label">Average Revenue</div>
                 <div class="stat-value" id="rpt-sub-avg-rev">—</div>
                 <div style="font-size:11px;color:var(--gray-400);margin-top:2px">per subscriber billed in period</div>
@@ -57353,8 +57358,8 @@ ${oneCopy}
     };
     // Session 358: usage lbs for the period come off these same orders, so the
     // Average Usage tile moves with the date picker like every other tile here.
-    let periodLbs = 0;
-    const custsWithUsage = new Set();
+    let periodLbs = 0, periodBags = 0;
+    const custsWithUsage = new Set(), custsWithBags = new Set();
     if (periodStartUtc && periodEndUtc) {
       const allCustIds = allSubs.map(s => s.customer_id).filter(Boolean);
       if (allCustIds.length) {
@@ -57376,7 +57381,7 @@ ${oneCopy}
         }
 
         const ordPages = await Promise.all(idBatches.map(b => db.from('orders')
-          .select('customer_id, line_items, tip_amount, tip_type, subscription_usage_lbs_applied')
+          .select('customer_id, line_items, tip_amount, tip_type, subscription_usage_lbs_applied, total_bags')
           .in('customer_id', b)
           .eq('is_subscription_order', true)
           .eq('billing_status', 'paid')
@@ -57387,6 +57392,8 @@ ${oneCopy}
         (revOrders || []).forEach(o => {
           const lbs = Number(o.subscription_usage_lbs_applied || 0);
           if (lbs > 0) { periodLbs += lbs; custsWithUsage.add(o.customer_id); }
+          const bags = Number(o.total_bags || 0);
+          if (bags > 0) { periodBags += bags; custsWithBags.add(o.customer_id); }
           const b = _rb(o.customer_id);
           const items = Array.isArray(o.line_items) ? o.line_items : [];
           let preTip = 0;
@@ -57415,6 +57422,11 @@ ${oneCopy}
       ? (periodLbs / custsWithUsage.size).toFixed(1)
       : (periodStartUtc && periodEndUtc ? '0' : '—');
 
+    // ── Average Bags (same period, same denominator rule as Average Usage) ──
+    const avgBags = custsWithBags.size
+      ? (periodBags / custsWithBags.size).toFixed(1)
+      : (periodStartUtc && periodEndUtc ? '0' : '—');
+
     // ── Summary totals (received revenue, period) ──
     const _revVals    = Object.values(revByCust);
     const recurringRev = _revVals.reduce((s, r) => s + r.sub, 0);
@@ -57432,6 +57444,7 @@ ${oneCopy}
     document.getElementById('rpt-sub-mrr').textContent          = fmtMoney(recurringRev);
     document.getElementById('rpt-sub-overage-rev').textContent  = fmtMoney(overageRev);
     document.getElementById('rpt-sub-avg-usage').textContent    = avgUsage;
+    document.getElementById('rpt-sub-avg-bags').textContent     = avgBags;
     document.getElementById('rpt-sub-avg-rev').textContent      = fmtMoney(avgRev);
     document.getElementById('rpt-sub-count-label').textContent  = `${allSubs.length} total`;
 
