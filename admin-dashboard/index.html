@@ -3378,7 +3378,6 @@
               "Came back" counts people, not orders — an order that was cancelled, skipped or missed at the door doesn't count.
             </div>
             <div class="rpt-kpi-grid" id="wb-kpis" style="margin-top:14px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))"></div>
-            <div id="wb-attention"></div>
             <div class="card" style="margin-top:4px">
               <div class="card-header">
                 <div>
@@ -55392,29 +55391,29 @@ ${oneCopy}
 
   // ── WIN-BACK CREDITS (session 357) ──
   // One RPC, public.winback_report(), one row per batch. The definitions of
-  // "came back", net cash and credit left all live in that function so this card
+  // "came back", revenue and credit used all live in that function so this card
   // and the daily win-back report share them. Do NOT recompute any of it here —
   // two definitions of the same number is how the two reports start disagreeing.
   //
   // Three things that look like bugs and are not:
-  //  - Net cash can read $0 while credit is spent: the orders are still in flight.
-  //    That is what the "Credit committed" number is for.
-  //  - A subscription conversion shows $0 of gross, because subscription orders
-  //    bill $0 each. It is reported separately, never folded into net cash.
-  //  - Failed texts are normal background on old phone numbers (reassigned,
-  //    disconnected). They are a column, not an alert — only stuck rows and failed
-  //    emails raise the red line, because only those need somebody to do something.
+  //  - Net revenue can read $0 while credit is spent: the orders are still in
+  //    flight. That is the note under Credit used.
+  //  - A subscription conversion shows $0 of revenue, because subscription orders
+  //    bill $0 each. It is reported separately, never folded into net revenue.
+  //  - Nothing on this card raises an alert. The RPC still returns stuck_rows,
+  //    sms_failed and email_failed, but they are chronic rather than news, and a
+  //    banner that is always lit only teaches you to ignore it. The daily win-back
+  //    report carries them instead. Don't add one back without a reason.
   // PostgREST returns numeric as strings — everything numeric goes through Number().
   async function loadWinbackReport() {
     const kpis = document.getElementById('wb-kpis');
     const table = document.getElementById('wb-table');
-    const att = document.getElementById('wb-attention');
-    if (!kpis || !table || !att) return;
+    if (!kpis || !table) return;
     table.innerHTML = '<div style="padding:16px;color:var(--gray-500);font-size:13px">Loading…</div>';
     const { data, error } = await db.rpc('winback_report');
     if (rptTab !== 'retention') return;   // moved on while loading
     if (error) {
-      kpis.innerHTML = ''; att.innerHTML = '';
+      kpis.innerHTML = '';
       table.innerHTML = '<div style="padding:16px;color:var(--red);font-size:13px">Could not load win-back: '
         + esc(error.message || String(error)) + '</div>';
       return;
@@ -55425,12 +55424,11 @@ ${oneCopy}
   function _renderWinback(rows) {
     const kpis = document.getElementById('wb-kpis');
     const table = document.getElementById('wb-table');
-    const att = document.getElementById('wb-attention');
     const N = v => Number(v || 0);
     const sum = k => rows.reduce((a, r) => a + N(r[k]), 0);
 
     if (!rows.length) {
-      kpis.innerHTML = ''; att.innerHTML = '';
+      kpis.innerHTML = '';
       table.innerHTML = '<div style="padding:16px;color:var(--gray-500);font-size:13px">No win-back credits have been sent yet.</div>';
       return;
     }
@@ -55450,16 +55448,6 @@ ${oneCopy}
       tile('Ordered again since', reps.toLocaleString(), reps ? pct(reps, back) + ' of those who came back' : 'nobody yet — a second order is the real save') +
       tile('Net revenue', m(net), 'delivered and billed, less the credit spent on it') +
       (subs ? tile('Subscriptions taken', m(subs), 'on top of net revenue — subscription orders bill $0 each') : '');
-
-    // Only genuine faults. Failed texts live in the table, not here.
-    const stuck = sum('stuck_rows'), badEmail = sum('email_failed');
-    const bits = [];
-    if (stuck) bits.push(stuck.toLocaleString() + (stuck === 1 ? ' row is stuck' : ' rows are stuck') + ' part-way through sending');
-    if (badEmail) bits.push(badEmail.toLocaleString() + ' email' + (badEmail === 1 ? '' : 's') + ' failed to send');
-    att.innerHTML = bits.length
-      ? '<div style="margin:10px 0 0;padding:10px 14px;border-radius:8px;background:var(--red-light);color:var(--red);font-size:13px">'
-        + esc(bits.join(' · ')) + '</div>'
-      : '';
 
     const d = v => v ? new Date(v + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }) : '—';
     const when = r => r.first_grant_on === r.last_grant_on ? d(r.first_grant_on) : d(r.first_grant_on) + '–' + d(r.last_grant_on);
