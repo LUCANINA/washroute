@@ -3832,12 +3832,12 @@
               <div class="stat-card">
                 <div class="stat-label">Average Usage</div>
                 <div class="stat-value" id="rpt-sub-avg-usage">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs / per customer</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs per subscriber who used it</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Average Revenue</div>
                 <div class="stat-value" id="rpt-sub-avg-rev">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">per subscriber · period</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">per subscriber billed in period</div>
               </div>
             </div>
             <!-- Analytics sub-tabs -->
@@ -57338,11 +57338,6 @@ ${oneCopy}
     // ── Cancelled Subscribers (in selected period) ──
     const cancelled = allSubs.filter(s => s.cancelled_at && inPeriod(s.cancelled_at));
 
-    // ── Average Usage (lbs per active subscriber) ──
-    const avgUsage = active.length
-      ? (active.reduce((sum, s) => sum + Number(s.usage_lbs_this_period || 0), 0) / active.length).toFixed(1)
-      : '0';
-
     // ── Per-subscriber period REVENUE BREAKDOWN (session 169) — RECEIVED only ──
     //   Counts money actually charged in the period: Subscription = paid
     //   subscription_invoice txns; Overage/Add-on/Tips = is_subscription_order
@@ -57356,25 +57351,42 @@ ${oneCopy}
       if (!revByCust[id]) revByCust[id] = { sub: 0, overage: 0, addon: 0, tips: 0 };
       return revByCust[id];
     };
+    // Session 358: usage lbs for the period come off these same orders, so the
+    // Average Usage tile moves with the date picker like every other tile here.
+    let periodLbs = 0;
+    const custsWithUsage = new Set();
     if (periodStartUtc && periodEndUtc) {
       const allCustIds = allSubs.map(s => s.customer_id).filter(Boolean);
       if (allCustIds.length) {
-        const { data: subTx } = await db.from('customer_transactions')
+        // .in() lists must be batched 100 at a time (CLAUDE.md) — there are already
+        // 146 subscribers, so the single-call version was one growth spurt away
+        // from failing opaquely and silently zeroing revenue AND usage.
+        const idBatches = [];
+        for (let i = 0; i < allCustIds.length; i += 100) idBatches.push(allCustIds.slice(i, i + 100));
+
+        const txPages = await Promise.all(idBatches.map(b => db.from('customer_transactions')
           .select('amount, customer_id')
-          .in('customer_id', allCustIds)
+          .in('customer_id', b)
           .eq('type', 'subscription_invoice')
           .gte('created_at', periodStartUtc.toISOString())
-          .lte('created_at', periodEndUtc.toISOString());
-        (subTx || []).forEach(r => { _rb(r.customer_id).sub += Number(r.amount || 0); });
+          .lte('created_at', periodEndUtc.toISOString())));
+        for (const pg of txPages) {
+          if (pg.error) throw pg.error;
+          (pg.data || []).forEach(r => { _rb(r.customer_id).sub += Number(r.amount || 0); });
+        }
 
-        const { data: revOrders } = await db.from('orders')
-          .select('customer_id, line_items, tip_amount, tip_type')
-          .in('customer_id', allCustIds)
+        const ordPages = await Promise.all(idBatches.map(b => db.from('orders')
+          .select('customer_id, line_items, tip_amount, tip_type, subscription_usage_lbs_applied')
+          .in('customer_id', b)
           .eq('is_subscription_order', true)
           .eq('billing_status', 'paid')
           .gte('billed_at', periodStartUtc.toISOString())
-          .lte('billed_at', periodEndUtc.toISOString());
+          .lte('billed_at', periodEndUtc.toISOString())));
+        const revOrders = [];
+        for (const pg of ordPages) { if (pg.error) throw pg.error; revOrders.push(...(pg.data || [])); }
         (revOrders || []).forEach(o => {
+          const lbs = Number(o.subscription_usage_lbs_applied || 0);
+          if (lbs > 0) { periodLbs += lbs; custsWithUsage.add(o.customer_id); }
           const b = _rb(o.customer_id);
           const items = Array.isArray(o.line_items) ? o.line_items : [];
           let preTip = 0;
@@ -57392,12 +57404,28 @@ ${oneCopy}
       }
     }
 
+    // ── Average Usage (lbs per subscriber who used the service in the period) ──
+    //   Was reading subscriptions.usage_lbs_this_period, a live counter for whatever
+    //   billing cycle each subscriber is in right now — so it read the same (58.0)
+    //   whichever month you picked. Now it is the lbs actually applied in the period.
+    //   Denominator is subscribers who ordered IN the period, not today's active
+    //   count: dividing June's lbs by today's subscriber list makes old months look
+    //   artificially light as the book grows.
+    const avgUsage = custsWithUsage.size
+      ? (periodLbs / custsWithUsage.size).toFixed(1)
+      : (periodStartUtc && periodEndUtc ? '0' : '—');
+
     // ── Summary totals (received revenue, period) ──
     const _revVals    = Object.values(revByCust);
     const recurringRev = _revVals.reduce((s, r) => s + r.sub, 0);
     const overageRev   = _revVals.reduce((s, r) => s + r.overage, 0);
     const grandRev     = _revVals.reduce((s, r) => s + r.sub + r.overage + r.addon + r.tips, 0);
-    const avgRev       = active.length ? grandRev / active.length : 0;
+    // Session 358: per subscriber BILLED IN THE PERIOD, matching Average Usage.
+    // Dividing by today's active count understated every past month as the book
+    // grew — the same flaw Average Usage had, just less obvious because the
+    // numerator did at least move.
+    const billedInPeriod = _revVals.filter(r => (r.sub + r.overage + r.addon + r.tips) > 0).length;
+    const avgRev       = billedInPeriod ? grandRev / billedInPeriod : 0;
 
     document.getElementById('rpt-sub-active').textContent       = active.length;
     document.getElementById('rpt-sub-cancelled').textContent    = cancelled.length;
