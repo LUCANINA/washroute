@@ -4180,6 +4180,39 @@
           <!-- ── TAB: ON-TIME (session 295) ──
                Score = stops done inside the customer's window (+5 min grace) ÷ all stops.
                Early counts as a miss. Data: on_time_report() RPC. -->
+          <!-- ── TAB: CITIES (session 361) ──
+               Orders by city, one column per month, so growth or decline in an
+               area is visible in a single row. Rolling window (David: trend windows
+               are rolling, not calendar), current month-to-date on the right.
+               Data: orders_by_city_report(p_months) RPC. -->
+          <div id="rpttab-cities" style="display:none">
+            <div class="card">
+              <div class="card-header" style="flex-wrap:wrap;gap:8px">
+                <div>
+                  <div class="card-title">Orders by City</div>
+                  <div class="card-sub" id="ct-sub">Delivery orders per month, by pickup city</div>
+                </div>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                  <div class="lm-seg" role="tablist" aria-label="Show">
+                    <button type="button" role="tab" class="active" id="ct-metric-orders" aria-selected="true" onclick="ctSet('metric','orders')">Orders</button>
+                    <button type="button" role="tab" id="ct-metric-customers" aria-selected="false" onclick="ctSet('metric','customers')">Customers</button>
+                  </div>
+                  <div class="lm-seg" role="tablist" aria-label="Months">
+                    <button type="button" role="tab" id="ct-months-6" aria-selected="false" onclick="ctSet('months',6)">6 mo</button>
+                    <button type="button" role="tab" class="active" id="ct-months-12" aria-selected="true" onclick="ctSet('months',12)">12 mo</button>
+                  </div>
+                </div>
+              </div>
+              <div class="rpt-table-wrap" id="ct-body"><div class="rpt-no-data">Loading…</div></div>
+              <div class="card-sub" style="margin-top:12px;color:var(--gray-500);line-height:1.5">
+                Delivery orders only (POS counter sales have no city). Cancelled, skipped and pickup-failed orders are excluded.
+                An order counts in the month of its pickup; the city is the pickup address.
+                <strong>Trend</strong> compares the last 3 full months with the 3 before them — the current month is partial (MTD) and is left out of that comparison.
+                Rows are sorted by total; click a month header to sort by that month instead.
+              </div>
+            </div>
+          </div>
+
           <div id="rpttab-ontime" style="display:none">
             <div id="ot-period-note" class="card-sub" style="margin-bottom:14px;color:var(--gray-500)"></div>
             <div id="ot-cards"><div class="rpt-no-data">Loading…</div></div>
@@ -55110,6 +55143,127 @@ ${oneCopy}
     else if (rptTab === 'feedback')      loadFeedbackPage();
     else if (rptTab === 'referrals')     loadReferralPairs(true);
     else if (rptTab === 'arearequests')  loadAreaRequests();
+    else if (rptTab === 'cities')        loadCitiesReport();   // session 361
+  }
+
+  // ── ORDERS BY CITY (session 361) ──
+  // One RPC call (city, month, orders, customers), pivoted here: cities down, months
+  // across. Rolling window ending this month (MTD). Trend = last 3 FULL months vs the
+  // 3 before — the partial current month would make every trend look like a fall.
+  let _ct = { metric: 'orders', months: 12, sort: 'total', rows: null, monthKeys: [] };
+  function ctSet(k, v) {
+    _ct[k] = v;
+    if (k === 'metric') ['orders','customers'].forEach(m => {
+      const b = document.getElementById('ct-metric-' + m); if (!b) return;
+      b.classList.toggle('active', m === v); b.setAttribute('aria-selected', m === v ? 'true' : 'false');
+    });
+    if (k === 'months') [6,12].forEach(m => {
+      const b = document.getElementById('ct-months-' + m); if (!b) return;
+      b.classList.toggle('active', m === v); b.setAttribute('aria-selected', m === v ? 'true' : 'false');
+    });
+    if (k === 'months') loadCitiesReport(); else renderCitiesReport();
+  }
+  window.ctSet = ctSet;
+  function ctSort(key) { _ct.sort = (_ct.sort === key) ? 'total' : key; renderCitiesReport(); }
+  window.ctSort = ctSort;
+
+  async function loadCitiesReport() {
+    const body = document.getElementById('ct-body');
+    if (!body) return;
+    body.innerHTML = '<div class="rpt-no-data"><div class="loading"><div class="spinner"></div> Loading…</div></div>';
+    const { data, error } = await db.rpc('orders_by_city_report', { p_months: _ct.months });
+    if (error || !data) {
+      console.error('orders_by_city_report:', error);
+      body.innerHTML = '<div class="rpt-no-data">Could not load the cities report.</div>';
+      return;
+    }
+    // Month keys: every month in the window, even ones with no orders anywhere.
+    const now = new Date(); const keys = [];
+    for (let i = _ct.months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      keys.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+    }
+    _ct.monthKeys = keys;
+    _ct.rows = data;
+    renderCitiesReport();
+  }
+  window.loadCitiesReport = loadCitiesReport;
+
+  function _ctMonthLabel(key) {
+    const [y, m] = key.split('-').map(Number);
+    const d = new Date(y, m - 1, 1);
+    const mon = d.toLocaleString('en-US', { month: 'short' });
+    return (m === 1 || key === _ct.monthKeys[0]) ? mon + ' ’' + String(y).slice(2) : mon;
+  }
+  // Tiny inline sparkline so a row's shape reads before its numbers do.
+  function _ctSpark(vals) {
+    const w = 72, h = 18, max = Math.max(...vals, 1), n = vals.length;
+    if (n < 2) return '';
+    const pts = vals.map((v, i) => `${(i / (n - 1) * (w - 2) + 1).toFixed(1)},${(h - 1 - (v / max) * (h - 2)).toFixed(1)}`).join(' ');
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true" style="display:block;overflow:visible"><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+  }
+
+  function renderCitiesReport() {
+    const body = document.getElementById('ct-body');
+    if (!body || !_ct.rows) return;
+    const keys = _ct.monthKeys, metric = _ct.metric;
+    const byCity = {};
+    _ct.rows.forEach(r => {
+      const c = byCity[r.city] || (byCity[r.city] = { city: r.city, vals: keys.map(() => 0) });
+      const i = keys.indexOf(r.month);
+      if (i >= 0) c.vals[i] += Number(r[metric]) || 0;
+    });
+    const cities = Object.values(byCity);
+    if (!cities.length) { body.innerHTML = '<div class="rpt-no-data">No orders in this window.</div>'; return; }
+    const curIdx = keys.length - 1;                     // the partial month
+    cities.forEach(c => {
+      c.total = c.vals.reduce((a, b) => a + b, 0);
+      const full = c.vals.slice(0, curIdx);             // full months only
+      const last3 = full.slice(-3).reduce((a, b) => a + b, 0);
+      const prev3 = full.slice(-6, -3).reduce((a, b) => a + b, 0);
+      c.last3 = last3; c.prev3 = prev3;
+      c.trend = (full.length >= 6 && prev3 > 0) ? (last3 - prev3) / prev3 : null;
+      c.isNew = full.length >= 6 && prev3 === 0 && last3 > 0;
+    });
+    const sortIdx = keys.indexOf(_ct.sort);
+    cities.sort((a, b) => sortIdx >= 0 ? (b.vals[sortIdx] - a.vals[sortIdx]) || (b.total - a.total)
+                                        : (b.total - a.total) || a.city.localeCompare(b.city));
+    // Customers is a distinct count per city-month, so a column sum would double-count a
+    // mover; only Orders gets a Total row and a Total column.
+    const sumRow = metric === 'orders';
+    const totals = keys.map((_, i) => cities.reduce((a, c) => a + c.vals[i], 0));
+    const grand = totals.reduce((a, b) => a + b, 0);
+    const num = v => v === 0 ? '<span style="color:var(--gray-300)">·</span>' : v.toLocaleString();
+    const th = (key, label, extra = '') =>
+      `<th style="cursor:pointer;user-select:none;text-align:right;white-space:nowrap;${extra}" onclick="ctSort('${key}')" title="Sort by ${label}">${label}${_ct.sort === key ? ' <span style="font-size:10px;color:var(--accent)">▼</span>' : ''}</th>`;
+    let html = '<table class="rpt-drv-tbl" style="min-width:100%"><thead><tr>' +
+      '<th style="position:sticky;left:0;background:white;z-index:1">City</th>' +
+      keys.map((k, i) => th(k, _ctMonthLabel(k) + (i === curIdx ? ' <span style="font-weight:500;color:var(--gray-400)">MTD</span>' : ''))).join('') +
+      (sumRow ? th('total', 'Total', 'border-left:1px solid var(--gray-200)') : '') +
+      '<th style="text-align:right;white-space:nowrap" title="Last 3 full months vs the 3 before">Trend</th><th></th></tr></thead><tbody>';
+    cities.forEach(c => {
+      let chip;
+      if (c.isNew) chip = _dkChip('goodNew', '▲ new');
+      else if (c.trend === null) chip = _dkChip('flat', '—');
+      else if (Math.abs(c.trend) < 0.03) chip = _dkChip('flat', '— flat');
+      else chip = _dkChip(c.trend > 0 ? 'good' : 'bad', (c.trend > 0 ? '▲ ' : '▼ ') + Math.abs(c.trend * 100).toFixed(0) + '%');
+      html += '<tr>' +
+        `<td style="font-weight:600;position:sticky;left:0;background:white;z-index:1;white-space:nowrap">${esc(c.city)}</td>` +
+        c.vals.map((v, i) => `<td style="text-align:right;${_ct.sort === keys[i] ? 'background:var(--gray-50)' : ''}${i === curIdx ? 'color:var(--gray-500)' : ''}">${num(v)}</td>`).join('') +
+        (sumRow ? `<td style="text-align:right;font-weight:600;border-left:1px solid var(--gray-200)">${c.total.toLocaleString()}</td>` : '') +
+        `<td style="text-align:right" title="${c.prev3.toLocaleString()} → ${c.last3.toLocaleString()}">${chip}</td>` +
+        `<td style="padding-left:8px">${_ctSpark(c.vals)}</td></tr>`;
+    });
+    if (sumRow) {
+      html += '<tr style="font-weight:700;border-top:2px solid var(--gray-200)">' +
+        '<td style="position:sticky;left:0;background:white;z-index:1">All cities</td>' +
+        totals.map((v, i) => `<td style="text-align:right;${i === curIdx ? 'color:var(--gray-500)' : ''}">${v.toLocaleString()}</td>`).join('') +
+        `<td style="text-align:right;border-left:1px solid var(--gray-200)">${grand.toLocaleString()}</td><td></td><td style="padding-left:8px">${_ctSpark(totals)}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    body.innerHTML = html;
+    const sub = document.getElementById('ct-sub');
+    if (sub) sub.textContent = `${cities.length} cities · ${metric === 'orders' ? 'delivery orders' : 'customers who ordered'} per month · last ${keys.length} months, current month to date`;
   }
 
   // ── AREA REQUESTS (session 333) ──
@@ -55604,6 +55758,7 @@ ${oneCopy}
         ['retention',     'Retention',     'Who keeps ordering, and who stopped.'],
         ['subscriptions', 'Subscriptions', 'Active plans, new and churned.'],
         ['referrals',     'Referrals',     'Who refers, and what it is worth.'],
+        ['cities',        'Cities',        'Orders by city, month by month.'],
         ['arearequests',  'Area Requests', 'ZIPs we don\'t serve yet, asking us to come.'],
         ['feedback',      'Feedback',      'What customers actually said.'] ] },
   ];
@@ -55626,6 +55781,7 @@ ${oneCopy}
     subscriptions: '<path d="M20.6 10.2A8 8 0 1 0 21 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M21.4 5.4v5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
     referrals:     '<circle cx="8" cy="8.5" r="3.2" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="17.5" r="3.2" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.7 15.5 15.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
     feedback:      '<path d="M5 6.5h16v10h-8.5L8 21v-4.5H5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>',
+    cities:        '<path d="M4 21V9l5-3v15M9 21V6l6 3v12M15 21V9l5 3v9" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M4 21h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
     arearequests:  '<path d="M13 22s-6.5-6.1-6.5-11a6.5 6.5 0 0 1 13 0c0 4.9-6.5 11-6.5 11z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="13" cy="11" r="2.3" stroke="currentColor" stroke-width="1.5"/>',
   };
 
@@ -55879,7 +56035,7 @@ ${oneCopy}
     // Session 323: the Launderers report picks its own month, so the shared
     // Today / 7 days / Custom row is hidden while it is open. Session 336: the
     // Drivers report does the same.
-    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items' || tab === 'possales' || tab === 'arearequests' || tab === 'retention');
+    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items' || tab === 'possales' || tab === 'arearequests' || tab === 'retention' || tab === 'cities');
     _rptSyncPeriodUI();
     runCurrentReport();
   }

@@ -1,5 +1,25 @@
 # WashRoute — Project Notes
 
+## Session 361 — Oct 22, 2026: Orders by City report — DB LIVE, apps committed (David pushing)
+
+**Ask (David):** "Orders by city in a table that allows us to see the trend."
+- **New report** Reports → Customers → **Cities** (`#reports/cities`). Cities down, one column per
+  month across (rolling 12, or 6), current month on the right marked MTD, a Total column, an
+  "All cities" total row, a Trend chip (last 3 FULL months vs the 3 before — MTD left out so a
+  half-month never reads as a drop) and an inline sparkline per row. Toggle Orders / Customers.
+  Click a month header to sort by that month; click again to go back to Total.
+- **New RPC** `orders_by_city_report(p_months int)` → (city, month, orders, customers). Read-only,
+  SECURITY INVOKER, STABLE. Delivery orders only (`source <> 'walk_in'`), excludes cancelled /
+  skipped / pickup_failed / archived, month = pickup window start (LA time, created_at fallback),
+  city = pickup address (delivery fallback), `initcap(trim())` so case variants merge. Orders already
+  booked for NEXT month are cut off (`< start of next month`) — v1 showed a phantom "Nov" column.
+  Orders with no address at all (a few dozen, mostly on-account) appear as "No address".
+- Customers is a distinct count per city-month, so that view has no Total column/row (summing would
+  double-count anyone who ordered in two cities or two months).
+- Migration: `migrations/session_361_orders_by_city.sql`. Rollback: `DROP FUNCTION public.orders_by_city_report(int)`.
+- Not click-tested in a browser this session (cloud session, no local server reachable) — syntax-checked
+  all inline scripts and verified the RPC output by hand. **David: open Reports → Cities after pushing.**
+
 ## Session 358 — Oct 22, 2026: Subscriptions tiles ignored the date picker — DB untouched, apps committed (David pushing)
 
 **Bug (David):** "the Average Usage tile doesn't change as I switch months." It read
