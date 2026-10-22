@@ -3367,17 +3367,6 @@
               </div>
               <div id="ret-monthly"></div>
             </div>
-            <div class="card" style="margin-top:16px">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">Stopped ordering</div>
-                  <div class="card-sub" id="ret-lapsed-sub">Ordered 91–180 days ago, nothing in the last 90 days.</div>
-                </div>
-                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap" onclick="exportRetentionLapsedCsv()">Download CSV</button>
-              </div>
-              <div id="ret-lapsed"></div>
-            </div>
-
             <!-- ── Win-back credits (session 357, Oct 2026) ──
                  What we did about the list above. Every number comes from the
                  public.winback_report() RPC — the definitions live there so this
@@ -3399,6 +3388,17 @@
               </div>
               <div id="wb-table"></div>
             </div>
+            <div class="card" style="margin-top:16px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Stopped ordering</div>
+                  <div class="card-sub" id="ret-lapsed-sub">Ordered 91–180 days ago, nothing in the last 90 days.</div>
+                </div>
+                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap" onclick="exportRetentionLapsedCsv()">Download CSV</button>
+              </div>
+              <div id="ret-lapsed"></div>
+            </div>
+
           </div>
 
           <div id="rpttab-referrals" style="display:none">
@@ -55354,7 +55354,7 @@ ${oneCopy}
       ? `${list.length.toLocaleString()} customers ordered 91–180 days ago and not since — ${fmtMoney(ltv)} of lifetime spend. Highest-value first.`
       : 'Ordered 91–180 days ago, nothing in the last 90 days.';
     if (!list.length) { el.innerHTML = '<div style="padding:16px;color:var(--gray-500);font-size:13px">Nobody — every customer from that window ordered again.</div>'; return; }
-    const shown = _retLapsedShowAll ? list : list.slice(0, 100);
+    const shown = _retLapsedShowAll ? list : list.slice(0, 10);   // session 357: 10, then "Show all"
     const fmtD = ms => ms ? new Date(ms).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' }) : '—';
     el.innerHTML = `<table><thead><tr>
         <th>Customer</th><th>Type</th><th>Last order</th><th style="text-align:right">Orders</th><th style="text-align:right">Lifetime value</th><th>Win-back</th>
