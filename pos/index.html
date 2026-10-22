@@ -2674,6 +2674,8 @@
     'lbs': 'lbs',
     'each': 'c/u',
     'Remove': 'Quitar',
+    'Minimum charge': 'Cargo mínimo',
+    'Wash & Fold / Wash & Dry minimum': 'Mínimo de Lavado y Doblado / Lavado y Secado',
     'Edit': 'Editar',
     'Done': 'Listo',
     'Cancel': 'Cancelar',
@@ -3681,6 +3683,31 @@
     return line.price * line.qty;
   }
 
+  // ── Session 359: $30 minimum on RETAIL Wash & Fold / Wash & Dry ─────────
+  // One minimum per ORDER, not per bag: each weighed drop-off is its own cart
+  // line, so a per-line minimum would charge two light bags $60. The weight
+  // charge of every Retail per-lb line is summed; if it's under $30 a
+  // "Minimum charge" top-up makes up the difference. Add-ons (Oxi, Vinegar…)
+  // and merchandise don't count toward it. Commercial/HCEB customers repriced
+  // to their own pricelist (session 168) are NOT retail and are exempt —
+  // a line is retail only if its id is one of the Retail baseline tiles.
+  const RETAIL_LAUNDRY_MINIMUM = 30;
+  function _isRetailPerLbLine(l) {
+    return l.type === 'per_lb' && !!_retailServicesBaseline &&
+      _retailServicesBaseline.some(b => b.id === l.id);
+  }
+  function cartMinimumTopUp() {
+    const lines = cart.filter(_isRetailPerLbLine);
+    if (!lines.length) return 0;
+    // Same per-line rounding as the stored line items, so they add up exactly.
+    const base = lines.reduce((s, l) => s + Number((l.price * (l.weight || 0)).toFixed(2)), 0);
+    return Math.max(0, Math.round((RETAIL_LAUNDRY_MINIMUM - base) * 100) / 100);
+  }
+  // Cart total before discount and tax, INCLUDING the minimum top-up.
+  function cartGross() {
+    return cart.reduce((a, l) => a + lineTotal(l), 0) + cartMinimumTopUp();
+  }
+
   // ── Retail cart discount (Sept 2026) ─────────────────────────────────
   // A customer's standing discount (SENIORS, NON PROFIT, EMPLOYEE, ...) set on
   // their admin profile used to apply only to delivery orders — the POS cart
@@ -3704,7 +3731,7 @@
     // snacks and drinks included.
     const groups = [{ kind: 'service', tag: 'laundry', lines: cart.filter(_isServiceLine) }];
     if (d.manual) groups.push({ kind: 'merchandise', tag: 'snacks & supplies', lines: cart.filter(l => !_isServiceLine(l)) });
-    groups.forEach(g => { g.base = g.lines.reduce((s, l) => s + lineTotal(l), 0); });
+    groups.forEach(g => { g.base = g.lines.reduce((s, l) => s + lineTotal(l), 0) + (g.kind === 'service' ? cartMinimumTopUp() : 0); });
     const live = groups.filter(g => g.base > 0);
     if (!live.length) return none;
     let fixedLeft = parseFloat(d.value) || 0;
@@ -3947,6 +3974,19 @@
           </div>
         `;
       }).join('');
+      // Session 359: show the retail minimum top-up as its own cart row.
+      const _topUp = cartMinimumTopUp();
+      if (_topUp > 0) {
+        wrap.innerHTML += `
+          <div class="cart-item">
+            <div>
+              <div class="cart-item-name">${lucideIcon('info', 16)} ${t('Minimum charge')}</div>
+              <div class="cart-item-sub">${t('Wash & Fold / Wash & Dry minimum')} $${RETAIL_LAUNDRY_MINIMUM.toFixed(2)}</div>
+            </div>
+            <div class="cart-item-price">$${_topUp.toFixed(2)}</div>
+          </div>
+        `;
+      }
     }
     updateTotals();
     refreshLucideIcons();
@@ -3977,7 +4017,7 @@
   function updateTotals() {
     // session 140: tax only the merchandise portion of the cart. Laundry
     // services (per_lb + Retail service tiles) are exempt under CA rules.
-    const subtotal   = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const subtotal   = cartGross();      // session 359: includes $30 retail minimum top-up
     const disc       = cartDiscount();   // Sept 2026
     const taxableSub = cartTaxableSubtotal();
     const tax        = _taxOn(taxableSub);
@@ -4057,7 +4097,7 @@
 
   function _cartSubtotal() {
     // Sept 2026: net of the customer discount — this is what's actually billed.
-    return cart.reduce((a, l) => a + lineTotal(l), 0) - cartDiscount().amount;
+    return cartGross() - cartDiscount().amount;   // session 359: includes minimum top-up
   }
 
   function openTipModal() {
@@ -4911,7 +4951,7 @@
       : '';
 
     // Build a short service summary from line_items
-    const items = (order.line_items || []).filter(li => li.type !== 'discount' && (li.kind === 'service' || li.kind === 'merchandise'));
+    const items = (order.line_items || []).filter(li => li.type !== 'discount' && !li.is_minimum_topup && (li.kind === 'service' || li.kind === 'merchandise'));  // session 359: top-up isn't work for the launderer
     let detail = '';
     const svcItems = items.filter(li => li.kind === 'service');
     const merchItems = items.filter(li => li.kind === 'merchandise');
@@ -7721,6 +7761,26 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
         });
       }
     });
+
+    // Session 359: retail $30 minimum top-up. kind 'service' so the Xero payout
+    // split books it as Retail Wash & Fold revenue, like the weight lines.
+    const _minTopUp = cartMinimumTopUp();
+    if (_minTopUp > 0) {
+      lineItems.push({
+        type:         'service',
+        label:        `Minimum charge ($${RETAIL_LAUNDRY_MINIMUM} min)`,   // ≤28 chars: printed receipt truncates
+        amount:       _minTopUp,
+        taxable:      false,
+        kind:         'service',
+        is_minimum_topup: true,
+        service_id:   null,
+        name:         'Minimum charge',
+        pricing_type: 'flat',
+        unit_price:   _minTopUp,
+        qty:          1,
+        subtotal:     _minTopUp
+      });
+    }
 
     // Sept 2026: customer discount as a negative 'discount' row — same shape
     // send-receipt, the printed receipt and the Xero payout pipelines already read.
