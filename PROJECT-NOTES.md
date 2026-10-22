@@ -1,5 +1,80 @@
 # WashRoute — Project Notes
 
+## Session 358 — Oct 22, 2026: Subscriptions tiles ignored the date picker — DB untouched, apps committed (David pushing)
+
+**Bug (David):** "the Average Usage tile doesn't change as I switch months." It read
+`subscriptions.usage_lbs_this_period` — a live counter for whatever billing cycle each subscriber is in
+*right now* — so it showed 58.0 for every period ever selected.
+- **Fix:** sum `orders.subscription_usage_lbs_applied` over subscription orders billed in the period. Taken
+  off the same rows the revenue breakdown already fetches, so no extra round trip. Reads ~100 on a full
+  month vs the old 58 (that was part-way through a cycle, these are whole periods).
+- **Average Revenue had the same flaw one step removed** and nobody had spotted it: the numerator moved with
+  the period but it divided by TODAY's active count. That understated every past month as the book grew and
+  manufactured a rising trend out of nothing — Jun–Sep read $154/$259/$308/$354 when the real figure was flat
+  at ~$340.
+- **358c — one denominator for all three averages:** subscribers active DURING the period (created before it
+  ended, not already cancelled when it began). The two denominators this replaced were each wrong in their
+  own direction. Today's-active understates history. "Per subscriber who used it" was worse in a quieter way:
+  it dropped everyone who paid and sent nothing, so the average sat near 100 lbs whether 5 subscribers idled
+  or 50 — and the caption had to say "who used it" to stay honest. David asked why the qualifier was there,
+  which is how the whole thing surfaced.
+- **New tiles:** Average Bags (3.0 / 4.6 / 4.7 / 4.8 Jun–Sep) and **Idle Subscribers** — paid, sent nothing in
+  the period. **5 in Aug, 12 in Sep, 15 in Oct (13% of 119).** David did not know this was happening. These
+  are pure margin and also the likeliest cancellations. October is still in progress, so some will yet send.
+- Also **batched the two period queries 100 ids at a time**. They passed all 146 subscriber ids into a single
+  `.in()`, which fails opaquely on long lists — works at 146, would have silently returned nothing at a couple
+  of hundred and zeroed revenue AND usage with no error to notice.
+- **TODO (David deferred, "not today"):** the idle-subscriber LIST — names, plan price, how long quiet. A tile
+  tells you there are 15; it doesn't tell you who to call before they cancel.
+- **Known gap:** the period bounds hardcode `-07:00` (`new Date(fromVal + 'T00:00:00-07:00')`), which is PDT.
+  Pre-existing, not introduced here, but after the Nov 1 DST change every Subscriptions period will be an hour
+  off at both ends. Worth a pass before November.
+- Not click-tested from Claude (no staff login). Render logic was exercised in node against real RPC rows.
+
+## Session 357 — Oct 22, 2026: Win-back credits card on the Retention tab — DB LIVE, apps committed (David pushing)
+
+**Ask (David):** "a simple ongoing report we can monitor from admin, perhaps integrated within the Retention
+report." The Stopped-ordering list showed who lapsed but nothing about what we did about it.
+- **DB** (`migrations/session_357_winback_report.sql`, applied by David in the SQL editor; rollback
+  `DROP FUNCTION public.winback_report();`): read-only `winback_report()`, one row per win-back batch.
+  **Applied TWICE** — the first version's guard locked out the daily win-back report itself (see below).
+- **Why an RPC, not browser-side:** the Retention tab already pages thousands of orders into the browser. More
+  importantly the dashboard and the daily win-back report must agree on what "came back" means. One definition,
+  in one place, or they drift and you don't know which to trust.
+- **Three definition decisions worth keeping:**
+  - *Credit used* is matched to the same orders as revenue (delivered + billed). The first draft counted all
+    credit spent against delivered-only revenue and read **−$60** on WB-2026-W43, a batch that was simply
+    mid-route. Credit on in-flight orders is a note, not a loss.
+  - *Subscription revenue is reported separately and never folded in.* Subscription orders bill $0 each, so
+    **two conversions worth $550 (Amber Hoover Oct 17, Marissa Fox Oct 19) were invisible to every
+    delivered-order figure we had**, including the daily report. Found while building this.
+  - *Granted total comes from the data*, never a hardcoded $20 — the amount is a `winback_enroll` parameter.
+    Same class as the stale referral amount (session 293).
+- **Guard is admin/manager, deliberately NOT `assert_staff()`:** the function is SECURITY DEFINER and
+  `assert_staff()` admits drivers, who would then see the whole programme's money — more than RLS shows them on
+  that tab today. **First version was too tight:** it had no "no JWT claims" branch, so pg_cron and the daily
+  report (direct Postgres, no `auth.uid()`) got `insufficient_privilege` and could not call their own RPC.
+  Second run added the same first branch `assert_staff()` has.
+- **Card deliberately sparse, by David's direction over several passes** — each removal was his call and each
+  was right: Texts failed (chronic background on old numbers, ~18–20% on Starchup); Credit left; and the red
+  alert banner, which read "4 rows are stuck part-way through sending" and would have read it every day,
+  because those rows are a known item he has chosen not to fix. A banner that is always lit teaches you to stop
+  reading banners. The RPC still returns `stuck_rows`/`sms_failed`/`email_failed`; the daily report carries them.
+  **Don't add the banner back without a reason.**
+- Final table: Batch | Sent | Came back | Ordered again | Revenue | Credit used | Net revenue, with a totals row.
+  All three money columns measured over the same orders so the row subtracts cleanly.
+- **Stopped ordering gained a Win-back column** (and it's in the CSV): Not tried / Credit live, expires X /
+  Credit expired X — no order / Never sent. Win-back enrols at 60 days but that list only surfaces people at
+  90+, so by the time someone appears there we have usually already tried them — without the column it reads as
+  a to-do list when it's really a list of misses. Reads `winback_grants` directly under the existing staff
+  policy; best-effort, a failure there leaves the retention report intact.
+- Win-back card sits ABOVE Stopped ordering (what we did, then who's still missing); lapsed list trimmed from
+  100 rows to 10 with "Show all" unchanged.
+- **Process note:** five commits across 357/358 went in at David's direct request without the usual
+  `washroute-qa` / `washroute-test` passes. All read-only reporting — nothing touches orders, payments or
+  messaging. Verification was SQL cross-checks against the daily report (gross tied to the cent) plus node
+  render tests; no staff-login click-through.
+
 ## Session 355 — Oct 21, 2026: Free rewash orders + admin "How To" page — DB LIVE, apps committed (David to push)
 
 **Ask (David):** a customer complaint (stain/smell) gets a free rewash, but launderers couldn't tell and it was charged like a normal order. Decisions: staff-only, whole-order note, pickup + delivery free, 14-day window.
