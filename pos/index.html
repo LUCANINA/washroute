@@ -3720,7 +3720,7 @@
   function cartDiscount() {
     const none = { amount: 0, taxableCut: 0, rows: [], label: '', id: null };
     const d = _posCartDiscount;
-    if (!d || !cart.length) return none;
+    if (!d || d.optOut || !cart.length) return none;   // session 360: "No discount" picked
     // A customer's standing discount belongs to that customer. The POS
     // "Employee discount" (manual) belongs to the sale — works with no customer.
     // Session 353: an attendant-picked discount (atPos) belongs to the sale too,
@@ -3854,9 +3854,13 @@
     const saveToProfile = !!(saveEl && saveEl.checked);
     closeAll();
     if (!id) {
-      // Remove: fall back to the customer's own standing discount, if any.
-      _posCartDiscount = null;
-      if (hasAttachedCustomer()) await _loadCartDiscount(currentCustomer.id);
+      // Session 360: "No discount" means NO discount for this sale — including the
+      // customer's standing profile discount. It used to clear and then reload the
+      // profile discount, so a customer with one (LOVELAUNDRY 15%) kept it and the
+      // button looked broken. An opt-out marker (atPos, so _loadCartDiscount keeps
+      // it for this customer) stops the reload. Per sale only — the profile is
+      // untouched, and clearCart / a different customer resets it.
+      _posCartDiscount = { optOut: true, atPos: true, customerId: hasAttachedCustomer() ? currentCustomer.id : null };
       updateTotals();
       return;
     }
@@ -3875,7 +3879,7 @@
     const btn = document.getElementById('discPickBtn');
     if (!btn) return;
     if (!cart.length || (_posCartDiscount && _posCartDiscount.manual)) { btn.style.display = 'none'; return; }
-    const d = _posCartDiscount;
+    const d = _posCartDiscount && !_posCartDiscount.optOut ? _posCartDiscount : null;   // session 360
     btn.style.display = '';
     btn.classList.toggle('on', !!d);
     btn.textContent = d ? `✓ ${d.name} ${Number(d.value)}% · ${t('tap to change')}` : `+ ${t('Discount')}`;
