@@ -480,6 +480,7 @@ function city(c, v) {
     </ul>
     <p>${cta()}</p>
   </div>
+  ${d.compare ? `<p class="compare-link">Comparing services? <a href="${esc(d.compare.path)}">${esc(d.compare.label)}</a>, with prices, turnaround and where others fit better.</p>` : ''}
   <h2>Schools, daycares and businesses in ${esc(name)}</h2>
   <p>We also handle laundry for schools, daycares, gyms, clinics and offices. <a href="/commercial-laundry">See commercial laundry</a>.</p>
   <h2>Questions from ${esc(name)} customers</h2>
@@ -718,6 +719,9 @@ function compareSf(v) {
   const asOf = COMPARE_SF.asOf;
   const comp = COMPARE_SF.competitors;
   const byName = k => comp.find(c => c.name === k) || {};
+  const total = comp.length + 1;
+  const year = (asOf.match(/\d{4}/) || [''])[0];
+  const since = ((DETAILS.sf || {}).about || [])[0] || '';
   const us = {
     name: 'Family Laundry (us)',
     price: `${m(bag)} per bag (up to 25 lbs), or ${m(plan)}/month for ${lbs} lbs`,
@@ -739,19 +743,21 @@ function compareSf(v) {
   ];
   return {
     path: '/best-laundry-delivery-san-francisco',
-    title: 'Best Laundry Delivery in San Francisco: How the Options Compare | Family Laundry',
-    description: 'An honest side-by-side of laundry pickup and delivery in San Francisco: Family Laundry, Tumble, Poplin, PurpleTie, Rinse, Mulberrys and The Laundry Hub. Prices, turnaround, dry cleaning and who does the washing.',
+    title: `Best Laundry Pickup & Delivery in San Francisco (${year}) | Family Laundry`,
+    description: `Compare ${total} San Francisco laundry pickup and delivery services. See current prices, turnaround times, wash & fold options, and which service fits you best.`,
     body: `<section class="wrap section topic">
   <div class="narrow">
   <p class="eyebrow">San Francisco</p>
-  <h1>Best laundry delivery in San Francisco: how the options compare</h1>
-  <p class="lead">We're Family Laundry, so we're not neutral. We wrote the guide we'd want to read: each company's real prices from its own website, and an honest word on where others are a better fit than us.</p>
+  <h1>Best laundry delivery services in San Francisco: ${total} options compared</h1>
+  <p class="lead">Looking for laundry pickup and delivery in San Francisco? We compared ${total} services offering wash &amp; fold, from on-demand pickups to next-day delivery and subscription plans. Below are published prices, turnaround times and the differences worth knowing before you book.</p>
+  <p>We're Family Laundry, one of the companies on this list, so we're not pretending to be neutral. We'll tell you where our competitors do better, too.</p>
   <p class="muted">Competitor details as of ${esc(asOf)}, from each company's website (linked below). Prices change, so check before you book.</p>
-  <h2>The short answer</h2>
+  <h2>Which laundry delivery service should you choose?</h2>
   <ul>
     ${comp.map(c => `<li><strong>${esc(c.name)}:</strong> ${esc(c.bestFor)}</li>`).join('\n    ')}
     <li><strong>Family Laundry (us):</strong> washed by one in-house team, fragrance-free by default, back the next service day.</li>
   </ul>
+  <p>The right choice depends on whether speed, cost, garment care or convenience matters most to you.</p>
   </div>
   <h2 class="narrow">Side by side</h2>
   <div class="table-wrap"><table class="price-table compare-table">
@@ -762,7 +768,21 @@ function compareSf(v) {
     </tbody>
   </table></div>
   <div class="narrow">
-  <p class="muted">"About 25 lbs" is roughly 2–3 home loads. Where a company doesn't publish a price, we say so rather than guess.</p>
+  <p class="muted">"About 25 lbs" is roughly 2–3 home loads. Our subscription figure assumes you use the full ${esc(String(lbs))} lbs each month; with less laundry, the effective price per bag is higher. Bag sizes, minimums, fees and first-order offers differ between services, so compare the total for your own amount of laundry. Where a company doesn't publish a price, we say so rather than guess.</p>
+  <div class="card compare-cta">
+    <h2>Considering Family Laundry?</h2>
+    <p>Our own employees wash your laundry at our plant in Oakland, fragrance-free by default. San Francisco pickups run in the evening, ${esc(days)}${wins.length ? ` (${esc(wins.map(w => w.range).join(', '))})` : ''}, and come back the next service day.</p>
+    <p class="muted">${esc(m(bag))} per 25-lb bag plus ${esc(m(del))} delivery, or a monthly subscription.</p>
+    <p>${cta()} <a class="btn btn-ghost" href="/laundry-delivery-sf">San Francisco service details</a></p>
+  </div>
+  <h2>What San Francisco customers should look for</h2>
+  <ul>
+    <li><strong>Building access.</strong> Many SF apartments have a doorman, a front desk or a locked lobby. Ask whether the driver can leave and collect bags there. We can: add instructions in the app.</li>
+    <li><strong>Pickup times that fit your day.</strong> Some services pick up during work hours, others in the evening. Our San Francisco routes run in the evening.</li>
+    <li><strong>Parking and hills.</strong> Street parking is tight in much of the city. Ask how a service handles pickups on streets with no loading zone.</li>
+    <li><strong>Where your laundry is washed.</strong> It might be a plant, a laundromat or an individual washer's machine, in the city or across the Bay. Ours crosses the Bay Bridge to our own plant in Oakland.</li>
+    <li><strong>Turnaround versus price.</strong> Same-day costs more almost everywhere. If you can wait until the next day, you have more choice.</li>
+  </ul>
   <h2>Where we're not the best fit</h2>
   <ul>
     <li><strong>You need it back today.</strong> We bring San Francisco orders back the next service day.</li>
@@ -771,6 +791,7 @@ function compareSf(v) {
     <li><strong>You want a Sunday pickup.</strong> We pick up ${esc(days)}.</li>
   </ul>
   <h2>Why San Francisco customers choose us anyway</h2>
+  ${since ? `<p>${esc(since)}</p>` : ''}
   ${ratingBlock(v)}
   <ul>
     <li><strong>One team, one plant.</strong> Our own employees wash and fold everything at our plant in Oakland. Your laundry never goes to a third party.</li>

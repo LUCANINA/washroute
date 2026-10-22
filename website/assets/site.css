@@ -512,3 +512,4 @@ strong { font-weight: 700; }
 .compare-table tr.us td, .compare-table tr.us th { background: var(--cream); font-weight: 600; }
 .compare-table tbody th { background: transparent; }
 .compare-table tbody tr.us th { background: var(--cream); }
+.compare-link { margin: 20px 0; padding: 14px 16px; border-left: 4px solid var(--blue); background: var(--cream); }

@@ -99,6 +99,7 @@ module.exports = {
   },
   sf: {
     households: 'more than 100',
+    compare: { path: '/best-laundry-delivery-san-francisco', label: 'See how San Francisco laundry delivery services compare' },
     photo: 'porch-bag-2.jpg',
     about: [
       "We have served San Francisco since 2022, when we acquired Sudzee, the city's laundry delivery pioneer founded in 2011. Our Oakland drop-off laundromat carries the Sudzee name too.",
