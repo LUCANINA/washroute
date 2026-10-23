@@ -44570,7 +44570,7 @@ ${oneCopy}
     // Header
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
     document.getElementById('cp-meta').innerHTML =
-      `${phone ? `<a href="tel:${phone}">${phone}</a>` : ''}${phone&&email?' · ':''}${email ? `<a href="mailto:${email}">${email}</a>` : ''}` || '<span style="color:var(--gray-300)">No contact info</span>';
+      `${phone ? `<a href="tel:${esc(phone)}">${esc(_prettyPhone(phone))}</a>` : ''}${phone&&email?' · ':''}${email ? `<a href="mailto:${email}">${email}</a>` : ''}` || '<span style="color:var(--gray-300)">No contact info</span>';
     // Session 329: a status chip only when something is wrong (cancelled / frozen).
     // Recency is shown by the Orders tab's rhythm instead of a "7 days" chip.
     document.getElementById('cp-status-badge').innerHTML = (c.cancelled_at || c.frozen_at) ? custActivityBadge(c) : '';
@@ -45154,7 +45154,7 @@ ${oneCopy}
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
-    document.getElementById('cp-meta').innerHTML = `${phone?`<a href="tel:${esc(phone)}">${esc(phone)}</a>`:''}${phone&&email?' · ':''}${email?`<a href="mailto:${esc(email)}">${esc(email)}</a>`:''}`;
+    document.getElementById('cp-meta').innerHTML = `${phone?`<a href="tel:${esc(phone)}">${esc(_prettyPhone(phone))}</a>`:''}${phone&&email?' · ':''}${email?`<a href="mailto:${esc(email)}">${esc(email)}</a>`:''}`;
     if (_panelCustomerData) Object.assign(_panelCustomerData, { first_name_cache: fn, last_name_cache: ln, email_cache: email, phone_cache: phone });
     _panelPhone = phone;
     cp2ToggleEditDetails(false);

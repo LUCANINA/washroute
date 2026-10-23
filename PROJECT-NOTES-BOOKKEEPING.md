@@ -33,8 +33,12 @@ Aug 7 shows no tips because its tips sit inside `wage_amount` (older parse) — 
 payroll-notices, payroll-fix-cards, two-surfaces, cold-boot, work-band 147/147. (Harness run in the cloud
 container — the laptop VM cannot fetch Chromium: the CDN redirects to a host not on the allowlist.)
 
-**Deploy state (checked Oct 21 by `list_edge_functions`, not inferred):** NOT deployed. verify_jwt read first:
-payroll-xero-post TRUE (no flag); payroll-ingest and payroll-check-attention FALSE (`--no-verify-jwt`).
+**Deploy state (checked Oct 21 ~15:50 UTC by behaviour, not inferred):** all three functions DEPLOYED by David via
+CLI (verify_jwt preserved: xero-post TRUE, ingest + check-attention FALSE). Proof: check-attention raised then cleared
+`stub_mismatch` on Oct 16, and Oct 16 posted as journal d98506c1 with the −$0.01 line to 260. Dashboard LIVE on all
+four SPAs (build-version 20261021151726) — but only after a MANUAL Vercel "Create Deployment" from `main`: a GitHub
+outage stopped auto-deploys (no deployment row at all for 5e694f0/26056dc/e982400). If a push doesn't appear in
+Vercel, that is the fix; the Git connection itself was intact. David confirmed Oct 9 now shows tips.
 
 **Cont. — David's call: "Square rounded the pay."** A stub exactly ONE cent out is now Square net-pay rounding:
 `splitStubMismatches()` separates it from real mismatches (per STUB, never per journal), and payroll-xero-post adds
