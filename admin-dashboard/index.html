@@ -59246,7 +59246,7 @@ async function _dvIframeLoaded() {
 
     // The trend is a second, cheaper query. It loads AFTER the report paints so it
     // can never hold up the number the user opened the page for.
-    _loadRevenueSpark(selFrom, selTo, tot.net, _myRun);
+    _loadRevenueSpark(selFrom, selTo, tot.net, _myRun, tot.total);
   }
 
   // ── Session 300: the 30-day trend beside the hero figure ──────────────────
@@ -59354,7 +59354,7 @@ async function _dvIframeLoaded() {
       </svg>`;
   }
 
-  async function _loadRevenueSpark(selFrom, selTo, netInRange, runId) {
+  async function _loadRevenueSpark(selFrom, selTo, netInRange, runId, liveTotal) {
     const slot = document.getElementById('rev-spark-slot');
     if (!slot) return;
     const from = addDaysPacific(selTo, -29);
@@ -59368,6 +59368,13 @@ async function _dvIframeLoaded() {
     }
     // The report may have been re-run for another range while this was in flight.
     if (runId !== _revRunId || !document.getElementById('rev-spark-slot')) return;
+
+    // The series is cached (15 min, and in memory for the whole tab), so its point for an
+    // open day goes stale. Pin the selected day to the live headline total, so the
+    // "x% above/below" line and the spark's last dot always match the big number.
+    if (selFrom === selTo && Number.isFinite(liveTotal)) {
+      series = series.map(p => p.date === selTo ? { ...p, v: liveTotal } : p);
+    }
 
     slot.innerHTML = _revSparkSvg(series) + '<div class="rev2-cap">Total revenue, last 30 days</div>';
 
