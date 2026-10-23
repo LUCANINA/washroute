@@ -1,5 +1,33 @@
 # WashRoute — Project Notes
 
+## Session 362 — Oct 23, 2026: admin "very slow all of a sudden" — DB untouched, apps + optimize-route deployed
+
+**Ask (David):** "Our admin site is very slow all of a sudden. Investigate."
+- **Not a bug in last night's code, not locks, not disk.** REST avg went 50 ms overnight → 870 ms (p95 3 s,
+  some 500s) by 11am; even tiny lookups (`services`, `/auth/v1/user`) took 1–3 s, i.e. the whole Micro
+  instance (1 GB) was saturated. Admin traffic was 3× yesterday's peak with the same 5–6 staff.
+- **Root cause — a fan-out loop.** `reoptimize-active-routes` (pg_cron, */5) calls `optimize-route` in
+  `eta_only` mode, which rewrote `estimated_arrival` on EVERY pending stop whether it moved or not (~800
+  writes/hr on a busy morning vs ~250 in the evening). Each write is a realtime event, and the admin's
+  `admin-route-stops-live` handler called `rccRefreshRoute()` — a full route download with orders +
+  customers joined, ~1.4 s — once PER STOP, per open tab, with no debounce. ~1,200 heavy downloads/hr from
+  two shop machines. Load-dependent, so it looks "sudden" on the first busy morning that crosses the line.
+- **Fix 1 (admin):** `rccScheduleRefresh(routeId)` — per-route 2 s trailing debounce; all five realtime
+  callers go through it. Manual callers still hit `rccRefreshRoute` directly.
+- **Fix 2 (optimize-route):** in `eta_only` mode skip the write when the ETA moved < 60 s (`estimated_arrival`
+  now loaded in the stops select). Full-optimize mode still writes everything. Logs `writing N/M stops`.
+  Deployed by David with `--no-verify-jwt` (probe: unauthenticated POST answered `route_id is required`, not 401).
+- **Measured after:** 12:10 bucket — 117 job writes → 51 admin downloads (was 242 → 352); REST avg 137 ms,
+  p95 388 ms. Back to normal.
+- **Loose ends:** (a) since the deploy every optimize-route run has been full-optimize mode — driver stop
+  completions re-optimize and rewrite every stop; extend the skip-unchanged rule to that mode (stop_number
+  AND eta unchanged). (b) Performance linter: 93 "multiple permissive policies" findings — each adds a policy
+  check to every query; worth a cleanup session. (c) Compute: stay on Micro; upgrade to Small (~+$15/mo,
+  ~2 min downtime, not during routes) if REST avg sits above ~300 ms on a busy morning.
+- Diagnostics that worked: `query_logs` on `edge_logs` grouped by `request.path` / `request.headers.referer`
+  / `response.origin_time` per hour, compared today vs the same hours yesterday; `pg_stat_statements` is
+  cumulative since May and was useless for "sudden".
+
 ## Session 361 — Oct 22, 2026: Orders by City report — DB LIVE, apps committed (David pushing)
 
 **Ask (David):** "Orders by city in a table that allows us to see the trend."
