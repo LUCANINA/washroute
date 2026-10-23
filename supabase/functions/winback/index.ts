@@ -2,7 +2,7 @@
 //
 // Per released row in public.winback_grants:
 //   Day 0  add the credit through adjust_customer_credits (ledger), then email it (if they agreed to email)
-//   Day 1  one text, only if they still haven't booked since the credit was added (and haven't opted out)
+//   Day 1  one text, only if they still haven't booked since the credit was added (and gave SMS consent, no opt-out)
 //   Day 30 take back whatever part of the win-back credit is still unused, through the same ledger RPC
 //
 // SAFETY
@@ -118,8 +118,8 @@ async function sendSms(to: string, body: string, customerId?: string) {
 type Cust = { id: string; first_name_cache: string | null; last_name_cache: string | null; email_cache: string | null
   phone_cache: string | null; credits: number | null; frozen_at: string | null; cancelled_at: string | null
   email_marketing_consent_at: string | null; email_marketing_opt_out_at: string | null
-  sms_marketing_opt_out_at: string | null; sms_notifications_opt_out_at: string | null }
-const CUST_COLS = 'id, first_name_cache, last_name_cache, email_cache, phone_cache, credits, frozen_at, cancelled_at, email_marketing_consent_at, email_marketing_opt_out_at, sms_marketing_opt_out_at, sms_notifications_opt_out_at'
+  sms_marketing_opt_out_at: string | null; sms_notifications_opt_out_at: string | null; sms_consent_at: string | null }
+const CUST_COLS = 'id, first_name_cache, last_name_cache, email_cache, phone_cache, credits, frozen_at, cancelled_at, email_marketing_consent_at, email_marketing_opt_out_at, sms_marketing_opt_out_at, sms_notifications_opt_out_at, sms_consent_at'
 type Row = { id: number; batch: string; customer_id: string; amount: number; granted_at: string | null; expires_at: string | null; created_at: string }
 const ROW_COLS = 'id, batch, customer_id, amount, granted_at, expires_at, created_at'
 
@@ -168,7 +168,9 @@ const emailable = (c: Cust, supp: Set<string>) => {
   return !!c.email_marketing_consent_at && !c.email_marketing_opt_out_at && EMAIL_RE.test(e)
     && !/starchup\.com/i.test(e) && !supp.has(e)
 }
-const textable = (c: Cust) => !!e164(c.phone_cache) && !c.sms_marketing_opt_out_at && !c.sms_notifications_opt_out_at
+// Session 358: a win-back text is marketing, so it needs recorded consent (sms_consent_at), not just
+// the absence of an opt-out. Walk-in (POS) customers often have a phone but no consent on file.
+const textable = (c: Cust) => !!e164(c.phone_cache) && !!c.sms_consent_at && !c.sms_marketing_opt_out_at && !c.sms_notifications_opt_out_at
 
 // ── Plan ───────────────────────────────────────────────────────────────────
 async function plan() {
@@ -248,7 +250,7 @@ async function doSms(rows: Row[], res: any) {
     if (!claimed?.length) { res.sms.raced++; continue }
     const lo = last.get(r.customer_id)
     const skip = !c ? 'customer not found' : (lo && r.granted_at && Date.parse(lo) >= Date.parse(r.granted_at)) ? 'already booked'
-      : !textable(c) ? 'no valid phone / opted out' : null
+      : !textable(c) ? 'no valid phone / no SMS consent / opted out' : null
     if (skip) { await db.from('winback_grants').update({ sms_status: 'skipped', sms_error: skip }).eq('id', r.id); res.sms.skipped++; continue }
     const s = await sendSms(e164(c!.phone_cache)!, smsMsg(firstName(c!.first_name_cache), r.amount, day(r.expires_at!)), c!.id)
     await db.from('winback_grants').update(s.ok
