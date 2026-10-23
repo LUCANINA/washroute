@@ -13,7 +13,7 @@
 //   - Credits only ever move through adjust_customer_credits, so they show in Billing History.
 //
 // MODES  dryrun — what a tick would do, nothing changes      tick — do it (pg_cron)
-//        test {email?, phone?} — send both messages to a STAFF address/phone only, no credit, no log
+//        test {email?, phone?, kind?: 'walkin'} — send both messages to a STAFF address/phone only, no credit, no log
 // AUTH   x-wr-internal header only. verify_jwt must be FALSE.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
@@ -28,7 +28,7 @@ const UNSUB_GROUP_ID = 34476                // SendGrid "Marketing emails"
 const FROM = { email: 'news@news.familylaundry.com', name: 'Family Laundry' }
 const REPLY_TO = { email: 'info@familylaundry.com', name: 'Family Laundry' }
 const APP = 'https://app.familylaundry.com/'
-const LOGO = 'https://app.familylaundry.com/assets/logo.png'
+const LOGO = 'https://app.familylaundry.com/assets/logo_white_bg.png'   // session 363: logo.png is white-on-transparent, invisible in email
 const ADDRESS = 'Family Laundry · 2609 Foothill Blvd, Oakland, CA 94601'
 const HOUR = 3_600_000, DAY = 24 * HOUR
 const EXPIRES_DAYS = 30
@@ -38,6 +38,9 @@ const ANOMALY = 600                         // more released work than this = so
 const TEST_EMAIL_ALLOW = /(@familylaundry\.com|^dmacquart@gmail\.com)$/i
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const ACTIVE_ORDER = ['scheduled', 'picked_up', 'processing', 'folding', 'ready_for_delivery', 'on_hold']
+// session 363: batch prefix picks the message. 'WB-' = lapsed delivery customers ("we miss you").
+// 'WI-' = walk-in (counter) customers who have never used pickup & delivery ("did you know we deliver?").
+const isWalkIn = (batch: string) => /^WI-/i.test(batch || '')
 
 const norm = (e: string | null | undefined) => (e || '').trim().toLowerCase()
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
@@ -53,10 +56,16 @@ function e164(p: string | null): string | null {
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────
-function emailMsg(first: string, amount: number, until: string) {
+function emailMsg(first: string, amount: number, until: string, walkIn = false) {
   const a = money(amount)
-  const subject = `${a} is waiting in your Family Laundry account`
-  const preview = `It comes off your next order automatically, through ${until}`
+  const subject = walkIn ? `${a} toward your first pickup` : `${a} is waiting in your Family Laundry account`
+  const preview = walkIn ? `Did you know we also pick up and deliver?` : `It comes off your next order automatically, through ${until}`
+  const lead = walkIn
+    ? `Thanks for bringing your laundry to us. Did you know we also pick up and deliver? Book online, leave the bag at your door, and we bring it back washed and folded. We've added a <b>${a} credit</b> to your account toward a first pickup, through <b>${esc(until)}</b>.`
+    : `It's been a while, and we'd love to have you back. We've added a <b>${a} credit</b> to your account. It comes off your next order automatically, through <b>${esc(until)}</b>.`
+  const leadText = walkIn
+    ? `Thanks for bringing your laundry to us. Did you know we also pick up and deliver? Book online, leave the bag at your door, and we bring it back washed and folded. We've added a ${a} credit to your account toward a first pickup, through ${until}.`
+    : `It's been a while, and we'd love to have you back. We've added a ${a} credit to your account. It comes off your next order automatically, through ${until}.`
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#111">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">${esc(preview)}</div>
@@ -65,7 +74,7 @@ function emailMsg(first: string, amount: number, until: string) {
 <tr><td align="center" style="padding:28px 24px 8px"><a href="${APP}"><img src="${LOGO}" width="160" alt="Family Laundry" style="display:block;width:160px;height:auto;border:0"></a></td></tr>
 <tr><td style="padding:8px 28px 28px;font-size:17px;line-height:1.55">
 <p>Hi ${esc(first)},</p>
-<p>It's been a while, and we'd love to have you back. We've added a <b>${a} credit</b> to your account. It comes off your next order automatically, through <b>${esc(until)}</b>.</p>
+<p>${lead}</p>
 <p style="text-align:center;margin:28px 0 8px"><a href="${APP}" style="display:inline-block;background:#ffcc33;color:#000;text-decoration:none;font-weight:700;padding:15px 36px;border-radius:50px">Book a pickup</a></p>
 <p style="text-align:center;margin:0 0 20px">or just text <b>PICKUP</b> to (510) 588-4102</p>
 <p>If something about your last order wasn't right, reply to this email. We read every reply.</p>
@@ -75,7 +84,7 @@ You're getting this because you signed up for Family Laundry emails. <a href="<%
 </td></tr></table></body></html>`
   const text = `Hi ${first},
 
-It's been a while, and we'd love to have you back. We've added a ${a} credit to your account. It comes off your next order automatically, through ${until}.
+${leadText}
 
 Book a pickup: ${APP}
 Or just text PICKUP to (510) 588-4102.
@@ -86,8 +95,9 @@ ${ADDRESS}
 Unsubscribe: <%asm_group_unsubscribe_raw_url%>`
   return { subject, html, text }
 }
-const smsMsg = (first: string, amount: number, until: string) =>
-  `Hi ${first}, it's Family Laundry. We've added ${money(amount)} to your account, good through ${until}. Reply PICKUP to book, or visit app.familylaundry.com. Reply STOP to opt out.`
+const smsMsg = (first: string, amount: number, until: string, walkIn = false) => walkIn
+  ? `Hi ${first}, it's Family Laundry. Did you know we pick up and deliver? Leave the bag at your door, we bring it back folded. ${money(amount)} is on your account toward a first pickup, good through ${until}. Reply PICKUP to book, or visit app.familylaundry.com. Reply STOP to opt out.`
+  : `Hi ${first}, it's Family Laundry. We've added ${money(amount)} to your account, good through ${until}. Reply PICKUP to book, or visit app.familylaundry.com. Reply STOP to opt out.`
 
 // ── Senders ────────────────────────────────────────────────────────────────
 async function sendEmail(to: string, name: string | null, m: { subject: string; html: string; text: string }, customerId?: string) {
@@ -154,6 +164,17 @@ async function lastOrderAt(ids: string[]): Promise<Map<string, string>> {
   }
   return out
 }
+// session 363: customers who already received a credit in ANOTHER batch. One win-back per customer.
+async function priorGranted(ids: string[], batch: string): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await db.from('winback_grants').select('customer_id')
+      .in('customer_id', ids.slice(i, i + 100)).neq('batch', batch).eq('grant_status', 'granted')
+    if (error) throw new Error('winback_grants prior: ' + error.message)
+    for (const g of (data || []) as any[]) out.add(g.customer_id)
+  }
+  return out
+}
 async function activeOrder(ids: string[]): Promise<Set<string>> {
   const out = new Set<string>()
   for (let i = 0; i < ids.length; i += 100) {
@@ -168,7 +189,7 @@ const emailable = (c: Cust, supp: Set<string>) => {
   return !!c.email_marketing_consent_at && !c.email_marketing_opt_out_at && EMAIL_RE.test(e)
     && !/starchup\.com/i.test(e) && !supp.has(e)
 }
-// Session 358: a win-back text is marketing, so it needs recorded consent (sms_consent_at), not just
+// session 363: a win-back text is marketing, so it needs recorded consent (sms_consent_at), not just
 // the absence of an opt-out. Walk-in (POS) customers often have a phone but no consent on file.
 const textable = (c: Cust) => !!e164(c.phone_cache) && !!c.sms_consent_at && !c.sms_marketing_opt_out_at && !c.sms_notifications_opt_out_at
 
@@ -194,6 +215,8 @@ async function doGrants(rows: Row[], res: any) {
   const ids = rows.map(r => r.customer_id)
   const [cm, active, last] = await Promise.all([customers(ids), activeOrder(ids), lastOrderAt(ids)])
   const supp = await suppressed([...cm.values()].map(c => norm(c.email_cache)))
+  const prior = new Map<string, Set<string>>()   // batch -> customers already granted elsewhere
+  for (const b of new Set(rows.map(r => r.batch))) prior.set(b, await priorGranted(rows.filter(r => r.batch === b).map(r => r.customer_id), b))
   for (const r of rows) {
     const c = cm.get(r.customer_id)
     const lo = last.get(r.customer_id)
@@ -205,7 +228,7 @@ async function doGrants(rows: Row[], res: any) {
     if (!claimed?.length) { res.grant.raced++; continue }
     const skip = !c ? 'customer not found' : c.frozen_at ? 'account frozen' : c.cancelled_at ? 'account cancelled'
       : Number(c.credits || 0) > 0 ? 'already has credit' : active.has(c.id) ? 'already has an order booked'
-      : orderedSinceEnroll ? 'ordered since enrollment' : null
+      : prior.get(r.batch)?.has(c.id) ? 'already received a win-back credit' : orderedSinceEnroll ? 'ordered since enrollment' : null
     if (skip) {
       await db.from('winback_grants').update({ grant_status: 'skipped', grant_note: skip, email_status: 'skipped', sms_status: 'skipped' }).eq('id', r.id)
       res.grant.skipped++; continue
@@ -231,7 +254,7 @@ async function doGrants(rows: Row[], res: any) {
     }
     await db.from('winback_grants').update({ email_status: 'sending' }).eq('id', r.id)
     const name = [c!.first_name_cache, c!.last_name_cache].filter(Boolean).join(' ').trim() || null
-    const e = await sendEmail(norm(c!.email_cache), name, emailMsg(firstName(c!.first_name_cache), r.amount, until), c!.id)
+    const e = await sendEmail(norm(c!.email_cache), name, emailMsg(firstName(c!.first_name_cache), r.amount, until, isWalkIn(r.batch)), c!.id)
     await db.from('winback_grants').update(e.ok
       ? { email_status: 'sent', email_sent_at: new Date().toISOString() }
       : { email_status: 'failed', email_error: e.error }).eq('id', r.id)
@@ -252,7 +275,7 @@ async function doSms(rows: Row[], res: any) {
     const skip = !c ? 'customer not found' : (lo && r.granted_at && Date.parse(lo) >= Date.parse(r.granted_at)) ? 'already booked'
       : !textable(c) ? 'no valid phone / no SMS consent / opted out' : null
     if (skip) { await db.from('winback_grants').update({ sms_status: 'skipped', sms_error: skip }).eq('id', r.id); res.sms.skipped++; continue }
-    const s = await sendSms(e164(c!.phone_cache)!, smsMsg(firstName(c!.first_name_cache), r.amount, day(r.expires_at!)), c!.id)
+    const s = await sendSms(e164(c!.phone_cache)!, smsMsg(firstName(c!.first_name_cache), r.amount, day(r.expires_at!), isWalkIn(r.batch)), c!.id)
     await db.from('winback_grants').update(s.ok
       ? { sms_status: 'sent', sms_sent_at: new Date().toISOString() }
       : { sms_status: 'failed', sms_error: s.error }).eq('id', r.id)
@@ -312,18 +335,19 @@ Deno.serve(async (req) => {
 
     if (mode === 'test') {
       const until = day(new Date(Date.now() + EXPIRES_DAYS * DAY).toISOString())
-      const out: any = { mode, until }
+      const walkIn = body.kind === 'walkin'
+      const out: any = { mode, until, kind: walkIn ? 'walkin' : 'winback' }
       if (body.email) {
         const to = norm(body.email)
         if (!EMAIL_RE.test(to) || !TEST_EMAIL_ALLOW.test(to)) return json({ error: 'test email only goes to staff addresses' }, 400)
-        out.email = await sendEmail(to, 'David', emailMsg('David', 20, until))
+        out.email = await sendEmail(to, 'David', emailMsg('David', walkIn ? 15 : 20, until, walkIn))
       }
       if (body.phone) {
         const to = e164(body.phone)
         const { data: staff } = await db.from('profiles').select('phone, role').in('role', ['admin', 'manager'])
         const ok = !!to && (staff || []).some((p: any) => e164(p.phone) === to)
         if (!ok) return json({ error: 'test text only goes to an admin/manager phone on file' }, 400)
-        out.sms = await sendSms(to!, smsMsg('David', 20, until))
+        out.sms = await sendSms(to!, smsMsg('David', walkIn ? 15 : 20, until, walkIn))
       }
       return json(out)
     }

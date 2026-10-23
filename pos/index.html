@@ -2143,7 +2143,7 @@
                 <span class="sms-disclosure-icon">💬</span>
                 <span data-i18n>We'll text this number when the order is ready for pickup. Standard message rates apply.</span>
               </div>
-              <!-- session 358: marketing-text opt-in. Order texts are transactional and need no
+              <!-- session 363: marketing-text opt-in. Order texts are transactional and need no
                    consent; offers do (TCPA express written consent). Checked = stamp sms_consent_at. -->
               <label class="sms-disclosure" for="newSmsOptIn" style="margin-top:6px;margin-bottom:0;cursor:pointer;align-items:flex-start;">
                 <input type="checkbox" id="newSmsOptIn" checked style="margin:3px 8px 0 0;width:18px;height:18px;flex:none;">
@@ -4418,7 +4418,7 @@
     document.getElementById('newFirstName').value = '';
     document.getElementById('newLastName').value = '';
     document.getElementById('newEmail').value = '';
-    const _oi = document.getElementById('newSmsOptIn'); if (_oi) _oi.checked = true;   // session 358: default on each time
+    const _oi = document.getElementById('newSmsOptIn'); if (_oi) _oi.checked = true;   // session 363: default on each time
     // session 114: always reset the Save button when the modal opens,
     // in case a previous save left it in a "Saving…" disabled state.
     const saveBtn = document.getElementById('saveCustomerBtn');
@@ -4485,7 +4485,7 @@
         ...(email ? { email_cache: email } : {}),
         is_retail:        true,          // POS walk-ins are retail-only by default
         referral_source:  'pos_walkin',  // distinguish from delivery signups
-        // session 358: marketing-text consent, only if the box was left checked.
+        // session 363: marketing-text consent, only if the box was left checked.
         // Order-status texts don't depend on this; winback/offer texts do.
         ...(smsOptIn ? { sms_consent_at: new Date().toISOString() } : {}),
       };

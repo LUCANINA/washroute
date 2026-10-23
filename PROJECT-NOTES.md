@@ -1,5 +1,33 @@
 # WashRoute — Project Notes
 
+## Session 363 — Oct 23, 2026: walk-in retention — POS SMS opt-in, winback consent gate, WI pilot batch LIVE (10 released)
+
+**Ask (David):** "Our walk-in retention (58.6%) is surprisingly low. Suggest a way to re-engage them."
+- **Finding:** it's a second-visit problem, not regulars leaving. Of 72 lapsed counter customers, 61 were
+  one-visit-ever; only 2 lapsed regulars. First-time walk-ins (108 clean cases) return 56%. Only **1 of 108**
+  ever used pickup & delivery — nobody makes the pitch. All had a phone; only 19/108 had `sms_consent_at`.
+- **POS** (`pos/index.html`, deployed build 20261023193301): New-customer form now has a default-on checkbox
+  "Also text me occasional offers…" (EN+ES) that stamps `sms_consent_at`. Order-status texts never depended
+  on it; marketing texts do (TCPA express written consent). Resets to checked each open. Click-tested by David.
+- **winback edge function v6** (deployed via MCP tool, `verify_jwt:false` — probe 403 "forbidden" before/after):
+  - `textable()` now REQUIRES `sms_consent_at`, not just the absence of an opt-out (was a compliance gap).
+  - Batch prefix picks the message: `WB-` = "we miss you"; **`WI-`** = walk-in "did you know we deliver?".
+    Email + SMS variants; `test` mode takes `kind:'walkin'`. First draft said "same per-pound price" —
+    WRONG (retail $1.50/lb, delivery $65/bag). David caught it. No price claims in the copy now.
+  - `priorGranted()`: skips anyone already granted in another batch ("already received a win-back credit").
+  - Logo: `logo.png` is white-on-transparent → invisible in email. Now `logo_white_bg.png`.
+  - Deployed copy's comments say "session 358" (numbering slip); code identical to this file.
+- **Batch `WI-2026-10-A`:** 26 walk-in-only customers enrolled at **$15** (21+ days quiet, consented, no
+  credit, no open order, no prior grant, not commercial). **10 released** (favoring email+SMS reachable),
+  16 held. Dry run: grants_due 10. First tick Sat Oct 24 ~10am (credit + email), text Sun to non-bookers.
+  Release the rest: `UPDATE winback_grants SET release_at=now() WHERE batch='WI-2026-10-A' AND release_at IS NULL;`
+- **Preflight notes:** no triggers on `winback_grants`. `wr-winback-enroll-app` (weekly Sun) auto-enrolls
+  anyone with a delivered order ≥60d quiet into the $20 WB batch — it does NOT exclude walk-ins (that's how
+  27 counter customers got the Sept "we miss you" message). Skips existing grants, so no double-enroll.
+- **Loose ends:** (a) make `winback_enroll` delivery-only (`source <> 'walk_in'`) — migration review;
+  (b) counter card + staff pitch for delivery (no code); (c) check WI results after ~1 week — texts sent,
+  PICKUP replies, delivery orders from the 10; then release the 16.
+
 ## Session 362 — Oct 23, 2026: admin "very slow all of a sudden" — DB untouched, apps + optimize-route deployed
 
 **Ask (David):** "Our admin site is very slow all of a sudden. Investigate."
