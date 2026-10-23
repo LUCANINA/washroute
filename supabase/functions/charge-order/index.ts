@@ -120,13 +120,30 @@ class ChargeRefused extends Error {
   }
 }
 
-// Helper: stamp charge_failed_at on an order so the admin UI shows the correct button
-async function stampChargeFailed(db: any, orderId: string) {
-  await db.from('orders').update({
+// Helper: stamp charge_failed_at on an order so the admin UI shows the correct button.
+// v52 (session 349): also record WHY (charge_failure_reason) and WHICH Stripe
+// PaymentIntent declined (charge_failed_pi_id), so staff read the decline on the
+// Unpaid Orders row instead of opening Stripe. Before this the order log said only
+// "Payment failed" — four declines on 2026-10-23 each needed a Stripe lookup.
+async function stampChargeFailed(db: any, orderId: string, reason: string | null = null, piId: string | null = null) {
+  const { error } = await db.from('orders').update({
     billing_status: 'failed',
     charge_failed_at: new Date().toISOString(),
+    charge_failure_reason: reason ? reason.slice(0, 500) : null,
+    charge_failed_pi_id: piId,
     updated_at: new Date().toISOString(),
   }).eq('id', orderId);
+  if (error) console.error(`stampChargeFailed ${orderId}:`, error.message)
+}
+
+// v52: one short, staff-readable line per declined card, e.g.
+//   "Visa ••0516: insufficient_funds — Your card has insufficient funds."
+// Stripe's decline_code is the useful part; the message is what the bank said.
+function describeCardFailure(card: any, e: any): string {
+  const who = `${card?.card_brand || 'card'} ••${card?.card_last4 || '????'}`
+  const code = e?.decline_code || e?.code || e?.type || 'error'
+  const msg = (e?.message || '').replace(/\s+/g, ' ').trim()
+  return `${who}: ${code}${msg ? ` — ${msg}` : ''}`
 }
 
 // Compute the team tip in dollars from tip_amount + tip_type.
@@ -210,7 +227,7 @@ Deno.serve(async (req) => {
       .single()
 
     if (custErr || !customer) {
-      await stampChargeFailed(db, orderId);
+      await stampChargeFailed(db, orderId, 'Customer record not found');
       notifyCustomer(orderId, 'payment_failed');
       throw new ChargeRefused('Customer not found', 'customer_not_found', true)
     }
@@ -285,7 +302,7 @@ Deno.serve(async (req) => {
         .order('created_at', { ascending: false })
 
       if (cardsErr) {
-        await stampChargeFailed(db, orderId);
+        await stampChargeFailed(db, orderId, 'Could not load cards on file: ' + cardsErr.message);
         notifyCustomer(orderId, 'payment_failed');
         throw new ChargeRefused('Failed to load cards: ' + cardsErr.message, 'cards_unavailable', true)
       }
@@ -311,6 +328,8 @@ Deno.serve(async (req) => {
 
       let lastError: any = null
       const failedCards: string[] = []
+      const failureLines: string[] = []   // v52: one line per declined card
+      let lastFailedPiId: string | null = null
 
       // Try each card in order until one succeeds
       for (const card of cardList) {
@@ -348,16 +367,21 @@ Deno.serve(async (req) => {
           } else {
             lastError = new Error(`Payment status: ${pi.status}`)
             failedCards.push(card.card_last4)
+            failureLines.push(describeCardFailure(card, { code: `status_${pi.status}`, message: pi.last_payment_error?.message }))
+            lastFailedPiId = pi.id
           }
         } catch (e: any) {
           console.warn(`Card ${card.card_last4} failed:`, e.message)
           lastError = e
           failedCards.push(card.card_last4)
+          failureLines.push(describeCardFailure(card, e))
+          // Stripe card errors carry the PaymentIntent that was declined.
+          lastFailedPiId = e?.payment_intent?.id || e?.raw?.payment_intent?.id || lastFailedPiId
         }
       }
 
       if (!paymentIntent || !usedCard) {
-        await stampChargeFailed(db, orderId);
+        await stampChargeFailed(db, orderId, failureLines.join('; ') || lastError?.message || null, lastFailedPiId);
         notifyCustomer(orderId, 'payment_failed')
 
         const failMsg = failedCards.length > 1
@@ -378,6 +402,8 @@ Deno.serve(async (req) => {
       billing_status: 'paid',
       billed_at: new Date().toISOString(),
       charge_failed_at: null,
+      charge_failure_reason: null,   // v52: a paid order carries no stale decline
+      charge_failed_pi_id: null,
       updated_at: new Date().toISOString(),
     }
     if (paymentIntent) {

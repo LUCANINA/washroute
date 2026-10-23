@@ -30911,6 +30911,18 @@ ${noActivityNote}
       });
     }
 
+    // Session 349: pull the decline reason + Stripe PaymentIntent for FAILED rows so
+    // the row says WHY ("Visa ••0516: insufficient_funds — ...") instead of sending
+    // staff to Stripe. Read from orders directly rather than widening the view; if
+    // the columns are ever missing, batchedIn logs and returns [] and the row simply
+    // shows no reason — never an error.
+    const failedIds = due.filter(o => o.has_failed_charge || o.billing_status === 'failed').map(o => o.id);
+    if (failedIds.length) {
+      const reasonRows = await batchedIn('orders', 'id, charge_failure_reason, charge_failed_pi_id', 'id', failedIds);
+      const byId = new Map(reasonRows.map(r => [r.id, r]));
+      due.forEach(o => { const r = byId.get(o.id); if (r) { o.charge_failure_reason = r.charge_failure_reason; o.charge_failed_pi_id = r.charge_failed_pi_id; } });
+    }
+
     // Header summary — everything here is now chaseable by definition, since
     // on_account rows are filtered out above. The "$X on account" tail was removed
     // with the group: a header that quotes a total the body no longer shows is the
@@ -30992,12 +31004,18 @@ ${noActivityNote}
     // must not render in neutral grey. 30+ days owing is that value.
     const ageTag = Number(o.age_days) >= 30
       ? `<span style="font-size:10.5px;color:var(--red);font-weight:600;margin-left:6px">${o.age_days}d</span>` : '';
+    // Session 349: the decline reason, one small line under the FAILED chip. The
+    // Stripe link opens the exact declined PaymentIntent for anyone who needs more.
+    // Older failures (before charge-order v52) have no reason recorded and show nothing.
+    const reasonLine = o.charge_failure_reason
+      ? `<div style="font-size:11px;color:var(--gray-600);margin-top:3px;max-width:360px;white-space:normal;line-height:1.35" title="${esc(o.charge_failure_reason)}">${esc(o.charge_failure_reason.length > 140 ? o.charge_failure_reason.slice(0, 140) + '…' : o.charge_failure_reason)}${o.charge_failed_pi_id ? ` <a href="https://dashboard.stripe.com/payments/${esc(o.charge_failed_pi_id)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-weight:600;white-space:nowrap">Stripe ↗</a>` : ''}</div>`
+      : '';
     return `<tr style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">
       <td class="td-mono">#${o.order_number}</td>
       <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)}${ageTag}</td>
       <td class="td-name">${esc(cust)}</td>
       <td>${statusBadge(o.status)}</td>
-      <td>${billingBadge}${archivedTag}</td>
+      <td>${billingBadge}${archivedTag}${reasonLine}</td>
       <td style="text-align:right;font-weight:600">${fmtMoney(o.amount_due)}</td>
       <td style="text-align:right;white-space:nowrap">${action}</td>
     </tr>`;
