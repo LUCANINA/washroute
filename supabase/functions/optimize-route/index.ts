@@ -272,7 +272,7 @@ Deno.serve(async (req: Request) => {
     // make) and route_stops.completed_at (to anchor the ETA clock on the last
     // stop the driver actually finished when GPS is missing or stale).
     const { data: stops, error: stopsErr } = await db.from('route_stops')
-      .select(`id, stop_number, stop_type, status, address_id, completed_at,
+      .select(`id, stop_number, stop_type, status, address_id, completed_at, estimated_arrival,
                orders!inner(id, customer_id, status, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end)`)
       .eq('route_id', route_id)
@@ -596,12 +596,26 @@ Deno.serve(async (req: Request) => {
 
     // eta_only never touches stop_number (no reshuffle); dry_run writes nothing.
     if (!dryRun) {
-      const updates = finalOrder.map((s: any, i: number) =>
+      // Session 362: in eta_only mode (the 5-min cron), skip stops whose ETA moved
+      // by under a minute. Every write fans out live to every open admin tab, and
+      // on a busy morning the unconditional rewrite was ~800 writes/hr for no
+      // visible change. A reshuffle (optimize mode) always writes.
+      const ETA_WRITE_THRESHOLD_MS = 60 * 1000;
+      const toWrite = etaOnly
+        ? finalOrder.filter((s: any) => {
+            const next = s._eta ? s._eta.getTime() : null;
+            const prev = s.estimated_arrival ? new Date(s.estimated_arrival).getTime() : null;
+            if (next === null || prev === null) return next !== prev;
+            return Math.abs(next - prev) >= ETA_WRITE_THRESHOLD_MS;
+          })
+        : finalOrder;
+      const updates = toWrite.map((s: any) =>
         db.from('route_stops').update(etaOnly
           ? { estimated_arrival: s._eta?.toISOString() || null }
-          : { stop_number: maxDone + i + 1, estimated_arrival: s._eta?.toISOString() || null }
+          : { stop_number: maxDone + finalOrder.indexOf(s) + 1, estimated_arrival: s._eta?.toISOString() || null }
         ).eq('id', s.id)
       );
+      console.log(`[optimize-route] writing ${toWrite.length}/${finalOrder.length} stops (eta_only=${etaOnly})`);
       const writeResults = await Promise.all(updates);
       const writeErrors = writeResults.filter((r: any) => r.error);
       if (writeErrors.length > 0) {

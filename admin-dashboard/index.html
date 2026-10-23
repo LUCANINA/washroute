@@ -11044,8 +11044,8 @@
           // Refresh RCC columns/map when order status changes (the "not ready" badge on
           // delivery cards tracks order status as it advances through the pipeline)
           if (_rccActiveRoutes.size > 0) {
-            if (updated.pickup_run_id && _rccActiveRoutes.has(updated.pickup_run_id)) rccRefreshRoute(updated.pickup_run_id);
-            if (updated.delivery_run_id && _rccActiveRoutes.has(updated.delivery_run_id)) rccRefreshRoute(updated.delivery_run_id);
+            if (updated.pickup_run_id && _rccActiveRoutes.has(updated.pickup_run_id)) rccScheduleRefresh(updated.pickup_run_id);
+            if (updated.delivery_run_id && _rccActiveRoutes.has(updated.delivery_run_id)) rccScheduleRefresh(updated.delivery_run_id);
           }
         }
       })
@@ -11095,7 +11095,7 @@
         }
         // If this stop's route is open in RCC, refresh its column in real-time
         if (stop.route_id && _rccActiveRoutes.has(stop.route_id)) {
-          rccRefreshRoute(stop.route_id);
+          rccScheduleRefresh(stop.route_id);
         }
         // Bag Check status changed (session 191) — keep the Overview panel live
         if (currentPage === 'overview' && payload.old && stop.bag_check_status !== payload.old.bag_check_status) {
@@ -11105,13 +11105,13 @@
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'route_stops' }, payload => {
         const stop = payload.new;
         if (stop.route_id && _rccActiveRoutes.has(stop.route_id)) {
-          rccRefreshRoute(stop.route_id);
+          rccScheduleRefresh(stop.route_id);
         }
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'route_stops' }, payload => {
         const stop = payload.old;
         if (stop.route_id && _rccActiveRoutes.has(stop.route_id)) {
-          rccRefreshRoute(stop.route_id);
+          rccScheduleRefresh(stop.route_id);
         }
       })
       .subscribe();
@@ -50996,6 +50996,20 @@ ${oneCopy}
   function rccUpdateOptimizeBtn() {
     const btn = document.getElementById('btn-optimize');
     if (btn) btn.style.display = _rccActiveRoutes.size > 0 ? '' : 'none';
+  }
+
+  // ── RCC: Coalesce bursts of live stop events into one refresh per route ──
+  // Session 362: the 5-min ETA job rewrites every pending stop, and each write
+  // used to trigger a full route re-download per open tab. Now a burst collapses
+  // into a single refresh ~2s after the last event.
+  const _rccRefreshTimers = {};
+  function rccScheduleRefresh(routeId) {
+    if (!routeId || !_rccActiveRoutes.has(routeId)) return;
+    clearTimeout(_rccRefreshTimers[routeId]);
+    _rccRefreshTimers[routeId] = setTimeout(() => {
+      delete _rccRefreshTimers[routeId];
+      rccRefreshRoute(routeId);
+    }, 2000);
   }
 
   // ── RCC: Refresh a single route's data after re-optimization ──
