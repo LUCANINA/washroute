@@ -888,15 +888,32 @@ function about(v) {
 const POSTS = require('../../content/posts.json');
 const postPath = p => `/post/${p.slug}`;
 
+// Inline formatting inside a post block: **bold**, *italic*, [text](https://… or /…). Escaped first.
+function postInline(x) {
+  return esc(x)
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)/g, (m, t, u) => /^https?:/.test(u)
+      ? `<a href="${u}" target="_blank" rel="noopener">${t}</a>` : `<a href="${u}">${t}</a>`)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,;:)]|$)/g, '$1<em>$2</em>');
+}
+
 function postBody(blocks) {
   let out = '', list = false;
   for (const b of blocks) {
-    if (b.t === 'li') { if (!list) { out += '<ul>'; list = true; } out += `<li>${esc(b.x)}</li>`; continue; }
+    if (b.t === 'li') { if (!list) { out += '<ul>'; list = true; } out += `<li>${postInline(b.x)}</li>`; continue; }
     if (list) { out += '</ul>'; list = false; }
-    if (b.t === 'img') out += `<img src="${esc(b.x)}" alt="" loading="lazy">`;
-    else if (/^h[2-4]$/.test(b.t)) out += `<${b.t}>${esc(b.x)}</${b.t}>`;
-    else if (b.t === 'blockquote') out += `<blockquote>${esc(b.x)}</blockquote>`;
-    else out += `<p>${esc(b.x).replace(/\n/g, '<br>')}</p>`;
+    if (b.t === 'img') out += `<img src="${esc(b.x)}" alt="${esc(b.alt || '')}" loading="lazy">`;
+    else if (/^h[2-4]$/.test(b.t)) out += `<${b.t}>${postInline(b.x)}</${b.t}>`;
+    else if (b.t === 'blockquote') out += `<blockquote>${postInline(b.x)}</blockquote>`;
+    else if (b.t === 'table') {
+      // { t:'table', head:[…], rows:[[…]], num:[colIdx…] } — num columns right-aligned
+      const num = new Set(b.num || []);
+      const cell = (tag, c, i) => `<${tag}${num.has(i) ? ' style="text-align:right"' : ''}>${postInline(c)}</${tag}>`;
+      out += `<table class="post-table"><thead><tr>${b.head.map((c, i) => cell('th', c, i)).join('')}</tr></thead><tbody>`
+        + b.rows.map(r => `<tr>${r.map((c, i) => cell('td', c, i)).join('')}</tr>`).join('') + '</tbody></table>';
+    }
+    else if (b.t === 'hr') out += '<hr>';
+    else out += `<p${b.cls ? ` class="${esc(b.cls)}"` : ''}>${postInline(b.x).replace(/\n/g, '<br>')}</p>`;
   }
   return out + (list ? '</ul>' : '');
 }
@@ -925,11 +942,12 @@ function post(p) {
     body: `<article class="wrap section narrow post-body" lang="${p.lang}">
   <p class="muted"><a href="/blog">← Our story</a></p>
   <h1>${esc(p.title)}</h1>
+  ${p.date ? `<p class="muted">${esc(p.date)}</p>` : ''}
   ${postBody(p.blocks)}
   <p>${cta()}</p>
 </article>`,
     jsonld: { '@context': 'https://schema.org', '@type': 'BlogPosting', headline: p.title, inLanguage: p.lang,
-      author: { '@type': 'Organization', name: 'Family Laundry' }, ...(p.image ? { image: 'https://www.familylaundry.com' + p.image } : {}) },
+      author: { '@type': 'Organization', name: 'Family Laundry' }, ...(p.published ? { datePublished: p.published } : {}), ...(p.image ? { image: 'https://www.familylaundry.com' + p.image } : {}) },
   };
 }
 

@@ -193,6 +193,10 @@ strong { font-weight: 700; }
 .form-msg { font-size: 15px; margin: 0; }
 .form-msg.err { color: #b42318; }
 .post-body img { border-radius: var(--radius); margin: 18px 0; }
+.post-body .post-table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 15px; }
+.post-body .post-table th, .post-body .post-table td { padding: 8px 10px; border-bottom: 1px solid rgba(0,0,0,.12); text-align: left; }
+.post-body .post-table th { font-weight: 600; }
+.post-body .tldr { background: rgba(0,0,0,.04); border-radius: var(--radius); padding: 14px 18px; }
 .post-list { display: grid; gap: 22px; margin-top: 24px; }
 .post-list a { text-decoration: none; display: grid; grid-template-columns: 160px 1fr; gap: 18px; align-items: center; }
 .post-list img { aspect-ratio: 4/3; object-fit: cover; border-radius: 10px; }
