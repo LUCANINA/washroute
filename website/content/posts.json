@@ -15,7 +15,7 @@
       },
       {
         "t": "p",
-        "x": "**TL;DR**\n• Fuel to electric + solar: **energy cost per mile down 80%**, from about 40¢ on gas to 8¢.\n• That's **about $9,700 saved per van per year** in energy alone.\n• Solar on its own cut our electricity bill **43%**.\n• CO₂: **about 14 metric tons avoided per van per year**, roughly 70 tons across the fleet.\n• Built in two steps: a 17-port charging depot in late 2025, rooftop solar in early 2026.",
+        "x": "**TL;DR**\n• Fuel to electric + solar: **energy cost per mile down 80%**, from about 40¢ on gas to 8¢.\n• That's **about $9,700 saved per van per year** in energy alone.\n• Solar on its own cut our electricity bill **43%**.\n• CO₂: **about 14 metric tons avoided per van per year**.\n• Built in two steps: a 17-port charging depot in late 2025, rooftop solar in early 2026.",
         "cls": "tldr"
       },
       {
@@ -96,6 +96,11 @@
         "x": "Solar is the second step in that story. With the chargers alone, electricity cost us about $350 per vehicle per month. Once solar came online, that dropped to about $200, a **43% cut in our electricity bill**, and it's what took us from 14 cents a mile to 8."
       },
       {
+        "t": "img",
+        "x": "/assets/img/blog/fleet-vans.jpg",
+        "alt": "Family Laundry's all-electric Ford E-Transit delivery vans"
+      },
+      {
         "t": "h2",
         "x": "And the CO₂?"
       },
@@ -109,7 +114,7 @@
       },
       {
         "t": "p",
-        "x": "Across five vans, that's **roughly 70 metric tons avoided annually**. Because much of our charging actually comes from on-site solar, the real figure is better than that."
+        "x": "And that's a conservative figure. Because much of our charging actually comes from on-site solar, the real number is better."
       },
       {
         "t": "h2",
@@ -160,7 +165,7 @@
       },
       {
         "t": "p",
-        "x": "Electricity costs and mileage come from Family Laundry operating data for five delivery vehicles. Annual figures are calculated from current monthly costs, not audited full-year expenses.",
+        "x": "Electricity costs and mileage come from Family Laundry operating data for our delivery fleet. Annual figures are calculated from current monthly costs, not audited full-year expenses.",
         "cls": "muted"
       },
       {
