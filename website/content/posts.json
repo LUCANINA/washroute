@@ -4,14 +4,14 @@
     "lang": "en",
     "title": "One year after opening our EV depot, here's what the numbers say",
     "description": "Our electric vans now run on 8 cents a mile of energy, down from about 40 cents on gas. A year of real operating numbers from our solar-powered charging depot in Oakland.",
-    "image": "/assets/img/family-van.jpg",
+    "image": "/assets/img/blog/ev-depot-oakland.jpg",
     "date": "October 2026",
     "published": "2026-10-26",
     "blocks": [
       {
         "t": "img",
-        "x": "/assets/img/family-van.jpg",
-        "alt": "Family Laundry electric delivery van in Oakland"
+        "x": "/assets/img/blog/ev-depot-oakland.jpg",
+        "alt": "City of Oakland officials and partners with a Family Laundry electric van at the new EV charging depot"
       },
       {
         "t": "p",
