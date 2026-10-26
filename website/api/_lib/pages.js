@@ -939,6 +939,7 @@ function post(p) {
     path: postPath(p),
     title: `${p.title} | Family Laundry`,
     description: p.description,
+    image: p.image || undefined,
     body: `<article class="wrap section narrow post-body" lang="${p.lang}">
   <p class="muted"><a href="/blog">← Our story</a></p>
   <h1>${esc(p.title)}</h1>

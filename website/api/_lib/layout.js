@@ -97,7 +97,7 @@ function footer(v) {
 </footer>`;
 }
 
-// page: { path, title, description, body, jsonld?, noindex? }
+// page: { path, title, description, body, jsonld?, noindex?, image? (site-relative, for link previews) }
 function layout(page, values, { indexable }) {
   const canonical = ORIGIN + (page.path === '/' ? '' : page.path);
   // Preview hosts: hidden entirely. A noindex page on the real site (thin city page, thank-you): kept out of
@@ -117,7 +117,7 @@ ${robots}
 <meta property="og:title" content="${esc(page.title)}">
 <meta property="og:description" content="${esc(page.description || '')}">
 <meta property="og:url" content="${canonical}">
-<meta property="og:image" content="${ORIGIN}/assets/img/hero.jpg">
+<meta property="og:image" content="${ORIGIN}${page.image || '/assets/img/hero.jpg'}">
 <link rel="icon" href="/assets/img/logo-circle.svg" type="image/svg+xml">
 <link rel="icon" href="/assets/img/logo-circle-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/assets/img/logo-circle-180.png">
