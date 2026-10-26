@@ -43947,10 +43947,11 @@ ${oneCopy}
     const isCharge = t => t.type === 'charge' || t.type === 'subscription_invoice';
     const charged  = rows.filter(isCharge).reduce((s, t) => s + parseFloat(t.amount || 0), 0);
     const refunded = rows.filter(t => t.type === 'refund').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    const received = rows.filter(t => t.type === 'account_payment').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
     const sumEl = document.getElementById('cp-txn-summary');
     if (sumEl) {
       sumEl.textContent = rows.length
-        ? [`${rows.length} transaction${rows.length === 1 ? '' : 's'}`, charged > 0 ? `${fmtMoney(charged)} charged` : '', refunded > 0 ? `${fmtMoney(refunded)} refunded` : ''].filter(Boolean).join(' · ')
+        ? [`${rows.length} transaction${rows.length === 1 ? '' : 's'}`, charged > 0 ? `${fmtMoney(charged)} charged` : '', received > 0 ? `${fmtMoney(received)} received` : '', refunded > 0 ? `${fmtMoney(refunded)} refunded` : ''].filter(Boolean).join(' · ')
         : 'No payments yet';
     }
     if (!rows.length) { el.innerHTML = '<div class="cp2-cap" style="padding:10px 16px">No payments yet.</div>'; return; }
@@ -43962,7 +43963,9 @@ ${oneCopy}
       if (t.card_last4) return `${t.card_brand ? cp2Cap(t.card_brand) : 'Card'} •••• ${t.card_last4}`;
       if (t.payment_method === 'ach') return 'ACH';
       if (t.payment_method === 'check') return 'Check';
+      if (t.payment_method === 'wire') return 'Wire transfer';
       if (t.payment_method === 'cash') return 'Cash';
+      if (t.type === 'account_payment') return 'Other';
       if (String(t.type).startsWith('credit')) return 'Account credit';
       return '—';
     };
@@ -43991,6 +43994,9 @@ ${oneCopy}
       } else if (t.type === 'credit_use') {
         label = `Credit used<span class="cp2-muted">${desc ? ' · ' + esc(desc) : ''}</span>`;
         amtHtml = `<span class="cp2-ta cp2-muted">${fmtMoney(amt)}</span>`;
+      } else if (t.type === 'account_payment') {
+        label = esc(desc) + (t._acct && t._acct.isGroup ? `<span class="cp2-muted"> · share of group payment</span>` : '');
+        amtHtml = `<span class="cp2-ta">${fmtMoney(amt)}</span>`;
       } else {
         label = esc(desc || cp2Cap(t.type));
         amtHtml = `<span class="cp2-ta">${fmtMoney(amt)}</span>`;
@@ -44003,10 +44009,21 @@ ${oneCopy}
         const orderCell = (t.order_id && om)
           ? `<a href="#" onclick="event.preventDefault();cpOpenOrder('${escJS(t.order_id)}')" style="color:var(--accent)">#${om[1]}</a>`
           : (om ? '#' + om[1] : '');
+        const a = t.type === 'account_payment' ? (t._acct || {}) : null;
+        const whenTxt = a
+          ? new Date(t.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+          : new Date(t.created_at).toLocaleString('en-US', { timeZone: BIZ_TZ, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const acctOrders = a && a.orders && a.orders.length
+          ? a.orders.map(o => `<a href="#" onclick="event.preventDefault();cpOpenOrder('${escJS(o.id)}')" style="color:var(--accent)">#${o.order_number}</a> <span class="cp2-muted">${fmtMoney(parseFloat(o.total_amount || 0))}</span>`).join('<br>')
+          : '';
         det = `<div class="cp2-det">
           <div class="cp2-dl">
-            <span>When</span><span>${esc(new Date(t.created_at).toLocaleString('en-US', { timeZone: BIZ_TZ, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }))}</span>
+            <span>${a ? 'Received' : 'When'}</span><span>${esc(whenTxt)}</span>
             <span>${t.type === 'refund' ? 'Back to' : 'Paid with'}</span><span>${esc(payWith(t))}</span>
+            ${a && a.reference ? `<span>Reference</span><span>${esc(a.reference)}</span>` : ''}
+            ${a && a.isGroup ? `<span>Group payment</span><span>${fmtMoney(a.groupTotal)} total · ${fmtMoney(amt)} applied to this customer</span>` : ''}
+            ${acctOrders ? `<span>Orders paid</span><span>${acctOrders}</span>` : ''}
+            ${a && a.actor ? `<span>Recorded by</span><span>${esc(a.actor)}</span>` : ''}
             ${orderCell ? `<span>Order</span><span>${orderCell}</span>` : ''}
             ${t.note ? `<span>Note</span><span>${esc(t.note)}</span>` : ''}
           </div>
@@ -45346,8 +45363,64 @@ ${oneCopy}
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
     if (error) { if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px;padding:14px 16px">${error.message}</div>`; return; }
-    _allCpTxns = data || [];
+    let rows = data || [];
+    // Session 349: on-account (invoiced) customers pay by check/ACH/wire, and those
+    // payments live in `payments` (via record_account_payment), not customer_transactions.
+    // Pull them in — both payments recorded directly against this customer and billing-group
+    // payments that settled this customer's orders (shown as this customer's share).
+    try {
+      const acct = await loadCpAccountPayments(customerId);
+      rows = rows.concat(acct).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    } catch (e) {
+      console.warn('[cp] account payments failed to load', e);
+    }
+    _allCpTxns = rows;
     renderCpTxns();
+  }
+
+  async function loadCpAccountPayments(customerId) {
+    // Orders of this customer settled by any recorded payment (direct or group).
+    const { data: ords, error: oErr } = await db.from('orders')
+      .select('id, order_number, total_amount, payment_id')
+      .eq('customer_id', customerId)
+      .not('payment_id', 'is', null);
+    if (oErr) throw oErr;
+    const byPay = {};
+    (ords || []).forEach(o => { (byPay[o.payment_id] = byPay[o.payment_id] || []).push(o); });
+
+    const { data: direct, error: dErr } = await db.from('payments').select('*').eq('customer_id', customerId);
+    if (dErr) throw dErr;
+    const pays = {};
+    (direct || []).forEach(p => { pays[p.id] = p; });
+    // Group payments: fetch the ones we don't already have, 100 ids at a time.
+    const missing = Object.keys(byPay).filter(id => !pays[id]);
+    for (let i = 0; i < missing.length; i += 100) {
+      const { data: more, error: mErr } = await db.from('payments').select('*').in('id', missing.slice(i, i + 100));
+      if (mErr) throw mErr;
+      (more || []).forEach(p => { pays[p.id] = p; });
+    }
+
+    const methodLabel = { check: 'Check', ach: 'ACH', wire: 'Wire', other: 'Payment' };
+    return Object.values(pays).filter(p => !p.voided_at).map(p => {
+      const myOrders = (byPay[p.id] || []).slice().sort((a, b) => (a.order_number || 0) - (b.order_number || 0));
+      const isGroup = !!p.billing_group_id && p.customer_id !== customerId;
+      const myShare = myOrders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+      const amount = isGroup ? myShare : parseFloat(p.amount || 0);
+      const n = myOrders.length;
+      return {
+        id: 'acct_' + p.id,
+        type: 'account_payment',
+        amount,
+        description: `${methodLabel[p.method] || 'Payment'} received${n ? ` · ${n} order${n === 1 ? '' : 's'}` : ''}`,
+        payment_method: p.method,
+        note: p.notes || null,
+        order_id: null,
+        stripe_payment_intent_id: null,
+        // Received date is a plain date; pin it to noon local so the day never shifts.
+        created_at: p.received_date ? `${p.received_date}T12:00:00` : p.created_at,
+        _acct: { reference: p.reference, actor: p.actor_name, isGroup, groupTotal: parseFloat(p.amount || 0), orders: myOrders },
+      };
+    });
   }
 
   function filterCpTxns(days, btn) {
