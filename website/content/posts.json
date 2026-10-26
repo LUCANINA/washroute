@@ -11,7 +11,12 @@
       {
         "t": "img",
         "x": "/assets/img/blog/ev-depot-oakland.jpg",
-        "alt": "City of Oakland officials and partners with a Family Laundry electric van at the new EV charging depot"
+        "alt": "Oakland Mayor Barbara Lee with Family Laundry's founders and project partners at the EV charging depot opening"
+      },
+      {
+        "t": "p",
+        "cls": "muted",
+        "x": "*Oakland Mayor Barbara Lee announced the opening of the EV charging depot. Pictured: Mayor Lee, Family Laundry's founders, and project partners.*"
       },
       {
         "t": "p",
