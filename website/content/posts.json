@@ -3,7 +3,7 @@
     "slug": "one-year-after-opening-our-ev-depot",
     "lang": "en",
     "title": "One year after opening our EV depot, here's what the numbers say",
-    "description": "Our electric vans now run on 8 cents a mile of energy, down from about 40 cents on gas. A year of real operating numbers from our solar-powered charging depot in Oakland.",
+    "description": "Going electric and adding solar cut our energy cost per mile by 80%, from about 40 cents on gas to 8. A year of real operating numbers from our charging depot in Oakland.",
     "image": "/assets/img/blog/ev-depot-oakland.jpg",
     "date": "October 2026",
     "published": "2026-10-26",
@@ -15,7 +15,7 @@
       },
       {
         "t": "p",
-        "x": "**TL;DR**\n• Energy cost per delivery van: **8¢ per mile**, down from about 40¢ on gas.\n• Adding solar cut our electricity bill **43%**.\n• Savings: **about $9,700 per van per year** in energy alone.\n• CO₂: **about 14 metric tons avoided per van per year**, roughly 70 tons across the fleet.\n• Built in two steps: a 17-port charging depot in late 2025, rooftop solar in early 2026.",
+        "x": "**TL;DR**\n• Fuel to electric + solar: **energy cost per mile down 80%**, from about 40¢ on gas to 8¢.\n• That's **about $9,700 saved per van per year** in energy alone.\n• Solar on its own cut our electricity bill **43%**.\n• CO₂: **about 14 metric tons avoided per van per year**, roughly 70 tons across the fleet.\n• Built in two steps: a 17-port charging depot in late 2025, rooftop solar in early 2026.",
         "cls": "tldr"
       },
       {
@@ -32,7 +32,7 @@
       },
       {
         "t": "h2",
-        "x": "From 40 cents a mile to 8"
+        "x": "Energy cost per mile: down 80%"
       },
       {
         "t": "p",
@@ -40,58 +40,60 @@
       },
       {
         "t": "p",
-        "x": "With the chargers alone, electricity cost us about $350 per vehicle per month. Once solar came online, that dropped to about $200."
-      },
-      {
-        "t": "p",
-        "x": "That's a **43% cut in electricity costs**, bringing our energy cost to **8 cents per mile**."
-      },
-      {
-        "t": "p",
-        "x": "The bigger number, though, is the gap between electric and gas. Here's what it costs to power one delivery van for 30,000 miles a year at today's Oakland fuel prices:"
+        "x": "A gasoline van doing that mileage costs about **40 cents a mile** in fuel at today's Oakland prices. Our electric vans, charged at our solar-powered depot, cost **8 cents a mile**. That's an **80% reduction in energy cost**, and it's the number that matters most."
       },
       {
         "t": "table",
         "head": [
           "Vehicle",
           "Cost per mile",
-          "Annual energy cost"
+          "Annual energy cost",
+          "vs. gasoline"
         ],
         "num": [
           1,
-          2
+          2,
+          3
         ],
         "rows": [
           [
             "**Our E-Transit, charged with solar**",
             "**$0.08**",
-            "**$2,400**"
+            "**$2,400**",
+            "**−80%**"
           ],
           [
             "Our E-Transit, chargers only (before solar)",
             "$0.14",
-            "$4,200"
+            "$4,200",
+            "−65%"
           ],
           [
             "Gasoline Ford Transit",
             "$0.40",
-            "$12,087"
+            "$12,087",
+            "—"
           ],
           [
             "Diesel delivery van",
             "$0.43",
-            "$13,003"
+            "$13,003",
+            "+8%"
           ]
         ]
       },
       {
         "t": "p",
-        "x": "*Gasoline: 15 mpg at $6.04/gallon. Diesel: 20 mpg at $8.67/gallon.*",
+        "x": "*Gasoline: 15 mpg at $6.04/gallon. Diesel: 20 mpg at $8.67/gallon. 30,000 miles a year.*",
         "cls": "muted"
       },
       {
         "t": "p",
         "x": "**Each electric van saves us roughly $9,700 a year in energy alone** compared with a gasoline equivalent. Multiply that across a fleet that runs nearly every day, and it adds up fast."
+      },
+      {
+        "t": "p",
+        "x": "Solar is the second step in that story. With the chargers alone, electricity cost us about $350 per vehicle per month. Once solar came online, that dropped to about $200, a **43% cut in our electricity bill**, and it's what took us from 14 cents a mile to 8."
       },
       {
         "t": "h2",
