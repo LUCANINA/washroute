@@ -32596,6 +32596,11 @@ ${noActivityNote}
     }
     opCurrentOrderId = orderId;
     opOrderPricelist = (await resolveOrderPricelist(o)).pricelist; // session 292
+    // Session 364: services + fees only loaded on visiting the Orders page. An order
+    // opened from search / a customer profile / Overview re-priced at $0/bag with no
+    // delivery fee — Milani Alexander #18629 went $143.95 → $0.00 on a bag edit, and
+    // Darlene Gray #16474 went $74.95 → $0.00. Load them here so every entry point prices.
+    if (!allServices.length || !allFees.length) await loadServices();
     opCurrentCustId  = o.customers?.id || null;
     _opHistoryLoaded = null; // reset history cache for new order
     _opStopInfo = null;      // reset pickup/delivery driver cache for new order
@@ -34753,6 +34758,9 @@ ${noActivityNote}
     const weight = parseFloat(document.getElementById('op-weight-input').value) || 0;
     const notes  = document.getElementById('op-notes-input').value.trim();
 
+    // Session 364: never re-price against empty price lists (see openOrderPanel).
+    if (!allServices.length || !allFees.length) await loadServices();
+
     // Session 292: if the order carries a service from a different pricelist than the
     // one it actually prices on, use the resolved pricelist's main service — otherwise
     // the base bills at $0.00/bag (#14302). See resolveOrderPricelist.
@@ -34766,6 +34774,8 @@ ${noActivityNote}
     const ovgRate    = svc ? parseFloat(svc.overage_rate_per_lb || 3) : 3;
     const isPerLb    = svc?.pricing_type === 'per_lb';
     const hasOverage = svc?.has_weight_overage && !isPerLb;
+    // Session 364: no service = no price. Saving would write a $0 total with no line items.
+    if (!svc) { showToast('Prices didn\'t load — refresh the page and try again. Nothing was saved.', 'error'); return; }
 
     // Session 167: pricelist-aware fee lookup
     const _custPL2 = opOrderPricelist || o.customers?.pricelist || allCustomers.find(c => c.id === o.customer_id)?.pricelist || 'Delivery'; // session 292
@@ -34819,6 +34829,15 @@ ${noActivityNote}
     if (creditItem) newLineItems.push(creditItem);
 
     const newTotal = Math.max(0, baseTotal + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - discountTotal - creditAmt);
+
+    // Session 364: a priced, pay-per-order order should never quietly become $0.
+    // Subscription orders and rewashes legitimately price at $0, so they pass.
+    if (newTotal < 0.01 && Number(o.total_amount || 0) > 0.01 && _svcPL !== 'Subscription' && !o.is_rewash) {
+      if (!confirm(`This change makes Order #${o.order_number} $0.00 (it was ${fmtMoney(o.total_amount)}).\n\nThat is almost always a mistake. Save anyway?`)) {
+        showToast('Change cancelled — nothing was saved');
+        return;
+      }
+    }
 
     const update = {
       special_instructions: notes || null,

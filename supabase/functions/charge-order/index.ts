@@ -186,7 +186,7 @@ Deno.serve(async (req) => {
 
     // Load order (v35: include subscription_id for subscription guard)
     const { data: order, error: orderErr } = await db.from('orders')
-      .select('id, order_number, total_amount, tip_amount, tip_type, status, billing_status, stripe_payment_intent_id, customer_id, line_items, subscription_id, services(name)')
+      .select('id, order_number, total_amount, tip_amount, tip_type, status, billing_status, stripe_payment_intent_id, customer_id, line_items, subscription_id, is_rewash, services(name)')
       .eq('id', orderId)
       .single()
 
@@ -206,6 +206,20 @@ Deno.serve(async (req) => {
     // without a Stripe call. Reject only NULL or negative.
     if (order.total_amount == null || Number(order.total_amount) < 0) {
       throw new ChargeRefused('Order has invalid amount', 'invalid_amount')
+    }
+
+    // ── v73 (session 364): an UNPRICED order is not a $0 order ──
+    // total_amount = 0 with NO line items means nothing ever priced it — the admin
+    // panel re-priced against empty price lists (Milani Alexander #18629: $143.95 →
+    // $0.00 on a bag edit) or intake never ran (Onika Crossman #8858). Both fell
+    // through to the creditsOnly path below and were stamped 'paid' via 'credit' with
+    // nothing collected; #16474 (Darlene Gray) collected only its $5 tip. Real $0
+    // orders always carry line items (subscription base/delivery at $0, a discount
+    // line), and subscriptions + rewashes are exempt anyway. Clean refusal, no stamp,
+    // no SMS — billing_status stays NULL so daily audit check 3 surfaces it.
+    if (Number(order.total_amount) <= 0 && !order.subscription_id && !order.is_rewash
+        && !(Array.isArray(order.line_items) && order.line_items.length > 0)) {
+      throw new ChargeRefused(`Order #${order.order_number} has no price yet ($0.00, no line items) — re-enter bags/weight before charging`, 'unpriced')
     }
 
     // v44 (session 166): subscription guard REMOVED. In the new pricelist
