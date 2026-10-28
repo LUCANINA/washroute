@@ -903,6 +903,26 @@
       padding: 0; animation: fadeIn .15s;
     }
     #cant-complete-overlay.show { display: flex; }
+    /* Session 364: Add-a-pickup sheet (same look as Can't Complete) */
+    #add-pickup-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      z-index: 9995; display: none; align-items: flex-end;
+      padding: 0; animation: fadeIn .15s;
+    }
+    #add-pickup-overlay.show { display: flex; }
+    .btn-add-pickup {
+      width: 100%; padding: 14px; border-radius: 12px; font-size: 15px; font-weight: 700;
+      background: #eff6ff; color: #1d4ed8; border: 2px dashed #3b82f6; cursor: pointer;
+    }
+    .btn-add-pickup-go {
+      width: 100%; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: 800;
+      background: #3b82f6; color: #fff; border: none; cursor: pointer; margin-bottom: 10px;
+    }
+    .btn-add-pickup-go:disabled { opacity: .6; }
+    .add-pickup-step {
+      width: 56px; height: 56px; border-radius: 14px; font-size: 28px; font-weight: 800;
+      background: rgba(255,255,255,0.08); color: var(--white); border: 1px solid rgba(255,255,255,0.15);
+    }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .skip-confirm-sheet {
       width: 100%; background: var(--navy-mid); border-radius: 20px 20px 0 0;
@@ -1000,6 +1020,23 @@
       <button class="btn-skip-confirm reason-btn" onclick="resolveCantComplete('customer_requested_skip')">Customer requested skip</button>
       <button class="btn-skip-confirm reason-btn" onclick="resolveCantComplete('other')">Other</button>
       <button class="btn-skip-confirm cancel" onclick="resolveCantComplete(null)">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Session 364: Add a pickup while delivering -->
+<div id="add-pickup-overlay" onclick="if(event.target===this)closeAddPickup()">
+  <div class="skip-confirm-sheet">
+    <div class="skip-confirm-title">Add a pickup</div>
+    <div class="skip-confirm-sub" id="add-pickup-sub">How many bags is the customer sending?</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:22px;margin:16px 0 18px">
+      <button class="add-pickup-step" onclick="addPickupStep(-1)" aria-label="One fewer bag">−</button>
+      <div id="add-pickup-count" style="font-size:36px;font-weight:800;color:var(--white);min-width:56px;text-align:center">1</div>
+      <button class="add-pickup-step" onclick="addPickupStep(1)" aria-label="One more bag">+</button>
+    </div>
+    <div class="skip-confirm-btns">
+      <button class="btn-add-pickup-go" id="btn-add-pickup-go" onclick="confirmAddPickup()">Add pickup</button>
+      <button class="btn-skip-confirm cancel" onclick="closeAddPickup()">Cancel</button>
     </div>
   </div>
 </div>
@@ -3651,6 +3688,13 @@ function renderStopDetail(stopOrId) {
     }
   }
 
+  // ── Session 364: add a pickup from a delivery stop (customer left more bags out) ──
+  if (!isPickup && !isSkip && !isFailed && order && !order.is_rewash) {
+    h += `<div class="dsection" style="padding-top:4px">
+      <button class="btn-add-pickup" onclick="openAddPickup('${stop.id}')">＋ Customer has bags to pick up</button>
+    </div>`;
+  }
+
   // ── Next stop nudge (after done) — respects activeRouteFilter ──
   if (isDone) {
     const candidates = allStops.filter(s => s.id !== stop.id && (s.status === 'pending' || s.status === 'en_route'));
@@ -3789,7 +3833,10 @@ async function arrivedAtStop(stopId) {
     allStops[idx].status = 'en_route';
     if (prevStatus !== 'en_route') {
       // Best-effort DB update — non-blocking
-      db.from('route_stops').update({ status: 'en_route' }).eq('id', stopId).catch(() => {});
+      // Session 364: supabase-js query builders have .then but NO .catch — the old
+      // `.catch(() => {})` threw a TypeError, so the update never ran AND the stop
+      // never re-rendered into the at-stop phase ("I'm already here" looked dead).
+      db.from('route_stops').update({ status: 'en_route' }).eq('id', stopId).then(() => {}, () => {});
     }
     if (adjustedBagCount === null) adjustedBagCount = allStops[idx]?.orders?.total_bags || 1;
   }
@@ -4105,6 +4152,67 @@ async function completeStop(stopId, stopType) {
   // Re-optimize remaining stops from driver's current location (fire-and-forget)
   if (routeId && route?.status !== 'complete') {
     reoptimizeRoute(routeId);
+  }
+}
+
+/* ──────────────────────────────
+   ADD A PICKUP (session 364)
+   While delivering, the customer has more bags out. driver_add_pickup creates a
+   new order + a pending pickup stop on this same route; the driver then completes
+   it through the normal pickup flow (photo, bags, "picked up" text).
+────────────────────────────── */
+let _addPickupFromStopId = null;
+let _addPickupBags = 1;
+function openAddPickup(stopId) {
+  if (_previewBlock()) return;
+  const stop = allStops.find(s => s.id === stopId);
+  if (!stop) return;
+  _addPickupFromStopId = stopId;
+  _addPickupBags = 1;
+  const c = stop.orders?.customers;
+  const name = c ? `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() : '';
+  document.getElementById('add-pickup-sub').textContent =
+    `How many bags is ${name || 'the customer'} sending? You'll take a photo next, like any pickup.`;
+  document.getElementById('add-pickup-count').textContent = '1';
+  const go = document.getElementById('btn-add-pickup-go');
+  go.disabled = false; go.textContent = 'Add pickup';
+  document.getElementById('add-pickup-overlay').classList.add('show');
+}
+function closeAddPickup() {
+  document.getElementById('add-pickup-overlay').classList.remove('show');
+  _addPickupFromStopId = null;
+}
+function addPickupStep(d) {
+  _addPickupBags = Math.min(30, Math.max(1, _addPickupBags + d));
+  document.getElementById('add-pickup-count').textContent = String(_addPickupBags);
+}
+async function confirmAddPickup() {
+  if (_previewBlock()) return;
+  const fromStopId = _addPickupFromStopId;
+  if (!fromStopId) return;
+  const go = document.getElementById('btn-add-pickup-go');
+  go.disabled = true; go.textContent = 'Adding…';
+  const driverName = ((currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '')).trim() || 'Driver';
+  const { data, error } = await db.rpc('driver_add_pickup', {
+    p_from_stop_id: fromStopId,
+    p_bags:         _addPickupBags,
+    p_actor_name:   driverName,
+  });
+  if (error || !data?.stop_id) {
+    go.disabled = false; go.textContent = 'Add pickup';
+    toast('Could not add pickup: ' + (error?.message || 'no stop returned') + ' — call the office');
+    return;
+  }
+  closeAddPickup();
+  await loadDriverData();
+  if (allStops.some(s => s.id === data.stop_id)) {
+    toast(data.already_existed ? 'Pickup was already added — opening it' : `Pickup added (#${data.order_number})`);
+    openStop(data.stop_id);
+    // Driver is already at the door — skip "On My Way" and go straight to bags/photo.
+    await arrivedAtStop(data.stop_id);
+  } else {
+    toast(`Pickup #${data.order_number} added — refresh your route if you don't see it`);
+    goTo('route');
   }
 }
 
