@@ -12293,71 +12293,78 @@ GROUPS.push({
                diff: c.candidates.length > 1 ? _loanScheduleDifference(c.candidates) : null };
     }, [acct]);
 
-    /* ── 1. THE COLLISION IS REAL, measured not assumed ───────────────────── */
+    /* ══ 2026-11-02, DAVID: "ANY NEW UPLOADS SHOULD REPLACE THE OLD FILE" ══
+       The recorded-choice / rank / UNSETTLED ladder (session 277) is replaced by
+       one rule: the newest schedule wins -- schedule date, then upload time. That
+       is what every server path (staging-next, generate-split, reconciliation-run)
+       already picked, so the close and staging now read the same schedule
+       (Tech Debt #47). Asserted as pairs: the new rule holds, AND each old basis
+       that could have overridden it no longer does. */
+
+    /* ── 1. MORE THAN ONE IS LIVE, AND THE NEWEST WINS WITHOUT ASKING ─────── */
     const sba2 = await choice('6917479106');
     t.ok(!sba2.err, 'the fixture carries BayFirst SBA 2', sba2.err || '');
     t.ok(sba2.n > 1, '⭐ more than one live schedule is on file for it', JSON.stringify(sba2));
-    t.eq(sba2.unsettled, true, '⭐ ...and nothing in the data prefers either, so it is UNSETTLED');
-    t.eq(sba2.basis, 'unsettled', '...reported as such rather than as an answer');
+    t.eq(sba2.basis, 'newest', '⭐ the newest schedule is chosen (David, 2026-11-02)');
+    t.eq(sba2.unsettled, false, '⭐ ...and nothing is left unsettled to ask about');
+    const newestId = await p.evaluate(() => {
+      const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
+      return _loanScheduleCandidates(a)[0].id;
+    });
+    t.eq(sba2.id, newestId, '...and it is the schedule with the latest date/upload');
 
-    /* ── 2. IT STILL ANSWERS — unsettled must not mean broken ─────────────── */
-    // Every downstream caller (the rollforward, the close band, staging) reads
-    // _loanScheduleRows. Returning nothing while a question is open would blank
-    // real numbers, which is the silent-blanking trap session 269 documented.
-    t.ok(sba2.rows > 0, '⭐ the projection still resolves while the question is open', `rows=${sba2.rows}`);
-    t.ok(!!sba2.id, '...to exactly one schedule');
-
-    /* ── 3. AND IT SAYS WHAT DIFFERS — "two disagree" is not answerable ───── */
+    /* ── 2. IT RESOLVES TO ROWS ───────────────────────────────────────────── */
+    t.ok(sba2.rows > 0, '⭐ the projection resolves', `rows=${sba2.rows}`);
     t.ok(/first payment is dated|payment rows|separate documents/.test(String(sba2.diff)),
-         '⭐ the difference is stated in terms a reader could settle', JSON.stringify(sba2.diff));
+         'the difference between candidates is still describable', JSON.stringify(sba2.diff));
 
-    /* ── 4. A HUMAN-VERIFIED PARSE SETTLES IT WITH NO ASK AT ALL ──────────── */
-    // PCV and Verdant each carry a client_parsed_verified schedule beside a
-    // claude_assisted_parse one. An ask nobody needs is the nag the rule warns
-    // about, so ranking must resolve these silently.
+    /* ── 3. PCV AND VERDANT: THE ANSWER DID NOT MOVE ──────────────────────── */
+    // Their verified parse was both the old rule's winner and the newest upload,
+    // so the rule change must leave them exactly where they were.
     for (const acct of ['202555', '11867000']) {
       const c = await choice(acct);
       if (c.err || c.n < 2) continue;
-      if (c.sources.includes('client_parsed_verified')) {
-        t.eq(c.unsettled, false,
-             `⭐ ${acct}: a human-verified parse outranks a machine one — no ask raised`,
-             JSON.stringify(c));
-        t.eq(c.basis, 'verified', `...and the basis says why (${acct})`);
-      }
+      const verifiedIsNewest = await p.evaluate(([acct]) => {
+        const a = (_allLoanAccounts || []).find(x => x.lender_account_number === acct);
+        return _loanScheduleCandidates(a)[0].source === 'client_parsed_verified';
+      }, [acct]);
+      t.eq(verifiedIsNewest, true, `⭐ ${acct}: the newest schedule is the verified one — no number moves`);
+      t.eq(c.basis, 'newest', `...picked as newest (${acct})`);
     }
 
-    /* ── 5. A RECORDED DECISION OUTRANKS EVERYTHING ───────────────────────── */
+    /* ── 4. A RECORDED POINTER NO LONGER OVERRIDES THE NEWEST ─────────────── */
+    // No server reads chosen_schedule_id; honouring it here would let the close
+    // read one schedule while staging projects from another.
     const recorded = await p.evaluate(() => {
       const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
       const cands = _loanScheduleCandidates(a);
-      const loser = cands[cands.length - 1].id;         // deliberately NOT the tie-break winner
+      const older = cands[cands.length - 1].id;
       const keep = a.chosen_schedule_id;
-      a.chosen_schedule_id = loser;                     // in-page only, never written
+      a.chosen_schedule_id = older;                     // in-page only, never written
       const c = _loanScheduleChoice(a);
-      const rows = _loanScheduleRows(a);
       a.chosen_schedule_id = keep;
-      return { basis: c.basis, unsettled: c.unsettled, picked: c.id, loser,
-               allRowsFromIt: rows.every(r => String(r.schedule_id) === loser), rows: rows.length };
+      return { picked: c.id, newest: cands[0].id, older, basis: c.basis };
     });
-    t.eq(recorded.basis, 'recorded', '⭐ a recorded decision is honoured');
-    t.eq(recorded.unsettled, false, '...and closes the question');
-    t.eq(recorded.picked, recorded.loser,
-         '⭐ ...even when it picks the schedule the tie-break would NOT have — which is the whole point');
-    t.ok(recorded.allRowsFromIt && recorded.rows > 0,
-         '...and the projection really comes from it', JSON.stringify(recorded));
+    t.eq(recorded.picked, recorded.newest,
+         '⭐ a recorded pointer at an OLDER schedule does not beat the newest upload', JSON.stringify(recorded));
+    t.ok(recorded.picked !== recorded.older, '...the pair: the older one really was the pointer');
 
-    /* ── 6. A STALE POINTER IS NOT A DECISION ─────────────────────────────── */
-    const stale = await p.evaluate(() => {
+    /* ── 5. A NEW UPLOAD REPLACES THE OLD ONE ─────────────────────────────── */
+    const replaced = await p.evaluate(() => {
       const a = (_allLoanAccounts || []).find(x => x.lender_account_number === '6917479106');
-      const keep = a.chosen_schedule_id;
-      a.chosen_schedule_id = '00000000-0000-0000-0000-000000000000';   // not a candidate
-      const c = _loanScheduleChoice(a);
-      a.chosen_schedule_id = keep;
-      return { basis: c.basis, unsettled: c.unsettled, staleRecord: c.staleRecord };
+      const before = _loanScheduleChoice(a).id;
+      const tmpl = _allLoanAmortRows.find(r => String(r.schedule_id) === before);
+      const fake = Object.assign({}, tmpl, { id: 'fake-row', schedule_id: 'fake-sched',
+        loan_amortization_schedules: Object.assign({}, tmpl.loan_amortization_schedules,
+          { schedule_generated_date: '2099-01-01', created_at: '2099-01-01T00:00:00Z', source: 'client_parsed_verified' }) });
+      _allLoanAmortRows.push(fake);
+      const after = _loanScheduleChoice(a).id;
+      _allLoanAmortRows.splice(_allLoanAmortRows.indexOf(fake), 1);
+      const back = _loanScheduleChoice(a).id;
+      return { before, after, back };
     });
-    t.eq(stale.unsettled, true,
-         '⭐ a pointer to a schedule that is no longer a candidate re-opens the question');
-    t.eq(stale.staleRecord, true, '...and says that is why, rather than reading as settled');
+    t.eq(replaced.after, 'fake-sched', '⭐⭐ a newer upload takes over immediately', JSON.stringify(replaced));
+    t.eq(replaced.back, replaced.before, '...and removing it restores the previous pick');
 
     /* ── 7. THE ASK REACHES THE ACTION COLUMN, AND OUTRANKS "FIND THE FIX" ── */
     // A difference walked against a projection nobody agreed to cannot be
@@ -12427,7 +12434,7 @@ GROUPS.push({
 
        ⚠️ ASSERTED AS A PAIR, because either half alone would go green on the wrong
        page. (1) no row anywhere offers the ask -- what David asked for. (2) the
-       CHOICE MACHINERY IS STILL LIVE AND STILL UNSETTLED -- because deleting
+       CHOICE MACHINERY IS STILL LIVE (unsettled no more since 2026-11-02 -- newest wins) -- because deleting
        `_loanScheduleChoice` along with the button is the tempting tidy-up, and it
        would silently change which schedule the close reads its rows from. The cut
        removes a nag; it must not move a number. */
@@ -12467,8 +12474,9 @@ GROUPS.push({
       const c = _loanScheduleChoice(a);
       return { unsettled: c.unsettled, prestage: a.prestage_enabled === true };
     });
-    t.ok(decideRow.unsettled && decideRow.prestage,
-         'the decision is still open on this loan and still in scope to be asked',
+    // 2026-11-02: there is no open decision any more -- newest wins.
+    t.ok(!decideRow.unsettled && decideRow.prestage,
+         'a prestaging loan with two schedules has NO open decision — the newest is simply used',
          JSON.stringify(decideRow));
     await p.close();
 
@@ -12484,8 +12492,8 @@ GROUPS.push({
       a.prestage_enabled = keepP; a.close_basis = keepB;
       return { unsettledStill };
     });
-    t.eq(quiet.unsettledStill, true,
-         'the question is still UNSETTLED as a fact — the scoping is about whether to ASK, not about pretending it is answered');
+    t.eq(quiet.unsettledStill, false,
+         'never unsettled, whatever the loan\'s scope — the newest schedule answers it (2026-11-02)');
     await q.close();
   },
 });
@@ -12532,7 +12540,15 @@ GROUPS.push({
                source: c && c.body.source, type: c && c.body.amort_type, gen: c && c.body.schedule_generated_date, sep };
     });
     t.eq(sent.calls.join(','), 'loan-ingest-amortization', '⭐ clicking sends it to the SCHEDULE ingest — nothing is filed as a plain document');
-    t.eq(sent.n, 86, 'all 86 payment rows travel');
+    const rowsSent = await p.evaluate(() => {
+      const c = (window.__amortCalls || []).find(x => x.name === 'loan-ingest-amortization');
+      const rs = c ? c.body.rows : [];
+      return { pay: rs.filter(r => r.row_type === 'payment').length,
+               rc: rs.filter(r => r.row_type === 'rate_change').map(r => r.row_date + '@' + r.rate) };
+    });
+    t.eq(rowsSent.pay, 86, 'all 86 payment rows travel');
+    t.eq(rowsSent.rc.join(','), '2026-08-31@9.39,2026-10-01@9.64',
+         '⭐ ...and the lender\'s two rate changes travel with them (2026-11-02) — they are how the loan\'s current rate is known');
     t.eq(`${sent.source}|${sent.type}`, 'client_parsed_verified|amortization_schedule',
          'with the provenance mayPrestage() allows — a lender-issued schedule may stage');
     t.eq(sent.gen, '2026-10-07', 'dated as the lender dated it');
@@ -12944,7 +12960,7 @@ GROUPS.push({
         f.loan_account_id === id && f.check_key === 'balance_vs_lender' && f.status === 'open');
       const cands = (_allLoanAccounts || []).filter(a =>
         a.close_basis === 'lender_statement' && a.prestage_enabled === true
-        && (_loanScheduleChoice(a) || {}).unsettled === true && open(a.id));
+        && ((_loanScheduleChoice(a) || {}).candidates || []).length > 1 && open(a.id));
       return {
         n: cands.length,
         name: cands.length ? (cands[0].xero_account_name || cands[0].lender_account_number) : '',
@@ -13014,7 +13030,10 @@ GROUPS.push({
       const branch = `
         {
           const _sc = _loanScheduleChoice(a);
-          if (_sc.unsettled && r.band !== 'tie' && !r.circular
+          // 2026-11-02: nothing is 'unsettled' any more (newest wins), so the
+          // old branch is re-created on what unsettled MEANT for these loans --
+          // more than one live schedule -- or the control could never fire.
+          if ((_sc.candidates || []).length > 1 && r.band !== 'tie' && !r.circular
               && (a.prestage_enabled === true || a.close_basis === 'amortization_schedule')) {
             action.kind = 'decide';
             action.cell = '<button type="button" class="lcb-do lcb-decide">Which schedule?</button>';

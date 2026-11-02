@@ -14365,6 +14365,10 @@
     const LOAN_ATTACH_KINDS = ['payoff_letter', 'agreement', 'correspondence', 'balance_screenshot', 'transaction_history', 'amortization_schedule'];
     if (item.loan && LOAN_ATTACH_KINDS.includes(item.kind)) {
       await _attachLoanDocument(item.loan.id, item.loan.lender_account_number, item.file, item.kind, { sha: item.sha, by });
+      if (item.kind === 'amortization_schedule' && item.parsedSchedule && item.parsedSchedule.verified) {
+        const r = await _bkImportSchedule({ loan: item.loan, filename: item.name, base64: item.base64, sched: item.parsedSchedule, by });
+        if (r.stuck) throw new Error(`schedule imported, but ${_bkImportScheduleNote(r).trim()}`);
+      }
       return;
     }
     if (['invoice', 'insurance_bill', 'bank_statement'].includes(item.kind)) {
@@ -20101,18 +20105,11 @@
   // the best way to derive a split or settle a question the system can't answer, the
   // simple answer is: ask the person in charge, in the Action field."
   //
-  // So the order is: a RECORDED decision, then a defensible RANK, then — only when
-  // neither exists — an ASK, and the arbitrary pick is used meanwhile while SAYING
-  // that is what it is.
-  //
-  //   1. chosen_schedule_id       a person decided; nothing outranks it
-  //   2. client_parsed_verified   a human verified this parse and not the other.
-  //                               Settles PCV and Verdant with no ask at all — an ask
-  //                               nobody needs is the nag this rule warns about.
-  //   3. otherwise                UNSETTLED. Six loans are derived-vs-derived with
-  //                               nothing to prefer. The sort key still answers so
-  //                               nothing breaks, and the row asks the question.
-  const SCHEDULE_RANK = { client_parsed_verified: 3, claude_assisted_parse: 2, derived_from_statements: 1 };
+  // SUPERSEDED 2026-11-02 (David): the recorded-choice / rank / ask ladder that
+  // stood here is gone. The newest schedule wins, as it already did on every
+  // server path -- see _loanScheduleChoice. That also closes Tech Debt #47: the
+  // schedule the close reads and the schedule staging projects from are now
+  // chosen by the same rule.
 
   function _loanScheduleCandidates(a) {
     const rows = (_allLoanAmortRows || []).filter(r =>
@@ -20145,25 +20142,17 @@
     if (!candidates.length) return { id: null, basis: 'none', candidates, unsettled: false };
     if (candidates.length === 1) return { id: candidates[0].id, basis: 'single', candidates, unsettled: false };
 
-    const recordedId = a && a.chosen_schedule_id ? String(a.chosen_schedule_id) : null;
-    if (recordedId && candidates.some(c => c.id === recordedId)) {
-      return { id: recordedId, basis: 'recorded', candidates, unsettled: false,
-               reason: a.chosen_schedule_reason || null, by: a.chosen_schedule_set_by || null,
-               at: a.chosen_schedule_set_at || null };
-    }
-    // A recorded pointer to a schedule that is no longer a candidate is NOT a
-    // decision — it is a stale one, and reading it as settled is how a wrong typed
-    // value survives. The question comes back and says why.
-    const staleRecord = !!recordedId;
-
-    const top = Math.max(...candidates.map(c => SCHEDULE_RANK[c.source] || 0));
-    const best = candidates.filter(c => (SCHEDULE_RANK[c.source] || 0) === top);
-    if (best.length === 1 && top > 1) {
-      return { id: best[0].id, basis: 'verified', candidates, unsettled: false, rankedOver: candidates.length - 1 };
-    }
-    // Nothing prefers any of them. Answer with the sort key so no surface breaks,
-    // and mark it unsettled so every one of them can say so.
-    return { id: candidates[0].id, basis: 'unsettled', candidates, unsettled: true, staleRecord };
+    // 2026-11-02, David: "as a general rule, any new uploads should replace the old
+    // file." The NEWEST schedule wins -- schedule date, then upload time -- which
+    // is also exactly what every server function (staging-next, generate-split,
+    // reconciliation-run) already picked, so the screen and the splits now agree
+    // instead of the screen asking a question the servers never asked.
+    // Loans do not mix lender and derived schedules (derive-schedule refuses a
+    // loan that carries the lender's own), so newest never lets our arithmetic
+    // replace a lender document. chosen_schedule_id is no longer read: no picker
+    // was ever wired, and a recorded choice the servers ignore is a second truth.
+    const newest = candidates[0];
+    return { id: newest.id, basis: 'newest', candidates, unsettled: false, supersedes: candidates.length - 1 };
   }
 
   // What actually DIFFERS between the candidates — the reader cannot settle a
@@ -22993,7 +22982,7 @@
         //
         // `_loanScheduleChoice` and `_loanScheduleDifference` STAY. The choice still
         // decides which schedule's rows the close reads (`_loanScheduleRows`), and
-        // `chosen_schedule_id` still outranks everything if a picker is ever wired.
+        // (2026-11-02: chosen_schedule_id is no longer read -- newest wins, see there.)
         // What is deleted is the ASK, not the machinery behind it.
         //
         // ⚠️ AND THIS LOOKUP SURVIVED THE CUT ON PURPOSE. It sat inside the deleted
@@ -27720,10 +27709,28 @@ ${noActivityNote}
       r.failures = [`ambiguous columns: both ${passing.map(p => p.layout).join(' and ')} add up`].concat(r.failures);
       return r;
     }
-    if (passing.length === 1) return passing[0];
+    if (passing.length === 1) return Object.assign(passing[0], { rateChanges: _amortRateChanges(text) });
     // Nothing verified: report the reading that came closest, so the "doesn't add up"
     // note quotes the most useful failures.
     return results.sort((a, b) => b._score - a._score)[0];
+  }
+
+  // 2026-11-02 (David): the lender's own rate changes. The row regex above skips
+  // them on purpose ("9.39000" is not money), which also threw away the one fact
+  // that says the loan now costs more. Read separately, only on a line that names
+  // itself a rate change, and never part of the verification -- a rate row has no
+  // balance to check. Dexter prints: "08/31/2026  Rate Change  9.39000  0.00 ...".
+  function _amortRateChanges(text) {
+    const out = [];
+    const re = /(\d{1,2}\/\d{1,2}\/\d{4})\s+Rate\s+Change\s+(\d{1,2}\.\d{2,5})(?![\d])/gi;
+    let m;
+    while ((m = re.exec(text || ''))) {
+      const [mm, dd, yyyy] = m[1].split('/');
+      const rate = parseFloat(m[2]);
+      if (!(rate > 0 && rate < 100)) continue;
+      out.push({ row_date: `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`, row_type: 'rate_change', rate, source_label: 'Rate Change' });
+    }
+    return out;
   }
 
   function _scoreAmortLayout(layout, body, offset, setAside) {
@@ -28833,6 +28840,50 @@ ${noActivityNote}
   // did. `docType` comes straight from the "What is this?" dropdown, so the classifier's
   // proposal and a human's override travel the identical path -- there is no
   // "trusted because the machine said so" shortcut.
+  // ── ONE WAY IN FOR A SCHEDULE (2026-11-02, David) ─────────────────────────
+  // "Any new upload should replace the old file." Dexter's re-issued schedule was
+  // dropped in the batch box, which recognised it, verified it, and then only
+  // FILED it -- so the loan kept splitting on the 2021 schedule. Every path that
+  // receives a verified schedule now comes through here.
+  //
+  // The upload date is the schedule's date unless the person set one, so the
+  // newest upload is the newest schedule and _loanScheduleChoice picks it.
+  //
+  // A card already waiting from the OLD schedule would survive the import
+  // (ensureUpcomingSplit keeps one card per loan), which is how Dexter's
+  // September card stayed at the old figures. If it is still pending_review it is
+  // regenerated from the new schedule; anything further along (staged, posted) the
+  // server refuses, and we say so rather than touch Xero.
+  async function _bkImportSchedule({ loan, filename, base64, sched, genDate, by }) {
+    const rows = sched.rows.concat(sched.rateChanges || []);
+    const { ok, data } = await _loanFn('loan-ingest-amortization', {
+      lender_account_number: loan.lender_account_number,
+      contract_id: loan.lender_account_number,
+      schedule_generated_date: genDate || _todayIsoLocal(),
+      amort_type: 'amortization_schedule',
+      filename, file_base64: base64,
+      uploaded_by: by || currentUserDisplayName || currentUserRole || 'admin dashboard',
+      rows,
+      balance_basis: 'principal_only',
+      source: 'client_parsed_verified',
+    });
+    if (!ok || (data && data.error)) throw new Error((data && data.error) || 'Schedule import failed');
+    const out = { rowsInserted: data.rows_inserted, warning: data.idempotency_warning || null, refreshed: null, stuck: null };
+    const st = data.staging || {};
+    if (st.reason === 'active_card_exists' && st.split_id && /^\d{4}-\d{2}$/.test(String(st.period_label || ''))) {
+      const g = await _loanFn('loan-generate-schedule-split', { lender_account_number: loan.lender_account_number, period_label: st.period_label });
+      if (g.ok && g.data && !g.data.error) out.refreshed = st.period_label;
+      else out.stuck = `${st.period_label}: ${(g.data && g.data.error) || 'could not be updated'}`;
+    }
+    return out;
+  }
+
+  function _bkImportScheduleNote(r) {
+    return (r.refreshed ? ` The waiting ${r.refreshed} payment was updated to the new figures.` : '')
+      + (r.stuck ? ` The ${r.stuck.split(':')[0]} payment was NOT updated (${r.stuck.split(':').slice(1).join(':').trim()}) — check it before approving.` : '')
+      + (r.warning ? ` (note: ${r.warning})` : '');
+  }
+
   async function _submitIntakeSchedule() {
     const errEl = document.getElementById('li-error');
     errEl.style.display = 'none';
@@ -28858,25 +28909,11 @@ ${noActivityNote}
     const btn = document.getElementById('li-submit-btn');
     btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Importing schedule…';
     try {
-      const { ok, data } = await _loanFn('loan-ingest-amortization', {
-        lender_account_number: loan.lender_account_number,
-        contract_id: loan.lender_account_number,   // stable half of the idempotency key
-        schedule_generated_date: genDate,
-        amort_type: 'amortization_schedule',
-        filename: _loanUploadFile.filename,
-        file_base64: _loanUploadFile.base64,
-        uploaded_by: currentUserDisplayName || currentUserRole || 'admin dashboard',
-        rows: sched.rows,
-        // The balance-continuity check that verified this parse IS the definition of a
-        // principal-only balance (each balance falls by exactly that period's principal).
-        // So a verified schedule has proven its own basis rather than being assumed.
-        balance_basis: 'principal_only',
-        source: 'client_parsed_verified',
-      });
-      if (!ok || data.error) throw new Error(data.error || 'Schedule import failed');
+      // balance_basis 'principal_only': the balance-continuity check that verified
+      // this parse IS the definition of a principal-only balance.
+      const r = await _bkImportSchedule({ loan, filename: _loanUploadFile.filename, base64: _loanUploadFile.base64, sched, genDate });
       closeLoanIntakeModal();
-      const warn = data.idempotency_warning ? ' (note: ' + data.idempotency_warning + ')' : '';
-      showToast(`Schedule imported — ${data.rows_inserted} rows on file.${warn}`, 'success');
+      showToast(`Schedule imported — ${r.rowsInserted} rows on file. It replaces any earlier schedule for this loan.${_bkImportScheduleNote(r)}`, r.stuck ? 'warning' : 'success');
       loadLoans();
     } catch (e) {
       errEl.textContent = e.message || 'Something went wrong.';
