@@ -7575,6 +7575,14 @@ async function saveEditOrder() {
   const _deliveryRpcNeeded = es?._deliveryUserTouched && _deliveryChanged
     && !!(es?.deliveryDate && dw?.routeId);
 
+  // 2026-11-02: never save a delivery too soon after pickup (e.g. 7-10pm pickup,
+  // 7-10am delivery next morning). The picker hides these; this is the backstop.
+  if (_deliveryRpcNeeded && !_editDeliveryWindowOk(dw)) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+    toast('That delivery time is too soon after pickup — we need time to wash your order. Please choose a later delivery time.');
+    return;
+  }
+
   // Session 135: pre-resolve route runs so we can fail early with a clear message
   // before any DB write happens. window objects from computeSubWindows carry
   // `routeId` = template id; we look up the matching routes.id for the run date.
@@ -7741,25 +7749,83 @@ async function cancelOrder(orderId) {
 /* ── EDIT-MODAL SCHEDULE PICKERS ── */
 
 // Fetch available pickup windows for the edit modal (stores in _editSchedule, not draft)
-async function fetchEditWindows(iso) {
+// All sub-windows the routes offer on one date (no booking-cutoff filtering).
+// Used for the pickup list AND (2026-11-02) the delivery list, which used to
+// reuse the pickup day's windows even when the delivery day runs other routes.
+async function _editWindowsForDate(iso, addrId) {
   const es = window._editSchedule;
-  if (!es || !es.zoneId) return;
-  es.availableWindows = [];
+  if (!es || !es.zoneId || !iso) return [];
   const isoDay = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
   const { data: templates } = await _scopeRouteTemplateQuery(
     db.from('route_templates')
-      .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes')
+      .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
       .eq('is_active', true).contains('schedule_days', [isoDay]),
     es.zoneId,
-    window._editPickupAddressId || undefined
+    addrId || undefined
   );
-  if (!templates?.length) return;
+  if (!templates?.length) return [];
   const windows = [];
   templates.forEach(tmpl => {
     if (!tmpl.window_start || !tmpl.window_end) return;
     computeSubWindows(iso, tmpl, tmpl.id, tmpl.name).forEach(w => windows.push(w));
   });
   windows.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
+  return windows;
+}
+
+// 2026-11-02 (evening pickup → next-morning delivery bug): earliest delivery
+// start, in Pacific minutes-of-day, the edit modal may offer for es.deliveryDate.
+// Mirrors the new-order rule (_earliestDeliveryWindowMins): on the first eligible
+// delivery date, only windows starting at/after the pickup ROUTE's start — a PM
+// pickup never gets an AM delivery the next morning. Same date as pickup → must
+// start after pickup ends (what reschedule_order enforces). Later dates → anything.
+function _editDeliveryMinMins() {
+  const es = window._editSchedule;
+  const pw = es?.pickupWindow;
+  if (!es?.deliveryDate || !es?.pickupDate || !pw) return 0;
+  if (es.deliveryDate < es.pickupDate) return 24 * 60;
+  if (es.deliveryDate === es.pickupDate) return pw.endMins != null ? pw.endMins + 1 : 0;
+  const first = es._firstEligibleDelivery;
+  if (first && es.deliveryDate <= first) {
+    const tmplWin = (es._pickupDayWindowsAll || []).find(w => w.routeId && w.routeId === pw.routeId);
+    return tmplWin?.templateStartMins ?? pw.templateStartMins ?? pw.startMins ?? 0;
+  }
+  return 0;
+}
+function _editDeliveryWindowOk(w) {
+  if (!w || w.startMins == null) return true;
+  return w.startMins >= _editDeliveryMinMins();
+}
+// Delivery windows the customer may pick: the delivery day's own routes, minus too-early ones.
+function _editDeliveryWindowList() {
+  const es = window._editSchedule;
+  const minMins = _editDeliveryMinMins();
+  return (es?.deliveryWindows || []).filter(w => w.startMins >= minMins);
+}
+// Load the delivery day's windows. If the delivery the save would use is now too
+// early (pickup moved later / delivery date moved earlier), pick a valid one.
+async function _editFetchDeliveryWindows() {
+  const es = window._editSchedule;
+  if (!es) return;
+  const forDate = es.deliveryDate;
+  const wins = forDate
+    ? await _editWindowsForDate(forDate, window._editDeliveryAddressId || window._editPickupAddressId)
+    : [];
+  if (es.deliveryDate !== forDate) return; // a newer date pick superseded this fetch
+  es.deliveryWindows = wins;
+  const effective = es.deliveryWindow || es._origDelivWindow || es.pickupWindow;
+  if (es._deliveryUserTouched && !_editDeliveryWindowOk(effective)) {
+    const valid = _editDeliveryWindowList();
+    es.deliveryWindow = pickDefaultDeliveryWindow(valid, valid, es.pickupWindow, 0);
+  }
+}
+
+async function fetchEditWindows(iso) {
+  const es = window._editSchedule;
+  if (!es || !es.zoneId) return;
+  es.availableWindows = [];
+  const windows = await _editWindowsForDate(iso, window._editPickupAddressId);
+  es._pickupDayWindowsAll = windows;
 
   // If today is selected, hide windows that are within their booking cutoff
   if (iso === localIso()) {
@@ -7815,6 +7881,7 @@ async function _computeEditDeliveryOptions() {
   //   - pickupDate CHANGED → user explicitly moved the pickup; the original
   //     delivery is no longer correlated. Compute fresh from pickup+turnaround.
   //     (editSelectPickupDate already nulls deliveryDate before calling here.)
+  es._firstEligibleDelivery = dates[0] || null; // before the original date is unshifted in
   const pickupUnchanged = es._origPickupDate && es.pickupDate === es._origPickupDate;
   if (pickupUnchanged && es._origDeliveryDate && !dates.includes(es._origDeliveryDate)) {
     dates.unshift(es._origDeliveryDate);
@@ -7826,6 +7893,7 @@ async function _computeEditDeliveryOptions() {
   }
   const el = document.getElementById('edit-val-delivery-date');
   if (el) el.textContent = _schedDateLabel(es.deliveryDate);
+  await _editFetchDeliveryWindows();
   _editUpdateWindowDisplay('delivery');
 }
 
@@ -7898,9 +7966,12 @@ function _editRenderWindowOpts(which) {
   const container = document.getElementById(`edit-expand-${which}-window`);
   if (!container) return;
   const es = window._editSchedule;
-  const windows = es?.availableWindows || [];
+  const windows = which === 'delivery' ? _editDeliveryWindowList() : (es?.availableWindows || []);
   if (!windows.length) {
-    container.innerHTML = '<div class="sched-opts"><div style="font-size:14px;color:var(--gray-400);padding:10px 4px">No windows available — try a different date.</div></div>';
+    const msg = which === 'delivery'
+      ? 'No delivery times left on this date — we need time to wash your order. Try a later date.'
+      : 'No windows available — try a different date.';
+    container.innerHTML = `<div class="sched-opts"><div style="font-size:14px;color:var(--gray-400);padding:10px 4px">${msg}</div></div>`;
     return;
   }
   const cur = which === 'pickup' ? es.pickupWindow : (es.deliveryWindow || es._origDelivWindow || es.pickupWindow);
@@ -7946,7 +8017,7 @@ async function editSelectPickupDate(iso) {
   }
 }
 
-function editSelectDeliveryDate(iso) {
+async function editSelectDeliveryDate(iso) {
   const expandEl = document.getElementById('edit-expand-delivery-date');
   const chevEl   = document.getElementById('edit-chev-delivery-date');
   if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
@@ -7957,11 +8028,14 @@ function editSelectDeliveryDate(iso) {
   const valDate = document.getElementById('edit-val-delivery-date');
   if (valDate) valDate.textContent = _schedDateLabel(iso);
   _editUpdateWindowDisplay('delivery');
+  await _editFetchDeliveryWindows();
+  _editUpdateWindowDisplay('delivery');
 }
 
 async function editSelectWindow(which, idx) {
   const es  = window._editSchedule;
-  const win = es?.availableWindows[idx];
+  const list = which === 'delivery' ? _editDeliveryWindowList() : (es?.availableWindows || []);
+  const win = list[idx];
   if (!win) return;
   const expandEl = document.getElementById(`edit-expand-${which}-window`);
   const chevEl   = document.getElementById(`edit-chev-${which}-window`);

@@ -34232,11 +34232,18 @@ ${noActivityNote}
     // On today's date, hide slots whose window has already ended.
     // Admins shouldn't be able to assign a pickup to a window that's already in the past.
     const isToday = runDate === today();
-    const visibleSlots = isToday ? slots.filter(s => new Date(s.end) > new Date()) : slots;
+    let visibleSlots = isToday ? slots.filter(s => new Date(s.end) > new Date()) : slots;
+    // 2026-11-02: hide next-morning delivery slots after an evening pickup.
+    const _opOrd = leg === 'delivery' ? allOrders.find(x => x.id === opCurrentOrderId) : null;
+    const _beforeTooSoon = visibleSlots.length;
+    if (_opOrd?.pickup_window_start) {
+      visibleSlots = visibleSlots.filter(s => !_wrTooSoonAfterEveningPickup(_opOrd.pickup_window_start, s.start));
+    }
 
     if (!visibleSlots.length) {
-      const msg = isToday
+      const msg = isToday && _beforeTooSoon === 0
         ? 'All windows for this route have passed today. Choose a future date.'
+        : _beforeTooSoon > 0 ? _WR_TOO_SOON_MSG + ' Choose a later date or route.'
         : 'No slots available in route window.';
       slotsEl.innerHTML = `<span style="font-size:13px;color:var(--gray-500)">${msg}</span>`;
       return;
@@ -34245,6 +34252,25 @@ ${noActivityNote}
       `<button class="sp-slot-btn" onclick="opSaveRouteAndSlot('${leg}','${routeId}','${s.start}','${s.end}',this)">${s.label}</button>`
     ).join('');
   }
+
+  // 2026-11-02: evening pickup → next-morning delivery is not enough time to
+  // wash an order. Rule (same as the DB check in reschedule_order /
+  // reschedule_order_leg): pickup starting at/after 5pm Pacific → a delivery on
+  // the NEXT calendar day must start at/after noon. Same-day service and
+  // deliveries 2+ days out are untouched.
+  function _wrPacificParts(iso) {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: BIZ_TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(new Date(iso)).reduce((a, p) => (a[p.type] = p.value, a), {});
+    return { date: `${parts.year}-${parts.month}-${parts.day}`, mins: (+parts.hour) * 60 + (+parts.minute) };
+  }
+  function _wrTooSoonAfterEveningPickup(pickupStartIso, deliveryStartIso) {
+    if (!pickupStartIso || !deliveryStartIso) return false;
+    const p = _wrPacificParts(pickupStartIso), d = _wrPacificParts(deliveryStartIso);
+    if (p.mins < 17 * 60) return false;
+    const next = new Date(p.date + 'T12:00:00Z'); next.setUTCDate(next.getUTCDate() + 1);
+    return d.date === next.toISOString().slice(0, 10) && d.mins < 12 * 60;
+  }
+  const _WR_TOO_SOON_MSG = 'Too soon after an evening pickup — next-day delivery must be noon or later.';
 
   // Session 189: the reschedule-SMS gate that used to live here
   // (_maybeNotifyReschedule — "only text if the window actually moved") now
@@ -34265,6 +34291,17 @@ ${noActivityNote}
     // Client-side UX validation: delivery must be after pickup
     if (leg === 'delivery' && startIso && o.pickup_window_end && new Date(startIso) <= new Date(o.pickup_window_end)) {
       showToast('Delivery must be after the pickup window. Choose a later time slot or date.', 'error');
+      document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.remove('saving'));
+      if (btn?.classList) btn.textContent = btn.dataset.label || btn.textContent.replace('Saving…','');
+      return;
+    }
+    // 2026-11-02: evening pickup → next-morning delivery (either leg can cause it).
+    const _chkPickup   = leg === 'pickup'   ? startIso : o.pickup_window_start;
+    const _chkDelivery = leg === 'delivery' ? startIso : o.delivery_window_start;
+    if (startIso && _wrTooSoonAfterEveningPickup(_chkPickup, _chkDelivery)) {
+      showToast(leg === 'pickup'
+        ? _WR_TOO_SOON_MSG + ' Move the delivery to noon or later first.'
+        : _WR_TOO_SOON_MSG, 'error');
       document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.remove('saving'));
       if (btn?.classList) btn.textContent = btn.dataset.label || btn.textContent.replace('Saving…','');
       return;
