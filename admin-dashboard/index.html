@@ -18603,6 +18603,20 @@
 
   function _loanRecurringPayment(loanAccountId) {
     const acct = (_allLoanAccounts || []).find(x => x.id === loanAccountId);
+    // Session 367 (David: "PCV is missing", "a couple Ford payments also missing").
+    // When a schedule is on file, its next payment IS the obligation -- a fact
+    // about the contract, not something rebuilt from our own split records. The
+    // median below stays for loans with no schedule (EIDL, Stripe Capital). This
+    // also ends Funding Circle printing $4,067.54 (two splits on file per month)
+    // instead of its real $2,033.77, a case the recon guard below missed.
+    try {
+      const sch = _lsSchedule(loanAccountId);
+      if (sch) {
+        const t = today();
+        const next = sch.rows.find(r => String(r.row_date) >= t && Number(r.payment) > 0);
+        if (next) return Number(next.payment);
+      }
+    } catch (_) {}
     // A window whose principal does not agree with the lender's own balances is
     // not a window a payment can be measured from. Funding Circle's read
     // $4,067.54 — exactly twice its real $2,033.77 — because the same payment
@@ -19428,7 +19442,7 @@
     parts.push(allFitted
       ? 'Rates are measured from payment history against lender balances rather than taken from a note on file.'
       : 'Rates are measured from payment history against lender balances where there is enough history to measure one; the remainder are the rate stated on the note.');
-    parts.push('Monthly payment is the recurring obligation — the median of the last six months of scheduled payments, with one-off principal paydowns excluded.'
+    parts.push('Monthly payment is the next payment on the loan\'s amortization schedule where one is on file; otherwise the recurring obligation — the median of the last six months of scheduled payments, with one-off principal paydowns excluded.'
       + (anyNoPmt ? ' Facilities without enough consistent history to measure one are shown without a figure rather than an estimate.' : ''));
     return parts.join(' ');
   }
