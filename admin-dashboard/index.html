@@ -4544,7 +4544,8 @@
                  toggles it by id. -->
             <button class="section-tab" id="bkvt-client" style="display:none" onclick="switchBookkeepingView('client')">Client View</button>
             <button class="section-tab" id="bkvt-debt" onclick="switchBookkeepingView('client','debt')">Debt Schedule</button>
-            <button class="section-tab" id="bkvt-kpis" onclick="switchBookkeepingView('client','kpis')">KPIs</button>
+            <!-- Session 367: KPIs removed (David: "Not helpful"). Hidden, not deleted. -->
+            <button class="section-tab" id="bkvt-kpis" style="display:none" onclick="switchBookkeepingView('client','kpis')">KPIs</button>
           </div>
 
           <!-- ── ONE INTAKE, SHARED BY LOANS AND PAYROLL (session 276) ───────
@@ -11510,7 +11511,7 @@
   function switchClientSubView(sub) {
     // Session 367: the Dashboard pane is retired -- an old #bookkeeping/client link
     // lands on the Debt Schedule instead.
-    if (!CLIENT_SUBVIEWS.includes(sub) || sub === 'dashboard') sub = 'debt';
+    if (!CLIENT_SUBVIEWS.includes(sub) || sub === 'dashboard' || sub === 'kpis') sub = 'debt';   // KPIs retired too
     _clientActiveSubView = sub;
     { const bd = document.getElementById('bkvt-debt'), bk = document.getElementById('bkvt-kpis');
       if (bd) bd.classList.toggle('active', sub === 'debt');
