@@ -59599,7 +59599,7 @@ async function _dvIframeLoaded() {
     {
       const [posRes, subRes, commRes] = await Promise.all([
         db.from('orders')
-          .select('id, total_amount, tax_amount, tip_amount, tip_type, billing_status, stripe_payment_intent_id, created_at')
+          .select('id, total_amount, tax_amount, tip_amount, tip_type, billing_status, billing_payment_method, stripe_payment_intent_id, created_at')
           .eq('source', 'walk_in')
           .in('billing_status', ['paid', 'refunded'])
           .gte('created_at', fromISO).lte('created_at', toISO)
@@ -59639,21 +59639,25 @@ async function _dvIframeLoaded() {
       body.innerHTML = '<div class="rev-empty">No revenue found for this date range.</div>'; return;
     }
 
-    // Fetch refund transactions (customer_transactions type='refund') whose parent
-    // order's delivery date falls in the window. Supports partial refunds — each
-    // row has its own amount. Keyed by order_id and summed at aggregation time.
-    // Previous approach used orders.billing_status='refunded' as a boolean and
-    // subtracted the full total_amount, which overstated partial refunds.
-    const orderIds = orders.map(o => o.id).filter(Boolean);
-    const refundsByOrderId = {};
-    const refundRows = await pgInChunked(
-      () => db.from('customer_transactions').select('order_id, amount').eq('type', 'refund'),
-      'order_id', orderIds
-    );
-    refundRows.forEach(t => {
-      if (!t.order_id) return;
-      refundsByOrderId[t.order_id] = (refundsByOrderId[t.order_id] || 0) + Math.abs(parseFloat(t.amount || 0));
-    });
+    // Session 2026-11-02: refunds are counted on the PACIFIC DAY THEY WERE ISSUED,
+    // the way Stripe counts them, not on the original order's rack date. Before this a
+    // refund on an older order never appeared on the day the money went back, so the
+    // page said "no refunds today" while Stripe's net was $15 lower. A cancelled
+    // refund is NOT counted: cancelling rewrites the original row's type to
+    // 'refund_cancelled' (there is no separate reversal row), so it simply drops out.
+    // Partial refunds still work: each row carries its own amount.
+    const refundsByDate = {};
+    {
+      const { data: refRows, error: refErr } = await db.from('customer_transactions')
+        .select('amount, created_at')
+        .eq('type', 'refund')
+        .gte('created_at', fromISO).lte('created_at', toISO);
+      if (refErr) console.warn('[revenue] refund fetch failed:', refErr.message);
+      (refRows || []).forEach(t => {
+        const d = new Date(t.created_at).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+        refundsByDate[d] = (refundsByDate[d] || 0) + Math.abs(parseFloat(t.amount || 0));
+      });
+    }
 
     // Fetch actual Stripe fees for the date window — bounded by a client-side
     // timeout so long ranges don't appear to hang. Stripe's balanceTransactions
@@ -59723,7 +59727,7 @@ async function _dvIframeLoaded() {
     // the UNION of all three streams: a day with only a POS sale or only a subscription
     // renewal still has revenue and must get a row.
     const rows = [];
-    const allDates = [...new Set([...Object.keys(byDate), ...Object.keys(posByDate), ...Object.keys(subByDate), ...Object.keys(commByDate)])];
+    const allDates = [...new Set([...Object.keys(byDate), ...Object.keys(posByDate), ...Object.keys(subByDate), ...Object.keys(commByDate), ...Object.keys(refundsByDate)])];
     allDates.sort().filter(d => d >= selFrom && d <= selTo).forEach(date => {
       const dayOrders = byDate[date] || [];
       let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, credits = 0, discounts = 0, refunds = 0, total = 0, count = 0, procFees = 0, feeEstimated = false, tax = 0;
@@ -59745,11 +59749,7 @@ async function _dvIframeLoaded() {
         // must match what Stripe actually settled, or Net pays a fee on money it never
         // counted. Gross has always included tips; now Charged and Net do too.
         total     += parseFloat(o.total_amount || 0) + tipDollars;
-        // Partial-refund-aware: sum actual refund amounts from customer_transactions,
-        // not the order's whole total_amount. billing_status is a boolean that can't
-        // represent partials (e.g., $20 refunded on a $200 order).
-        const refundedForOrder = refundsByOrderId[o.id] || 0;
-        if (refundedForOrder > 0) refunds += refundedForOrder;
+        // Refunds are added per DAY below (refundsByDate), not per order.
         // Stripe processing fee — use actual from balance_transactions when available,
         // fall back to 2.9% + $0.30 estimate. Skip refunds (Stripe refunds fee on full refund in US).
         if (o.billing_status === 'paid' && o.stripe_payment_intent_id) {
@@ -59779,15 +59779,15 @@ async function _dvIframeLoaded() {
 
       // POS sales. total_amount includes sales tax — the tax is stripped out of
       // revenue and added to the tax total, which is what the Sales Tax pill reports.
-      let pos = 0, posCount = 0;
+      let pos = 0, posCount = 0, cash = 0;
       (posByDate[date] || []).forEach(o => {
         const gross_ = parseFloat(o.total_amount || 0);
         const taxAmt = parseFloat(o.tax_amount || 0);
         pos += gross_ - taxAmt;
         tax += taxAmt;
         posCount++;
-        const refundedForOrder = refundsByOrderId[o.id] || 0;
-        if (refundedForOrder > 0) refunds += refundedForOrder;
+        // Cash never touches Stripe — tracked so the page can say what was on cards.
+        if (o.billing_payment_method === 'cash') cash += gross_ - taxAmt;
         if (o.billing_status === 'paid' && o.stripe_payment_intent_id) {
           const actualCents = feesByPI[o.stripe_payment_intent_id]?.fee_cents;
           if (actualCents !== undefined) procFees += actualCents / 100;
@@ -59798,12 +59798,13 @@ async function _dvIframeLoaded() {
       // Commercial: funds actually received that day. No processing fee — these arrive
       // by check, ACH or wire, not through Stripe.
       const comm = commByDate[date] || 0;
+      refunds += refundsByDate[date] || 0;
 
       const gross = service + addons + overages + fees + tips + subs + pos + comm;
       total += subs + pos + comm;
       count += posCount;
       const net   = total - refunds - procFees;
-      rows.push({ date, service, addons, overages, fees, tips, subs, pos, comm, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count, tax });
+      rows.push({ date, service, addons, overages, fees, tips, subs, pos, cash, comm, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count, tax });
     });
 
     _revReportData = rows;
@@ -59818,6 +59819,7 @@ async function _dvIframeLoaded() {
       acc.subs      += r.subs;
       acc.pos       += r.pos;
       acc.comm      += r.comm;
+      acc.cash      += r.cash;
       acc.gross     += r.gross;
       acc.credits   += r.credits;
       acc.discounts += r.discounts;
@@ -59829,7 +59831,7 @@ async function _dvIframeLoaded() {
       acc.count     += r.count;
       acc.tax       += r.tax;
       return acc;
-    }, { service:0, addons:0, overages:0, fees:0, tips:0, subs:0, pos:0, comm:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0, tax:0 });
+    }, { service:0, addons:0, overages:0, fees:0, tips:0, subs:0, pos:0, cash:0, comm:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0, tax:0 });
 
     const $fmt = _rvNum;   // one money formatter, shared with the folded table
     // ── Session 300: visual-first render ──────────────────────────────────
@@ -59876,13 +59878,14 @@ async function _dvIframeLoaded() {
     // Session 302: the ledger now starts at Gross so the page reconciles top to bottom:
     //   Gross − discounts − credits = Total revenue (what was billed/received) − refunds − fees = Net.
     // "Charged to cards" was wrong — Total includes Commercial check/ACH/wire money.
-    const _cards = tot.total - tot.comm;
+    const _cards = tot.total - tot.comm - tot.cash;
     const _resid = tot.gross - tot.discounts - tot.credits - tot.total;   // should be ~0
     let ledgerHtml = `<div class="rev2-led-row"><span>Gross earned</span><span>$${$fmt(tot.gross)}</span></div>`;
     if (_live(tot.discounts)) ledgerHtml += `<div class="rev2-led-row"><span>Discounts</span><span>−$${$fmt(tot.discounts)}</span></div>`;
     if (_live(tot.credits))   ledgerHtml += `<div class="rev2-led-row"><span>Credits used</span><span>−$${$fmt(tot.credits)}</span></div>`;
     if (Math.abs(_resid) > 0.005) ledgerHtml += `<div class="rev2-led-row" title="Orders whose billed total does not match their line items (e.g. an add-on listed but not charged). Shown so the ledger still adds up."><span>Other adjustments</span><span>${_resid > 0 ? '−' : '+'}$${$fmt(Math.abs(_resid))}</span></div>`;
     const _totSub = [ `$${$fmt(_cards)} on cards` ];
+    if (_live(tot.cash)) _totSub.push(`$${$fmt(tot.cash)} cash`);
     if (_live(tot.comm)) _totSub.push(`$${$fmt(tot.comm)} commercial (check/ACH)`);
     if (_live(tot.tips)) _totSub.push(`incl. $${$fmt(tot.tips)} tips`);
     ledgerHtml += `<div class="rev2-led-row" style="border-top:1px solid #E3E1DC;padding-top:10px"><span><strong>Total revenue</strong><span style="display:block;font-size:12.5px;color:#63666D">${_totSub.join(' · ')}</span></span><span><strong>$${$fmt(tot.total)}</strong></span></div>`;
