@@ -35450,6 +35450,11 @@ ${noActivityNote}
   }
 
   // ── BILLING TAB ──
+  // An order is itemized (weighed + priced) when it moves to processing. Before that the
+  // total is only an estimate, so the Billing tab must not offer a Charge button.
+  // (Order #18940 Lodestar Campus showed "Charge $74.95" while still scheduled.)
+  const _OP_PRE_ITEMIZED_STATUSES = ['scheduled','confirmed','pending_confirmation','pending_pickup','picked_up','skipped','cancelled','pickup_failed'];
+  function _opNotItemized(o) { return _OP_PRE_ITEMIZED_STATUSES.includes(o?.status); }
   function opPopulateBilling(o) {
     // Show tip-inclusive total so what admin sees matches what charge-order will charge.
     const billTotal = _orderTipBreakdown(o).totalWithTip;
@@ -35504,6 +35509,8 @@ ${noActivityNote}
     const _opCust = allCustomers.find(c => c.id === opCurrentCustId);
     if (_opCust?.billing_type === 'on_account') {
       actEl.innerHTML = `<div style="font-size:12.5px;color:var(--gray-500);text-align:center;padding:6px">📋 On Account — collected via invoice, not card</div>`;
+    } else if (!o.stripe_payment_intent_id && o.billing_status !== 'paid' && o.billing_status !== 'written_off' && _opNotItemized(o)) {
+      actEl.innerHTML = `<div style="font-size:12.5px;color:var(--gray-500);text-align:center;padding:6px">⏳ Charge available once the order is picked up and itemized</div>`;
     } else if (!o.stripe_payment_intent_id && o.billing_status !== 'paid' && o.billing_status !== 'written_off') {
       actEl.innerHTML = `<button class="btn btn-primary" onclick="opChargeOrder()" style="width:100%">Charge ${fmtMoney(billTotal)}</button>`;
     }
@@ -35516,6 +35523,7 @@ ${noActivityNote}
     // if the button somehow rendered (charge-order v47 also blocks server-side)
     const _ocCust = allCustomers.find(c => c.id === opCurrentCustId);
     if (_ocCust?.billing_type === 'on_account') { showToast('On-account customer — bill via invoice, not card', 'error'); return; }
+    if (_opNotItemized(o)) { showToast('Order not itemized yet — charge after pickup and intake', 'error'); return; }
     const chargeTotal = _orderTipBreakdown(o).totalWithTip;
     if (!confirm(`Charge ${fmtMoney(chargeTotal)} for Order #${o.order_number}?`)) return;
     const _rc = await _chargeOrderCall(o.id);
