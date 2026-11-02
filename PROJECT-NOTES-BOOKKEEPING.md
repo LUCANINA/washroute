@@ -1,5 +1,34 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 367 — Nov 2, 2026: Loans page stripped to "what's in Xero"; Client View folded into two tabs
+
+**David:** "The only feature I currently use is the payroll feature. The Loans page would be more useful as a
+representation of what is already in Xero (this is what you owe, this is the amortization schedule)... It hasn't
+been useful for our accountants." Then: keep pre-staging ("pretty helpful"), "do without the Client View but keep
+key features like Debt schedule and KPIs", leave room for amortization schedules.
+
+**Found first:** the October retail cash reclass had NO reachable button. `appr-retail` has no `loanId`, and since
+s288 the only renderer for loan-less queue items stopped showing anything — the badge counted it, no screen held it.
+Posted for October from the modal opened by hand (`b0357cab-5661-45f9-b95b-26b9a32bb117`, $2,155.00 W&F / $1,259.25
+Vending, dated 2026-10-31). Note Sept was posted as two hand journals with different narrations, so the function's
+narration-tag guard would NOT recognise September — fine while it defaults to the last completed month.
+
+**Shipped (uncommitted, admin-dashboard/index.html only):**
+- Tabs are now Loans · Payroll · Debt Schedule · KPIs. The last two are Client View's `debt`/`kpis` panes; its
+  sub-toggle is hidden by CSS and `dashboard` redirects to `debt`. `#bkvt-client` stays in the DOM, hidden.
+- Loans = `#loans-simple` (`renderLoansSimple`): Waiting on you (`appr-split-*` with an action), Staged in Xero,
+  and "What you owe" — balance = latest `loan_book_balances` basis `xero_rebuild`, rate (fitted if measured, else
+  typed with a tooltip saying so), last booked payment, next schedule row, payoff. Click a loan → last 12 booked
+  splits + amortization schedule (lender's schedule preferred over derived, newest upload breaks ties).
+- `#loans-subview-manage` (close band, recon, variance, history) kept but `display:none`. Stripe payouts card
+  moved out of it so it stays reachable.
+- Retail reclass → Payroll page `#pk-monthend-card` (`renderRetailReclassCard`).
+- Nav badge counts only `appr-*` items with an action (recon findings no longer on any screen).
+- Pre-staging untouched (was flipped off and back on within a minute during the conversation; nothing ran).
+
+**Verified:** node --check on the script; headless render against the Sep fixture — 14 loan rows, 4 tabs, no
+page errors, Payroll card shows. NOT committed: the same file also carries session 363's uncommitted laundry work.
+
 ## Session 353 — Oct 21, 2026: a one-cent pay stub, three tolerances that allowed it, and tips missing from the list
 
 **What David saw.** Oct 16 payroll: "Approve & Post to Xero" → red toast "Xero journal post failed", three

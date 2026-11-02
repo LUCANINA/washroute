@@ -848,6 +848,23 @@ WHERE coll.collected > 0.01
   -- a deliberate cash refund fully explains its own shortfall
   AND NOT (coll.cash_refunded > 0.01
            AND ABS((coll.collected - owed.amount_owed) + coll.cash_refunded) < 0.01)
+  -- 2026-11-02: a gap David has explicitly WRITTEN OFF is a closed decision, not an
+  -- open finding. Four orders were written off on this date (#18478 $30, #17593 $30,
+  -- #18165 $9, #17244 $5 -- all the session-362 "re-intake raised the total after the
+  -- card was charged" shape, $74 total). Without this clause they return every morning
+  -- forever, and this file's own rule is that a check firing on a settled state trains
+  -- you to ignore it.
+  --
+  -- The match is on the AMOUNT, not just the presence of a write-off event, and that is
+  -- deliberate: if the same order is re-priced again later, the new gap will not equal
+  -- the written-off figure, so it surfaces as a fresh finding instead of hiding behind
+  -- the old decision. billing_write_off.new_value holds the written-off amount as text.
+  AND NOT EXISTS (
+    SELECT 1 FROM order_events oe
+    WHERE oe.order_id = owed.id
+      AND oe.event_type = 'billing_write_off'
+      AND ABS(oe.new_value::numeric - ABS(coll.collected - owed.amount_owed)) < 0.01
+  )
 ORDER BY ABS(coll.collected - owed.amount_owed) DESC;
 
 

@@ -4537,7 +4537,14 @@
                  on the Loans close band and payroll approvals are on Payroll. -->
             <button class="section-tab" id="bkvt-loans" onclick="switchBookkeepingView('loans')">Loans</button>
             <button class="section-tab" id="bkvt-payroll" onclick="switchBookkeepingView('payroll')">Payroll</button>
-            <button class="section-tab" id="bkvt-client" onclick="switchBookkeepingView('client')">Client View</button>
+            <!-- Session 367 (David): "do without the Client View but keep key features like
+                 Debt schedule and KPIs". Its two reference panes are now tabs of their own;
+                 the Dashboard pane (the owner's statement checklist) is no longer reachable.
+                 #bkvt-client stays in the DOM, hidden, because switchBookkeepingView still
+                 toggles it by id. -->
+            <button class="section-tab" id="bkvt-client" style="display:none" onclick="switchBookkeepingView('client')">Client View</button>
+            <button class="section-tab" id="bkvt-debt" onclick="switchBookkeepingView('client','debt')">Debt Schedule</button>
+            <button class="section-tab" id="bkvt-kpis" onclick="switchBookkeepingView('client','kpis')">KPIs</button>
           </div>
 
           <!-- ── ONE INTAKE, SHARED BY LOANS AND PAYROLL (session 276) ───────
@@ -5106,6 +5113,22 @@
             .lcb-detail.idle { color: var(--gray-400); }
             .lcb-detail .lcb-dot { color: var(--gray-300); }
 
+            #bk-view-client > .cv-subtoggle { display: none !important; }
+            .ls-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            .ls-table th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--gray-500); padding: 10px 14px; border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
+            .ls-table td { padding: 11px 14px; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
+            .ls-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+            .ls-table tr.ls-row { cursor: pointer; }
+            .ls-table tr.ls-row:hover td { background: var(--gray-50); }
+            .ls-table tr.ls-total td { font-weight: 700; border-top: 1px solid var(--gray-200); border-bottom: 0; }
+            .ls-sub { font-size: 11.5px; color: var(--gray-500); }
+            .ls-detail { padding: 6px 4px 14px; display: flex; gap: 28px; flex-wrap: wrap; }
+            .ls-detail > div { flex: 1 1 340px; min-width: 0; }
+            .ls-detail h4 { font-size: 12.5px; font-weight: 600; color: var(--gray-700); margin: 6px 0 8px; }
+            .ls-detail table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+            .ls-detail th { text-align: left; font-weight: 600; color: var(--gray-500); padding: 5px 8px; border-bottom: 1px solid var(--gray-200); }
+            .ls-detail td { padding: 5px 8px; border-bottom: 1px solid var(--gray-100); }
+            .ls-detail tr.ls-next td { font-weight: 700; }
             .cv-subtoggle { display: inline-flex; background: var(--gray-100); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
             .cv-subtoggle button { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; color: var(--gray-500); background: none; border: none; cursor: pointer; }
             .cv-subtoggle button.active { background: #fff; color: var(--gray-900); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -5450,7 +5473,19 @@
           <!-- Loans (session 205; toggle + Reconciliation section added session 213) -->
           <div id="bk-view-loans" style="display:none">
             <div class="bk-load-banner"></div>
-          <div id="loans-subview-manage">
+          <!-- Session 367 (David, 2026-11-02): "the Loans page would be more useful as a
+               representation of what is already in Xero (this is what you owe, this is the
+               amortization schedule)... It hasn't been useful for our accountants."
+               #loans-simple is the page now. #loans-subview-manage (close band,
+               reconciliation, variance tools) is kept in the DOM but never shown, so
+               every renderer that writes into it keeps working and it can be brought
+               back by removing one display:none. Pre-staging is KEPT (David). -->
+          <div id="bk-payout-realloc-card" style="display:none;padding:0 0 16px;margin-bottom:16px;border-bottom:1px solid var(--gray-100)">
+            <div style="font-size:12.5px;font-weight:600;color:var(--gray-500);margin-bottom:8px">Stripe payouts not booked</div>
+            <div id="bk-payout-realloc-list"></div>
+          </div>
+          <div id="loans-simple"></div>
+          <div id="loans-subview-manage" style="display:none">
 
           <!-- Stripe payouts not booked (session 266; moved here session 292 -- it
                shipped inside #bk-view-overview, which David hid for good in session
@@ -5464,10 +5499,6 @@
                which is the LESS IS BEST rule applied to a section rather than
                a column. Filled by _bkLoadPayoutReallocations(), called from
                switchBookkeepingView whenever the Loans tab becomes active. -->
-          <div id="bk-payout-realloc-card" style="display:none;padding:0 0 16px;margin-bottom:16px;border-bottom:1px solid var(--gray-100)">
-            <div style="font-size:12.5px;font-weight:600;color:var(--gray-500);margin-bottom:8px">Stripe payouts not booked</div>
-            <div id="bk-payout-realloc-list"></div>
-          </div>
 
           <!-- ── INTAKE HEADS THIS PAGE (session 267, David) ─────────────────
                The dropzone and its results pile moved here from the Overview
@@ -5638,6 +5669,7 @@
           <!-- Payroll (session 206) -->
           <div id="bk-view-payroll" style="display:none">
             <div class="bk-load-banner"></div>
+          <div id="pk-monthend-card"></div>
           <!-- Session 223 cont.: bare summary tiles, no wrapping card. -->
           <div id="payroll-summary" style="margin-bottom:20px"></div>
 
@@ -11362,7 +11394,7 @@
 
   // Which Client View sub-tab is showing. Survives tab switches so coming back
   // to Client View lands where you left it, not always on Dashboard.
-  let _clientActiveSubView = 'dashboard';
+  let _clientActiveSubView = 'debt';   // session 367: the Dashboard pane is retired
 
   function switchBookkeepingView(view, sub) {
     // Legacy redirects. 'debtsched' and 'reconciliation' were top-level tabs
@@ -11394,6 +11426,9 @@
     document.getElementById('bkvt-loans').classList.toggle('active', view === 'loans');
     document.getElementById('bkvt-payroll').classList.toggle('active', view === 'payroll');
     document.getElementById('bkvt-client').classList.toggle('active', view === 'client');
+    // Session 367: Debt Schedule / KPIs are the two halves of the old Client View.
+    if (view !== 'client') ['bkvt-debt', 'bkvt-kpis'].forEach(id => {
+      const b = document.getElementById(id); if (b) b.classList.remove('active'); });
 
     // Session 223 cont. 2: the per-tab Upload Statement / Upload Payroll
     // Report buttons merged into the Overview dropzone -- no topbar CTA on any
@@ -11457,6 +11492,8 @@
 
   function _bkRefreshVisibleBookkeeping() {
     _bkRenderLoadBanner();
+    try { renderLoansSimple(); } catch (e) { console.error('[loans-simple]', e); }
+    try { renderRetailReclassCard(); } catch (e) { console.error('[retail-reclass-card]', e); }
     // Session 269: the 'overview' case is gone — it can no longer be the active tab.
     if (_bookkeepingActiveTab === 'client') {
       renderBookkeepingOverview();   // still the renderer for the KPI tiles
@@ -11471,8 +11508,13 @@
   const CLIENT_SUBVIEWS = ['dashboard', 'debt', 'kpis'];
 
   function switchClientSubView(sub) {
-    if (!CLIENT_SUBVIEWS.includes(sub)) sub = 'dashboard';
+    // Session 367: the Dashboard pane is retired -- an old #bookkeeping/client link
+    // lands on the Debt Schedule instead.
+    if (!CLIENT_SUBVIEWS.includes(sub) || sub === 'dashboard') sub = 'debt';
     _clientActiveSubView = sub;
+    { const bd = document.getElementById('bkvt-debt'), bk = document.getElementById('bkvt-kpis');
+      if (bd) bd.classList.toggle('active', sub === 'debt');
+      if (bk) bk.classList.toggle('active', sub === 'kpis'); }
     for (const key of CLIENT_SUBVIEWS) {
       const pane = document.getElementById('cv-subview-' + key);
       const btn  = document.getElementById('cv-sub-' + key);
@@ -11495,7 +11537,9 @@
     // imports. Live today: sidebar said 2, the Approvals tab said 1 and listed
     // the other two under "Ignored". One shared function, per the module's own
     // rule — the badge now asks the queue what is in it.
-    const n = _bkApprovalQueueItems().length;
+    // Session 367: reconciliation findings are no longer on any screen, so they
+    // no longer count -- a badge must point at something you can click.
+    const n = _bkApprovalQueueItems().filter(i => String(i.key).startsWith('appr-') && i.onclick).length;
     badge.textContent = n;
     badge.style.display = n ? '' : 'none';
   }
@@ -21797,8 +21841,160 @@
   // blank slot, where a deleted node reads as a bug to the next session.
   function renderLoansApprovalsBand() {
     const el = document.getElementById('loans-approvals-band');
+    if (el) el.innerHTML = '';
+    // Session 367: every place that re-rendered the old band now re-renders the
+    // simple page too -- one hook, so the new page cannot go stale on its own.
+    try { renderLoansSimple(); } catch (e) { console.error('[loans-simple]', e); }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  //  SESSION 367 — THE LOANS PAGE IS A VIEW OF XERO (David, 2026-11-02)
+  // ══════════════════════════════════════════════════════════════════════
+  // Four things, nothing else: what's waiting (stage / approve), what each loan
+  // owes in Xero, its payments as booked, and its amortization schedule.
+  // Balances are loan_book_balances basis 'xero_rebuild' -- the ledger itself --
+  // not a lender statement and not anything typed.
+  let _lsOpenLoan = null;
+  function _lsXeroBalance(loanId) {
+    let best = null;
+    (_allLoanBookBalances || []).forEach(b => {
+      if (b.loan_account_id !== loanId || b.basis !== 'xero_rebuild') return;
+      if (!best || String(b.as_of) > String(best.as_of)) best = b;
+    });
+    return best;
+  }
+  function _lsSchedule(loanId) {
+    const by = new Map();
+    (_allLoanAmortRows || []).forEach(r => {
+      const s = r.loan_amortization_schedules;
+      if (!s || s.loan_account_id !== loanId) return;
+      if (!by.has(r.schedule_id)) by.set(r.schedule_id, { s, rows: [] });
+      by.get(r.schedule_id).rows.push(r);
+    });
+    // The lender's own schedule beats one we derived; newest upload breaks ties.
+    const lenderish = s => ['claude_assisted_parse', 'client_parsed_verified'].includes(s.source)
+      && s.amort_type === 'amortization_schedule';
+    let pick = null;
+    for (const v of by.values()) {
+      const k = (lenderish(v.s) ? '1' : '0') + String(v.s.created_at || '');
+      if (!pick || k > pick.k) pick = { ...v, k };
+    }
+    if (!pick) return null;
+    pick.rows = pick.rows.filter(r => r.row_date).sort((a, b) => String(a.row_date).localeCompare(String(b.row_date)));
+    pick.lender = lenderish(pick.s);
+    return pick.rows.length ? pick : null;
+  }
+  function _lsBooked(loanId) {
+    return (_allLoanSplits || [])
+      .filter(sp => sp.loan_account_id === loanId && !sp.voided_at
+        && ['posted', 'already_in_xero', 'staged'].includes(sp.status))
+      .sort((a, b) => String(b.period_label || '').localeCompare(String(a.period_label || '')));
+  }
+  const _lsMonth = iso => {
+    if (!iso) return '—';
+    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const m = Number(String(iso).slice(5, 7));
+    return m ? `${M[m - 1]} ${String(iso).slice(0, 4)}` : esc(String(iso));
+  };
+  const _lsDay = iso => (iso && String(iso).length >= 10) ? fmtDatePlain(String(iso).slice(0, 10)) : _lsMonth(iso);
+  function _lsToggle(id) { _lsOpenLoan = _lsOpenLoan === id ? null : id; renderLoansSimple(); }
+
+  function _lsDetailHtml(a) {
+    const booked = _lsBooked(a.id).slice(0, 12);
+    const bookedHtml = booked.length ? `<table><thead><tr><th>Period</th><th class="num" style="text-align:right">Principal</th><th style="text-align:right">Interest</th><th style="text-align:right">Total</th></tr></thead><tbody>${
+      booked.map(sp => `<tr><td>${esc(sp.period_label || '—')}${sp.status === 'staged' ? ' <span class="ls-sub">· staged, awaiting match</span>' : ''}</td>
+        <td style="text-align:right">${fmtMoney(sp.principal_amount)}</td><td style="text-align:right">${fmtMoney(sp.interest_amount)}</td>
+        <td style="text-align:right">${fmtMoney(sp.total_amount)}</td></tr>`).join('')}</tbody></table>`
+      : '<div class="ls-sub">No payments booked through WashRoute yet.</div>';
+    const sch = _lsSchedule(a.id);
+    let schHtml;
+    if (!sch) {
+      schHtml = '<div class="ls-sub">No amortization schedule on file. Drop the lender\'s schedule in the box at the top of this page.</div>';
+    } else {
+      const t = today();
+      const nextIdx = sch.rows.findIndex(r => String(r.row_date) >= t);
+      const from = Math.max(0, (nextIdx < 0 ? sch.rows.length : nextIdx) - 3);
+      const shown = sch.rows.slice(from, from + 15);
+      schHtml = `<div class="ls-sub" style="margin-bottom:6px">${sch.lender ? 'Lender\'s schedule' : 'Schedule we built from statements'}${sch.s.schedule_generated_date ? ', dated ' + esc(fmtDatePlain(sch.s.schedule_generated_date)) : ''} · ${sch.rows.length} rows · showing ${shown.length} around today</div>
+        <table><thead><tr><th>Date</th><th style="text-align:right">Payment</th><th style="text-align:right">Principal</th><th style="text-align:right">Interest</th><th style="text-align:right">Balance</th></tr></thead><tbody>${
+        shown.map((r, k) => `<tr${from + k === nextIdx ? ' class="ls-next" title="Next scheduled payment"' : ''}><td>${esc(fmtDatePlain(r.row_date))}</td>
+          <td style="text-align:right">${r.payment != null ? fmtMoney(r.payment) : '—'}</td><td style="text-align:right">${r.principal != null ? fmtMoney(r.principal) : '—'}</td>
+          <td style="text-align:right">${r.interest != null ? fmtMoney(r.interest) : '—'}</td><td style="text-align:right">${r.balance != null ? fmtMoney(r.balance) : '—'}</td></tr>`).join('')}</tbody></table>`;
+    }
+    return `<div class="ls-detail"><div><h4>Payments booked in Xero (last 12)</h4>${bookedHtml}</div><div><h4>Amortization schedule</h4>${schHtml}</div></div>`;
+  }
+
+  function renderLoansSimple() {
+    const el = document.getElementById('loans-simple');
     if (!el) return;
-    el.innerHTML = '';
+    if (!_bkLoansLoaded) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>'; return; }
+    const waiting = _bkApprovalQueueItems().filter(i => String(i.key).startsWith('appr-split-') && i.onclick);
+    const staged = _bkStagedQueueItems();
+    const loans = (_allLoanAccounts || []).filter(a => a.status !== 'paid_off')
+      .sort((a, b) => String(a.xero_account_name || '').localeCompare(String(b.xero_account_name || '')));
+    const hiddenPaid = (_allLoanAccounts || []).length - loans.length;
+    let total = 0, asOf = null;
+    const rows = loans.map(a => {
+      const bal = _lsXeroBalance(a.id);
+      if (bal) { total += Number(bal.balance) || 0; if (!asOf || String(bal.as_of) > asOf) asOf = String(bal.as_of); }
+      const sch = _lsSchedule(a.id);
+      const t = today();
+      const next = sch ? sch.rows.find(r => String(r.row_date) >= t && Number(r.payment) > 0) : null;
+      const last = _lsBooked(a.id).find(sp => sp.status !== 'staged');
+      const rate = a.fitted_annual_rate != null
+        ? `<span title="Measured from lender statements">${Number(a.fitted_annual_rate).toFixed(2)}%</span>`
+        : (a.interest_rate != null ? `<span title="As entered — not measured">${Number(a.interest_rate).toFixed(2)}%</span>` : '—');
+      const payoff = sch ? `<span title="Last row of the amortization schedule">${_lsMonth(sch.rows[sch.rows.length - 1].row_date)}</span>`
+        : (a.maturity_date ? `<span title="As entered — no schedule on file">${_lsMonth(a.maturity_date)}</span>` : '—');
+      const open = _lsOpenLoan === a.id;
+      return `<tr class="ls-row" onclick="_lsToggle('${a.id}')">
+          <td><div style="font-weight:600">${open ? '▾' : '▸'} ${esc(a.xero_account_name || a.lender || 'Loan')}</div><div class="ls-sub">${esc(a.lender || '')}${sch ? ' · schedule on file' : ''}</div></td>
+          <td class="num">${bal ? fmtMoney(bal.balance) : '<span class="ls-sub">not read yet</span>'}</td>
+          <td class="num">${rate}</td>
+          <td class="num">${last ? fmtMoney(last.total_amount) + `<div class="ls-sub">${esc(last.period_label || '')}</div>` : '—'}</td>
+          <td class="num">${next ? fmtMoney(next.payment) + `<div class="ls-sub">${esc(_lsDay(next.row_date))}</div>` : '—'}</td>
+          <td class="num">${payoff}</td>
+        </tr>${open ? `<tr><td colspan="6" style="background:var(--gray-50)">${_lsDetailHtml(a)}</td></tr>` : ''}`;
+    }).join('');
+
+    const section = (title, items) => items.length ? `<div class="card" style="margin-bottom:18px;border-radius:14px">
+        <div style="padding:14px 20px 4px;font-size:12.5px;font-weight:600;color:var(--gray-500)">${title}</div>
+        ${items.map(_bkQueueRowHtml).join('')}</div>` : '';
+
+    el.innerHTML = `
+      ${section('Waiting on you', waiting)}
+      ${section('Staged in Xero — waiting for the bank match', staged)}
+      <div class="card" style="border-radius:14px;margin-bottom:18px">
+        <div class="card-header" style="padding:16px 20px 10px;border-bottom:0">
+          <div style="flex:1"><div class="card-title">What you owe</div>
+            <div class="card-sub">Balances as booked in Xero${asOf ? ', as of ' + esc(fmtDatePlain(asOf)) : ''}. Click a loan for its payments and schedule.</div></div>
+          <span style="display:flex;gap:8px">
+            <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="switchBookkeepingView('client','debt')">Debt Schedule →</button>
+            <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="loadLoans()">↻ Refresh</button>
+          </span>
+        </div>
+        <div style="overflow-x:auto"><table class="ls-table">
+          <thead><tr><th>Loan</th><th class="num">Balance in Xero</th><th class="num">Rate</th><th class="num">Last payment</th><th class="num">Next scheduled</th><th class="num">Payoff</th></tr></thead>
+          <tbody>${rows}<tr class="ls-total"><td>Total</td><td class="num">${fmtMoney(total)}</td><td colspan="4"></td></tr></tbody>
+        </table></div>
+        ${hiddenPaid ? `<div class="ls-sub" style="padding:10px 20px 14px">${hiddenPaid} paid-off loan${hiddenPaid === 1 ? '' : 's'} not shown.</div>` : ''}
+      </div>`;
+  }
+
+  // Session 367: the retail cash reclass's home is the Payroll page (David uses it;
+  // the queue it used to sit in stopped rendering in session 288 -- for two months
+  // the only path to it was the URL). Shows only while a month is outstanding.
+  function renderRetailReclassCard() {
+    const el = document.getElementById('pk-monthend-card');
+    if (!el) return;
+    if (!_retailReclassPeriod || _bkDismissals.has('appr-retail')) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="card" style="margin-bottom:18px;border-radius:14px">
+      <div style="padding:14px 20px 4px;font-size:12.5px;font-weight:600;color:var(--gray-500)">Month-end</div>
+      ${_bkQueueRowHtml({ key: 'appr-retail', dot: 'green',
+        name: `Retail cash reclass — ${_retailReclassPeriod}`,
+        reason: 'Moves cash sales for Wash & Fold and Vending out of Self service into their own accounts',
+        action: 'Review & post', onclick: 'openRetailCashReclassModal()' })}
+    </div>`;
   }
 
   // Actionable queue items only. Tier 3 is a note or a pattern proposal -- it
@@ -31050,7 +31246,7 @@ ${noActivityNote}
     // Kinds 2-4 all come from the outstanding-orders view (session 230), which is the
     // single source of truth for what money is owed and why. Kind 1 is a status
     // question, not a money question, so it still reads orders directly.
-    const [reschedRes, reviewRes, unroutedRes] = await Promise.all([
+    const [reschedRes, reviewRes, unroutedRes, gapRes, writeOffRes] = await Promise.all([
       db.from('orders')
         .select('id, order_number, status, total_amount, billing_status, charge_failed_at, cancelled_by, driver_skip_reason, pickup_window_start, delivery_window_start, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
         // Session 291: this card is ONLY for orders where we are holding the customer's
@@ -31086,6 +31282,27 @@ ${noActivityNote}
         .neq('source', 'walk_in')
         .is('archived_at', null)
         .limit(2000),
+      // Session 363 (2026-11-02): money left UNCOLLECTED when an already-charged order
+      // is re-priced upward. record_order_intake logs a billing_discrepancy event when
+      // that happens (session 362) -- and until now nothing in the app read it, so the
+      // only way to find the money was audit check 26 the next morning. Four such gaps
+      // sat unseen for up to three weeks ($74 total, written off 2026-11-02).
+      //
+      // "Open" = a billing_discrepancy with no billing_write_off of the SAME AMOUNT.
+      // Matching on the amount rather than merely the presence of a write-off means a
+      // SECOND re-price on an order already written off surfaces again instead of
+      // hiding behind the old decision. This mirrors daily_audit.sql check 26's clause
+      // exactly: the audit and this card must agree, or one teaches you to distrust
+      // the other.
+      db.from('order_events')
+        .select('order_id, new_value, created_at, orders!inner(id, order_number, status, total_amount, archived_at, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache))', { count: 'exact' })
+        .eq('event_type', 'billing_discrepancy')
+        .order('created_at', { ascending: false })
+        .limit(500),
+      db.from('order_events')
+        .select('order_id, new_value', { count: 'exact' })
+        .eq('event_type', 'billing_write_off')
+        .limit(500),
     ]);
 
     if (reschedRes.error || !reschedRes.data) {
@@ -31122,6 +31339,36 @@ ${noActivityNote}
     }
     const _unroutedUnsure = _unroutedTruncated || !!(unroutedRes && unroutedRes.error);
 
+    // Session 363: pair each billing_discrepancy with any write-off of the same amount.
+    // supabase-js never throws, so an unchecked error here would render a clean "All
+    // clear" over real uncollected money -- the failure mode this whole card exists to
+    // prevent. A failed query means we know NOTHING, which is not the same as knowing
+    // there is nothing.
+    if (gapRes && gapRes.error) console.error('[for-your-review] uncollected check failed:', gapRes.error);
+    if (writeOffRes && writeOffRes.error) console.error('[for-your-review] write-off check failed:', writeOffRes.error);
+    // This file's own hard-won rule: a wide PostgREST select is capped silently, and
+    // the admin inbox already lost conversation rows to exactly this trap. If either
+    // list came back short of its true count we cannot trust what we computed from it.
+    // The write-off list matters MORE than the gap list here: a truncated gap list
+    // hides real money, but a truncated write-off list resurrects settled decisions as
+    // false findings, which is how a card loses its credibility.
+    const _gapTruncated = !!(gapRes && gapRes.count != null
+      && (gapRes.data || []).length < gapRes.count);
+    const _writeOffTruncated = !!(writeOffRes && writeOffRes.count != null
+      && (writeOffRes.data || []).length < writeOffRes.count);
+    const _gapUnsure = !!(gapRes && gapRes.error) || !!(writeOffRes && writeOffRes.error)
+      || _gapTruncated || _writeOffTruncated;
+    const _writeOffs = (writeOffRes && writeOffRes.data) || [];
+    const _isWrittenOff = (orderId, amt) => _writeOffs.some(
+      w => w.order_id === orderId && Math.abs(Number(w.new_value) - amt) < 0.01);
+    const _gapSeen = new Set();
+    const uncollected = ((gapRes && gapRes.data) || [])
+      .filter(e => e.orders && !e.orders.archived_at)
+      .map(e => ({ ...e.orders, _kind: 'uncollected', _gap: Number(e.new_value), _gapAt: e.created_at }))
+      .filter(r => Number.isFinite(r._gap) && r._gap > 0.01 && !_isWrittenOff(r.id, r._gap))
+      // Two identical discrepancies on one order are one decision, not two rows.
+      .filter(r => { const k = r.id + '|' + r._gap.toFixed(2); if (_gapSeen.has(k)) return false; _gapSeen.add(k); return true; });
+
     // 1. Needs rescheduling. Since session 291 removed the Orders → Issues tab, this is
     //    _isIssueRow's only caller — the tab was showing the same rows a second time.
     //    Billing failures are excluded: those are a payment problem, handled on Unpaid
@@ -31133,14 +31380,15 @@ ${noActivityNote}
     // Session 291: "Archived, still owed" was removed. Any unpaid order -- archived or
     // not -- now belongs on Unpaid Orders, which is where the money picture lives.
 
-    const total = needsReschedule.length + cardErrors.length + stalled.length + unroutedRows.length;
+    const total = needsReschedule.length + cardErrors.length + stalled.length + unroutedRows.length + uncollected.length;
     const badge = document.getElementById('reschedule-count-badge');
+    const _anyUnsure = _unroutedUnsure || _gapUnsure;
 
     if (!total) {
       if (badge) badge.style.display = 'none';
-      if (subEl) subEl.textContent = _unroutedUnsure ? 'Partial check' : 'All clear';
-      el.innerHTML = _unroutedUnsure
-        ? '<div style="padding:20px;text-align:center;color:var(--amber);font-size:13px">Couldn\'t check every order for a missing delivery, so this isn\'t a clean bill of health. Tell David if this keeps showing.</div>'
+      if (subEl) subEl.textContent = _anyUnsure ? 'Partial check' : 'All clear';
+      el.innerHTML = _anyUnsure
+        ? '<div style="padding:20px;text-align:center;color:var(--amber);font-size:13px">Couldn\'t finish every check here, so this isn\'t a clean bill of health. Tell David if this keeps showing.</div>'
         : '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ Nothing needs review</div>';
       return;
     }
@@ -31155,14 +31403,21 @@ ${noActivityNote}
     // single renderer can pick the right "why" text and the right primary action.
     // Sorted by urgency: the customer's laundry is with us (reschedule) > money is
     // mislabelled (card error) > it has been with us too long (stalled).
-    const KIND_ORDER = { unrouted: 0, reschedule: 1, card_error: 2, stalled: 3 };
+    // Session 363: 'uncollected' sits above the money-labelling kinds and below the
+    // two where the customer's laundry itself is at risk -- real money is missing, but
+    // nobody is standing at a door waiting.
+    const KIND_ORDER = { unrouted: 0, reschedule: 1, uncollected: 2, card_error: 3, stalled: 4 };
     // Secondary sort is oldest-first, on whichever date that kind is actually about.
     const _fyrSortKey = (o) => (o._kind === 'reschedule' || o._kind === 'unrouted')
       ? (o.delivery_window_start || o.pickup_window_start || '')
+      // Session 363: an uncollected gap is about WHEN THE GAP OPENED, not when the
+      // order was created -- the order may be months old and the gap minutes old.
+      : o._kind === 'uncollected' ? (o._gapAt || '')
       : (o.created_at || '');
     const unified = [
       ..._unroutedShown.map(o => ({ ...o, _kind: 'unrouted' })),
       ...needsReschedule.map(o => ({ ...o, _kind: 'reschedule' })),
+      ...uncollected,
       ...cardErrors.map(o => ({ ...o, _kind: 'card_error' })),
       ...stalled.map(o => ({ ...o, _kind: 'stalled' })),
     ].sort((a, b) => (KIND_ORDER[a._kind] - KIND_ORDER[b._kind])
@@ -31173,6 +31428,11 @@ ${noActivityNote}
            Couldn't check every order for a missing delivery — this list may be incomplete.
          </div>`
       : '';
+    const _gapUnsureNote = _gapUnsure
+      ? `<div style="padding:10px 14px;background:var(--amber-light);border-top:1px solid var(--gray-100);color:var(--gray-700);font-size:12px">
+           Couldn't finish checking for money left uncollected — this list may be incomplete. Tell David if this keeps showing.
+         </div>`
+      : '';
     const _unroutedNote = _unroutedSuspicious
       ? `<div style="padding:10px 14px;background:var(--amber-light);border-top:1px solid var(--gray-100);color:var(--gray-700);font-size:12px">
            <strong>${unroutedRows.length} orders</strong> look like they have no delivery scheduled. That is unusually many —
@@ -31180,7 +31440,7 @@ ${noActivityNote}
            Showing the first ${_unroutedShown.length}. Worth checking with David before rescheduling them all.
          </div>`
       : '';
-    el.innerHTML = _unroutedUnsureNote + _unroutedNote + _fyrUnifiedHtml(unified);
+    el.innerHTML = _unroutedUnsureNote + _gapUnsureNote + _unroutedNote + _fyrUnifiedHtml(unified);
   }
 
   // Shared section wrapper so all four groups read as one system.
@@ -31205,9 +31465,10 @@ ${noActivityNote}
   function _fyrRow(o) {
     const isResched  = o._kind === 'reschedule';
     const isUnrouted = o._kind === 'unrouted';
+    const isUncollected = o._kind === 'uncollected';
     // Both of these are read straight from `orders` and carry a nested customers
     // object; the money kinds come from v_outstanding_orders with flat *_cache columns.
-    const fromOrders = isResched || isUnrouted;
+    const fromOrders = isResched || isUnrouted || isUncollected;
     const cust   = fromOrders ? o.customers : o;
     const custId = (fromOrders ? (o.customers && o.customers.id) : o.customer_id) || '';
     const name   = `${(cust && cust.first_name_cache) || ''} ${(cust && cust.last_name_cache) || ''}`.trim() || 'Unknown';
@@ -31236,6 +31497,18 @@ ${noActivityNote}
       when   = leg ? fmtDate(leg) : '—';
       amount = o.total_amount != null ? fmtMoney(o.total_amount) : '—';
       primary = `<button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="${_fyrOpenOrder(o.id)}">Reschedule →</button>`;
+    } else if (isUncollected) {
+      // Plain language on purpose: "billing discrepancy" means nothing to the CS team.
+      // The number is the point, so it goes in the Amount column like every other row.
+      why     = 'Never collected — total went up after the card was charged';
+      when    = o._gapAt ? fmtDate(o._gapAt) : '—';
+      amount  = fmtMoney(o._gap);
+      // Open the order, and nothing more. There is deliberately no "collect the
+      // difference" button (charge-custom writes order_id NULL, so it is not an order
+      // top-up) and deliberately no one-click write-off: session 291 removed exactly
+      // that control because an irreversible money action on a dashboard row is a human
+      // error waiting to happen. A row leaves this list when the gap is written off.
+      primary = `<button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="${_fyrOpenOrder(o.id)}" title="Open the order — decide whether to chase the difference or write it off">Open →</button>`;
     } else if (o._kind === 'card_error') {
       why    = 'Card charged in error — invoiced customer';
       when   = o.created_at ? fmtDate(o.created_at) : '—';
