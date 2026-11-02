@@ -14251,6 +14251,34 @@ picked up the new anchor.
 
 ## Session Log
 
+### 2026-11-02 — DEXTER 2 RATE CHANGE; NEWEST SCHEDULE WINS; COST OF DEBT
+
+**Trigger.** David set Dexter 2's rate to 9.64% (lender re-issued the schedule 2026-10-07:
+6.64% -> 9.39% on 8/31 -> 9.64% on 10/1; payment 3,839.38 -> 3,947.35 -> 3,956.84). The
+headline kept 5.89% (the fit measures the past) and the loan still split on the 2021
+schedule: the Oct upload went through the BATCH drop box, which verified the schedule and
+then only FILED it as a document.
+
+**Data (David approved):** ingested the 2026-10-07 schedule (89 rows incl. two rate_change
+rows); regenerated the pending 2026-09 split (3,810.26 -> 3,947.35 = 3,273.88 + 673.47).
+Open: Xero 233 at 10/31 = 78,721.95 vs schedule 79,500.44 (diff 778.49), likely Sep/Oct
+booked at old amounts -- for the bookkeeper.
+
+**Code.**
+- 8b58d74: Debt Schedule footer "Weighted average cost of debt" (screen/PDF/CSV, one helper
+  `_debtWeightedRate`; no-rate facilities excluded and named, never 0%).
+  `_loanScheduleRateChange`: a lender-issued schedule's rate_change in effect beats the
+  fitted rate in `_loanMeasuredRate` and on the loan info card.
+- 36747e7, David's rule **"any new upload replaces the old file"**: `_loanScheduleChoice` =
+  newest (schedule date, then upload time), matching every server path; recorded/rank/
+  unsettled ladder retired, `chosen_schedule_id` no longer read. No live loan's pick moved.
+  `_bkImportSchedule` is the one import path (intake modal AND batch drop); upload date =
+  schedule date; a waiting pending_review card from the old schedule is regenerated
+  (staged/posted refused by the server and reported). Parser returns `rateChanges`.
+- Harness: schedule-choice rewritten for newest-wins; amort-schedule-intake asserts rate
+  changes travel; fix-beats-schedule-ask control re-keyed. Reds unchanged vs. base:
+  closing-evidence ce16 x4, intake-on-loans s276p, rollback-beats-stale x5.
+
 ### Session 293 cont. 2 — TURNING A FEATURE OFF CREATED A PATH, AND IT FAILED OPEN
 
 **David, within the hour of the staging rule shipping: "I'm still being asked to approve staging

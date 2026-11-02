@@ -12298,7 +12298,7 @@ GROUPS.push({
        one rule: the newest schedule wins -- schedule date, then upload time. That
        is what every server path (staging-next, generate-split, reconciliation-run)
        already picked, so the close and staging now read the same schedule
-       (Tech Debt #47). Asserted as pairs: the new rule holds, AND each old basis
+       (the risk session 288 left open). Asserted as pairs: the new rule holds, AND each old basis
        that could have overridden it no longer does. */
 
     /* ── 1. MORE THAN ONE IS LIVE, AND THE NEWEST WINS WITHOUT ASKING ─────── */
