@@ -18696,7 +18696,32 @@
   // The rate, measured. fitted_annual_rate comes from _shared/rate-fit.ts —
   // solved against real lender balances. Returns { pct, measured } so callers
   // can tell a measured rate from a stand-in without the column having to.
+  // 2026-11-02 (David, Dexter Loan 2): the fit measures the PAST. When the
+  // lender's own schedule records a rate change that has already taken effect,
+  // the fit cannot see it yet (24 periods at 6.64% fitted to 5.89% while the
+  // loan was charging 9.64%). The lender's printed rate then wins.
+  // Admissible only from a LENDER-ISSUED schedule (same allowlist as
+  // mayPrestage) that is the settled choice for the loan, and only a
+  // rate_change row -- an 'initial' rate is exactly what the fit already
+  // measured, so a stable-rate loan keeps its measured figure.
+  function _loanScheduleRateChange(a) {
+    if (typeof _loanScheduleChoice !== 'function') return null;
+    const choice = _loanScheduleChoice(a);
+    if (!choice || !choice.id || choice.unsettled) return null;
+    const t = today();
+    const rcs = (_allLoanAmortRows || []).filter(r => {
+      const sc = r.loan_amortization_schedules || {};
+      return String(r.schedule_id || '') === String(choice.id) && r.row_type === 'rate_change' &&
+        r.rate != null && r.row_date && String(r.row_date) <= t &&
+        ['claude_assisted_parse', 'client_parsed_verified'].includes(sc.source) &&
+        sc.amort_type === 'amortization_schedule';
+    }).sort((x, y) => String(y.row_date).localeCompare(String(x.row_date)));
+    return rcs.length ? { pct: Number(rcs[0].rate), since: String(rcs[0].row_date) } : null;
+  }
+
   function _loanMeasuredRate(a) {
+    const rc = _loanScheduleRateChange(a);
+    if (rc) return { pct: rc.pct, measured: true, basis: 'lender_schedule', since: rc.since };
     if (a.fitted_annual_rate != null) return { pct: Number(a.fitted_annual_rate), measured: true };
     if (a.interest_rate != null)      return { pct: Number(a.interest_rate), measured: false };
     return { pct: null, measured: false };
@@ -19515,6 +19540,30 @@
     return parts.join(' ');
   }
 
+  // Session 2026-11-02 (David): "average cost of capital" at the foot of the
+  // Debt Schedule. ONE function, read by the screen table, the PDF and (via the
+  // table's tfoot) the CSV, so the three can never quote different figures.
+  // Balance-weighted, using exactly the rate and balance each row displays.
+  // A facility with no rate (Stripe Capital: a fee, not an interest rate) is
+  // left OUT of both numerator and denominator and NAMED — counting its
+  // balance at 0% would understate the cost of debt.
+  function _debtWeightedRate(items) {
+    let wsum = 0, bsum = 0;
+    const excluded = [];
+    for (const e of items) {
+      const bal = Number(e.bal?.amount || 0);
+      if (!(bal > 0)) continue;
+      if (!e.rate || e.rate.pct == null) { excluded.push(e.a.xero_account_name || e.a.lender); continue; }
+      wsum += bal * Number(e.rate.pct);
+      bsum += bal;
+    }
+    if (!(bsum > 0)) return null;
+    const pct = wsum / bsum;
+    const label = 'Weighted average cost of debt (by balance' +
+      (excluded.length ? '; excludes ' + excluded.join(', ') + ', which has no stated rate' : '') + ')';
+    return { pct, label, excluded };
+  }
+
   function renderDebtSchedule() {
     const summaryEl = document.getElementById('debtsched-summary');
     const wrapEl = document.getElementById('debtsched-table-wrap');
@@ -19650,7 +19699,11 @@
           <td></td>
           <td style="text-align:right">${money(grandPmt)}</td>
           <td></td><td></td><td class="cv-noprint"></td>
-        </tr></tfoot>
+        </tr>${(() => { const w = _debtWeightedRate(enriched); return w ? `<tr style="font-size:12.5px">
+          <td colspan="5" style="padding:8px 12px;color:var(--gray-500)">${esc(w.label)}</td>
+          <td style="text-align:right;padding:8px 12px;font-weight:700">${w.pct.toFixed(2)}%</td>
+          <td></td><td></td><td></td><td class="cv-noprint"></td>
+        </tr>` : ''; })()}</tfoot>
       </table>` : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No active loans on the schedule.</div>`;
     try { _renderPaidOffLoans(); } catch (e2) { console.error('[paid-off]', e2); }
   }
@@ -19797,7 +19850,11 @@
     <td></td>
     <td style="padding:8px;text-align:right">${money(grandPmt)}</td>
     <td></td><td></td>
-  </tr></tfoot>
+  </tr>${(() => { const w = _debtWeightedRate(rows); return w ? `<tr>
+    <td colspan="5" style="padding:6px 8px;font-size:12.5px;color:#6b7280">${esc(w.label)}</td>
+    <td style="padding:6px 8px;text-align:right;font-weight:700">${w.pct.toFixed(2)}%</td>
+    <td></td><td></td><td></td>
+  </tr>` : ''; })()}</tfoot>
 </table>
 <div style="margin-top:16px;font-size:12.5px;color:#9ca3af">${esc(_debtSchedFootnote)}</div>
 </body></html>`;
@@ -26599,7 +26656,11 @@
     // 9.000% on three Ford loans whose real rates are 8.29 / 9.99 / 8.99%. Showing
     // the measured figure beside the typed one is how a wrong contract note gets
     // noticed instead of quietly costing money.
-    if (a.fitted_annual_rate != null) {
+    const _lcRc = _loanScheduleRateChange(a);
+    if (_lcRc) {
+      row('Rate', `<b>${_lcRc.pct.toFixed(3)}%</b> ${q('· lender\'s schedule, since ' + esc(_bkPlainDate(_lcRc.since)))}${a.interest_rate != null ? ' ' + q('· contract note says ' + Number(a.interest_rate).toFixed(3) + '%') : ''}`,
+        `The lender's schedule records a rate change on ${_lcRc.since}. The rate measured from past payments${a.fitted_annual_rate != null ? ' (' + Number(a.fitted_annual_rate).toFixed(3) + '%)' : ''} predates it.`);
+    } else if (a.fitted_annual_rate != null) {
       row('Rate', `<b>${Number(a.fitted_annual_rate).toFixed(3)}%</b> <span class="lc-hint">measured</span>${a.interest_rate != null ? ' ' + q('· contract note says ' + Number(a.interest_rate).toFixed(3) + '%') : ''}`,
         `Measured from ${a.rate_fit_periods || '?'} rows of this loan's own lender statements; worst error ${a.rate_fit_residual != null ? money2(a.rate_fit_residual) : 'n/a'}. Nothing that posts money reads the typed-in rate.`);
     } else if (t.rate != null) {
