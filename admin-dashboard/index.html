@@ -24013,8 +24013,47 @@
     // tile would have claimed $4,142.02 of payments that the close band directly
     // above it says never happened.
     const _live = (s2) => s2.status !== 'voided';
-    const lastMonth = sumSplits(_allLoanSplits.filter(s2 => _live(s2) && periodMonth(s2.period_label) === lastMonthLabel));
-    const ytd = sumSplits(_allLoanSplits.filter(s2 => _live(s2) && periodMonth(s2.period_label).startsWith(yearPrefix) && periodMonth(s2.period_label) <= thisMonthLabel));
+    // Session 367 (David: "I paid more than $29,569.35 last month when considering
+    // early payoff for Paypal"). Splits are only what WashRoute recorded -- a payoff or
+    // a payment Ramona coded straight in Xero never becomes one. So PRINCIPAL now comes
+    // from Xero wherever we hold both month-end balances: how far the loan's Xero
+    // balance fell, plus anything drawn on it that month. Every loan counts, paid-off
+    // ones included (a payoff month is exactly when a loan becomes paid off).
+    // INTEREST stays from the splits -- the balance cannot see it. Months with no
+    // Xero month-end pair (before July 2026) fall back to the splits, per loan.
+    const _monthEnd = (ym) => { const [y, m] = ym.split('-').map(Number);
+      return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
+    const _prevYm = (ym) => { const [y, m] = ym.split('-').map(Number);
+      const d = new Date(Date.UTC(y, m - 2, 1)); return d.toISOString().slice(0, 7); };
+    const _bookAt = (loanId, iso) => (_allLoanBookBalances || []).find(b =>
+      b.loan_account_id === loanId && b.basis === 'xero_rebuild' && String(b.as_of) === iso);
+    const paidInMonth = (ym) => {
+      const tot = { principal: 0, interest: 0 };
+      const cur = _monthEnd(ym), prev = _monthEnd(_prevYm(ym));
+      for (const a of (_allLoanAccounts || [])) {
+        const splits = _allLoanSplits.filter(s2 => s2.loan_account_id === a.id && _live(s2) && periodMonth(s2.period_label) === ym);
+        const sp = sumSplits(splits);
+        const bc = _bookAt(a.id, cur), bp = _bookAt(a.id, prev);
+        if (bc && bp) {
+          const drawn = (bc.detail && bc.detail.movement_from === prev && isFinite(Number(bc.detail.drawn))) ? Number(bc.detail.drawn) : 0;
+          tot.principal += Math.max(0, Number(bp.balance) - Number(bc.balance) + drawn);
+        } else {
+          tot.principal += sp.principal;
+        }
+        tot.interest += sp.interest;
+      }
+      return tot;
+    };
+    const lastMonth = paidInMonth(lastMonthLabel);
+    const ytd = { principal: 0, interest: 0 };
+    for (let mm = 1; mm <= tm; mm++) {
+      const ym = `${ty}-${String(mm).padStart(2, '0')}`;
+      // The current month is still open: no month-end balance yet, splits only.
+      const t = ym === thisMonthLabel
+        ? sumSplits(_allLoanSplits.filter(s2 => _live(s2) && periodMonth(s2.period_label) === ym))
+        : paidInMonth(ym);
+      ytd.principal += t.principal; ytd.interest += t.interest;
+    }
 
     const money = (n) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -24044,8 +24083,8 @@
     el.innerHTML = `<div class="lct"><div class="bk-tiles">` +
       card('Active loans', active, 'var(--gray-900)') +
       card(outstandingLabel, money(totalOutstanding), 'var(--gray-900)', outstandingTitle) +
-      breakdownCard(`Paid last month (${lastMonthLabel})`, lastMonth, 'Sum of every loan_splits row for this period, regardless of Xero-posting status -- reflects real payments already shown on a statement or schedule.') +
-      breakdownCard(`Paid YTD (${ty})`, ytd, 'Sum of every loan_splits row from Jan through this month, regardless of Xero-posting status.') +
+      breakdownCard(`Paid last month (${lastMonthLabel})`, lastMonth, 'Principal: how far each loan\'s balance fell in Xero that month (payoffs included). Interest: as recorded on each payment. -- reflects real payments already shown on a statement or schedule.') +
+      breakdownCard(`Paid YTD (${ty})`, ytd, 'Principal from Xero balance changes where month-end balances exist (July onward), recorded payments before that. Interest as recorded.') +
       `</div></div>`;
   }
 
