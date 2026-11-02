@@ -188,6 +188,17 @@ Deno.serve(async (req) => {
       }), { headers: { ...cors, 'Content-Type': 'application/json' } })
     }
 
+    // Session 350: remember Stripe's refund id on our row, so stripe-webhook can void it if
+    // the refund is later cancelled or fails in Stripe. Money has already moved, so a failure
+    // here is logged loudly but does not fail the refund (the webhook falls back to matching
+    // by payment intent + amount).
+    if (book?.refund_transaction_id) {
+      const { error: idErr } = await db.from('customer_transactions')
+        .update({ stripe_refund_id: stripeRefund.id })
+        .eq('id', book.refund_transaction_id)
+      if (idErr) console.error('refund-charge: could not save stripe_refund_id', { stripeRefundId: stripeRefund.id, txn: book.refund_transaction_id, error: idErr.message })
+    }
+
     if (book?.over_refunded) {
       console.warn('refund-charge: recorded refund exceeds the original charge', { transactionId: txn.id, amount: refundAmount })
     }

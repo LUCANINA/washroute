@@ -44518,6 +44518,9 @@ ${oneCopy}
       } else if (t.type === 'refund') {
         label = esc(desc || 'Refund');
         amtHtml = `<span class="cp2-ta" style="color:#b45309">−${fmtMoney(amt)}</span>`;
+      } else if (t.type === 'refund_cancelled') {
+        label = `<span class="cp2-muted">${esc(desc || 'Refund cancelled')}</span>`;
+        amtHtml = `<span class="cp2-ta cp2-muted" style="text-decoration:line-through">−${fmtMoney(amt)}</span>`;
       } else if (t.type === 'credit_add') {
         label = `Credit added<span class="cp2-muted"> · account credit</span>`;
         amtHtml = `<span class="cp2-ta cp2-muted">+${fmtMoney(amt)}</span>`;

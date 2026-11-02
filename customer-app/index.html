@@ -10540,6 +10540,7 @@ async function loadBillingHistory() {
   const { data, error } = await db.from('customer_transactions')
     .select('id, type, amount, description, order_id, payment_method, card_brand, card_last4, note, created_at')
     .eq('customer_id', currentCustomer.id)
+    .neq('type', 'refund_cancelled')   // session 350: a cancelled refund never reached them
     .order('created_at', { ascending: false })
     .limit(200);
   if (error) {

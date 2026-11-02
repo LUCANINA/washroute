@@ -235,6 +235,52 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // -- Session 350: refund cancelled or failed in Stripe -> void it in WashRoute --
+    // refund-charge / POS record a refund the moment it is issued. If it is later cancelled
+    // in the Stripe dashboard (or fails), the books still showed it as refunded. Stripe can
+    // send both charge.refund.updated and refund.updated for one change; void_order_refund
+    // is idempotent, so either / both / a retry is safe. Never messages the customer.
+    if (['charge.refund.updated', 'refund.updated', 'refund.failed'].includes(event.type as string)) {
+      const refund = event.data.object as Stripe.Refund
+      if (refund.status === 'canceled' || refund.status === 'failed') {
+        const piId = typeof refund.payment_intent === 'string' ? refund.payment_intent : (refund.payment_intent as any)?.id
+        const amount = Math.round(refund.amount) / 100
+
+        // 1) Exact match on the Stripe refund id (refunds issued from session 350 on).
+        let txnId: string | null = null
+        const { data: byId, error: byIdErr } = await db.from('customer_transactions')
+          .select('id').eq('stripe_refund_id', refund.id).limit(1)
+        if (byIdErr) throw new Error('refund lookup failed: ' + byIdErr.message)
+        if (byId && byId.length) txnId = byId[0].id
+
+        // 2) Older rows have no refund id: match payment intent + amount, but ONLY if exactly
+        //    one row fits. Two same-size refunds on one charge are ambiguous -> leave for a human.
+        if (!txnId && piId) {
+          const { data: cands, error: cErr } = await db.from('customer_transactions')
+            .select('id, amount')
+            .eq('type', 'refund')
+            .eq('stripe_payment_intent_id', piId)
+            .is('stripe_refund_id', null)
+          if (cErr) throw new Error('refund fallback lookup failed: ' + cErr.message)
+          const hits = (cands || []).filter((t: any) => Math.abs(Number(t.amount) - amount) < 0.005)
+          if (hits.length === 1) txnId = hits[0].id
+          else if (hits.length > 1) console.error('Refund ' + refund.status + ' in Stripe but ' + hits.length + ' matching WashRoute rows — void by hand', { refund: refund.id, piId, amount })
+        }
+
+        if (!txnId) {
+          console.warn('Refund ' + refund.status + ' in Stripe; no WashRoute refund row to void', { refund: refund.id, piId, amount })
+        } else {
+          const { data: v, error: vErr } = await db.rpc('void_order_refund', {
+            p_refund_transaction_id: txnId,
+            p_reason: refund.status === 'canceled' ? 'cancelled in Stripe' : 'failed in Stripe',
+            p_actor_name: 'Stripe',
+          })
+          if (vErr) throw new Error('void_order_refund failed: ' + vErr.message)  // 500 -> Stripe retries
+          console.log('Voided refund', refund.id, '->', txnId, v?.already_voided ? '(already voided)' : '')
+        }
+      }
+    }
+
     // -- payment_intent.succeeded -- backup: mark order as paid if charge-order missed it --
     if (event.type === 'payment_intent.succeeded') {
       const pi = event.data.object as Stripe.PaymentIntent
