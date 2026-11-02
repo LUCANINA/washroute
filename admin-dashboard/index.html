@@ -4543,7 +4543,7 @@
                  #bkvt-client stays in the DOM, hidden, because switchBookkeepingView still
                  toggles it by id. -->
             <button class="section-tab" id="bkvt-client" style="display:none" onclick="switchBookkeepingView('client')">Client View</button>
-            <button class="section-tab" id="bkvt-debt" onclick="switchBookkeepingView('client','debt')">Debt Schedule</button>
+            <button class="section-tab" id="bkvt-debt" style="display:none" onclick="switchBookkeepingView('client','debt')">Debt Schedule</button>
             <!-- Session 367: KPIs removed (David: "Not helpful"). Hidden, not deleted. -->
             <button class="section-tab" id="bkvt-kpis" style="display:none" onclick="switchBookkeepingView('client','kpis')">KPIs</button>
           </div>
@@ -5486,6 +5486,7 @@
             <div id="bk-payout-realloc-list"></div>
           </div>
           <div id="loans-simple"></div>
+          <div id="loans-debt-slot"></div>
           <div id="loans-subview-manage" style="display:none">
 
           <!-- Stripe payouts not booked (session 266; moved here session 292 -- it
@@ -6001,6 +6002,7 @@
               <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
               <div class="cv-method" id="debtsched-method"></div>
             </div>
+            <div id="debtsched-paidoff" class="cv-noprint" style="margin-top:14px"></div>
           </div>
 
             </div><!-- /cv-subview-debt -->
@@ -6369,6 +6371,18 @@
              metadata. Upload goes straight from the browser via the authenticated Supabase
              client -- no edge function needed, this is pure file storage with no business
              logic to run. -->
+        <!-- Session 367: one panel per loan -- details, documents, payments, schedule. -->
+        <div class="modal-overlay" id="modal-loan-panel">
+          <div class="modal" style="width:min(980px,96vw)">
+            <div class="modal-header">
+              <div class="modal-title" id="loan-panel-title">Loan</div>
+              <button class="modal-close" onclick="closeLoanPanel()">
+                <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="modal-body" id="loan-panel-body" style="max-height:75vh;overflow-y:auto">Loading…</div>
+          </div>
+        </div>
         <div class="modal-overlay" id="modal-loan-documents">
           <div class="modal" style="width:560px">
             <div class="modal-header">
@@ -11410,6 +11424,8 @@
     // the page is never shown; an old bookmark lands on Loans, which is where the
     // work it used to front now lives.
     if (view === 'overview') view = 'loans';
+    // Session 367: the Debt Schedule now lives ON the Loans page.
+    if (view === 'client') view = 'loans';
     if (!['loans', 'payroll', 'client'].includes(view)) view = 'loans';
     _bookkeepingActiveTab = view;
     // Always none. Kept as a statement rather than deleted, so the four view divs
@@ -11454,6 +11470,7 @@
     // #bk-payout-realloc-card) -- fire-and-forget, same as Overview/Client View
     // did, and must never hold up the rest of the tab switch.
     if (view === 'loans') { try { _bkLoadPayoutReallocations(); } catch (_) {} }
+    if (view === 'loans') { try { _bkMountDebtOnLoans(); } catch (e) { console.error('[loans-debt]', e); } }
     try { history.replaceState(null, '', '#bookkeeping/' + view); } catch(_) {}
   }
 
@@ -11495,6 +11512,7 @@
     _bkRenderLoadBanner();
     try { renderLoansSimple(); } catch (e) { console.error('[loans-simple]', e); }
     try { renderRetailReclassCard(); } catch (e) { console.error('[retail-reclass-card]', e); }
+    if (_bookkeepingActiveTab === 'loans') { try { _bkMountDebtOnLoans(); } catch (e) { console.error('[loans-debt]', e); } }
     // Session 269: the 'overview' case is gone — it can no longer be the active tab.
     if (_bookkeepingActiveTab === 'client') {
       renderBookkeepingOverview();   // still the renderer for the KPI tiles
@@ -19132,7 +19150,7 @@
   function _cvDebtTotals() {
     const active = (_allLoanAccounts || []).filter(a => a.status === 'active');
     const owed = active.reduce((sum, a) => {
-      const b = _loanOutstandingBalance(a);
+      const b = _debtBalance(a);
       return sum + (b ? b.amount : 0);
     }, 0);
 
@@ -19482,7 +19500,11 @@
     const anyNoPmt  = enriched.some(e => e.pmt == null);
 
     const parts = [];
-    parts.push(allLender
+    // Session 367: balances are Xero's (David). Say so plainly when they all are.
+    const allXero = withBal.length && withBal.every(e => e.bal.xero);
+    const xeroAsOf = allXero ? withBal.map(e => e.bal.asOf).sort().pop() : null;
+    if (allXero) parts.push(`Balances are as booked in the company's accounts (Xero) at ${fmtDatePlain(xeroAsOf)}.`);
+    else parts.push(allLender
       ? 'Balances are the most recent figure from each lender.'
       : 'Balances are the most recent figure on file for each facility — for most, the lender’s own statement or portal; for the remainder, the borrower’s ledger.');
     parts.push(allFitted
@@ -19503,7 +19525,7 @@
     const rows = _debtScheduleRows();
 
     const enriched = rows.map(a => {
-      const bal = _loanOutstandingBalance(a);
+      const bal = _debtBalance(a);
       const staleness = (() => {
         if (!bal) return 'missing';
         const days = (Date.now() - new Date(bal.asOf + 'T00:00:00').getTime()) / 86400000;
@@ -19536,7 +19558,7 @@
     // instead, on the statement checklist at the top of this same tab.
     const balCell = (e) => {
       if (!e.bal) return '—';
-      if (e.bal.authoritative) return money(e.bal.amount);
+      if (e.bal.xero || e.bal.authoritative) return money(e.bal.amount);
       // Not from a lender document. No ink on the page — a title only, so the
       // printed and exported sheet is unchanged — but never let US mistake our
       // own arithmetic for the lender's figure.
@@ -19567,7 +19589,7 @@
 
     const rowHtml = (e) => {
       const a = e.a;
-      return `<tr>
+      return `<tr style="cursor:pointer" title="Open this loan" onclick="openLoanPanel('${a.id}')">
         <td>${esc(a.lender)}</td>
         <td class="td-name" style="white-space:nowrap">${esc(a.xero_account_name || a.lender_account_number)}</td>
         <td style="text-align:right">${money(a.original_amount)}</td>
@@ -19577,7 +19599,7 @@
         <td style="text-align:right;white-space:nowrap">${pmtCell(e)}</td>
         <td style="text-align:right;white-space:nowrap">${_fmtYM(a.maturity_date)}</td>
         <td style="white-space:nowrap">${securityCell(a)}</td>
-        <td style="text-align:center" class="cv-noprint"><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openDebtSchedEditModal('${a.id}')">✎</button></td>
+        <td style="text-align:center" class="cv-noprint"><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="event.stopPropagation();openDebtSchedEditModal('${a.id}')">✎</button></td>
       </tr>`;
     };
 
@@ -19630,6 +19652,7 @@
           <td></td><td></td><td class="cv-noprint"></td>
         </tr></tfoot>
       </table>` : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No active loans on the schedule.</div>`;
+    try { _renderPaidOffLoans(); } catch (e2) { console.error('[paid-off]', e2); }
   }
 
   function openDebtSchedEditModal(loanAccountId) {
@@ -19690,7 +19713,7 @@
   function exportDebtSchedulePDF() {
     const money = (n) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const rows = _debtScheduleRows().map(a => {
-      const bal = _loanOutstandingBalance(a);
+      const bal = _debtBalance(a);
       const pmt = _loanRecurringPayment(a.id);
       const rate = _loanMeasuredRate(a);
       return { a, bal, pmt, rate };
@@ -21923,6 +21946,14 @@
     });
     return best;
   }
+  // Session 367 (David): the balance everywhere on the Loans page and the debt
+  // schedule is Xero's month-end balance. A loan Xero has not been read for yet
+  // falls back to the newest lender figure, so nothing goes blank.
+  function _debtBalance(a) {
+    const b = _lsXeroBalance(a.id);
+    if (b) return { amount: Number(b.balance), asOf: String(b.as_of), source: 'xero', authoritative: false, xero: true };
+    return _loanOutstandingBalance(a);
+  }
   function _lsSchedule(loanId) {
     const by = new Map();
     (_allLoanAmortRows || []).forEach(r => {
@@ -21957,6 +21988,8 @@
     return m ? `${M[m - 1]} ${String(iso).slice(0, 4)}` : esc(String(iso));
   };
   const _lsDay = iso => (iso && String(iso).length >= 10) ? fmtDatePlain(String(iso).slice(0, 10)) : _lsMonth(iso);
+  const _lsShortDate = iso => { const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${M[Number(String(iso).slice(5, 7)) - 1]} ${Number(String(iso).slice(8, 10))}, ${String(iso).slice(0, 4)}`; };
   function _lsToggle(id) { _lsOpenLoan = _lsOpenLoan === id ? null : id; renderLoansSimple(); }
 
   function _lsDetailHtml(a) {
@@ -21977,7 +22010,7 @@
       const shown = sch.rows.slice(from, from + 15);
       schHtml = `<div class="ls-sub" style="margin-bottom:6px">${sch.lender ? 'Lender\'s schedule' : 'Schedule we built from statements'}${sch.s.schedule_generated_date ? ', dated ' + esc(fmtDatePlain(sch.s.schedule_generated_date)) : ''} · ${sch.rows.length} rows · showing ${shown.length} around today</div>
         <table><thead><tr><th>Date</th><th style="text-align:right">Payment</th><th style="text-align:right">Principal</th><th style="text-align:right">Interest</th><th style="text-align:right">Balance</th></tr></thead><tbody>${
-        shown.map((r, k) => `<tr${from + k === nextIdx ? ' class="ls-next" title="Next scheduled payment"' : ''}><td>${esc(fmtDatePlain(r.row_date))}</td>
+        shown.map((r, k) => `<tr${from + k === nextIdx ? ' class="ls-next" title="Next scheduled payment"' : ''}><td style="white-space:nowrap">${esc(_lsShortDate(r.row_date))}</td>
           <td style="text-align:right">${r.payment != null ? fmtMoney(r.payment) : '—'}</td><td style="text-align:right">${r.principal != null ? fmtMoney(r.principal) : '—'}</td>
           <td style="text-align:right">${r.interest != null ? fmtMoney(r.interest) : '—'}</td><td style="text-align:right">${r.balance != null ? fmtMoney(r.balance) : '—'}</td></tr>`).join('')}</tbody></table>`;
     }
@@ -22020,25 +22053,111 @@
     const section = (title, items) => items.length ? `<div class="card" style="margin-bottom:18px;border-radius:14px">
         <div style="padding:14px 20px 4px;font-size:12.5px;font-weight:600;color:var(--gray-500)">${title}</div>
         ${items.map(_bkQueueRowHtml).join('')}</div>` : '';
-
+    // Staged payments need nothing from David -- one line, the list one click away.
+    // A FLAGGED stage does need a look, so it stays out in the open.
+    const flagged = staged.filter(i => i.flagged), calm = staged.filter(i => !i.flagged);
     el.innerHTML = `
-      ${section('Waiting on you', waiting)}
-      ${section('Staged in Xero — waiting for the bank match', staged)}
-      <div class="card" style="border-radius:14px;margin-bottom:18px">
-        <div class="card-header" style="padding:16px 20px 10px;border-bottom:0">
-          <div style="flex:1"><div class="card-title">What you owe</div>
-            <div class="card-sub">Balances as booked in Xero${asOf ? ', as of ' + esc(fmtDatePlain(asOf)) : ''}. Click a loan for its payments and schedule.</div></div>
-          <span style="display:flex;gap:8px">
-            <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="switchBookkeepingView('client','debt')">Debt Schedule →</button>
-            <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="loadLoans()">↻ Refresh</button>
-          </span>
-        </div>
-        <div style="overflow-x:auto"><table class="ls-table">
-          <thead><tr><th>Loan</th><th class="num">Balance in Xero</th><th class="num">Rate</th><th class="num">Last payment</th><th class="num">Next scheduled</th><th class="num">Payoff</th></tr></thead>
-          <tbody>${rows}<tr class="ls-total"><td>Total</td><td class="num">${fmtMoney(total)}</td><td colspan="4"></td></tr></tbody>
-        </table></div>
-        ${hiddenPaid ? `<div class="ls-sub" style="padding:10px 20px 14px">${hiddenPaid} paid-off loan${hiddenPaid === 1 ? '' : 's'} not shown.</div>` : ''}
-      </div>`;
+      ${section('Waiting on you', waiting.concat(flagged))}
+      ${calm.length ? `<details class="card" style="margin-bottom:18px;border-radius:14px">
+        <summary style="padding:13px 20px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${calm.length} payment${calm.length === 1 ? '' : 's'} staged in Xero — waiting for Ramona to match</summary>
+        ${calm.map(_bkQueueRowHtml).join('')}</details>` : ''}`;
+    try { if (_loanPanelId) renderLoanPanel(); } catch (_) {}
+  }
+
+  // Moves the Debt Schedule section (tiles, chart, schedule) onto the Loans page.
+  // A real DOM move, not a copy: every renderer finds the same ids it always did.
+  function _bkMountDebtOnLoans() {
+    const slot = document.getElementById('loans-debt-slot');
+    const pane = document.getElementById('cv-subview-debt');
+    if (!slot || !pane) return;
+    if (pane.parentElement !== slot) slot.appendChild(pane);
+    pane.style.display = '';
+    renderLoansSummary();
+    renderClientDebtSummary();
+    renderDebtSchedule();
+  }
+
+  function _renderPaidOffLoans() {
+    const el = document.getElementById('debtsched-paidoff');
+    if (!el) return;
+    const paid = (_allLoanAccounts || []).filter(a => a.status === 'paid_off')
+      .sort((a, b) => String(a.xero_account_name || '').localeCompare(String(b.xero_account_name || '')));
+    if (!paid.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `<details class="card" style="border-radius:14px">
+      <summary style="padding:13px 20px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">Paid-off loans (${paid.length})</summary>
+      <table class="ls-table"><tbody>${paid.map(a => {
+        const n = (_allLoanDocuments || []).filter(d => d.loan_account_id === a.id).length;
+        return `<tr class="ls-row" onclick="openLoanPanel('${a.id}')"><td><div style="font-weight:600">${esc(a.xero_account_name || a.lender || 'Loan')}</div><div class="ls-sub">${esc(a.lender || '')}</div></td>
+          <td class="num ls-sub">${a.original_amount != null ? fmtMoney(a.original_amount) + ' original' : ''}</td>
+          <td class="num ls-sub">${n ? n + ' document' + (n === 1 ? '' : 's') : 'no documents'}</td></tr>`; }).join('')}</tbody></table>
+    </details>`;
+  }
+
+  // ── The loan panel ──────────────────────────────────────────────────────
+  let _loanPanelId = null;
+  function openLoanPanel(id) {
+    _loanPanelId = id;
+    renderLoanPanel();
+    document.getElementById('modal-loan-panel').classList.add('open');
+  }
+  function closeLoanPanel() {
+    _loanPanelId = null;
+    document.getElementById('modal-loan-panel').classList.remove('open');
+  }
+  function _loanPanelAddDoc() {
+    const id = _loanPanelId;
+    closeLoanPanel();
+    openLoanIntakeModal(id);
+  }
+  function renderLoanPanel() {
+    const a = (_allLoanAccounts || []).find(x => x.id === _loanPanelId);
+    const body = document.getElementById('loan-panel-body');
+    if (!a || !body) return;
+    document.getElementById('loan-panel-title').textContent = a.xero_account_name || a.lender || 'Loan';
+    const bal = _debtBalance(a);
+    const rate = _loanMeasuredRate(a);
+    const pmt = a.status === 'paid_off' ? null : _loanRecurringPayment(a.id);
+    const SEC = { UCC: 'UCC lien', vehicle: 'Vehicle title', none: 'Unsecured' };
+    const field = (k, v) => `<div><div class="ls-sub">${k}</div><div style="font-weight:600;font-size:13.5px">${v}</div></div>`;
+    const canWrite = _bkCanWrite();
+    const details = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px 20px;margin-bottom:6px">
+        ${field('Lender', esc(a.lender || '—'))}
+        ${field('Status', a.status === 'paid_off' ? 'Paid off' : 'Active')}
+        ${field(bal && bal.xero ? 'Balance in Xero' : 'Balance', bal ? fmtMoney(bal.amount) + `<span class="ls-sub" style="font-weight:400"> · ${esc(fmtDatePlain(bal.asOf))}</span>` : '—')}
+        ${field('Original', a.original_amount != null ? fmtMoney(a.original_amount) : '—')}
+        ${field('Originated', _fmtYM(a.original_date))}
+        ${field('Rate', rate.pct != null ? rate.pct.toFixed(2) + '%' + (rate.measured ? '' : ' <span class="ls-sub" style="font-weight:400">(as entered)</span>') : '—')}
+        ${field('Monthly payment', pmt != null ? fmtMoney(pmt) : '—')}
+        ${field('Matures', _fmtYM(a.maturity_date))}
+        ${field('Security', esc(SEC[a.security_type] || a.security_type || '—'))}
+      </div>
+      ${canWrite ? `<button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="openDebtSchedEditModal('${a.id}')">✎ Edit details</button>` : ''}`;
+
+    // Documents: loan_documents, plus the schedule files and lender statements on file.
+    const docs = (_allLoanDocuments || []).filter(d => d.loan_account_id === a.id)
+      .map(d => ({ title: d.title || LOAN_DOC_TYPE_LABELS[d.doc_type] || 'Document', kind: LOAN_DOC_TYPE_LABELS[d.doc_type] || d.doc_type, date: (d.created_at || '').slice(0, 10), path: d.storage_path }));
+    const schedSeen = new Set();
+    (_allLoanAmortRows || []).forEach(r => {
+      const sc = r.loan_amortization_schedules;
+      if (!sc || sc.loan_account_id !== a.id || !sc.storage_path || schedSeen.has(r.schedule_id)) return;
+      schedSeen.add(r.schedule_id);
+      docs.push({ title: 'Amortization schedule' + (sc.schedule_generated_date ? ', dated ' + fmtDatePlain(sc.schedule_generated_date) : ''), kind: 'Schedule', date: String(sc.created_at || '').slice(0, 10), path: sc.storage_path });
+    });
+    docs.sort((x, y) => String(y.date).localeCompare(String(x.date)));
+    const stmts = (_allLoanStatements || []).filter(st => st.loan_account_id === a.id && st.storage_path)
+      .sort((x, y) => String(y.statement_date || '').localeCompare(String(x.statement_date || '')));
+    const q = (p) => String(p).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const docRows = docs.length ? docs.map(d => `<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--gray-100)">
+        <span onclick="viewLoanDocument('${q(d.path)}')" style="font-size:13px;color:var(--accent);cursor:pointer">${esc(d.title)}</span>
+        <span class="ls-sub" style="white-space:nowrap">${esc(d.kind || '')}${d.date ? ' · ' + esc(d.date) : ''}</span></div>`).join('')
+      : '<div class="ls-sub" style="padding:6px 0">No agreements or schedules on file yet.</div>';
+    const stmtLine = stmts.length ? `<div class="ls-sub" style="padding:8px 0">${stmts.length} lender statement${stmts.length === 1 ? '' : 's'} on file · latest <span onclick="viewLoanDocument('${q(stmts[0].storage_path)}')" style="color:var(--accent);cursor:pointer">${esc(fmtDatePlain(String(stmts[0].statement_date).slice(0, 10)))}</span></div>` : '';
+    const docsHtml = `${docRows}${stmtLine}
+      ${canWrite ? `<button class="btn btn-secondary" style="margin-top:10px" onclick="_loanPanelAddDoc()">+ Add document</button>
+        <span class="ls-sub" style="margin-left:8px">Agreement, schedule, payoff letter, statement — it's filed to this loan.</span>` : ''}`;
+
+    const h = (t) => `<div style="font-size:12.5px;font-weight:700;color:var(--gray-700);margin:18px 0 8px;text-transform:uppercase;letter-spacing:.04em">${t}</div>`;
+    body.innerHTML = `${h('Details')}${details}${h('Documents')}${docsHtml}${h('Payments and schedule')}${_lsDetailHtml(a)}`;
   }
 
   // Session 367: the retail cash reclass's home is the Payroll page (David uses it;
@@ -24012,7 +24131,7 @@
     // Scoping to active also removes a live hazard: a paid-off loan with a stale non-zero
     // balance would silently inflate the headline. Today all 8 sit at $0.00, so the
     // displayed figure is unchanged -- this is defensive, not a restatement.
-    const balances = activeLoans.map(a => _loanOutstandingBalance(a));
+    const balances = activeLoans.map(a => _debtBalance(a));
     const known = balances.filter(Boolean);
     const totalOutstanding = known.reduce((sum, b) => sum + b.amount, 0);
     const outstandingLabel = 'Total outstanding';

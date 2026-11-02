@@ -26,6 +26,14 @@ narration-tag guard would NOT recognise September — fine while it defaults to 
 - Nav badge counts only `appr-*` items with an action (recon findings no longer on any screen).
 - Pre-staging untouched (was flipped off and back on within a minute during the conversation; nothing ran).
 
+**Later the same session (all committed):** KPIs tab removed; Debt Schedule MERGED into Loans (tabs: Loans · Payroll).
+`_bkMountDebtOnLoans()` DOM-moves `#cv-subview-debt` into `#loans-debt-slot`; any `client` route redirects to loans.
+Balances everywhere = `_debtBalance()` (Xero month-end `xero_rebuild`, falls back to `_loanOutstandingBalance`).
+Monthly payment = next schedule row when a schedule is on file (`_loanRecurringPayment`). Paid tiles AND chart =
+`_debtPaidInMonth()` (principal from Xero month-end balance change + drawn, interest from splits). Debt schedule rows
+open `openLoanPanel()` (details/edit, documents + Add document → `openLoanIntakeModal(id)`, payments, schedule);
+paid-off loans in a collapsed section. Data: PayPal 2 + Rapid → paid_off; Stripe/PayPal 2/Rapid security → none.
+
 **Verified:** node --check on the script; headless render against the Sep fixture — 14 loan rows, 4 tabs, no
 page errors, Payroll card shows. NOT committed: the same file also carries session 363's uncommitted laundry work.
 
