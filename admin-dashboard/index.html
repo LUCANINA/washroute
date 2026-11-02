@@ -4179,7 +4179,9 @@
           <!-- ── TAB: DELIVERY KPIs ── -->
           <!-- ── TAB: ON-TIME (session 295) ──
                Score = stops done inside the customer's window (+5 min grace) ÷ all stops.
-               Early counts as a miss. Data: on_time_report() RPC. -->
+               Early (>15 min) counts as a miss. Session 365: stops >4h off the window are
+               excluded from every number (usually not the driver) and listed under Excluded.
+               Data: on_time_report() RPC. -->
           <!-- ── TAB: CITIES (session 361) ──
                Orders by city, one column per month, so growth or decline in an
                area is visible in a single row. Rolling window (David: trend windows
@@ -56368,7 +56370,8 @@ ${oneCopy}
     const fmtD = x => new Date(`${x}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
     const note = document.getElementById('ot-period-note');
     if (note) note.innerHTML = `Showing <strong>${fmtD(fromStr)} – ${fmtD(toStr)}</strong> &nbsp;·&nbsp; compared to same dates last month (${fmtD(_dkMinus1Month(fromStr))} – ${fmtD(_dkMinus1Month(toStr))})`
-      + `<br>On time = done inside the customer's window, up to 5 min after it closes. Early counts as a miss.`;
+      + `<br>On time = done inside the customer's window, from 15 min before it opens to 5 min after it closes.`
+      + ` Stops more than 4 hours off are left out of the score${Number(cur.excluded) ? ` (<strong>${Number(cur.excluded).toLocaleString()}</strong> this period — see Excluded below)` : ''} — usually not the driver (unpaid, not home, rescheduled).`;
     const tl = document.getElementById('ot-target-label');
     if (tl) tl.textContent = Math.round(OT_TARGET * 100) + '%';
 
@@ -56394,7 +56397,7 @@ ${oneCopy}
         + card('Pickups on time', _otPct(pc), _otPts(pc, pp), `${n(cur.pickups_on_time)} of ${n(cur.pickups)}`)
         + card('Deliveries on time', _otPct(dc), _otPts(dc, dp), `${n(cur.deliveries_on_time)} of ${n(cur.deliveries)}`))
       + title('Misses') + grid(
-          card('Early', n(cur.early), _otCountChip(cur.early, prev.early), 'done before the window opened')
+          card('Early', n(cur.early), _otCountChip(cur.early, prev.early), 'more than 15 min before the window opened')
         + card('Late 5–15 min', n(cur.late_5_15), _otCountChip(cur.late_5_15, prev.late_5_15), 'past the grace period')
         + card('Late 15–60 min', n(cur.late_15_60), _otCountChip(cur.late_15_60, prev.late_15_60), '')
         + card('Late 60+ min', n(cur.late_60_plus), _otCountChip(cur.late_60_plus, prev.late_60_plus), ''));
@@ -56460,19 +56463,24 @@ ${oneCopy}
   }
 
   function _otRenderMisses() {
-    const all = _otData.misses || [];
-    const cnt = f => f === 'all' ? all.length : all.filter(m => m.result === f).length;
+    const misses = _otData.misses || [];
+    const all = misses.filter(m => m.result !== 'excluded');   // 'All' = counted misses only
+    const cnt = f => f === 'all' ? all.length : misses.filter(m => m.result === f).length;
     const tabs = document.getElementById('ot-miss-tabs');
-    if (tabs) tabs.innerHTML = [['all','All'],['late','Late'],['early','Early']]
+    if (tabs) tabs.innerHTML = [['all','All'],['late','Late'],['early','Early'],['excluded','Excluded']]
       .map(([k, l]) => _otPill(k === _otMissFilter, `setOnTimeMissFilter('${k}')`, `${l} (${cnt(k)})`)).join('');
     const sub = document.getElementById('ot-miss-sub');
     const cur = _otData.current || {};
     const totalMiss = Number(cur.early || 0) + Number(cur.late || 0);
-    if (sub) sub.textContent = 'Biggest misses first · click a row to open the order'
-      + (totalMiss > all.length ? ` · showing the top ${all.length} of ${totalMiss.toLocaleString()}` : '');
+    if (sub) sub.textContent = _otMissFilter === 'excluded'
+      ? 'More than 4 hours off the window · left out of the score · click a row to open the order'
+      : 'Biggest misses first · click a row to open the order'
+        + (totalMiss > all.length ? ` · showing the top ${all.length} of ${totalMiss.toLocaleString()}` : '');
     const body = document.getElementById('ot-miss-body');
     if (!body) return;
-    const rows = _otMissFilter === 'all' ? all : all.filter(m => m.result === _otMissFilter);
+    const rows = _otMissFilter === 'all' ? all : misses.filter(m => m.result === _otMissFilter);
+    const missLabel = m => m.result !== 'excluded' ? m.result
+      : `${new Date(m.actual_at) > new Date(m.win_end) ? 'late' : 'early'} · excluded`;
     const t = iso => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ });
     const dt = iso => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: BIZ_TZ });
     const sameDay = (a, b) => a && b && dt(a) === dt(b);
@@ -56484,11 +56492,11 @@ ${oneCopy}
         <td>${m.leg === 'pickup' ? 'Pickup' : 'Delivery'}</td>
         <td style="white-space:nowrap">${m.win_start ? `${dt(m.win_start)} ${t(m.win_start)}–${t(m.win_end)}` : `by ${dt(m.win_end)} ${t(m.win_end)}`}</td>
         <td style="white-space:nowrap">${sameDay(m.actual_at, m.win_end) ? t(m.actual_at) : `${dt(m.actual_at)} ${t(m.actual_at)}`}</td>
-        <td>${_dkChip(m.result === 'late' ? 'bad' : 'flat', `${dur(m.minutes_off)} ${m.result}`)}</td>
+        <td>${_dkChip(m.result === 'late' ? 'bad' : 'flat', `${dur(m.minutes_off)} ${missLabel(m)}`)}</td>
         <td>${esc(m.driver || '—')}</td>
         <td>${esc(m.route || '—')}</td>
       </tr>`).join('')
-      : '<tr><td colspan="8" class="rpt-no-data">No missed stops.</td></tr>';
+      : `<tr><td colspan="8" class="rpt-no-data">${_otMissFilter === 'excluded' ? 'No stops more than 4 hours off this period.' : 'No missed stops.'}</td></tr>`;
   }
 
   // ── REGISTRATIONS REPORT ──

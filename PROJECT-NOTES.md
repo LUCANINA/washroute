@@ -1,5 +1,11 @@
 # WashRoute — Project Notes
 
+## Session 365 — Nov 2, 2026: On-time report — outliers excluded, 15-min early grace — DB LIVE, admin edited (not committed)
+- David: stops a day+ late are rarely the driver (unpaid etc.); filter extremes. Measured first (90 days, 9,766 stops): only 15 stops >4h off — removing them moves the score 72.7→72.8%. The real drag was EARLY = miss with zero grace (1,736 early, 245 of them ≤5 min). Grace options shown; David chose **exclude >4h** + **up to 15 min early = on time**.
+- Migration `session_365_on_time_outliers` (applied): `_otr_events` returns new result `'excluded'` when >240 min off either side; early now means >15 min before window. `_otr_summary` adds `excluded` count and leaves them out of stops/pickups/deliveries. `on_time_report` drops excluded from trend + breakdowns; `misses` = top 300 counted misses + all excluded. Same signatures, SECURITY INVOKER, grants unchanged. Only caller is the admin On-Time tab. Rollback = re-run session_295 file (md5-verified identical to the pre-365 live functions).
+- October under new rules: 79.9% (2,795 / 3,499), 8 excluded — incl. #15684 (27d late), #17605, #17251, #17374, #18629.
+- Admin On-Time tab: period note explains both rules + excluded count; new **Excluded** tab on Missed stops ("27d 12h late · excluded"); 'All' = counted misses only; Early card hint updated. Click-tested in Playwright with a fixture.
+
 ## Session 363 — Oct 23, 2026: walk-in retention — POS SMS opt-in, winback consent gate, WI pilot batch LIVE (10 released)
 
 **Ask (David):** "Our walk-in retention (58.6%) is surprisingly low. Suggest a way to re-engage them."

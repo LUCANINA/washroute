@@ -2497,8 +2497,32 @@ function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
 // Use everywhere a customer sees an order amount so the My Orders cards agree
 // with what was actually billed. Falls back to total_amount when tip fields are
 // missing on the row.
+// 2026-10-30: the customer's standing % code is only stamped on the order at
+// intake (record_order_intake sets discount_id + the discounted total_amount).
+// Before that, total_amount is the full pre-discount estimate, so the order
+// screen showed MORE than the Confirm screen had promised (Sarah Cronin #18905:
+// shown $71.72 at checkout, $82.45 on the order). Preview the discount until
+// intake, mirroring the Confirm screen: % off service + add-on lines only.
+// Display only — intake decides the real price.
+function orderPendingDiscount(o) {
+  const none = { amount: 0, name: '', pct: 0 };
+  const d = currentCustomerDiscount;
+  if (!o || !d || !(Number(d.value) > 0)) return none;
+  if (o.discount_id || parseFloat(o.weight_lbs || 0) > 0) return none;       // already priced at intake
+  if (o.subscription_id || o.is_subscription_order) return none;
+  if (o.billing_status === 'paid' || o.status === 'cancelled') return none;
+  const items = Array.isArray(o.line_items) ? o.line_items : [];
+  const svc = items.filter(li => li && (li.type === 'base' || li.type === 'addon'))
+                   .reduce((t, li) => t + Number(li.amount || 0), 0);
+  const amt = Math.round(svc * Number(d.value)) / 100;
+  return amt > 0 ? { amount: amt, name: d.name, pct: Number(d.value) } : none;
+}
+// Pre-tip, pre-credit total the customer will actually be billed on.
+function orderPricedSubtotal(o) {
+  return Math.round((Number(o?.total_amount || 0) - orderPendingDiscount(o).amount) * 100) / 100;
+}
 function orderChargedTotal(o) {
-  const sub = Number(o?.total_amount || 0);
+  const sub = orderPricedSubtotal(o);
   const tip = Number(o?.tip_amount || 0);
   // Session 2026-10-20: net out account credit (Madeline Zepeda #17988 saw
   // $79.95 with no credit after booking and thought her $20 had vanished).
@@ -2560,7 +2584,7 @@ function orderCreditInfo(o) {
     String(a.pickup_window_start || a.created_at || '').localeCompare(String(b.pickup_window_start || b.created_at || '')));
   let left = bal;
   for (const x of pool) {
-    const use = Math.round(Math.min(left, Number(x.total_amount || 0)) * 100) / 100;
+    const use = Math.round(Math.min(left, orderPricedSubtotal(x)) * 100) / 100;
     if (x.id === o.id) return { amount: use, pending: use > 0 };
     left = Math.round((left - use) * 100) / 100;
     if (left <= 0) break;
@@ -4004,6 +4028,7 @@ async function loadHome() {
         .in('status', ['scheduled','picked_up','processing','ready_for_delivery','out_for_delivery'])
         .order('pickup_window_start', { ascending: true }),
       loadOrderCreditUse(),
+      loadPromoCodeData().catch(() => {}), // pending % code preview (orderPendingDiscount)
     ]);
     if (error) throw error;
     const active = orders || [];
@@ -6550,6 +6575,7 @@ async function loadOrders() {
       .eq('customer_id', currentCustomer.id)
       .order('created_at', { ascending: false }),
     loadOrderCreditUse(),
+    loadPromoCodeData().catch(() => {}), // pending % code preview (orderPendingDiscount)
   ]);
 
   window._cachedOrders = data || [];
@@ -6600,6 +6626,7 @@ async function openDetail(orderId) {
   const [{ data: o }] = await Promise.all([
     db.from('orders').select('*, services(name), pickup_address:addresses!pickup_address_id(*), delivery_address:addresses!delivery_address_id(*)').eq('id', orderId).single(),
     loadOrderCreditUse(),
+    loadPromoCodeData().catch(() => {}), // pending % code preview (orderPendingDiscount)
   ]);
   if (!o) { toast('Order not found'); return; }
   window._currentDetailOrder = o; // cache for edit modal
@@ -6638,15 +6665,16 @@ async function openDetail(orderId) {
     <div class="d-row"><span class="d-key">Delivery</span><span class="d-val">${deliveryDisplay}</span></div>
     ${!sameAddr && dAddr ? `<div class="d-row"><span class="d-key">Delivery address</span><span class="d-val" style="font-size:14px">${escHtml(fmtAddrOneLiner(dAddr))}<br><span style="font-size:12px;color:var(--gray-400);font-weight:400">Updated by your service team · SMS us to change</span></span></div>` : ''}
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${escHtml(o.special_instructions)}</span></div>` : ''}
+    ${(() => { const pd = orderPendingDiscount(o); if (!(pd.amount > 0)) return ''; return `<div class="d-row"><span class="d-key" style="color:var(--green);font-weight:600">${escHtml(pd.name)} (${pd.pct}%)<br><span style="font-size:12px;color:var(--gray-400);font-weight:400">Applied when we weigh your order</span></span><span class="d-val" style="color:var(--green);font-weight:600">−${$m(pd.amount)}</span></div>`; })()}
     ${(() => { const ci = orderCreditInfo(o); if (!(ci.amount > 0)) return ''; return `<div class="d-row"><span class="d-key" style="color:var(--green);font-weight:600">Account credit${ci.pending ? '<br><span style="font-size:12px;color:var(--gray-400);font-weight:400">Applied when we bill</span>' : ''}</span><span class="d-val" style="color:var(--green);font-weight:600">−${$m(ci.amount)}</span></div>`; })()}
-    ${(() => { const ta = parseFloat(o.tip_amount || 0); if (ta <= 0) return ''; const td = o.tip_type === 'pct' ? Math.round(Number(o.total_amount || 0) * ta) / 100 : ta; const tl = o.tip_type === 'pct' ? `Team Tip (${ta}%)` : 'Team Tip'; return `<div class="d-row"><span class="d-key">${tl}</span><span class="d-val" style="color:var(--green);font-weight:600">+${$m(td)}</span></div>`; })()}
+    ${(() => { const ta = parseFloat(o.tip_amount || 0); if (ta <= 0) return ''; const td = o.tip_type === 'pct' ? Math.round(orderPricedSubtotal(o) * ta) / 100 : ta; const tl = o.tip_type === 'pct' ? `Team Tip (${ta}%)` : 'Team Tip'; return `<div class="d-row"><span class="d-key">${tl}</span><span class="d-val" style="color:var(--green);font-weight:600">+${$m(td)}</span></div>`; })()}
     <div class="d-row"><span class="d-key" style="font-weight:700;font-size:16px">Total</span><span class="d-val" style="font-size:19px;font-weight:800;color:var(--navy)">${(() => {
       // Session 167: for subscriber orders, total is always known (base $0 + any overage), even when 0.
       // For non-subscriber orders, show "Confirmed at pickup" until total is committed (> 0).
       const isSub = o.subscription_id || o.is_subscription_order;
       const ta = parseFloat(o.tip_amount || 0);
-      const td = ta > 0 ? (o.tip_type === 'pct' ? Math.round(Number(o.total_amount || 0) * ta) / 100 : ta) : 0;
-      const ttl = Math.round((Number(o.total_amount || 0) - orderCreditInfo(o).amount + td) * 100) / 100;
+      const td = ta > 0 ? (o.tip_type === 'pct' ? Math.round(orderPricedSubtotal(o) * ta) / 100 : ta) : 0;
+      const ttl = Math.round((orderPricedSubtotal(o) - orderCreditInfo(o).amount + td) * 100) / 100;
       if (isSub) return ttl === 0 ? '$0.00' : $m(ttl);
       return o.total_amount ? $m(ttl) : 'Confirmed at pickup';
     })()}</span></div>`;
