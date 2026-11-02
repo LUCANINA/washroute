@@ -21938,6 +21938,7 @@
   // Balances are loan_book_balances basis 'xero_rebuild' -- the ledger itself --
   // not a lender statement and not anything typed.
   let _lsOpenLoan = null;
+  let _lsWaitOpen = false, _lsStagedOpen = false;
   function _lsXeroBalance(loanId) {
     let best = null;
     (_allLoanBookBalances || []).forEach(b => {
@@ -22056,9 +22057,14 @@
     // Staged payments need nothing from David -- one line, the list one click away.
     // A FLAGGED stage does need a look, so it stays out in the open.
     const flagged = staged.filter(i => i.flagged), calm = staged.filter(i => !i.flagged);
+    // Session 367 (David: "takes up a lot of space"): collapsed by default, one line
+    // with the count; the open/closed state survives re-renders.
+    const todo = waiting.concat(flagged);
     el.innerHTML = `
-      ${section('Waiting on you', waiting.concat(flagged))}
-      ${calm.length ? `<details class="card" style="margin-bottom:18px;border-radius:14px">
+      ${todo.length ? `<details class="card" style="margin-bottom:12px;border-radius:14px"${_lsWaitOpen ? ' open' : ''} ontoggle="_lsWaitOpen=this.open">
+        <summary style="padding:13px 20px;font-size:13px;font-weight:600;color:var(--gray-900);cursor:pointer"><span class="bk-dot green" style="display:inline-block;margin-right:8px;vertical-align:middle"></span>${todo.length} item${todo.length === 1 ? '' : 's'} waiting on you <span class="ls-sub" style="font-weight:400">— ${esc(todo.map(i => String(i.name).split(' — ')[0]).filter((v, k, arr) => arr.indexOf(v) === k).join(', '))}</span></summary>
+        ${todo.map(_bkQueueRowHtml).join('')}</details>` : ''}
+      ${calm.length ? `<details class="card" style="margin-bottom:18px;border-radius:14px"${_lsStagedOpen ? ' open' : ''} ontoggle="_lsStagedOpen=this.open">
         <summary style="padding:13px 20px;font-size:12.5px;font-weight:600;color:var(--gray-500);cursor:pointer">${calm.length} payment${calm.length === 1 ? '' : 's'} staged in Xero — waiting for Ramona to match</summary>
         ${calm.map(_bkQueueRowHtml).join('')}</details>` : ''}`;
     try { if (_loanPanelId) renderLoanPanel(); } catch (_) {}
