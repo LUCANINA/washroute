@@ -54,7 +54,13 @@ const REQUIRED_SCOPES = [
   'suppression.bounces.read', 'suppression.unsubscribes.read', 'suppression.spam_reports.read',
 ]
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// 2026-11-03: tightened. The old /^[^\s@]+@[^\s@]+\.[^\s@]+$/ accepted a TRAILING DOT
+// ('patraburn@gmail.com.'), a leading dot and consecutive dots. SendGrid rejects
+// those with a 400 that fails the WHOLE 5,000-contact PUT, so one bad address
+// stopped every marketing-contact sync (2026-11-03). Measured against all 5,850
+// distinct customer emails, this pattern excludes exactly that one address and
+// keeps every other, including plus-tags and multi-level domains.
+const EMAIL_RE = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/
 const isPlaceholder = (e: string) => /\+app\.starchup\.com@/i.test(e)
 const norm = (e: string | null | undefined) => (e || '').trim().toLowerCase()
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -342,8 +348,28 @@ Deno.serve(async (req) => {
       return x
     })
     const jobs: string[] = []
+    const rejectedEmails: string[] = []
     for (let i = 0; i < contacts.length; i += 5000) {
-      const r = await sg('PUT', '/v3/marketing/contacts', { list_ids: [list.id], contacts: contacts.slice(i, i + 5000) })
+      let chunk = contacts.slice(i, i + 5000)
+      let r = await sg('PUT', '/v3/marketing/contacts', { list_ids: [list.id], contacts: chunk })
+      // One malformed address must never cost us the whole sync. SendGrid names the
+      // offending address(es) in the 400 ("email 'x@y.' is not valid"), so pull those
+      // out and retry the chunk ONCE. Anything else — or a second failure — still throws.
+      if (!r.ok && r.status === 400) {
+        const named = [...JSON.stringify(r.data ?? '').matchAll(/email '([^']+)' is not valid/g)].map(m => norm(m[1]))
+        if (named.length > 0) {
+          const drop = new Set(named)
+          const kept = chunk.filter(c => !drop.has(norm(c.email)))
+          if (kept.length < chunk.length) {
+            rejectedEmails.push(...named)
+            console.warn('sync-sendgrid: dropped invalid contact(s) and retrying chunk:', named.join(', '))
+            chunk = kept
+            r = chunk.length > 0
+              ? await sg('PUT', '/v3/marketing/contacts', { list_ids: [list.id], contacts: chunk })
+              : { ok: true, status: 200, data: {} } as any
+          }
+        }
+      }
       if (!r.ok) throw sgErr('upsert contacts', r)
       if (r.data?.job_id) jobs.push(r.data.job_id)
     }
@@ -357,7 +383,7 @@ Deno.serve(async (req) => {
       deleted += chunk.length
     }
 
-    summary.done = { opted_out: ids.length, bounces_saved: plan.newBounces.length, group_added: plan.groupAdds.length, upserted: contacts.length, import_jobs: jobs, deleted }
+    summary.done = { opted_out: ids.length, bounces_saved: plan.newBounces.length, group_added: plan.groupAdds.length, upserted: contacts.length - rejectedEmails.length, rejected_emails: rejectedEmails, import_jobs: jobs, deleted }
     summary.ms = Date.now() - started
     console.log('sync-sendgrid fullsync', JSON.stringify(summary.done))
     return json(summary)

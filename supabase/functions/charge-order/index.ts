@@ -167,6 +167,10 @@ const r2 = (n: number) => Math.round(n * 100) / 100
 // calls charge-order before the DB status has been updated to ready_for_delivery.
 const NON_CHARGEABLE_STATUSES = ['scheduled', 'on_hold', 'cancelled', 'skipped', 'pickup_failed']
 
+// v74: statuses by which the apply_subscription_usage_fn trigger has already
+// appended the `lb_overage` line, so total_amount is final for a subscriber.
+const OVERAGE_APPLIED_STATUSES = ['ready_for_delivery', 'out_for_delivery', 'delivered']
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
@@ -232,6 +236,26 @@ Deno.serve(async (req) => {
     // v30: Guard — block charging for orders that haven't been picked up or are voided
     if (NON_CHARGEABLE_STATUSES.includes(order.status)) {
       throw new ChargeRefused(`Order #${order.order_number} cannot be charged in "${order.status}" status`, 'not_chargeable_status')
+    }
+
+    // ── v74: a subscription order's overage line must EXIST before we charge ──
+    // `lb_overage` is written by the apply_subscription_usage_fn trigger when the
+    // order reaches ready_for_delivery. Every admin path calls chargeOnReady()
+    // BEFORE it writes the new status, so charging a subscription order that is
+    // still picked_up / processing / folding collects the PRE-overage total and
+    // the difference is never collected. #19083 (2026-11-03): charged $43.00 at
+    // 07:17:45, total moved $38.00 -> $98.50 twelve seconds later, $60.50 lost.
+    //   Refusing here is NOT a lost charge. stamped=false leaves billing_status
+    // NULL, the status flip adds the overage, and wr-autocharge-ready-sweep
+    // (every 5 min, 3-minute settle delay) then charges the full correct amount.
+    // The guard is SERVER-side on purpose: the dashboard is not a billing
+    // boundary, and the loose NON_CHARGEABLE_STATUSES list above exists
+    // deliberately so non-subscription orders keep charging on the click.
+    if (order.subscription_id && !OVERAGE_APPLIED_STATUSES.includes(order.status)) {
+      throw new ChargeRefused(
+        `Order #${order.order_number} is a subscription order still in "${order.status}" — the weight-overage line is only added at Ready for Delivery, so charging now would undercharge. The autocharge sweep will charge the full amount within a few minutes.`,
+        'subscription_overage_pending',
+      )
     }
 
     // Load customer (v34: also pull credits balance)
