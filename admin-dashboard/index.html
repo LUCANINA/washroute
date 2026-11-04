@@ -19758,7 +19758,7 @@
         <td style="text-align:right;white-space:nowrap">${_fmtMDY(a.original_date)}</td>
         <td style="text-align:right;white-space:nowrap">${balCell(e)}</td>
         <td style="text-align:right;white-space:nowrap">${a.interest_rate != null ? Number(a.interest_rate).toFixed(2) + '%' : '—'}</td>
-        <td style="text-align:right">—</td>
+        <td style="text-align:right;white-space:nowrap">accrues interest</td>
         <td style="text-align:right;white-space:nowrap" ${po != null ? `title="Payoff at maturity ${money(po)}, due within 30 days"` : ''}>${_fmtMDY(a.maturity_date)}</td>
         <td style="white-space:nowrap">${securityCell(a)}</td>
         <td style="text-align:center" class="cv-noprint"><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="event.stopPropagation();openDebtSchedEditModal('${a.id}')">✎</button></td>
@@ -19785,7 +19785,7 @@
           <td></td>
           <td style="text-align:right;white-space:nowrap">${n.balKnown ? money(n.bal) : '—'}</td>
           <td></td>
-          <td style="text-align:right;white-space:nowrap">—${n.accrual ? sub(`accrues ${money(n.accrual)}/mo`) : ''}</td>
+          <td style="text-align:right;white-space:nowrap">—</td>
           <td></td><td></td><td class="cv-noprint"></td>
         </tr>`;
     };
@@ -19925,7 +19925,7 @@
         <td style="${td};font-size:12px;text-align:right">${_fmtMDY(e.a.original_date)}</td>
         <td style="${td};font-size:12px;text-align:right">${e.bal ? money(e.bal.amount) : '—'}</td>
         <td style="${td};font-size:12px;text-align:right">${e.a.interest_rate != null ? Number(e.a.interest_rate).toFixed(2) + '%' : '—'}</td>
-        <td style="${td};font-size:12px;text-align:right">—</td>
+        <td style="${td};font-size:12px;text-align:right;white-space:nowrap">accrues interest</td>
         <td style="${td};font-size:12px;text-align:right">${_fmtMDY(e.a.maturity_date)}</td>
         <td style="${td};font-size:12px">${esc(pdfSec[e.a.security_type] || e.a.security_type || '—')}</td>
       </tr>`).join('');
@@ -19939,7 +19939,7 @@
           <td></td>
           <td style="${td};text-align:right">${n.balKnown ? money(n.bal) : '—'}</td>
           <td></td>
-          <td style="${td};text-align:right">—${n.accrual ? `<div style="font-size:11px;font-weight:400">accrues ${money(n.accrual)}/mo</div>` : ''}</td>
+          <td style="${td};text-align:right">—</td>
           <td></td><td></td>
         </tr>`;
       return `${head}
@@ -19969,7 +19969,7 @@
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${money(e.a.original_amount)}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${_fmtYM(e.a.original_date)}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right;font-weight:600">${e.bal ? money(e.bal.amount) : '—'}</td>
-        <td style="padding:5px 8px;font-size:13.5px;text-align:right">${e.rate.pct != null ? e.rate.pct.toFixed(2) + '%' + (e.rate.measured ? '' : ' <span style="font-size:11px">est.</span>') : '—'}</td>
+        <td style="padding:5px 8px;font-size:13.5px;text-align:right">${e.rate.pct != null ? e.rate.pct.toFixed(2) + '%' : '—'}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${e.pmt != null ? money(e.pmt) : '—'}</td>
         <td style="padding:5px 8px;font-size:13.5px;text-align:right">${_fmtYM(e.a.maturity_date)}</td>
         <td style="padding:5px 8px;font-size:13.5px">${esc(pdfSec[e.a.security_type] || e.a.security_type || '—')}</td>
