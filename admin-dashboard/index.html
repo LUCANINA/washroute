@@ -19188,6 +19188,32 @@
     })(ym);
   }
 
+  // David, 2026-11-04: "show current month paid to date". The open month has no
+  // Xero month-end balance yet, so it is recorded payments only -- and only ones
+  // that have HAPPENED. A staged split is a forecast sitting in Xero ahead of the
+  // money (it becomes 'posted' when the bank line matches), and a schedule card
+  // dated later this month has not been paid. Before this, Paid YTD counted the
+  // whole open month, forecasts included. ONE function for the tile, YTD and the
+  // chart's partial bar, so the three cannot disagree.
+  function _debtPaidToDate() {
+    const ym = today().slice(0, 7), todayIso = today();
+    const tot = { principal: 0, interest: 0, count: 0 };
+    for (const s2 of (_allLoanSplits || [])) {
+      if (s2.status === 'voided' || s2.status === 'staged') continue;
+      if ((s2.period_label || '').slice(0, 7) !== ym) continue;
+      // Payment date: the schedule row's date, else a dated label. A plain
+      // 'YYYY-MM' label comes from a lender statement, which only reports money
+      // that has already moved.
+      const row = s2.amortization_row_id ? (_allLoanAmortRows || []).find(r => r.id === s2.amortization_row_id) : null;
+      const when = (row && row.row_date) || (/^\d{4}-\d{2}-\d{2}$/.test(s2.period_label || '') ? s2.period_label : null);
+      if (when && String(when).slice(0, 10) > todayIso) continue;
+      tot.principal += Number(s2.principal_amount || 0);
+      tot.interest += Number(s2.interest_amount || 0);
+      tot.count++;
+    }
+    return tot;
+  }
+
   function _cvDebtTotals() {
     const active = (_allLoanAccounts || []).filter(a => a.status === 'active');
     const owed = active.reduce((sum, a) => {
@@ -19310,6 +19336,9 @@
       const t = _debtPaidInMonth(ym);
       if (t.principal || t.interest) byMonth.set(ym, { p: t.principal, i: t.interest });
     }
+    // The open month, to date -- drawn lighter and labelled, never mistaken for a full month.
+    const mtd = _debtPaidToDate();
+    if (mtd.principal || mtd.interest) byMonth.set(today().slice(0, 7), { p: mtd.principal, i: mtd.interest, partial: true });
     renderClientDebtChart(byMonth);
   }
 
@@ -19322,7 +19351,7 @@
     if (!host) return;
     const months = [...byMonth.keys()].sort();
     if (months.length < 2) { host.innerHTML = ''; return; }
-    // Complete months only — see _cvDebtTotals. No partial bar, so no caveat.
+    // Complete months, plus the open month marked `partial` (lighter, labelled 'to date').
     const data = months.map(m => ({ m, ...byMonth.get(m) }));
 
     const W = 940, H = 240, L = 56, R = 14, T = 14, B = 38;
@@ -19345,12 +19374,13 @@
     }
     data.forEach((d, idx) => {
       const cx = L + idx * step + step / 2, tot = d.p + d.i;
-      const op = 1;
-      g += `<g><title>${label(d.m)} ${d.m.slice(0, 4)} — ${esc2(tot)} total · ${esc2(d.p)} principal · ${esc2(d.i)} interest</title>` +
+      const op = d.partial ? 0.45 : 1;
+      g += `<g><title>${label(d.m)} ${d.m.slice(0, 4)}${d.partial ? ' (to date)' : ''} — ${esc2(tot)} total · ${esc2(d.p)} principal · ${esc2(d.i)} interest</title>` +
            `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(d.p).toFixed(1)}" width="${bw}" height="${Math.max(0, T + ph - y(d.p)).toFixed(1)}" fill="#2563eb" fill-opacity="${op}"/>` +
            `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(tot).toFixed(1)}" width="${bw}" height="${Math.max(0, y(d.p) - y(tot) - 2).toFixed(1)}" fill="#f59e0b" fill-opacity="${op}" rx="4"/>` +
            `<rect x="${(cx - bw / 2 - 6).toFixed(1)}" y="${T}" width="${bw + 12}" height="${ph}" fill="transparent"/></g>` +
-           `<text x="${cx.toFixed(1)}" y="${H - B + 18}" text-anchor="middle" font-size="10.5" fill="#6b7280" font-weight="600">${label(d.m)}</text>`;
+           `<text x="${cx.toFixed(1)}" y="${H - B + 18}" text-anchor="middle" font-size="10.5" fill="#6b7280" font-weight="600">${label(d.m)}</text>` +
+           (d.partial ? `<text x="${cx.toFixed(1)}" y="${H - B + 31}" text-anchor="middle" font-size="9.5" fill="#9ca3af">to date</text>` : '');
     });
     g += `<line x1="${L}" x2="${W - R}" y1="${T + ph}" y2="${T + ph}" stroke="#d1d5db" stroke-width="1"/>`;
 
@@ -19359,11 +19389,12 @@
 
     const note = document.getElementById('cv-chart-note');
     if (note) {
-      const first = data[0], last = data[data.length - 1];
+      const full = data.filter(d => !d.partial);
+      const first = full[0], last = full[full.length - 1];
       const share = (d) => { const t2 = d.p + d.i; return t2 > 0 ? Math.round((d.i / t2) * 100) : null; };
       const a = share(first), b = share(last);
       const span = `${label(first.m)} ${first.m.slice(0, 4)}`;   // two-year window: name the year
-      note.textContent = (a != null && b != null && a !== b)
+      note.textContent = (full.length >= 2 && a != null && b != null && a !== b)
         ? `The share going to interest has moved from ${a}% to ${b}% since ${span}.`
         : '';
     }
@@ -20012,7 +20043,7 @@
     <img src="${logoUrl}" alt="Family Laundry" style="height:36px;display:block">
     <div>
       <div style="font-size:18px;font-weight:700;letter-spacing:-0.02em">Debt Schedule</div>
-      <div style="font-size:11px;color:#172034;margin-top:2px">Family Laundry / WashRoute</div>
+      <div style="font-size:11px;color:#172034;margin-top:2px">Family Laundry</div>
     </div>
   </div>
   <div style="text-align:right">
@@ -24424,9 +24455,7 @@
     for (let mm = 1; mm <= tm; mm++) {
       const ym = `${ty}-${String(mm).padStart(2, '0')}`;
       // The current month is still open: no month-end balance yet, splits only.
-      const t = ym === thisMonthLabel
-        ? sumSplits(_allLoanSplits.filter(s2 => _live(s2) && periodMonth(s2.period_label) === ym))
-        : paidInMonth(ym);
+      const t = ym === thisMonthLabel ? _debtPaidToDate() : paidInMonth(ym);
       ytd.principal += t.principal; ytd.interest += t.interest;
     }
 
@@ -24458,6 +24487,7 @@
     el.innerHTML = `<div class="lct"><div class="bk-tiles">` +
       card('Active loans', active, 'var(--gray-900)') +
       card(outstandingLabel, money(totalOutstanding), 'var(--gray-900)', outstandingTitle) +
+      breakdownCard(`Paid this month to date (${thisMonthLabel})`, _debtPaidToDate(), 'Payments recorded so far this month, up to today. Payments scheduled later this month, or set up in Xero but not yet matched to the bank, are not counted until they clear.') +
       breakdownCard(`Paid last month (${lastMonthLabel})`, lastMonth, 'Principal: how far each loan\'s balance fell in Xero that month (payoffs included). Interest: as recorded on each payment. -- reflects real payments already shown on a statement or schedule.') +
       breakdownCard(`Paid YTD (${ty})`, ytd, 'Principal from Xero balance changes where month-end balances exist (July onward), recorded payments before that. Interest as recorded.') +
       `</div></div>`;
