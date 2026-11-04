@@ -19994,7 +19994,8 @@
 
     // Absolute URL — the report window is about:blank, so a relative
     // ../assets path would not resolve there.
-    const logoUrl = new URL('../assets/logo_white.png', location.href).href;
+    // Navy on white (David, 2026-11-04): a dark band wastes toner and prints muddy.
+    const logoUrl = new URL('../assets/logo_navy.png', location.href).href;
     const html = `<!DOCTYPE html>
 <html><head><title>Debt Schedule — ${esc(today())}</title>
 <style>
@@ -20012,16 +20013,16 @@
   Press <strong>Ctrl+P</strong> (or ⌘P) to save as PDF &nbsp;|&nbsp; <button onclick="window.print()" style="padding:5px 14px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;border-radius:8px;cursor:pointer;font-size:12px">Print / Save PDF</button>
 </div>
 
-<div style="background:#1f2937;color:#fff;padding:20px 30px;margin:0 -30px 16px;display:flex;justify-content:space-between;align-items:center">
+<div style="background:#fff;color:#172034;padding:20px 0;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center">
   <div style="display:flex;align-items:center;gap:16px">
     <img src="${logoUrl}" alt="Family Laundry" style="height:36px;display:block">
     <div>
       <div style="font-size:18px;font-weight:700;letter-spacing:-0.02em">Debt Schedule</div>
-      <div style="font-size:11px;color:#d1d5db;margin-top:2px">Family Laundry / WashRoute</div>
+      <div style="font-size:11px;color:#172034;margin-top:2px">Family Laundry / WashRoute</div>
     </div>
   </div>
   <div style="text-align:right">
-    <div style="font-size:11px;color:#d1d5db">As of ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })}</div>
+    <div style="font-size:11px;color:#172034">As of ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })}</div>
   </div>
 </div>
 
