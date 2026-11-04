@@ -19835,13 +19835,11 @@
           <td style="text-align:right">${money(grandPmt)}</td>
           <td></td><td></td><td class="cv-noprint"></td>
         </tr>${(() => { const w = _debtWeightedRate(enriched); return w ? `<tr style="font-size:12.5px">
-          <td colspan="5" style="padding:8px 12px;color:var(--gray-500)">${esc(w.label)}</td>
-          <td style="text-align:right;padding:8px 12px;font-weight:700">${w.pct.toFixed(2)}%</td>
-          <td></td><td></td><td></td><td class="cv-noprint"></td>
+          <td colspan="9" style="padding:8px 12px 2px;color:var(--gray-500);font-weight:400">${esc(w.label)}: ${w.pct.toFixed(2)}%</td>
+          <td class="cv-noprint"></td>
         </tr>` : ''; })()}${noteSum && noteSum.payoff != null ? `<tr style="font-size:12.5px">
-          <td colspan="5" style="padding:4px 12px 8px;color:var(--gray-500)">Investor notes payoff at maturity (${esc(_fmtYMRange(noteSum.firstMat, noteSum.lastMat))}; due within 30 days)</td>
-          <td colspan="2" style="text-align:right;padding:4px 12px 8px;font-weight:700">${money(noteSum.payoff)}</td>
-          <td></td><td></td><td class="cv-noprint"></td>
+          <td colspan="9" style="padding:2px 12px 8px;color:var(--gray-500);font-weight:400">Investor notes payoff at maturity (${esc(_fmtYMRange(noteSum.firstMat, noteSum.lastMat))}; due within 30 days): ${money(noteSum.payoff)}</td>
+          <td class="cv-noprint"></td>
         </tr>` : ''}</tfoot>
       </table>` : `<div style="color:var(--gray-400);font-size:13px;padding:24px;text-align:center">No active loans on the schedule.</div>`;
     try { _renderPaidOffLoans(); } catch (e2) { console.error('[paid-off]', e2); }
@@ -20037,13 +20035,9 @@
     <td style="padding:8px;text-align:right">${money(grandPmt)}</td>
     <td></td><td></td>
   </tr>${(() => { const w = _debtWeightedRate(rows); return w ? `<tr>
-    <td colspan="5" style="padding:6px 8px;font-size:12.5px;color:#6b7280">${esc(w.label)}</td>
-    <td style="padding:6px 8px;text-align:right;font-weight:700">${w.pct.toFixed(2)}%</td>
-    <td></td><td></td><td></td>
+    <td colspan="9" style="padding:6px 8px 2px;font-size:12.5px;color:#6b7280;font-weight:400">${esc(w.label)}: ${w.pct.toFixed(2)}%</td>
   </tr>` : ''; })()}${pdfNoteSum && pdfNoteSum.payoff != null ? `<tr>
-    <td colspan="5" style="padding:4px 8px;font-size:12.5px;color:#6b7280">Investor notes payoff at maturity (${esc(_fmtYMRange(pdfNoteSum.firstMat, pdfNoteSum.lastMat))}; due within 30 days)</td>
-    <td colspan="2" style="padding:4px 8px;text-align:right;font-weight:700">${money(pdfNoteSum.payoff)}</td>
-    <td></td><td></td>
+    <td colspan="9" style="padding:2px 8px 4px;font-size:12.5px;color:#6b7280;font-weight:400">Investor notes payoff at maturity (${esc(_fmtYMRange(pdfNoteSum.firstMat, pdfNoteSum.lastMat))}; due within 30 days): ${money(pdfNoteSum.payoff)}</td>
   </tr>` : ''}</tfoot>
 </table>
 <div style="margin-top:16px;font-size:12.5px;color:#9ca3af">${esc(_debtSchedFootnote)}</div>
