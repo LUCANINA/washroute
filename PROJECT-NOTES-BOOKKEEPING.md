@@ -1,5 +1,35 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+## Session 368 — Nov 4, 2026: the 2024 convertible notes on the Debt Schedule
+
+**David:** show the ten notes (15%, mostly due "April") as a consolidated section. Answers: balances in Xero are
+principal + interest, updated monthly; Hugues Macquart-Moulin is David's father (related party); start each note
+on the date the money arrived in Xero; Majdi's came in two wires; Young & Foolish LLC is the legal name (DBA Family Laundry).
+
+**From the signed notes:** $320,000 principal, 15% SIMPLE on principal (365-day), matures 36 months after closing,
+repay within 30 days; converts on a $1M+ Qualified Financing; 2x principal + interest on a Change of Control.
+Payoff at maturity = principal x 1.45 = **$464,000**. Accrual $4,000/mo. Maturities run 3/18/2027 to 5/29/2027
+(not only April). Receipt dates are from Xero BankTransactions (a deleted duplicate "Romain Curtis" receipt on
+3/21/24 coded to 402 was ignored; the live one is the "Convertible Note" contact coded 313). Majdi: $14,700 on
+5/29/24 + $10,300 on 6/11/24 — dated from the first wire, which overstates his payoff by ~$55 if interest runs
+per wire. Xero codes 293, 311–317, 351, 352 (TB "Young & Foolish", as at 31 Oct 2026, total $445,240.06).
+
+**Model:** the ten notes are `loan_accounts` rows, `debt_category='notes'`, `close_basis='none'`,
+`security_type='subordinated'`, new column `related_party`. Balances come from reconciliation-run's
+`xero_rebuild` like every loan — nothing typed. `_isNoteAccount()` keeps them OUT of the statement gate,
+rollforward and variance roster (no lender will ever send a statement) and counts them as ONE facility.
+
+**Display:** one row (it is the subtotal) — "10 holders · 1 related party", 15.00% simple, "— accrues $4,000/mo",
+3/2027–5/2027 — holders one click below (always printed / exported). Footer: "Convertible notes payoff at
+maturity ... $464,000". Weighted average counts a note at rate x PRINCIPAL (its balance already holds the
+accrued interest). Same in the PDF; CSV tags holder rows "holder detail" so they cannot be summed twice.
+
+**State:** migration `migrations/session_368_convertible_notes_on_debt_schedule.sql` APPLIED 2026-11-04 with
+David's OK (verified: 10 rows, $320,000, maturities 2027-03-18..2027-05-29). reconciliation-run triggered by hand
+the same morning to give the notes `xero_rebuild` balances; the daily 13:00 UTC run keeps them current. Harness: identical results before/after this change
+(the same pre-existing failures, three of them missing fixture files). Rendered against the live fixture plus
+the ten notes: screen, PDF and CSV checked.
+
 ## Session 367 — Nov 2, 2026: Loans page stripped to "what's in Xero"; Client View folded into two tabs
 
 **David:** "The only feature I currently use is the payroll feature. The Loans page would be more useful as a
