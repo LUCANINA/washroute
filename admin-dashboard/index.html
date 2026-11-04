@@ -6012,7 +6012,6 @@
                 </span>
               </div>
               <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
-              <div class="cv-method" id="debtsched-method"></div>
             </div>
             <div id="debtsched-paidoff" class="cv-noprint" style="margin-top:14px"></div>
           </div>
@@ -19601,7 +19600,6 @@
   // The fix is not to add ink to the rows. It is to say only what is true.
   // Built from what actually rendered, so the sheet and its footnote cannot
   // drift apart.
-  let _debtSchedFootnote = '';
   function _debtScheduleFootnote(enriched) {
     const withBal   = enriched.filter(e => e.bal);
     const allLender = withBal.length && withBal.every(e => e.bal.authoritative);
@@ -19686,11 +19684,8 @@
     asOfEl.textContent = `As of ${_cvTodayLong()} · ${facilityCount} active facilities · ${money(enriched.reduce((s2, e) => s2 + (e.bal?.amount || 0), 0))} outstanding`;
     const docTitleEl = document.getElementById('debtsched-doc-title');
     if (docTitleEl) docTitleEl.textContent = `${_cvOrgName()} — Debt Schedule`;
-    const methodEl = document.getElementById('debtsched-method');
-    if (methodEl) methodEl.textContent = _debtScheduleFootnote(enriched);
-    // Cached so the PDF and CSV exports quote exactly what the reader saw,
-    // rather than each re-deriving it and the three drifting apart.
-    _debtSchedFootnote = _debtScheduleFootnote(enriched);
+    // The methodology footnote was removed from the screen, PDF and CSV at David's
+    // request (2026-11-04). _debtScheduleFootnote() is kept, unused, in case it returns.
 
     // Session 238: no ⚠ markers here any more. This table is now a document the
     // client sends to lenders and vendors; "stale" and "no data" are notes to
