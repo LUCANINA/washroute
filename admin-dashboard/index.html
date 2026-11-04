@@ -19454,7 +19454,6 @@
     }
     rows.push([]);
     rows.push([`${_cvOrgName()} — Debt Schedule as of ${_cvTodayLong()}`]);
-    rows.push([_debtSchedFootnote]);
 
     const csv = rows.map(r => r.map(c => q(String(c == null ? '' : c))).join(',')).join('\r\n');
     const name = `debt-schedule-${today()}.csv`;
@@ -20047,7 +20046,6 @@
     <td colspan="9" style="padding:2px 8px 4px;font-size:12.5px;color:#6b7280;font-weight:400">Investor notes payoff at maturity (${esc(_fmtYMRange(pdfNoteSum.firstMat, pdfNoteSum.lastMat))}; due within 30 days): ${money(pdfNoteSum.payoff)}</td>
   </tr>` : ''}</tfoot>
 </table>
-<div style="margin-top:16px;font-size:12.5px;color:#9ca3af">${esc(_debtSchedFootnote)}</div>
 </body></html>`;
 
     const w = window.open('', '_blank');
