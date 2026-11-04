@@ -5172,6 +5172,10 @@
             /* Open: the holders + a subtotal REPLACE the summary row. Print and
                export follow whichever view is on screen (David, 2026-11-04). */
             .ds-notes-open tr.ds-note-sum { display: none; }
+            /* Collapsed, the summary row carries the arrow; the heading's only appears
+               once open, so there is always exactly one way to collapse. */
+            #ds-notes-head .ds-notes-caret { display: none !important; }
+            .ds-notes-open #ds-notes-head .ds-notes-caret { display: inline-block !important; }
             tr.ds-note-holder td { font-size: 12px; color: var(--gray-700); }
             tr.ds-note-holder td:first-child { padding-left: 28px !important; }
 
@@ -19572,10 +19576,12 @@
       firstMat: mats[0] || null, lastMat: mats[mats.length - 1] || null, lastDue,
     };
   }
-  // 'M/YYYY' or 'M/YYYY–M/YYYY' when a range spans months.
+  // 'M/YYYY', 'M–M/YYYY' within one year, or 'M/YYYY–M/YYYY' across years.
   function _fmtYMRange(a, b) {
     const x = _fmtYM(a), y = _fmtYM(b);
-    return x === y ? x : `${x}–${y}`;
+    if (x === y) return x;
+    const [xm, xy] = x.split('/'), [ym, yy] = y.split('/');
+    return xy && xy === yy ? `${xm}–${ym}/${yy}` : `${x}–${y}`;
   }
 
   function _debtScheduleRows() {
@@ -19766,7 +19772,7 @@
           <td style="text-align:right">${money(n.orig)}</td>
           <td style="text-align:right;white-space:nowrap">${_fmtYM(n.firstOrig)}</td>
           <td style="text-align:right;white-space:nowrap">${n.balKnown ? money(n.bal) : '—'}</td>
-          <td style="text-align:right;white-space:nowrap">${n.rate != null ? n.rate.toFixed(2) + '%' + sub('simple') : '—'}</td>
+          <td style="text-align:right;white-space:nowrap">${n.rate != null ? n.rate.toFixed(2) + '%' : '—'}</td>
           <td style="text-align:right;white-space:nowrap">—${n.accrual ? sub(`accrues ${money(n.accrual)}/mo`) : ''}</td>
           <td style="text-align:right;white-space:nowrap">${_fmtYMRange(n.firstMat, n.lastMat)}</td>
           <td style="white-space:nowrap;font-weight:400">${esc(SECURITY_LABEL[items[0].a.security_type] || items[0].a.security_type || '—')}</td>
@@ -19943,7 +19949,7 @@
           <td style="${td};text-align:right">${money(n.orig)}</td>
           <td style="${td};text-align:right">${_fmtYM(n.firstOrig)}</td>
           <td style="${td};text-align:right">${n.balKnown ? money(n.bal) : '—'}</td>
-          <td style="${td};text-align:right">${n.rate != null ? n.rate.toFixed(2) + '% <span style="font-size:11px;font-weight:400">simple</span>' : '—'}</td>
+          <td style="${td};text-align:right">${n.rate != null ? n.rate.toFixed(2) + '%' : '—'}</td>
           <td style="${td};text-align:right">—${n.accrual ? `<div style="font-size:11px;font-weight:400">accrues ${money(n.accrual)}/mo</div>` : ''}</td>
           <td style="${td};text-align:right">${_fmtYMRange(n.firstMat, n.lastMat)}</td>
           <td style="${td};font-weight:400">${esc(pdfSec[items[0].a.security_type] || items[0].a.security_type || '—')}</td>
