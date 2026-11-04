@@ -19532,8 +19532,9 @@
     _dsNotesOpen = !_dsNotesOpen;
     const wrap = document.getElementById('debtsched-table-wrap');
     if (wrap) wrap.classList.toggle('ds-notes-open', _dsNotesOpen);
-    const car = document.getElementById('ds-notes-caret');
-    if (car) car.textContent = _dsNotesOpen ? '▾' : '▸';
+    document.querySelectorAll('.ds-notes-caret').forEach(c => { c.textContent = _dsNotesOpen ? '▾' : '▸'; });
+    const hd = document.getElementById('ds-notes-head');
+    if (hd) hd.title = _dsNotesOpen ? 'Collapse to one line' : 'Show each holder';
   }
   function _noteMonthlyAccrual(a) {
     if (a.maturity_date && String(a.maturity_date) < today()) return 0;   // interest stops at maturity
@@ -19758,9 +19759,9 @@
       </tr>`;
       };
       return `
-        <tr><td colspan="10" style="padding:14px 12px 4px;font-weight:700;font-size:12.5px;color:var(--gray-700);border-top:2px solid var(--gray-200)">${esc(group.label)}</td></tr>
+        <tr id="ds-notes-head" style="cursor:pointer" onclick="_dsToggleNotes()" title="${_dsNotesOpen ? 'Collapse to one line' : 'Show each holder'}"><td colspan="10" style="padding:14px 12px 4px;font-weight:700;font-size:12.5px;color:var(--gray-700);border-top:2px solid var(--gray-200)"><span class="ds-notes-caret cv-noprint" style="display:inline-block;width:14px">${_dsNotesOpen ? '▾' : '▸'}</span>${esc(group.label)}</td></tr>
         <tr class="ds-note-sum" style="background:var(--gray-50);font-weight:700;cursor:pointer" onclick="_dsToggleNotes()" title="Show the holders">
-          <td style="padding:6px 12px"><span id="ds-notes-caret" class="cv-noprint">${_dsNotesOpen ? '▾' : '▸'}</span> ${n.count} holders${n.related ? sub(`${n.related} related party`) : ''}</td>
+          <td style="padding:6px 12px"><span class="ds-notes-caret cv-noprint">${_dsNotesOpen ? '▾' : '▸'}</span> ${n.count} holders${n.related ? sub(`${n.related} related party`) : ''}</td>
           <td style="white-space:nowrap">Investor notes</td>
           <td style="text-align:right">${money(n.orig)}</td>
           <td style="text-align:right;white-space:nowrap">${_fmtYM(n.firstOrig)}</td>
@@ -19773,7 +19774,7 @@
         </tr>
         ${items.map(holder).join('')}
         <tr class="ds-note-holder ds-note-subtotal" style="background:var(--gray-50);font-weight:700;cursor:pointer" onclick="_dsToggleNotes()" title="Collapse to one line">
-          <td colspan="2" style="padding:6px 12px !important"><span class="cv-noprint">▾</span> Subtotal (${n.count})</td>
+          <td colspan="2" style="padding:6px 12px !important"><span class="ds-notes-caret cv-noprint">▾</span> Subtotal (${n.count})</td>
           <td style="text-align:right">${money(n.orig)}</td>
           <td></td>
           <td style="text-align:right;white-space:nowrap">${n.balKnown ? money(n.bal) : '—'}</td>
