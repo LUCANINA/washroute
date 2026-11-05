@@ -6008,7 +6008,7 @@
                 <span style="display:flex;align-items:center;gap:8px" class="cv-noprint">
                   <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtScheduleCSV()" title="Save the schedule as a spreadsheet">⤓ Spreadsheet</button>
                   <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtSchedulePDF()" title="Print-ready page to email a lender">📄 PDF</button>
-                  <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="loadLoans()">↻ Refresh</button>
+                  <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="refreshDebtSchedule(this)">↻ Refresh</button>
                 </span>
               </div>
               <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
@@ -19483,7 +19483,7 @@
       rows.push([''].concat([...tr.children].map(cell)));
     }
     rows.push([]);
-    rows.push([`${_cvOrgName()} — Debt Schedule as of ${_cvTodayLong()}`]);
+    rows.push([`${_cvOrgName()} — Debt Schedule · ${_debtSchedBalanceDateText()}`]);
 
     const csv = rows.map(r => r.map(c => q(String(c == null ? '' : c))).join(',')).join('\r\n');
     const name = `debt-schedule-${today()}.csv`;
@@ -19505,6 +19505,40 @@
   function _cvTodayLong() {
     return new Date().toLocaleDateString('en-US',
       { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' });
+  }
+
+  // 2026-11-05: the Debt Schedule said "As of <today>" while every balance on it
+  // was Xero's month-end figure (the nightly reconciliation-run writes
+  // loan_book_balances at month-end dates). A lender reading "As of Nov 5" assumes
+  // Nov 5 balances. ONE answer for the screen, the PDF and the spreadsheet: the
+  // date the balances are actually true. If loans disagree, say the newest and
+  // that some are older — never round a mixed sheet up to one date.
+  function _debtSchedBalanceDateText() {
+    const dates = _debtScheduleRows().map(a => _debtBalance(a)?.asOf).filter(Boolean).map(d => String(d).slice(0, 10));
+    if (!dates.length) return `As of ${_cvTodayLong()}`;
+    const uniq = [...new Set(dates)].sort();
+    const newest = uniq[uniq.length - 1];
+    return uniq.length === 1
+      ? `Balances as of ${fmtDatePlain(newest)}`
+      : `Balances as of ${fmtDatePlain(newest)} (some earlier)`;
+  }
+
+  // Refresh re-reads what is stored; it does not call Xero. Balances move when the
+  // nightly reconciliation-run (5am Pacific) writes new ones. Say that it ran, and
+  // what date the figures are, so an unchanged table doesn't read as a dead button.
+  async function refreshDebtSchedule(btn) {
+    const label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+    try {
+      await loadLoans();
+      if (!_bkLoansLoaded) return;   // loadLoans already showed its own error
+      showToast(`Refreshed — ${_debtSchedBalanceDateText().replace(/^B/, 'b')}. Xero balances update nightly.`, 'success', 4000);
+    } catch (err) {
+      console.error('refreshDebtSchedule failed:', err);
+      showToast('Could not refresh the debt schedule.', 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = label; }
+    }
   }
 
   // ── Debt Schedule ─────────────────────────────────────────────────────────
@@ -19712,7 +19746,7 @@
     summaryEl.innerHTML = '';
 
     const facilityCount = enriched.filter(e => !_isNoteAccount(e.a)).length + (enriched.some(e => _isNoteAccount(e.a)) ? 1 : 0);
-    asOfEl.textContent = `As of ${_cvTodayLong()} · ${facilityCount} active facilities · ${money(enriched.reduce((s2, e) => s2 + (e.bal?.amount || 0), 0))} outstanding`;
+    asOfEl.textContent = `${_debtSchedBalanceDateText()} · ${facilityCount} active facilities · ${money(enriched.reduce((s2, e) => s2 + (e.bal?.amount || 0), 0))} outstanding`;
     const docTitleEl = document.getElementById('debtsched-doc-title');
     if (docTitleEl) docTitleEl.textContent = `${_cvOrgName()} — Debt Schedule`;
     // The methodology footnote was removed from the screen, PDF and CSV at David's
@@ -20047,7 +20081,7 @@
     </div>
   </div>
   <div style="text-align:right">
-    <div style="font-size:11px;color:#172034">As of ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })}</div>
+    <div style="font-size:11px;color:#172034">${_debtSchedBalanceDateText()}</div>
   </div>
 </div>
 
