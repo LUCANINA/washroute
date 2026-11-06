@@ -56,7 +56,7 @@ function home(v) {
 <section class="h-hero">
   <img class="h-hero-img" src="/assets/img/hero-wide.jpg" alt="A woman smelling freshly cleaned laundry" width="1920" height="984">
   <div class="wrap h-hero-copy">
-    <h1><span class="h-kicker">Family Laundry</span>Premium Wash &amp; Fold for Busy Households</h1>
+    <h1><span class="h-kicker">Family Laundry</span> Premium Wash &amp; Fold for Busy Households</h1>
     <p class="h-hero-sub">Picked up, washed at our own plant in Oakland and back folded the next day. ${mdi('{site:service_days}', v)}.</p>
     ${ZIPCHECK_SPOT === 'hero' ? `${zipCheck(v, 'hero')}
     ${ratingBadge(v)}` : `${ratingBadge(v)}
@@ -73,7 +73,7 @@ function home(v) {
   </div>
   <div class="h-van-copy">
     <h2>Delivering the freshest laundry in the Bay since ${esc(v.site?.founded || '2019')}.</h2>
-    <p>Imagine a service that picks up your dirty laundry, then returns it to you perfectly washed and folded. Within a day. Like magic. That's Family Laundry (learn more about what makes us <a href="/post/premium-laundry-delivery-at-your-doorstep">stand out</a>).</p>
+    <p>Imagine a service that picks up your dirty laundry, then returns it to you perfectly washed and folded. Within a day. Like magic. That's Family Laundry (learn more about what makes us <a href="/post/premium-laundry-delivery-at-your-doorstep">stand out</a>). We pick up and deliver in <a href="/laundry-delivery-oakland">Oakland</a>, <a href="/laundry-delivery-berkeley">Berkeley</a>, <a href="/laundry-delivery-sf">San Francisco</a> and <a href="/service-map">across the East Bay</a>.</p>
     <p>We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities (we never, ever outsource) and delivery vehicles. It's 100% Family Laundry, satisfaction guaranteed.</p>
     ${ZIPCHECK_SPOT === 'van' ? zipCheck(v, 'van') : `<p>Let us take care of your laundry. <a href="${APP}">Create an account</a>.</p>`}
   </div>
@@ -165,8 +165,8 @@ ${ownRatingLine(v) ? `<p class="h-own">${ownRatingLine(v)}</p>` : ''}
 ${contactBlock(v)}`;
   return {
     path: '/',
-    title: 'Laundry Pickup & Delivery in Oakland, the East Bay & San Francisco | Family Laundry',
-    description: "Wash & fold laundry pickup and delivery from an Oakland family business. Washed fragrance-free at our own plant in Oakland, never outsourced, and back the next day. Serving Oakland, Berkeley, the East Bay and San Francisco, Monday to Saturday.",
+    title: 'Laundry Pickup & Delivery in Oakland & SF | Family Laundry',
+    description: "Wash & fold pickup and delivery in Oakland, the East Bay and San Francisco. Washed fragrance-free at our own Oakland plant, back the next day.",
     body,
     jsonld: {
       '@context': 'https://schema.org', '@type': 'DryCleaningOrLaundry', '@id': BIZ_ID, name: 'Family Laundry',

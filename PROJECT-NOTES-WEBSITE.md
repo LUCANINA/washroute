@@ -309,3 +309,11 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   own sign-up didn't save, most likely because browser autofill filled the hidden field and the server dropped it.
   Test rows to delete: zip 00000 and 00001, email probe@claude-test.invalid.
 
+
+- **Fri Nov 6, 2026 (Google snippet fixes)** — Google showed "Family LaundryPremium Wash & Fold" (no space) and San Francisco
+  near the bottom of the sitelinks. Fixes in `api/_lib/pages.js`: space added between the `h-kicker` span and the
+  heading text (looks the same on screen, `h-kicker` is display:block); homepage title cut to 58 characters ("Laundry
+  Pickup & Delivery in Oakland & SF | Family Laundry") and description to 142 so Google is likelier to use them
+  instead of page text; one sentence in the van section linking Oakland, Berkeley, San Francisco and the service map
+  (the homepage body had no links to any city page; only the footer did). Sitelink order can't be set directly.
+  After publishing: Search Console → URL Inspection → Request indexing for `/` and `/laundry-delivery-sf`.
