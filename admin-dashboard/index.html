@@ -195,8 +195,9 @@
     .tech-header-logo { font-size:14px;font-weight:700;letter-spacing:-.01em; }
     .tech-header-logo span { font-weight:400;opacity:.5; }
     /* ── Emergency Protocols drawer (session: emergency protocols v1) ── */
-    .nav-emergency { margin: 4px 10px 10px; padding: 9px 12px; border-radius: 8px; background: var(--red); color: white !important; font-weight: 700; justify-content: center; letter-spacing: .02em; }
-    .nav-emergency:hover { background: #b91c1c; }
+    .nav-emergency { margin: auto 12px 10px; padding: 6px 10px; border-radius: 7px; border: 1px solid rgba(248,113,113,.55); background: transparent; color: #fca5a5 !important; font-size: 12px; font-weight: 600; justify-content: center; }
+    .nav-emergency:hover { background: rgba(220,38,38,.18); color: #fecaca !important; }
+    .nav-emergency + .sidebar-footer { margin-top: 0; }
     .er-overlay { display:none; position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1000; }
     .er-overlay.open { display:block; }
     .er-drawer { position:fixed; top:0; right:0; height:100vh; width:min(480px,100vw); background:white; box-shadow:-8px 0 30px rgba(0,0,0,.18); display:flex; flex-direction:column; z-index:1001; }
@@ -2154,8 +2155,6 @@
       <div class="sidebar-logo" style="padding:18px 14px 14px;justify-content:center;">
         <img src="../assets/logo.png" alt="Family Laundry" style="width:100%;max-width:90px;height:auto;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:14px;font-weight:700;color:white;letter-spacing:-.02em;\'>Family <span style=\'font-weight:400;opacity:.5\'>Laundry</span></div>'" />
       </div>
-      <!-- Emergency Protocols — visible to every staff role (no data-page, so applyRoleToNav leaves it alone) -->
-      <div class="nav-item nav-emergency" id="nav-emergency" onclick="erOpen()" title="Emergency response protocols">🚨 Emergency</div>
       <div class="sidebar-section-label" data-section="main">Main</div>
       <div id="nav-overview" class="nav-item active" data-page="overview" data-section="main" onclick="showPage('overview',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
@@ -2259,6 +2258,8 @@
           General
         </div>
       </div>
+      <!-- Emergency Protocols — visible to every staff role (no data-page, so applyRoleToNav leaves it alone) -->
+      <div class="nav-item nav-emergency" id="nav-emergency" onclick="erOpen()" title="Emergency response protocols">🚨 Emergency</div>
       <div class="sidebar-footer" onclick="handleSignOut()">
         <div class="avatar" id="user-avatar">?</div>
         <div class="sidebar-user">
