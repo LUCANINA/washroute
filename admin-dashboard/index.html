@@ -64780,7 +64780,13 @@ async function _dvIframeLoaded() {
 
     const { data, error } = await q;
     if (error) { listEl.innerHTML = '<div style="padding:16px;color:var(--red);font-size:13px">Error loading orders: ' + esc(error.message) + '</div>'; return; }
-    st.orders = (data || []).map(o => ({ ...o, _amt: orderChargedTotal(o) }));
+    // Oldest first, by the SAME date the row displays (pickup date, or created_at for
+    // counter drop-offs that have no pickup_window_start). The server .order() alone
+    // put every null-pickup order in arbitrary order, so payments couldn't be applied
+    // chronologically.
+    const _oapDate = o => new Date(o.pickup_window_start || o.created_at || 0).getTime();
+    st.orders = (data || []).map(o => ({ ...o, _amt: orderChargedTotal(o) }))
+      .sort((a, b) => (_oapDate(a) - _oapDate(b)) || ((a.order_number || 0) - (b.order_number || 0)));
     oaPaymentBuildLocFilter();
     oaPaymentRenderOrders();
   }
