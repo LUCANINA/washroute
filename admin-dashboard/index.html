@@ -66032,7 +66032,7 @@ ${orderSections}
     tenfour:  { name: '10-4 Tow of Oakland',  phone: '(510) 328-3084', note: 'Backup tow' },
     security: { name: 'Top Level Security',  phone: '(925) 588-8245', note: 'Foothill security' },
   };
-  // Step format: text, plus optional call: [contact keys], go: 'orders' | 'inbox'
+  // Step format: text, plus optional call: [contact keys], sms: [contact keys], go: 'orders' | 'inbox'
   const ER_RESCHEDULE = { text: 'Reschedule all affected pickups and deliveries to the following day.', go: 'orders' };
   const ER_NOTIFY     = { text: 'Notify affected customers of the change to their service.', go: 'inbox' };
   const ER_PROTOCOLS = [
@@ -66055,15 +66055,16 @@ ${orderSections}
       { text: 'Call United Towing for roadside assistance.', call: ['united'] },
       { text: 'If United Towing is unavailable, call 10-4 Tow of Oakland.', call: ['tenfour'] },
       { text: 'Coordinate the tow and resolve it directly whenever possible.' },
-      { text: 'If help can\'t be arranged or it can\'t be resolved, call Luis. If Luis doesn\'t answer, call David.', call: ['luis', 'david'] },
+      { text: 'Resolved? Text Luis and David to let them know.', sms: ['luis', 'david'] },
+      { text: 'Not resolved, or help can\'t be arranged? Call Luis. If Luis doesn\'t answer, call David.', call: ['luis', 'david'] },
       ER_RESCHEDULE, ER_NOTIFY,
     ]},
     { id: 'mechanical', icon: '⚙️', name: 'Van Breakdown', sub: 'Electrical or mechanical problem', steps: [
       { text: 'Tell the driver to stop driving immediately and pull over somewhere safe.' },
       { text: 'Call United Towing for assistance.', call: ['united'] },
       { text: 'If United Towing is unavailable, call 10-4 Tow of Oakland.', call: ['tenfour'] },
+      { text: 'Call Luis to report the breakdown — always, even if it\'s already resolved. If Luis doesn\'t answer, call David.', call: ['luis', 'david'] },
       ER_RESCHEDULE, ER_NOTIFY,
-      { text: 'If more help is needed or it can\'t be resolved, call Luis. If Luis doesn\'t answer, call David.', call: ['luis', 'david'] },
     ]},
     { id: 'security', icon: '🔒', name: 'Break-in at Foothill', sub: 'Security incident', steps: [
       { text: 'Top Level Security contacts Luis directly — he is the primary contact.' },
@@ -66077,6 +66078,7 @@ ${orderSections}
   function _erEsc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function _erCan(page) { try { return canAccessPage(page); } catch (e) { return false; } }
   function _erTel(p) { return 'tel:+1' + p.replace(/\D/g, ''); }
+  function _erSmsBtn(key) { const c = ER_CONTACTS[key]; return `<a class="er-call" href="${_erTel(c.phone).replace('tel:', 'sms:')}">💬 Text ${_erEsc(c.name)}</a>`; }
   function _erCallBtn(key) { const c = ER_CONTACTS[key]; return `<a class="er-call" href="${_erTel(c.phone)}">📞 ${_erEsc(c.name)} ${_erEsc(c.phone)}</a>`; }
   function _er911Banner() {
     return `<div class="er-911"><div class="er-911-text">Anyone hurt or in immediate danger? Call 911 first.</div><a class="er-911-btn" href="tel:911">Call 911</a></div>`;
@@ -66108,6 +66110,7 @@ ${orderSections}
       const acts = [];
       if (s.nine11) acts.push(`<a class="er-call red" href="tel:911">📞 Call 911</a>`);
       (s.call || []).forEach(k => acts.push(_erCallBtn(k)));
+      (s.sms || []).forEach(k => acts.push(_erSmsBtn(k)));
       if (s.go === 'orders' && _erCan('orders')) acts.push(`<button class="er-call go" onclick="erGo('orders')">Open Orders →</button>`);
       if (s.go === 'inbox' && _erCan('inbox')) acts.push(`<button class="er-call go" onclick="erGo('inbox')">Open Inbox →</button>`);
       return `<label class="er-step${done.has(i) ? ' done' : ''}"><input type="checkbox" ${done.has(i) ? 'checked' : ''} onchange="erTick('${id}',${i},this)"><div><div class="er-step-text"><b>${i + 1}.</b> ${_erEsc(s.text)}</div>${acts.length ? `<div class="er-step-actions">${acts.join('')}</div>` : ''}</div></label>`;
