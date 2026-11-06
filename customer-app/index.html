@@ -11914,7 +11914,7 @@ async function openPricingPanel() {
   // set (matches the rest of the customer-app's fallback).
   const _custPricelist = currentCustomer?.pricelist || 'Delivery';
   const [svcRes, feeRes] = await Promise.all([
-    db.from('services').select('id,name,base_price,pricing_type,is_addon,show_in_app,pricelist').eq('show_in_app', true).eq('pricelist', _custPricelist).order('sort_order'),
+    db.from('services').select('id,name,base_price,pricing_type,is_addon,show_in_app,pricelist,min_lbs,min_lbs_from').eq('show_in_app', true).eq('pricelist', _custPricelist).order('sort_order'),
     db.from('service_fees').select('id,name,amount,fee_type,unit_label,category,show_in_app,pricelist').eq('show_in_app', true).order('sort_order')
   ]);
 
@@ -11935,8 +11935,19 @@ async function openPricingPanel() {
   function fmtSvcPrice(s) {
     const raw  = parseFloat(s.base_price) || 0;
     const base = `$${raw % 1 === 0 ? raw.toFixed(0) : raw.toFixed(2)}`;
-    const unit = s.pricing_type === 'per_bag' ? 'bag' : s.pricing_type === 'per_item' ? 'item' : '';
-    return unit ? `${base}<span style="font-size:12px;color:var(--gray-400)">/${unit}</span>` : base;
+    const unit = s.pricing_type === 'per_bag' ? 'bag' : s.pricing_type === 'per_item' ? 'item' : s.pricing_type === 'per_lb' ? 'lb' : '';
+    // Session 371: per-lb minimum order weight, stated where the price is.
+    let minNote = '';
+    const _min = parseFloat(s.min_lbs);
+    if (s.pricing_type === 'per_lb' && _min > 0) {
+      const _from = s.min_lbs_from ? String(s.min_lbs_from).slice(0, 10) : null;
+      const _today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+      const _when = (_from && _from > _today)
+        ? ' from ' + new Date(_from + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : '';
+      minNote = `<div style="font-size:12px;font-weight:500;color:var(--gray-500)">${_min} lb minimum${_when}</div>`;
+    }
+    return (unit ? `${base}<span style="font-size:12px;color:var(--gray-400)">/${unit}</span>` : base) + minNote;
   }
 
   function fmtFeePrice(f) {

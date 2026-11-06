@@ -1,5 +1,33 @@
 # WashRoute — Project Notes
 
+## Session 371 — Nov 6, 2026: 25 lb minimum on commercial per-lb orders — DB LIVE, apps committed (David pushing)
+
+**Decision (David):** commercial orders under 25 lbs bill as 25 lbs, from pickups on **2026-12-01**. Modelled first:
+last 90 days, 50 of 349 per-lb commercial orders were under 25 lbs → **+$641/90 days ≈ $2,600/yr**, all from 7 customers
+(Onika Crossman, Kasa Hotel Addison, Covenant House, RedDoor Catering, Erika VanHarken, Brooke Rosenberg, Nourish Osteo).
+On-account customers on the **Delivery** price list pay per bag, so a lb minimum does not touch them. Notice emailed to
+all 7 from info@familylaundry.com on 2026-11-06 (Kasa → add.invoices@ + james.benson@ cc, per its invoice group).
+
+**How it works**
+- `services.min_lbs` + `services.min_lbs_from` (migration `session_370_service_min_lbs`, file `session_371_service_min_lbs.sql`).
+  Set to 25 / 2026-12-01 on Commercial Wash & Fold and HCEB Wash & Dry. Retail untouched (it has its own $ cart minimum).
+  Editable in Admin → Services ("⚖ Minimum" row on per-lb, non-Retail services). Blank = no minimum.
+- The top-up is a **second `type:'base'` line with `minimum:true`**, label
+  `Minimum order adjustment · 10.0 lbs × $1.75/lb (25 lb minimum)` (David chose the two-line option B).
+  Why `base` and not a new type: every discount path (app + SQL `session_294d`), revenue report and receipt already sums
+  `base`, so the minimum is discounted (David: yes on % discounts) and counted as service revenue with nothing to whitelist.
+- One helper per app, identical logic: admin `_minLbsTopUp`, POS `_posMinLbsTopUp`. Reference day = actual pickup →
+  pickup window → created, **in Pacific time**. Never on a rewash, never before weighing.
+- Wired into: admin intake (`calcProcTotal`, `renderBreakdownRows`, `_buildIntakeLineItems`), admin order-panel edit
+  (preview + save), POS intake (`_computeIntakePrice` + preview + confirm + discount). Booking estimates are bags × 25 lbs,
+  so they never fall under the minimum — left alone.
+- Customer app Pricing page now shows `/lb` on per-lb prices (it showed a bare "$1.75") and "25 lb minimum from Dec 1".
+- Test: `node tests/min-lbs.test.mjs` — extracts the REAL helpers from both apps, 34 assertions incl. admin==POS parity
+  and an inverse check.
+
+**Watch:** the minimum's dollars are measurable from `line_items` (`minimum = true`). Check in January whether the
+7 customers consolidated pickups instead of paying it.
+
 ## Session 365 — Nov 2, 2026: On-time report — outliers excluded, 15-min early grace — DB LIVE, admin edited (not committed)
 - David: stops a day+ late are rarely the driver (unpaid etc.); filter extremes. Measured first (90 days, 9,766 stops): only 15 stops >4h off — removing them moves the score 72.7→72.8%. The real drag was EARLY = miss with zero grace (1,736 early, 245 of them ≤5 min). Grace options shown; David chose **exclude >4h** + **up to 15 min early = on time**.
 - Migration `session_365_on_time_outliers` (applied): `_otr_events` returns new result `'excluded'` when >240 min off either side; early now means >15 min before window. `_otr_summary` adds `excluded` count and leaves them out of stops/pickups/deliveries. `on_time_report` drops excluded from trend + breakdowns; `misses` = top 300 counted misses + all excluded. Same signatures, SECURITY INVOKER, grants unchanged. Only caller is the admin On-Time tab. Rollback = re-run session_295 file (md5-verified identical to the pre-365 live functions).

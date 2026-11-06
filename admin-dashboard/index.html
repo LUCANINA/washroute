@@ -30492,7 +30492,7 @@ ${noActivityNote}
   async function loadAll() {
     // Pre-load add-on services and global preferences for the intake form
     const [{ data: addonSvcs }, { data: globalPrefs }] = await Promise.all([
-      db.from('services').select('id, name, base_price, pricing_type, lbs_per_bag, pricelist, linked_preference_id, is_addon').eq('is_active', true),
+      db.from('services').select('id, name, base_price, pricing_type, lbs_per_bag, pricelist, linked_preference_id, is_addon, min_lbs, min_lbs_from').eq('is_active', true),
       db.from('preferences').select('*').order('sort_order')
     ]);
     allAddonServicesCache = addonSvcs || [];
@@ -35609,6 +35609,11 @@ ${noActivityNote}
       html += `<div style="display:flex;justify-content:space-between"><span>${baseLabel}</span><span>${fmtMoney(baseTotal)}</span></div>`;
       total += baseTotal;
     }
+    const _minTopPv = _minLbsTopUp(svc, weight, o);   // session 371
+    if (_minTopPv) {
+      html += `<div style="display:flex;justify-content:space-between"><span>${esc(_minTopPv.label)}</span><span>${fmtMoney(_minTopPv.amount)}</span></div>`;
+      total += _minTopPv.amount;
+    }
     if (overageAmt > 0) {
       html += `<div style="display:flex;justify-content:space-between"><span>${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb</span><span>${fmtMoney(overageAmt)}</span></div>`;
       total += overageAmt;
@@ -35709,6 +35714,10 @@ ${noActivityNote}
       ? `${_svcPrefix2}${_bagsPart2}${weight} lbs × ${fmtMoney(basePrice)}/lb`
       : `${_svcPrefix2}${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`;
     if (baseTotal > 0) newLineItems.push({ type: 'base', label: baseLabel, amount: baseTotal });
+    // Session 371: minimum-weight top-up, same helper as intake.
+    const _minTop = _minLbsTopUp(svc, weight, o);
+    const minAmt  = _minTop ? _minTop.amount : 0;
+    if (_minTop) newLineItems.push({ type: 'base', minimum: true, label: _minTop.label, amount: minAmt });
     if (overageAmt > 0) newLineItems.push({ type: 'overage', label: `${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: overageAmt });
     if (deliveryFee > 0) newLineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee });
     if (sameDaySurcharge > 0) newLineItems.push({ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge });
@@ -35723,7 +35732,7 @@ ${noActivityNote}
     discountItems.forEach(d => newLineItems.push(d));
     if (creditItem) newLineItems.push(creditItem);
 
-    const newTotal = Math.max(0, baseTotal + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - discountTotal - creditAmt);
+    const newTotal = Math.max(0, baseTotal + minAmt + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - discountTotal - creditAmt);
 
     // Session 364: a priced, pay-per-order order should never quietly become $0.
     // Subscription orders and rewashes legitimately price at $0, so they pass.
@@ -41376,7 +41385,31 @@ ${oneCopy}
           </button>
         `}
       </div>` : ''}
+      ${s.pricing_type === 'per_lb' && !s.is_addon && s.pricelist !== 'Retail' ? `
+      <div style="grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:4px 0 3px;border-top:1px dashed var(--gray-100);margin-top:2px;min-height:28px">
+        <span style="font-size:11px;color:var(--gray-400);font-weight:600;flex-shrink:0">⚖ Minimum</span>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--gray-600)">
+          Lbs
+          <input class="svc-input" id="svc-minlbs-${s.id}" type="number" step="1" min="0" placeholder="none" value="${s.min_lbs != null ? parseFloat(s.min_lbs) : ''}" style="width:64px" onchange="saveSvcMinimum('${s.id}')" />
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--gray-600)">
+          Starting
+          <input class="svc-input" id="svc-minfrom-${s.id}" type="date" value="${s.min_lbs_from ? String(s.min_lbs_from).slice(0,10) : ''}" style="width:140px" onchange="saveSvcMinimum('${s.id}')" />
+        </label>
+      </div>` : ''}
     </div>`;
+  }
+
+  // Session 371: per-lb minimum order weight. Blank lbs = no minimum; blank date = applies now.
+  async function saveSvcMinimum(id) {
+    const raw  = document.getElementById('svc-minlbs-'+id)?.value;
+    const from = document.getElementById('svc-minfrom-'+id)?.value || null;
+    const min  = raw === '' || raw == null ? null : parseFloat(raw);
+    if (min != null && !(min > 0)) { showToast('Minimum must be more than 0 lbs, or blank for none', 'error'); return; }
+    const { error } = await db.from('services').update({ min_lbs: min, min_lbs_from: from }).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allServices = allServices.map(s => s.id===id ? {...s, min_lbs: min, min_lbs_from: from} : s);
+    showToast(min ? `Minimum set: ${min} lbs${from ? ' from ' + from : ''}` : 'Minimum removed', 'success');
   }
 
   function markSvcDirty(id) {
@@ -54955,7 +54988,7 @@ ${oneCopy}
                  stripe_payment_intent_id, pickup_window_start, delivery_window_start, total_amount, line_items,
                  pickup_address_id, delivery_address_id,
                  customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, address_cache, addresses(id, line1, city)),
-                 services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
+                 services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id, min_lbs, min_lbs_from)`)
         .eq('status', 'picked_up'))
         .order('actual_pickup_at', { ascending: true }),
     ]);
@@ -54999,7 +55032,7 @@ ${oneCopy}
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                actual_pickup_at, pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
-               services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
+               services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id, min_lbs, min_lbs_from),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'picked_up'))
       .order('actual_pickup_at', { ascending: true });
@@ -55153,11 +55186,11 @@ ${oneCopy}
     // Fresh-fetch the order so bags/notes/dates are always current
     // (admin may have changed them in the order panel since the proc queue last loaded)
     const { data: freshOrder } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, is_rewash, rewash_reason, rewash_note, service_id, subscription_id, created_at,
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, is_rewash, rewash_reason, rewash_note, service_id, subscription_id, created_at, actual_pickup_at,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id, total_amount, line_items, tip_amount, tip_type, discount_id,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, addresses(id,label,line1,city)),
-               services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
+               services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id, min_lbs, min_lbs_from),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('id', orderId)
       .single();
@@ -55520,6 +55553,7 @@ ${oneCopy}
     if (isPerLb) {
       const wtLabel = bd.weight > 0 ? `${bd.weight} lbs` : 'Pending weight';
       rows.push(`<div class="proc-breakdown-row"><span>${wtLabel} × ${fmtMoney(pricePerBag)}/lb</span><span class="amount">${fmtMoney(bd.base)}</span></div>`);
+      if (bd.minTop) rows.push(`<div class="proc-breakdown-row"><span>${esc(bd.minTop.label)}</span><span class="amount">+${fmtMoney(bd.minTop.amount)}</span></div>`);
     } else {
       rows.push(`<div class="proc-breakdown-row"><span>${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}</span><span class="amount">${fmtMoney(bd.base)}</span></div>`);
     }
@@ -55599,6 +55633,32 @@ ${oneCopy}
     return { deliveryFee, sameDaySurcharge, deliveryTotal: deliveryFee + sameDaySurcharge };
   }
 
+  // Session 371 — PER-LB MINIMUM ORDER WEIGHT (services.min_lbs, starting min_lbs_from).
+  // ONE helper for every admin path that prices a per-lb order (intake charge, intake
+  // preview, order-panel edit, booking estimate). Returns null when no minimum applies.
+  // The top-up is billed as a SECOND type:'base' line flagged minimum:true, so discounts,
+  // revenue reports and Xero mapping all treat it as service revenue with no new type to
+  // whitelist. The date is the PICKUP day in Pacific time, so orders already picked up
+  // before the start date are never repriced.
+  function _minLbsTopUp(svc, weight, order) {
+    if (!svc || svc.pricing_type !== 'per_lb') return null;
+    if (order?.is_rewash) return null;
+    const min = parseFloat(svc.min_lbs);
+    const w   = parseFloat(weight) || 0;
+    if (!(min > 0) || !(w > 0) || w >= min) return null;
+    if (svc.min_lbs_from) {
+      const ref = order?.actual_pickup_at || order?.pickup_window_start || order?.created_at || new Date().toISOString();
+      const refDay = new Date(ref).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+      if (refDay < String(svc.min_lbs_from).slice(0, 10)) return null;
+    }
+    const rate   = parseFloat(svc.base_price) || 0;
+    const lbs    = Math.round((min - w) * 10) / 10;
+    const amount = Math.round(lbs * rate * 100) / 100;
+    if (!(amount > 0)) return null;
+    return { lbs, amount, min, rate,
+      label: `Minimum order adjustment · ${lbs.toFixed(1)} lbs × ${fmtMoney(rate)}/lb (${min} lb minimum)` };
+  }
+
   function calcProcTotal() {
     const svc         = procSvc || {};
     const pricePerBag = parseFloat(svc.base_price || 0);
@@ -55613,6 +55673,8 @@ ${oneCopy}
     // and the plan's overage rate. Mirrors the lb_overage trigger formula so
     // the launderer's preview matches what gets billed.
     const base           = isPerLb ? weight * pricePerBag : bags * pricePerBag;
+    const minTop         = isPerLb ? _minLbsTopUp(svc, weight, procActiveOrder) : null;   // session 371
+    const minimum_charge = minTop ? minTop.amount : 0;
     let overage_lbs, overage_charge, planEffCap, planOvgRate;
     if (procSubscription?.subscription_plans) {
       const plan = procSubscription.subscription_plans;
@@ -55668,7 +55730,7 @@ ${oneCopy}
     // Fixed-dollar discounts are not affected by this — they deduct a flat amount regardless
     // of scope.
     const discountPct = (procCustomerDiscount?.type === 'percent') ? parseFloat(procCustomerDiscount.value) / 100 : 0;
-    const discountableSubtotal = base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total;
+    const discountableSubtotal = base + minimum_charge + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total;
     const discountAmt = discountPct > 0 ? Math.round(discountableSubtotal * discountPct * 100) / 100 : 0;
     const subtotal = discountableSubtotal + deliveryTotal - discountAmt;
     const creditApplied = Math.min(procCustomerCredits, subtotal); // never exceed total
@@ -55682,13 +55744,13 @@ ${oneCopy}
       : 0;
     // Session 355: a free rewash is always $0 — no charge, no credit used, no tip.
     if (procActiveOrder?.is_rewash) {
-      return { bags, weight, base: 0, overage_lbs, overage_charge: 0, addons_total: 0, addonSvc_total: 0, prefLinkedSvc_total: 0,
+      return { bags, weight, base: 0, minTop: null, minimum_charge: 0, overage_lbs, overage_charge: 0, addons_total: 0, addonSvc_total: 0, prefLinkedSvc_total: 0,
                planEffCap, planOvgRate, isSubscription: false,
                deliveryFee: 0, sameDaySurcharge: 0, deliveryTotal: 0, discountAmt: 0, subtotal: 0, creditApplied: 0,
                preTipTotal: 0, tipDollars: 0, tipType, tipRaw: 0, total: 0 };
     }
     const total = preTipTotal + tipDollars;
-    return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
+    return { bags, weight, base, minTop, minimum_charge, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
              planEffCap, planOvgRate, isSubscription: procOrderIsSubscription || !!procSubscription, // session 292: the ORDER decides
              deliveryFee, sameDaySurcharge, deliveryTotal, discountAmt, subtotal, creditApplied,
              preTipTotal, tipDollars, tipType, tipRaw,
@@ -55815,6 +55877,8 @@ ${oneCopy}
     const lineItems = [
       { type:'base', label: baseLabel, amount: bd.base }
     ];
+    // Session 371: minimum-weight top-up — a second base line so discounts apply to it.
+    if (bd.minTop) lineItems.push({ type:'base', minimum:true, label: bd.minTop.label, amount: bd.minTop.amount });
     // Session 168: for SUBSCRIPTION orders the lb_overage trigger
     // (apply_subscription_usage_fn) writes the overage line + bumps total_amount
     // at ready_for_delivery. Persisting an 'overage' line here too double-charges
