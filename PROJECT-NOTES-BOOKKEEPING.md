@@ -1,5 +1,112 @@
 # WashRoute — Bookkeeping Module — Project Notes
 
+> ## ⏭️ START HERE — first thing, next session (left by session 369, 2026-11-06 17:5x UTC)
+>
+> **0. DONE (session 370, 2026-11-06 19:27 UTC): the Nov 4 payout is POSTED.** David had deployed
+> both functions at 18:30 UTC (`xero-payout-sync` v34, `-reallocate` v27, verify_jwt false). Before that,
+> someone hand-entered the bank line in Xero as ONE line, all $12,133.07 to 405 Subscription Fees
+> (description copied from the Nov 3 payout; no reference) -- that inflated November subscriptions to
+> $16,533.07. David deleted it (Xero txn 4f6819bd…, confirmed DELETED via xero-read). Dry run tied to the
+> cent; real post created Xero txn 27ab4599-e133-4b8d-a905-7098d8faade9 (405 $3,300 / 403 $9,369.30 /
+> 404 $1,220.69 / 401 $59.26 / 691 −$95.15 incl. the +$50 refund_failure). David still has to click Match
+> on the Nov 4 bank line. Item 1 below is SUPERSEDED. Code still uncommitted.
+>
+> ~~**1. ONE THING IS PENDING AND IT IS A DEPLOY DAVID HAS TO RUN.**~~ Session 369's
+> `refund_failure` fix is written and verified on his Mac and is **NOT deployed** —
+> checked, not assumed: `list_edge_functions` at 17:4x UTC still shows
+> `xero-payout-sync` **v33** and `xero-payout-reallocate` **v26**, both 2026-10-07.
+> Both are **`verify_jwt: false`**, so each command MUST carry `--no-verify-jwt`
+> (s260/s281 — the flag is a decision, never a default). After the deploy: probe
+> behaviour, not the version number, then `dry_run=true` the payout, then post.
+> Until then **$12,133.07 is still missing from Xero** and
+> `po_1UXsEWGACgbvEugHCpz09YuZ` keeps alerting every 6h. Leave the bank line
+> unreconciled. Nothing is committed — `admin-dashboard/index.html` still carries
+> s363/s367 uncommitted work, so **never blanket-commit**; stage paths by name.
+>
+> **2. THE RE-RUN WILL NOT HAPPEN BY ITSELF, AND THERE IS NO BUTTON.**
+> `mayAutoRetry()` is false for `failure_kind !== 'transient'` and this row is
+> `permanent`; the dashboard has no write path to `xero_payout_syncs`. Re-run with
+> `xero-payout-sync?payout_id=…` + `x-wr-internal` via `net.http_post`.
+> **Duplicate-safe, verified in code not from a comment:** the `status === 'posted'`
+> skip (~L560) does not apply to a `failed` row, so it proceeds to the Xero-side
+> `findConflictingDeposit` pre-check (~L714) and the self-heal branch (~L664) before
+> anything is created. Same human-re-run shape as Tech Debt #42's 2026-09-04 payout.
+>
+> **3. THIS BLOCK HAD GONE MISSING FROM THE TOP OF THE FILE FOR TWO MONTHS.** The
+> previous one is **still at ~L943+, left by session 291 (2026-09-09)** — sessions
+> 353, 367 and 368 were all logged above it without touching it, so the skill's
+> STEP 0 was pointing at a 2-month-stale block. **It was deliberately NOT deleted:**
+> roughly ten later entries cross-reference its sections by number (`START HERE §0`,
+> `§3`, `§0x`, `§0y`, `§0zl`, `§0zn`, `§0zo`), and deleting it would break every one
+> of those citations. Read THIS block for what is pending; read that one only when a
+> later note sends you to a numbered section of it.
+>
+> **4. Suite as of this session:** 29-assertion `tests/refund-classify.test.mts`
+> added and green; `tests/edge-function-syntax.test.mts` green (81 functions + 62
+> shared modules parse); the Node `.test.mts` sweep ran clean. The browser harness
+> was **not** run — this change touches no dashboard code.
+
+
+## Session 369 — Nov 6, 2026: one $50 failed refund held $12,133.07 out of Xero for two days
+
+**Found by the daily bug check**, not by a person: `payout_post_failed` had fired four times in 24h on
+`po_1UXsEWGACgbvEugHCpz09YuZ` ($12,133.07, arrival 2026-11-04), `status='failed'`,
+`failure_kind='permanent'`, `error_message` "1 unclassified transactions need manual review".
+
+**Cause.** One balance transaction: `txn_1UXSj0GACgbvEugHNzbLv5yJ`, Stripe type **`refund_failure`**, +$50.00
+— a refund of ours Stripe could not deliver, so the money came back to the balance. `classifyPayout` tested
+`bt.type === 'refund' || bt.type === 'payment_refund'`, matched neither, fell through to `unclassified`, and
+`buildPlan`'s safety check blocked the payout. **The refusal is correct and was the third time one unhandled
+type has held a whole payout** — s266's POS reader charge ($10,630.05 over $18.27), s330's chargeback
+($12,234.68 over $170.95), this one. What made it *permanent* is that `stripe_txn_overrides`'s CHECK allows
+only the five revenue buckets, so the s266 human-classification escape hatch could not answer it either: no
+bucket for money that is not revenue.
+
+**Fix.** New `_shared/refund-classify.ts` → `isRefundTxn()` / `isFailedRefundTxn()`, imported by BOTH
+`xero-payout-sync` and `xero-payout-reallocate`. The refund test was the last copy-pasted half of
+classifyPayout that could diverge the way the override lookup did in s266 — now it cannot. A failed refund
+goes in `refundsBucket`, not a new bucket: it is the reversal of a refund already booked to 691, not a
+different kind of event (which is why s330 correctly split chargebacks OUT — money taken from us is a
+different decision). `buildPlan` passes `refundsBucket.gross` through without `-Math.abs()`, exactly as it
+does for a won dispute, so the positive sign carries.
+
+**Deliberately still blocking:** `payment_failure_refund`, `payment_reversal`, `transfer_refund`. Never seen
+on this account, so sign and account are unverified, and an unverified type that keeps blocking is the safe
+direction. Add one only with a real transaction to check the arithmetic against.
+
+**Verification, and it is not transcription.** Replayed the row's own stored `category_breakdown` in SQL
+against the real `payout_amount`:
+
+| | refunds line | plan total | payout |
+|---|---|---|---|
+| before | −$145.15 | $12,083.07 | $12,133.07 |
+| after | −$95.15 | **$12,133.07** | $12,133.07 |
+
+Variance **$0.00**. The $50 was not merely unclassified — it was *missing from the plan*, so the balance check
+would have failed next even if the safety check had passed. That is the proof the money belongs on the refunds
+line and nowhere else. Plus `tests/refund-classify.test.mts` (29 assertions, green), which rebuilds the OLD
+condition and asserts it goes red on `refund_failure` — a test that passes against the broken code too is
+decoration. `tests/edge-function-syntax.test.mts`: 81 functions + 62 shared modules parse.
+
+**⚠️ DEPLOY STATE AS OF 2026-11-06 17:4x UTC: NOT DEPLOYED.** Checked, not assumed:
+`list_edge_functions` still shows `xero-payout-sync` v33 and `xero-payout-reallocate` v26, both from
+2026-10-07. Code is on David's Mac, uncommitted (that file also carries s363/s367 uncommitted work — do not
+blanket-commit).
+
+**⚠️ BOTH FUNCTIONS ARE `verify_jwt: false` — measured, not guessed.** The deploy MUST carry
+`--no-verify-jwt` or the gateway starts demanding a JWT and the watchdog's `x-wr-internal` retry calls break.
+This is s260's near-miss on the Stripe payout webhook, and s281's whole story.
+
+**The re-run will NOT happen by itself.** `mayAutoRetry()` returns false for `failure_kind !== 'transient'`,
+and this row is `permanent` — so it keeps alerting and never retries. There is also **no admin button**: the
+dashboard has never had a write path to `xero_payout_syncs`. The re-run is
+`xero-payout-sync?payout_id=po_1UXsEWGACgbvEugHCpz09YuZ` with `x-wr-internal`, via `net.http_post` from SQL —
+`dry_run=true` first (writes nothing), then the real call. Duplicates stay impossible: the function re-runs
+its own Xero pre-check on every call regardless of the row's state.
+
+**Not done:** deploy, dry run, post. Waiting on David's terminal for the deploy.
+
+
 ## Session 368 — Nov 4, 2026: the 2024 convertible notes on the Debt Schedule
 
 **David:** show the ten notes (15%, mostly due "April") as a consolidated section. Answers: balances in Xero are

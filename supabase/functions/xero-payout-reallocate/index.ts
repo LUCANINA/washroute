@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
+import { isRefundTxn } from '../_shared/refund-classify.ts'
 import { isDisputeTxn, DISPUTE_ACCOUNT } from '../_shared/dispute-classify.ts'
 import { getOrderByPaymentIntent } from '../_shared/order-lookup.ts'
 
@@ -142,7 +143,8 @@ async function classifyPayout(payout: any) {
 
   for (const bt of btxns) {
     if (NON_REVENUE_TYPES.has(bt.type)) { nonRevenue[bt.type].gross += bt.amount; nonRevenue[bt.type].fee += bt.fee; nonRevenue[bt.type].net += bt.net; nonRevenue[bt.type].count += 1; continue }
-    if (bt.type === 'refund' || bt.type === 'payment_refund') { refundsBucket.gross += bt.amount; refundsBucket.fee += bt.fee; refundsBucket.net += bt.net; refundsBucket.count += 1; continue }
+    // Session 369: shared with xero-payout-sync -- see _shared/refund-classify.ts.
+    if (isRefundTxn(bt)) { refundsBucket.gross += bt.amount; refundsBucket.fee += bt.fee; refundsBucket.net += bt.net; refundsBucket.count += 1; continue }
     if (isDisputeTxn(bt)) { disputesBucket.gross += bt.amount; disputesBucket.fee += bt.fee; disputesBucket.net += bt.net; disputesBucket.count += 1; disputeDetail.push({ id: bt.id, dispute: bt.source, amount: bt.amount, fee: bt.fee, category: bt.reporting_category }); continue }
     if (!['charge', 'payment'].includes(bt.type)) { buckets.unclassified.gross += bt.amount; buckets.unclassified.fee += bt.fee; buckets.unclassified.net += bt.net; buckets.unclassified.count += 1; unclassifiedDetail.push({ id: bt.id, type: bt.type, amount: bt.amount, reason: `unhandled balance_transaction type '${bt.type}'` }); continue }
 

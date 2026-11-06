@@ -35,7 +35,9 @@ import { createXeroMeter, type XeroMeter } from "../_shared/xero-meter.ts"
 // BODY
 //   { mode: 'payment_picture'   <-- START HERE for any question about a payment
 //         | 'bank_transactions' | 'manual_journals' | 'invoices' | 'accounts'
-//         | 'contacts' | 'whoami',
+//         | 'contacts' | 'whoami' | 'history',
+//     record_type?: string,     // history: 'manual_journals' | 'bank_transactions' | 'invoices'
+//     ids?: string[],           // history: up to 20 Xero ids (or pass a single `id`)
 //     id?: string,              // fetch exactly one by Xero id
 //     date?: string,            // 'YYYY-MM-DD' — that day only
 //     from?: string, to?: string,
@@ -369,6 +371,67 @@ async function fetchWithLines(endpoint: string, ids: string[], headers: Record<s
 // Cells[4] credit, balance = credit - debit for the liability side). A different
 // parse here would produce a figure that looks comparable to a stored checkpoint and
 // is not, which is worse than having no reader at all.
+// ── history ─────────────────────────────────────────────────────────────────
+// Session 368 (2026-11-03): "who made the month-end journal entries?" Xero records the
+// user who created and edited every journal, but only on the History endpoint, which
+// this function could not reach -- so the answer was "open Xero and look".
+//
+// Still read-only by construction: GET only, the path is built from HISTORY_TYPES (a
+// fixed table) plus an id that must be a UUID, so a caller string can never become a
+// path segment. Returns Xero's own records: who, when, what changed.
+const HISTORY_TYPES: Record<string, string> = {
+  manual_journals:   'ManualJournals',
+  bank_transactions: 'BankTransactions',
+  invoices:          'Invoices',
+}
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+async function history(b: any, meter: XeroMeter): Promise<Response> {
+  const type = String(b.record_type ?? '')
+  const endpoint = HISTORY_TYPES[type]
+  if (!endpoint) {
+    return new Response(JSON.stringify({
+      error: `history needs record_type, one of: ${Object.keys(HISTORY_TYPES).join(', ')}.`,
+    }), { status: 400, headers: cors })
+  }
+  const ids: string[] = Array.isArray(b.ids) ? b.ids.map(String)
+    : (typeof b.id === 'string' && b.id ? [b.id] : [])
+  if (ids.length === 0 || ids.length > 20) {
+    return new Response(JSON.stringify({ error: 'history needs 1 to 20 ids (pass `ids` or `id`).' }), { status: 400, headers: cors })
+  }
+  const bad = ids.filter((i) => !UUID_RE.test(i))
+  if (bad.length) {
+    return new Response(JSON.stringify({ error: 'Every id must be a Xero UUID.', rejected: bad }), { status: 400, headers: cors })
+  }
+
+  const { headers } = await getXeroAuth()
+  const results: any[] = []
+  // Sequential on purpose: 20 at most, and Xero's per-minute limit is the scarce thing.
+  for (const id of ids) {
+    try {
+      const j = await xeroGet(`${endpoint}/${id}/History`, headers, meter)
+      const recs = (j?.HistoryRecords ?? []).map((r: any) => ({
+        when_utc: r.DateUTCString ?? r.DateUTC ?? null,
+        user: r.User ?? null,
+        change: r.Changes ?? null,
+        details: r.Details ?? null,
+      }))
+      // Xero lists newest first; the creator is the oldest "Created"/"Posted" entry.
+      const created = [...recs].reverse().find((r: any) => /creat|post/i.test(String(r.change || ''))) ?? recs[recs.length - 1] ?? null
+      results.push({ id, created_by: created?.user ?? null, created_at_utc: created?.when_utc ?? null, records: recs })
+    } catch (e) {
+      // A miss is reported, never silently dropped -- a caller must not read
+      // "no history" when the truth is "we could not read it".
+      results.push({ id, error: String((e as any)?.message ?? e) })
+    }
+  }
+  return new Response(JSON.stringify({
+    ok: true, mode: 'history', record_type: type,
+    complete: results.every((r) => !r.error),
+    results,
+  }, null, 2), { headers: cors })
+}
+
 async function trialBalance(b: any, meter: XeroMeter): Promise<Response> {
   const date = typeof b.date === 'string' ? b.date : ''
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -574,18 +637,20 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
     return new Response(JSON.stringify({
       ok: true, tenant_id: tenantId, granted_scopes: await getGrantedScopes(),
       readable: Object.keys(ENDPOINTS),
+      history_readable: Object.keys(HISTORY_TYPES),
       note: 'This function can only read. It has no code path that writes to Xero.',
     }, null, 2), { headers: cors })
   }
 
   if (mode === 'payment_picture') return await paymentPicture(b, meter)
   if (mode === 'trial_balance') return await trialBalance(b, meter)
+  if (mode === 'history') return await history(b, meter)
 
   const endpoint = ENDPOINTS[mode]
   if (!endpoint) {
     return new Response(JSON.stringify({
       error: `Unknown mode "${mode || '(none)'}".`,
-      modes: ['payment_picture', 'trial_balance', ...Object.keys(ENDPOINTS), 'whoami'],
+      modes: ['payment_picture', 'trial_balance', 'history', ...Object.keys(ENDPOINTS), 'whoami'],
     }), { status: 400, headers: cors })
   }
 

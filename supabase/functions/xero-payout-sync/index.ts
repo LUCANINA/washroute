@@ -5,6 +5,7 @@ import { getXeroAuth } from '../_shared/xero-auth.ts'
 import { classifyPrecheckFailure, nextRetryAt } from '../_shared/payout-retry.ts'
 import { rechain, toCents, fromCents, type ChainEntry } from '../_shared/balance-rechain.ts'
 import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
+import { isRefundTxn, isFailedRefundTxn } from '../_shared/refund-classify.ts'
 import { isDisputeTxn, DISPUTE_ACCOUNT } from '../_shared/dispute-classify.ts'
 import { getOrderByPaymentIntent } from '../_shared/order-lookup.ts'
 import { findConflictingDeposit } from '../_shared/existing-deposit.ts'
@@ -168,8 +169,16 @@ async function classifyPayout(payout: any) {
       continue
     }
 
-    if (bt.type === 'refund' || bt.type === 'payment_refund') {
+    // Session 369: the test is isRefundTxn, shared with xero-payout-reallocate,
+    // because 'refund_failure' matched neither name here and blocked the whole
+    // 2026-11-04 payout ($12,133.07) over $50. See _shared/refund-classify.ts.
+    if (isRefundTxn(bt)) {
       // Flat bucket, not split by revenue category -- see REFUNDS_ACCOUNT comment.
+      // A failed refund is positive (money back to us) and nets off the refund it
+      // reverses; buildPlan does not -Math.abs() this line, so that is carried.
+      if (isFailedRefundTxn(bt)) {
+        console.log(`[payout-sync] refund reversal ${bt.id} ${bt.amount}c booked to ${REFUNDS_ACCOUNT.code}`)
+      }
       refundsBucket.gross += bt.amount; refundsBucket.fee += bt.fee
       refundsBucket.net += bt.net; refundsBucket.count += 1
       continue
