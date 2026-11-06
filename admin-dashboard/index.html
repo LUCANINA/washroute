@@ -194,6 +194,41 @@
     .tech-header { display:none;align-items:center;justify-content:center;height:48px;padding:0 16px;background:var(--sidebar-bg);color:white;position:relative; }
     .tech-header-logo { font-size:14px;font-weight:700;letter-spacing:-.01em; }
     .tech-header-logo span { font-weight:400;opacity:.5; }
+    /* ── Emergency Protocols drawer (session: emergency protocols v1) ── */
+    .nav-emergency { margin: 4px 10px 10px; padding: 9px 12px; border-radius: 8px; background: var(--red); color: white !important; font-weight: 700; justify-content: center; letter-spacing: .02em; }
+    .nav-emergency:hover { background: #b91c1c; }
+    .er-overlay { display:none; position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1000; }
+    .er-overlay.open { display:block; }
+    .er-drawer { position:fixed; top:0; right:0; height:100vh; width:min(480px,100vw); background:white; box-shadow:-8px 0 30px rgba(0,0,0,.18); display:flex; flex-direction:column; z-index:1001; }
+    .er-head { display:flex; align-items:center; gap:10px; padding:16px 20px; border-bottom:1px solid var(--gray-200); }
+    .er-head-title { font-size:16px; font-weight:700; color:var(--gray-900); flex:1; }
+    .er-x { border:none; background:none; font-size:22px; line-height:1; cursor:pointer; color:var(--gray-500,#6b7280); padding:4px 8px; }
+    .er-back { border:none; background:none; cursor:pointer; color:var(--gray-700,#374151); font-size:13px; font-weight:600; padding:4px 0; }
+    .er-body { flex:1; overflow-y:auto; padding:16px 20px 24px; }
+    .er-911 { display:flex; align-items:center; gap:12px; background:var(--red-light); border:1px solid #fca5a5; border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+    .er-911-text { flex:1; font-size:13px; color:#7f1d1d; font-weight:600; }
+    .er-911-btn { background:var(--red); color:white; border-radius:8px; padding:8px 14px; font-weight:700; font-size:14px; text-decoration:none; white-space:nowrap; }
+    .er-rule { font-size:12.5px; color:#92400e; background:var(--amber-light); border-radius:8px; padding:9px 12px; margin-bottom:16px; }
+    .er-tiles { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px; }
+    .er-tile { border:1px solid var(--gray-200); border-radius:10px; padding:14px 12px; cursor:pointer; background:white; text-align:left; font:inherit; transition:border-color .12s, box-shadow .12s; }
+    .er-tile:hover { border-color:var(--red); box-shadow:0 2px 8px rgba(220,38,38,.12); }
+    .er-tile-icon { font-size:22px; }
+    .er-tile-name { font-size:13.5px; font-weight:700; color:var(--gray-900); margin-top:6px; }
+    .er-tile-sub { font-size:11.5px; color:var(--gray-500,#6b7280); margin-top:2px; }
+    .er-section { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-500,#6b7280); margin:18px 0 8px; }
+    .er-step { display:flex; gap:10px; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--gray-100,#f3f4f6); }
+    .er-step input { width:18px; height:18px; margin-top:1px; flex-shrink:0; accent-color:var(--red); cursor:pointer; }
+    .er-step-text { font-size:13.5px; color:var(--gray-900); line-height:1.45; }
+    .er-step.done .er-step-text { color:var(--gray-400,#9ca3af); text-decoration:line-through; }
+    .er-step-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+    .er-call { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; padding:5px 10px; border-radius:999px; background:#eff6ff; color:#1d4ed8; text-decoration:none; border:none; cursor:pointer; font-family:inherit; }
+    .er-call.red { background:var(--red-light); color:#b91c1c; }
+    .er-call.go { background:var(--gray-100,#f3f4f6); color:var(--gray-700,#374151); }
+    .er-contact { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--gray-100,#f3f4f6); }
+    .er-contact-name { font-size:13px; font-weight:600; color:var(--gray-900); }
+    .er-contact-note { font-size:11.5px; color:var(--gray-500,#6b7280); }
+    .er-contact a { font-size:13px; font-weight:600; color:#1d4ed8; text-decoration:none; white-space:nowrap; }
+    .er-reset { margin-top:14px; font-size:12px; border:none; background:none; color:var(--gray-500,#6b7280); cursor:pointer; text-decoration:underline; padding:0; }
     .tech-header-right { position:absolute;right:16px;top:0;height:100%;display:flex;align-items:center;gap:10px; }
     .tech-header-user { font-size:13px;opacity:.7; }
     .tech-header-logout { background:rgba(255,255,255,.12);border:none;color:white;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit; }
@@ -2119,6 +2154,8 @@
       <div class="sidebar-logo" style="padding:18px 14px 14px;justify-content:center;">
         <img src="../assets/logo.png" alt="Family Laundry" style="width:100%;max-width:90px;height:auto;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:14px;font-weight:700;color:white;letter-spacing:-.02em;\'>Family <span style=\'font-weight:400;opacity:.5\'>Laundry</span></div>'" />
       </div>
+      <!-- Emergency Protocols — visible to every staff role (no data-page, so applyRoleToNav leaves it alone) -->
+      <div class="nav-item nav-emergency" id="nav-emergency" onclick="erOpen()" title="Emergency response protocols">🚨 Emergency</div>
       <div class="sidebar-section-label" data-section="main">Main</div>
       <div id="nav-overview" class="nav-item active" data-page="overview" data-section="main" onclick="showPage('overview',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
@@ -65972,6 +66009,125 @@ ${orderSections}
     URL.revokeObjectURL(url);
   }
   window.exportOnAccountCSV = exportOnAccountCSV;
+</script>
+<!-- ── Emergency Protocols drawer ── -->
+<div class="er-overlay" id="er-overlay" onclick="if(event.target===this)erClose()">
+  <div class="er-drawer" role="dialog" aria-label="Emergency protocols">
+    <div class="er-head">
+      <button class="er-back" id="er-back" onclick="erHome()" style="display:none">← All emergencies</button>
+      <div class="er-head-title" id="er-title">🚨 Emergency Protocols</div>
+      <button class="er-x" onclick="erClose()" aria-label="Close">×</button>
+    </div>
+    <div class="er-body" id="er-body"></div>
+  </div>
+</div>
+<script>
+  // Emergency Response Protocols for the Customer Service team.
+  // Content lives here (Phase 1). To change a phone number, edit ER_CONTACTS only.
+  const ER_CONTACTS = {
+    luis:     { name: 'Luis',                 phone: '(510) 543-6560', note: 'Manager — first call' },
+    david:    { name: 'David',                phone: '(415) 608-5446', note: 'Owner — call if Luis doesn\'t answer' },
+    united:   { name: 'United Towing',        phone: '(510) 300-0000', note: '24 hours · pay with Family Laundry card on file' },
+    tenfour:  { name: '10-4 Tow of Oakland',  phone: '(510) 328-3084', note: 'Backup tow' },
+    security: { name: 'Top Level Security',  phone: '(925) 588-8245', note: 'Foothill security' },
+  };
+  // Step format: text, plus optional call: [contact keys], go: 'orders' | 'inbox'
+  const ER_RESCHEDULE = { text: 'Reschedule all affected pickups and deliveries to the following day.', go: 'orders' };
+  const ER_NOTIFY     = { text: 'Notify affected customers of the change to their service.', go: 'inbox' };
+  const ER_PROTOCOLS = [
+    { id: 'accident', icon: '🚐', name: 'Vehicle Accident', sub: 'Crash involving a company van', steps: [
+      { text: 'Contact the driver and confirm everyone involved is okay.' },
+      { text: 'If anyone is injured or in immediate danger, make sure 911 has been called.', nine11: true },
+      { text: 'Notify BOTH Luis and David immediately.', call: ['luis', 'david'] },
+      ER_RESCHEDULE, ER_NOTIFY,
+      { text: 'Wait for further instructions from management.' },
+    ]},
+    { id: 'fire', icon: '🔥', name: 'Fire', sub: 'Van or Family Laundry facility', steps: [
+      { text: 'Call 911 immediately.', nine11: true },
+      { text: 'Confirm everyone has evacuated or moved to a safe location.' },
+      { text: 'Notify BOTH Luis and David immediately.', call: ['luis', 'david'] },
+      ER_RESCHEDULE, ER_NOTIFY,
+      { text: 'Follow instructions from emergency personnel and management.' },
+    ]},
+    { id: 'flat', icon: '🛞', name: 'Flat Tire', sub: 'Driver has a flat', steps: [
+      { text: 'Confirm the driver has safely pulled over.' },
+      { text: 'Call United Towing for roadside assistance.', call: ['united'] },
+      { text: 'If United Towing is unavailable, call 10-4 Tow of Oakland.', call: ['tenfour'] },
+      { text: 'Coordinate the tow and resolve it directly whenever possible.' },
+      { text: 'If help can\'t be arranged or it can\'t be resolved, call Luis. If Luis doesn\'t answer, call David.', call: ['luis', 'david'] },
+      ER_RESCHEDULE, ER_NOTIFY,
+    ]},
+    { id: 'mechanical', icon: '⚙️', name: 'Van Breakdown', sub: 'Electrical or mechanical problem', steps: [
+      { text: 'Tell the driver to stop driving immediately and pull over somewhere safe.' },
+      { text: 'Call United Towing for assistance.', call: ['united'] },
+      { text: 'If United Towing is unavailable, call 10-4 Tow of Oakland.', call: ['tenfour'] },
+      ER_RESCHEDULE, ER_NOTIFY,
+      { text: 'If more help is needed or it can\'t be resolved, call Luis. If Luis doesn\'t answer, call David.', call: ['luis', 'david'] },
+    ]},
+    { id: 'security', icon: '🔒', name: 'Break-in at Foothill', sub: 'Security incident', steps: [
+      { text: 'Top Level Security contacts Luis directly — he is the primary contact.' },
+      { text: 'Luis assesses the situation and brings in David if it is serious.' },
+      { text: 'If you need more help or information, you may call Top Level Security directly.', call: ['security'] },
+      { text: 'If Luis can\'t be reached, call David.', call: ['luis', 'david'] },
+    ]},
+  ];
+  const _erChecked = {};   // { protocolId: Set(stepIndex) } — kept while the page is open
+
+  function _erEsc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function _erCan(page) { try { return canAccessPage(page); } catch (e) { return false; } }
+  function _erTel(p) { return 'tel:+1' + p.replace(/\D/g, ''); }
+  function _erCallBtn(key) { const c = ER_CONTACTS[key]; return `<a class="er-call" href="${_erTel(c.phone)}">📞 ${_erEsc(c.name)} ${_erEsc(c.phone)}</a>`; }
+  function _er911Banner() {
+    return `<div class="er-911"><div class="er-911-text">Anyone hurt or in immediate danger? Call 911 first.</div><a class="er-911-btn" href="tel:911">Call 911</a></div>`;
+  }
+  function _erDirectory() {
+    return `<div class="er-section">Emergency contacts</div>` + Object.values(ER_CONTACTS).map(c =>
+      `<div class="er-contact"><div><div class="er-contact-name">${_erEsc(c.name)}</div><div class="er-contact-note">${_erEsc(c.note)}</div></div><a href="${_erTel(c.phone)}">${_erEsc(c.phone)}</a></div>`
+    ).join('');
+  }
+
+  function erOpen() { document.getElementById('er-overlay').classList.add('open'); erHome(); }
+  function erClose() { document.getElementById('er-overlay').classList.remove('open'); }
+  function erHome() {
+    document.getElementById('er-back').style.display = 'none';
+    document.getElementById('er-title').textContent = '🚨 Emergency Protocols';
+    document.getElementById('er-body').innerHTML =
+      _er911Banner() +
+      `<div class="er-rule"><b>Can't reach Luis?</b> Call David. Handle towing yourself whenever you can before escalating.</div>` +
+      `<div class="er-tiles">` + ER_PROTOCOLS.map(p =>
+        `<button class="er-tile" onclick="erShow('${p.id}')"><div class="er-tile-icon">${p.icon}</div><div class="er-tile-name">${_erEsc(p.name)}</div><div class="er-tile-sub">${_erEsc(p.sub)}</div></button>`
+      ).join('') + `</div>` + _erDirectory();
+  }
+  function erShow(id) {
+    const p = ER_PROTOCOLS.find(x => x.id === id); if (!p) return;
+    const done = _erChecked[id] || (_erChecked[id] = new Set());
+    document.getElementById('er-back').style.display = '';
+    document.getElementById('er-title').textContent = p.icon + ' ' + p.name;
+    const steps = p.steps.map((s, i) => {
+      const acts = [];
+      if (s.nine11) acts.push(`<a class="er-call red" href="tel:911">📞 Call 911</a>`);
+      (s.call || []).forEach(k => acts.push(_erCallBtn(k)));
+      if (s.go === 'orders' && _erCan('orders')) acts.push(`<button class="er-call go" onclick="erGo('orders')">Open Orders →</button>`);
+      if (s.go === 'inbox' && _erCan('inbox')) acts.push(`<button class="er-call go" onclick="erGo('inbox')">Open Inbox →</button>`);
+      return `<label class="er-step${done.has(i) ? ' done' : ''}"><input type="checkbox" ${done.has(i) ? 'checked' : ''} onchange="erTick('${id}',${i},this)"><div><div class="er-step-text"><b>${i + 1}.</b> ${_erEsc(s.text)}</div>${acts.length ? `<div class="er-step-actions">${acts.join('')}</div>` : ''}</div></label>`;
+    }).join('');
+    document.getElementById('er-body').innerHTML = _er911Banner() + `<div class="er-section">Steps</div>` + steps +
+      `<button class="er-reset" onclick="erReset('${id}')">Clear checklist</button>` + _erDirectory();
+  }
+  function erTick(id, i, box) {
+    const s = _erChecked[id] || (_erChecked[id] = new Set());
+    box.checked ? s.add(i) : s.delete(i);
+    box.closest('.er-step').classList.toggle('done', box.checked);
+  }
+  function erReset(id) { delete _erChecked[id]; erShow(id); }
+  function erGo(page) {
+    // Keep the checklist; just take them to the page. Nothing is sent from here.
+    erClose();
+    showPage(page, document.getElementById('nav-' + page));
+  }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('er-overlay')?.classList.contains('open')) erClose();
+  });
 </script>
 </body>
 </html>
