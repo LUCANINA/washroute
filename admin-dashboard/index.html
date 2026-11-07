@@ -7093,12 +7093,20 @@
     </div>
     <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;max-height:72vh;overflow-y:auto">
       <div style="font-size:12.5px;color:var(--gray-600);line-height:1.5">
-        Pick a new <span id="rcc-rs-leg-word">pickup</span> date. Each stop stays on its current route template — just on the chosen date, in the same time-of-day window.
+        Pick a new <span id="rcc-rs-leg-word">pickup</span> date and, if you like, a new time window. Each stop stays on its current route template. Pick <strong>Today</strong> to just shift stops to a different window on today's run.
       </div>
       <div>
         <div style="font-size:11px;font-weight:700;color:var(--gray-500);letter-spacing:0;margin-bottom:8px">New date</div>
         <div id="rcc-rs-days" style="display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
+      <div id="rcc-rs-win-wrap" style="display:none">
+        <div style="font-size:11px;font-weight:700;color:var(--gray-500);letter-spacing:0;margin-bottom:8px">Time window</div>
+        <div id="rcc-rs-wins" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--gray-700);cursor:pointer">
+        <input type="checkbox" id="rcc-rs-notify" checked style="margin-top:2px">
+        <span>Text customers about their new time. Untick for a quiet internal change (no messages sent).</span>
+      </label>
       <div id="rcc-rs-preview" style="display:none">
         <div style="font-size:11px;font-weight:700;color:var(--gray-500);letter-spacing:0;margin-bottom:8px">Preview</div>
         <div id="rcc-rs-preview-body" style="font-size:12.5px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px;line-height:1.55"></div>
@@ -50400,6 +50408,7 @@ ${oneCopy}
   let _rccRsLeg        = null;        // 'pickup' | 'delivery' — the leg being rescheduled in the modal
   let _rccRsTargetDate = null;        // YYYY-MM-DD chosen in the reschedule modal
   let _rccRsTargetRoutes = {};        // template_id → routes row { id, template_id, run_date }
+  let _rccRsWindow       = null;      // null = keep each stop's current time-of-day; else { startM, endM } minutes after midnight PT
 
   // ── ROUTE COMMAND CENTER — load date data + render chips ──
   async function loadDailyRuns() {
@@ -51681,6 +51690,10 @@ ${oneCopy}
     _rccRsLeg = leg;
     _rccRsTargetDate = null;
     _rccRsTargetRoutes = {};
+    _rccRsWindow = null;
+    document.getElementById('rcc-rs-win-wrap').style.display = 'none';
+    document.getElementById('rcc-rs-wins').innerHTML = '';
+    const notifyEl = document.getElementById('rcc-rs-notify'); if (notifyEl) notifyEl.checked = true;
 
     const noun = leg === 'pickup' ? 'pickups' : 'deliveries';
     const word = leg === 'pickup' ? 'pickup'  : 'delivery';
@@ -51710,7 +51723,8 @@ ${oneCopy}
 
     const todayIso = today();
     const daysHtml = [];
-    for (let i = 1; i <= 14; i++) {
+    // Today is included so stops can be shifted to another window on today's run.
+    for (let i = 0; i <= 14; i++) {
       const iso = addDaysPacific(todayIso, i);
       const [y, m, d] = iso.split('-').map(Number);
       const dt = new Date(y, m - 1, d);
@@ -51719,7 +51733,7 @@ ${oneCopy}
       const wkLabel = dt.toLocaleDateString('en-US', { weekday: 'short' });
       const moLabel = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       daysHtml.push(`<button class="sp-slot-btn${avail ? '' : ' sp-day-disabled'}" data-iso="${iso}" ${avail ? '' : 'disabled'} onclick="rccPickRescheduleDate('${iso}')" style="min-width:84px;text-align:center;padding:8px 12px">
-        <div style="font-size:10px;font-weight:700;color:var(--gray-500);letter-spacing:0;">${wkLabel}</div>
+        <div style="font-size:10px;font-weight:700;color:var(--gray-500);letter-spacing:0;">${i === 0 ? 'Today' : wkLabel}</div>
         <div style="font-size:13px;margin-top:2px">${moLabel}</div>
       </button>`);
     }
@@ -51732,6 +51746,7 @@ ${oneCopy}
       b.classList.toggle('selected', b.dataset.iso === iso));
     _rccRsTargetDate = iso;
     _rccRsTargetRoutes = {};
+    _rccRsRunsValid = false;
 
     // Group selected stops by their current route_template_id — each template
     // group will land on its own template's run on the chosen date.
@@ -51783,7 +51798,55 @@ ${oneCopy}
       allValid = false;
     }
     previewBox.innerHTML = lines.join('');
-    document.getElementById('rcc-rs-confirm').disabled = !allValid;
+    _rccRsRunsValid = allValid;
+    rccRenderRescheduleWindows();
+    rccUpdateRescheduleConfirm();
+  }
+
+  // Sub-windows of a template, same maths as reschedule_order() server-side:
+  // window_start..window_end cut into arrival_window_hours steps (default 2h).
+  function rccTemplateSubWindows(tpl) {
+    if (!tpl?.window_start || !tpl?.window_end) return [];
+    const toM = t => { const p = t.split(':'); return parseInt(p[0]) * 60 + parseInt(p[1] || 0); };
+    let step = (parseInt(tpl.arrival_window_hours) || 2) * 60;
+    if (step <= 0) step = 60;
+    const a = toM(tpl.window_start), b = toM(tpl.window_end), out = [];
+    for (let m = a; m + step <= b; m += step) out.push({ startM: m, endM: m + step });
+    return out;
+  }
+  function rccFmtMins(m) {
+    const h = Math.floor(m / 60), mm = m % 60, suf = h >= 12 ? 'PM' : 'AM';
+    return `${h % 12 || 12}${mm ? ':' + String(mm).padStart(2, '0') : ''} ${suf}`;
+  }
+  function rccRenderRescheduleWindows() {
+    const wrap = document.getElementById('rcc-rs-win-wrap');
+    const box  = document.getElementById('rcc-rs-wins');
+    const tids = [...new Set([..._rccSelStops.values()].map(s => s.templateId).filter(Boolean))];
+    // Only offer specific windows when every selected stop is on the same template
+    // (different templates have different windows).
+    const wins = tids.length === 1 ? rccTemplateSubWindows(_dsTemplates.find(t => t.id === tids[0])) : [];
+    if (!wins.length) { wrap.style.display = 'none'; _rccRsWindow = null; return; }
+    const isToday = _rccRsTargetDate === today();
+    const btn = (key, label, selected) => `<button class="sp-slot-btn${selected ? ' selected' : ''}" onclick="rccPickRescheduleWindow('${key}')" style="padding:8px 12px">${label}</button>`;
+    const sel = _rccRsWindow ? `${_rccRsWindow.startM}-${_rccRsWindow.endM}` : 'keep';
+    box.innerHTML = (isToday ? '' : btn('keep', 'Keep current time', sel === 'keep'))
+      + wins.map(w => btn(`${w.startM}-${w.endM}`, `${rccFmtMins(w.startM)}–${rccFmtMins(w.endM)}`, sel === `${w.startM}-${w.endM}`)).join('');
+    wrap.style.display = '';
+  }
+  function rccPickRescheduleWindow(key) {
+    if (key === 'keep') _rccRsWindow = null;
+    else { const [a, b] = key.split('-').map(Number); _rccRsWindow = { startM: a, endM: b }; }
+    rccRenderRescheduleWindows();
+    rccUpdateRescheduleConfirm();
+  }
+  // Confirm is enabled only when every template has a run on the date AND,
+  // for today, a time window was chosen (otherwise nothing would change).
+  let _rccRsRunsValid = false;
+  function rccUpdateRescheduleConfirm() {
+    const btn = document.getElementById('rcc-rs-confirm');
+    const needWin = _rccRsTargetDate === today() && !_rccRsWindow;
+    btn.disabled = !_rccRsRunsValid || needWin;
+    btn.title = needWin ? 'Pick a time window to move today\'s stops into' : '';
   }
 
   function rccCloseRescheduleModal() {
@@ -51792,6 +51855,7 @@ ${oneCopy}
     _rccRsLeg = null;
     _rccRsTargetDate = null;
     _rccRsTargetRoutes = {};
+    _rccRsWindow = null;
   }
 
   async function rccConfirmReschedule() {
@@ -51807,6 +51871,8 @@ ${oneCopy}
 
     let succeeded = 0, failed = 0;
     const failures = [];
+    const notify = !!document.getElementById('rcc-rs-notify')?.checked;
+    const touchedRoutes = new Set();
 
     // Helper: build a Pacific-anchored ISO at a given hour:minute on the target date.
     // Mirrors the customer-app's pacificIsoFromMins helper but inlined so we don't
@@ -51835,7 +51901,11 @@ ${oneCopy}
       // (window is missing), pass null and let reschedule_order_leg auto-snap
       // to the template's first sub-window.
       let newStart = null, newEnd = null;
-      if (s.currentWindowStart && s.currentWindowEnd) {
+      if (_rccRsWindow) {
+        // Operator picked a specific window — use it for every selected stop.
+        newStart = buildPtIso(_rccRsTargetDate, Math.floor(_rccRsWindow.startM / 60), _rccRsWindow.startM % 60);
+        newEnd   = buildPtIso(_rccRsTargetDate, Math.floor(_rccRsWindow.endM / 60),   _rccRsWindow.endM % 60);
+      } else if (s.currentWindowStart && s.currentWindowEnd) {
         const start = ptHourMin(s.currentWindowStart);
         const end   = ptHourMin(s.currentWindowEnd);
         newStart = buildPtIso(_rccRsTargetDate, start.hh, start.mm);
@@ -51849,6 +51919,7 @@ ${oneCopy}
         p_new_window_start: newStart,
         p_new_window_end:   newEnd,
         p_actor_name:       actorName,
+        p_notify:           notify,
       });
 
       if (error) {
@@ -51857,19 +51928,25 @@ ${oneCopy}
         continue;
       }
       succeeded++;
+      touchedRoutes.add(newRoute.id);
       // Session 189: reschedule SMS now fires from inside the RPC itself,
       // gated on the window actually moving.
     }
 
+    // Re-sequence the destination runs so moved stops sit in their new window's order.
+    for (const rid of touchedRoutes) { try { autoOptimizeRoute(rid); } catch (_) {} }
+    const doneDate = _rccRsTargetDate === today() ? 'today' : _rccRsTargetDate;
+    const doneLeg  = _rccRsLeg;
+    const doneWin  = _rccRsWindow ? ` ${rccFmtMins(_rccRsWindow.startM)}–${rccFmtMins(_rccRsWindow.endM)}` : '';
     rccCloseRescheduleModal();
     rccClearSelection();
     // Pull a fresh view so the moved stops disappear from today and reappear on the new date.
     if (typeof loadDailyRuns === 'function') await loadDailyRuns();
 
     if (failed === 0) {
-      const noun = _rccRsLeg === 'pickup' ? 'pickup' : 'delivery';
+      const noun = doneLeg === 'pickup' ? 'pickup' : 'delivery';
       const plural = succeeded > 1 ? (noun === 'pickup' ? 'pickups' : 'deliveries') : noun;
-      showToast(`✓ Rescheduled ${succeeded} ${plural} to ${_rccRsTargetDate}`, 'success');
+      showToast(`✓ Rescheduled ${succeeded} ${plural} to ${doneDate}${doneWin}`, 'success');
     } else if (succeeded === 0) {
       showToast(`Reschedule failed — ${failures[0] || 'unknown error'}`, 'error');
       console.warn('rccConfirmReschedule failures:', failures);
