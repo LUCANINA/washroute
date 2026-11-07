@@ -32966,6 +32966,7 @@ ${noActivityNote}
 
     // Stat cards + pill counts + render — now with correct payment icons
     updateOrderStatCards();
+    _loadTodaySubscriptionRevenue();   // async; re-renders the tiles when it lands
     updateOrderFilterCounts();
     renderOrders(getFilteredOrders());
 
@@ -32978,6 +32979,25 @@ ${noActivityNote}
       // Re-render only if user is still on the orders/delivered tab
       if (currentPage === 'orders' && currentOrderFilter === 'delivered') renderOrders(getFilteredOrders());
     });
+  }
+
+  // Revenue Today tile — subscription plan fees (David, 2026-11-06).
+  // Same source as the Daily Revenue / Items reports: customer_transactions
+  // type='subscription_invoice', counted on the Pacific day it was created.
+  // A plan fee is not an order row, so it can't double-count with the orders sum.
+  let _ostatSubRev = { day: null, total: 0, count: 0 };
+  async function _loadTodaySubscriptionRevenue() {
+    const day = today();
+    const { data, error } = await db.from('customer_transactions')
+      .select('amount')
+      .eq('type', 'subscription_invoice')
+      .gte('created_at', pacificDayStart(day).toISOString())
+      .lte('created_at', pacificDayEnd(day).toISOString())
+      .limit(5000);
+    if (error) { console.warn('[orders] subscription revenue fetch failed:', error.message); return; }
+    const rows = data || [];
+    _ostatSubRev = { day, total: rows.reduce((t, r) => t + (parseFloat(r.amount) || 0), 0), count: rows.length };
+    updateOrderStatCards();
   }
 
   function updateOrderStatCards() {
@@ -33045,14 +33065,23 @@ ${noActivityNote}
     _s('ostat-ready',         ready.total);
     _s('ostat-delivered',     delivered.total);
     _s('ostat-in-process',    fmtMoney(inProcess.total));
-    _s('ostat-revenue',       fmtMoney(revenue.total));
+    const subRev = _ostatSubRev.day === todayStr ? _ostatSubRev.total : 0;
+    _s('ostat-revenue',       fmtMoney(revenue.total + subRev));
 
     _setSubCount('ostat-pickups-sub',    pickedUp);
     _setSubCount('ostat-processing-sub', processed);
     _setSubCount('ostat-ready-sub',      ready);
     _setSubCount('ostat-delivered-sub',  delivered);
     _setSubMoney('ostat-in-process-sub', inProcess);
-    _setSubMoney('ostat-revenue-sub',    revenue);
+    {
+      const e = document.getElementById('ostat-revenue-sub');
+      if (e) {
+        const parts = [`${fmtMoney(revenue.delivery)} delivery`];
+        if (revenue.retail > 0) parts.push(`${fmtMoney(revenue.retail)} retail`);
+        if (subRev > 0) parts.push(`${fmtMoney(subRev)} subscriptions`);
+        e.textContent = parts.length > 1 ? parts.join(' · ') : '';
+      }
+    }
   }
 
   // What counts as an order-level issue: we are holding the customer's laundry and
