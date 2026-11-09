@@ -21,6 +21,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { type Slot, findSlots, laterDelivery, decodeSlot, baseServiceId, customerBookingContext, upcomingPickups, insertOrder, geocode, ptDateFmt, priceEstimate, prefGroups, matchGroups, resolveAddons, addonLine }
   from './booking.ts';
+import { streetSaid, lineMatches, saidSomething } from './street.ts';
 
 // ── Phone booking switches (phase 3) ──
 // BOOKING_LIVE=false: every booking tool runs all its checks but WRITES NOTHING and tells Maya to say
@@ -175,38 +176,13 @@ async function customerByPhone(phone?: string): Promise<any | null> {
   return rows?.[0] || null;
 }
 
-// Street check: the caller says the street name of a saved address. House numbers, street types and
-// directions are ignored; one letter of speech-to-text slip is tolerated on longer words.
-const STREET_NOISE = new Set(['st', 'street', 'ave', 'av', 'avenue', 'blvd', 'boulevard', 'rd', 'road', 'dr', 'drive',
-  'way', 'ln', 'lane', 'ct', 'court', 'pl', 'place', 'ter', 'terrace', 'cir', 'circle', 'pkwy', 'parkway', 'hwy',
-  'highway', 'n', 's', 'e', 'w', 'north', 'south', 'east', 'west', 'the', 'apt', 'unit', 'suite', 'calle', 'avenida']);
-const streetWords = (t: string) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length >= 3 && !/^\d/.test(w) && !STREET_NOISE.has(w));
-function near(a: string, b: string): boolean {
-  if (a === b) return true;
-  if (Math.min(a.length, b.length) < 5 || Math.abs(a.length - b.length) > 1) return false;
-  let i = 0, j = 0, edits = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) { i++; j++; continue; }
-    if (++edits > 1) return false;
-    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
-  }
-  return edits + (a.length - i) + (b.length - j) <= 1;
-}
-
-function streetSaid(street: string): string[] {
-  const words = streetWords(street);
-  return words.length > 1 ? [...words, words.join('')] : words; // "Foot hill" → also "foothill"
-}
-const lineMatches = (line1: string, said: string[]) => {
-  const known = streetWords(line1);
-  return said.some((w) => known.some((k) => near(w, k)));
-};
+// Street check: the caller says the street name of a saved address. Matching rules live in ./street.ts
+// (tests/maya-street.test.mts).
 
 async function streetMatches(customerId: string, street: string): Promise<boolean> {
   const said = streetSaid(street);
   const addrs: any[] = await db(`addresses?customer_id=eq.${customerId}&select=line1`);
-  return said.length > 0 && addrs.some((a) => lineMatches(a.line1, said));
+  return saidSomething(said) && addrs.some((a) => lineMatches(a.line1, said));
 }
 
 // Known caller + street check, for every tool that touches an account.
