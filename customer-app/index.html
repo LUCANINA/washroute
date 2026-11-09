@@ -5,6 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="format-detection" content="address=no,telephone=no,email=no">
   <title>Family Laundry</title>
+  <!-- First-touch source capture → fl_src cookie → customers.acquisition at sign-up. Same snippet in website/assets/forms.js. -->
+  <script>(function(){try{
+ var q=new URLSearchParams(location.search),ref='';
+ try{ref=document.referrer?new URL(document.referrer).hostname:''}catch(e){}
+ if(/(^|\.)familylaundry\.com$/.test(ref))ref='';
+ var s={src:q.get('utm_source')||'',med:q.get('utm_medium')||'',cmp:q.get('utm_campaign')||'',gclid:q.get('gclid')||'',ref:ref,land:location.hostname+location.pathname,at:new Date().toISOString()};
+ if(s.gclid&&!s.src){s.src='google';s.med='cpc';}
+ if(!s.src&&ref){if(/(^|\.)yelp\./.test(ref)){s.src='yelp';s.med='referral';}else if(/(^|\.)google\./.test(ref)){s.src='google';s.med='organic';}else if(/bing\.|duckduckgo\.|yahoo\./.test(ref)){s.src=ref;s.med='organic';}else{s.src=ref;s.med='referral';}}
+ if(!s.src)return;
+ var m=document.cookie.match(/(?:^|; )fl_src=([^;]*)/),old=null;if(m){try{old=JSON.parse(decodeURIComponent(m[1]))}catch(e){}}
+ var paid=function(x){return !!(x&&(x.gclid||x.med==='cpc'||x.med==='paid'))};
+ if(old&&!(paid(s)&&!paid(old)))return;
+ var dom=/(^|\.)familylaundry\.com$/.test(location.hostname)?';domain=.familylaundry.com':'';
+ document.cookie='fl_src='+encodeURIComponent(JSON.stringify(s))+';path=/;max-age=7776000;samesite=lax'+dom+(location.protocol==='https:'?';secure':'');
+}catch(e){}})();</script>
   <!-- Google Ads tag (AW-763145104), Nov 9 2026. Production host only. Sign-up conversion fires from trackAdSignup(). -->
   <script>
     if (location.hostname === 'app.familylaundry.com') {
@@ -3076,6 +3091,7 @@ async function handleNameSubmit() {
     _awaitingName = false;
     // Trigger loadUserData so currentCustomer is populated, then go home
     await loadUserData();
+    _saveAcquisition();
     appReady = true;
     document.getElementById('bottom-nav').style.display = 'flex';
     loadServices();
@@ -3295,6 +3311,27 @@ async function handleSignup(e) {
   }
 }
 
+// Save the visitor's first-touch marketing source (fl_src cookie, set on the website or here) onto a NEW customer.
+// Only for accounts created in the last 24h, only if not already set, so a returning customer who later clicks an
+// ad is never re-attributed. Fire-and-forget: attribution must never block or break sign-up.
+function _readAcqCookie() {
+  const m = document.cookie.match(/(?:^|; )fl_src=([^;]*)/);
+  if (!m) return null;
+  try { return JSON.parse(decodeURIComponent(m[1])); } catch (e) { return null; }
+}
+async function _saveAcquisition() {
+  try {
+    const c = currentCustomer;
+    if (!c?.id || c.acquisition) return;
+    if (!c.created_at || Date.now() - new Date(c.created_at).getTime() > 86400000) return;
+    const src = _readAcqCookie();
+    if (!src) return;
+    const { error } = await db.from('customers').update({ acquisition: src }).eq('id', c.id).is('acquisition', null);
+    if (error) { console.warn('acquisition:', error.message); return; }
+    c.acquisition = src;
+  } catch (e) { console.warn('acquisition:', e); }
+}
+
 // Google Ads "Family Laundry Sign Up Confirmation" conversion. Fired once, right after a NEW account is created
 // (both sign-up paths). Never blocks or throws: tracking must not be able to break sign-up.
 function trackAdSignup() {
@@ -3367,6 +3404,7 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
       await db.from('customers').update({ email_marketing_consent_at: new Date().toISOString() }).eq('id', ec.id);
     }
   }
+  _saveAcquisition();
 }
 
 async function handleSignOut() {
@@ -3496,6 +3534,7 @@ async function _handleCustomerSession(event, session) {
     } else {
       showLoading(true);
       try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
+      _saveAcquisition();
     }
     // If customer is missing, has no name, or has no phone, redirect to name collection
     if (!currentCustomer || !(currentCustomer.first_name_cache || '').trim() || !(currentCustomer.phone_cache || '').trim()) {

@@ -1,3 +1,22 @@
+// First-touch source capture (Nov 9 2026). Remembers where a visitor came from (utm_* params, Google Ads gclid,
+// or the referring site: Yelp, Google search…) in a 90-day `fl_src` cookie shared by familylaundry.com and
+// app.familylaundry.com. First touch wins, except a paid click upgrades an organic one. The customer app saves it
+// to customers.acquisition when a NEW account is created. Same snippet lives in customer-app/index.html <head>.
+(function(){try{
+ var q=new URLSearchParams(location.search),ref='';
+ try{ref=document.referrer?new URL(document.referrer).hostname:''}catch(e){}
+ if(/(^|\.)familylaundry\.com$/.test(ref))ref='';
+ var s={src:q.get('utm_source')||'',med:q.get('utm_medium')||'',cmp:q.get('utm_campaign')||'',gclid:q.get('gclid')||'',ref:ref,land:location.hostname+location.pathname,at:new Date().toISOString()};
+ if(s.gclid&&!s.src){s.src='google';s.med='cpc';}
+ if(!s.src&&ref){if(/(^|\.)yelp\./.test(ref)){s.src='yelp';s.med='referral';}else if(/(^|\.)google\./.test(ref)){s.src='google';s.med='organic';}else if(/bing\.|duckduckgo\.|yahoo\./.test(ref)){s.src=ref;s.med='organic';}else{s.src=ref;s.med='referral';}}
+ if(!s.src)return;
+ var m=document.cookie.match(/(?:^|; )fl_src=([^;]*)/),old=null;if(m){try{old=JSON.parse(decodeURIComponent(m[1]))}catch(e){}}
+ var paid=function(x){return !!(x&&(x.gclid||x.med==='cpc'||x.med==='paid'))};
+ if(old&&!(paid(s)&&!paid(old)))return;
+ var dom=/(^|\.)familylaundry\.com$/.test(location.hostname)?';domain=.familylaundry.com':'';
+ document.cookie='fl_src='+encodeURIComponent(JSON.stringify(s))+';path=/;max-age=7776000;samesite=lax'+dom+(location.protocol==='https:'?';secure':'');
+}catch(e){}})();
+
 // Contact + commercial quote forms → Supabase edge function `website-contact`.
 // Works without JS too (plain form post → /thankyou); this just keeps people on the page.
 (function () {
