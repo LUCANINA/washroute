@@ -3,7 +3,7 @@
 //
 // WHAT  One internal email (NOT to customers) at 7 am Pacific: yesterday's sign-ups with
 //       source, contact, card on file and first order; 7- and 30-day totals; a by-source
-//       count; and last week's sign-ups who still haven't booked.
+//       count. Delivery customers only — retail (is_retail / POS walk-in) excluded.
 // WHO   Recipient is hard-coded (REPORT_TO). This function never emails a customer.
 // WHEN  pg_cron fires at 14:05 and 15:05 UTC. Mode "run" only sends when it is the 7 am
 //       hour in Oakland, so exactly one of the two fires sends in both PDT and PST.
@@ -55,7 +55,7 @@ const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('
 
 const SOURCE_LABEL: Record<string, string> = {
   google: 'Google', yelp: 'Yelp', instagram: 'Instagram', facebook: 'Facebook', friend_family: 'Friend / family',
-  pos_walkin: 'POS walk-in', ai: 'AI assistant', other: 'Other', nextdoor: 'Nextdoor',
+  pos_walkin: 'POS walk-in', ai: 'ChatGPT / other AI', other: 'Other', nextdoor: 'Nextdoor',
 }
 const srcLabel = (s: string | null) => s ? (SOURCE_LABEL[s] || s) : 'Not given'
 
@@ -63,15 +63,16 @@ const srcLabel = (s: string | null) => s ? (SOURCE_LABEL[s] || s) : 'Not given'
 type Cust = { id: string; first_name_cache: string | null; last_name_cache: string | null; email_cache: string | null
   phone_cache: string | null; address_cache: string | null; referral_source: string | null; account_type: string | null
   stripe_default_payment_method_id: string | null; card_last4: string | null; subscription_plan: string | null
-  last_order_at: string | null; created_at: string }
-const COLS = 'id, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, referral_source, account_type, stripe_default_payment_method_id, card_last4, subscription_plan, last_order_at, created_at'
+  last_order_at: string | null; created_at: string; is_retail: boolean | null }
+const COLS = 'id, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, referral_source, account_type, stripe_default_payment_method_id, card_last4, subscription_plan, last_order_at, created_at, is_retail'
 
 async function customersBetween(from: Date, to: Date): Promise<Cust[]> {
   const { data, error } = await db.from('customers').select(COLS)
     .gte('created_at', from.toISOString()).lt('created_at', to.toISOString())
     .order('created_at', { ascending: true }).limit(2000)
   if (error) throw new Error('customers: ' + error.message)
-  return (data || []) as Cust[]
+  // Delivery customers only — retail (POS walk-in) sign-ups are left out of the whole report.
+  return ((data || []) as Cust[]).filter(c => !c.is_retail && c.referral_source !== 'pos_walkin')
 }
 
 type OrderInfo = { first: string | null; last: string | null; count: number; nextStatus: string | null }
@@ -124,16 +125,13 @@ async function buildReport(day: string) {
       orders: o?.count || 0, lastOrder, status: o?.nextStatus || null,
     }
   })
-  const weekNoOrder = week.filter(c => c.created_at < dayStart.toISOString() && !orders.get(c.id) && !c.last_order_at && c.referral_source !== 'pos_walkin')
-    .map(c => ({ name: name(c), signedUp: fmtDate(c.created_at), source: srcLabel(c.referral_source), phone: c.phone_cache || '', card: !!c.stripe_default_payment_method_id }))
-
   const weekWithOrder = week.filter(c => orders.get(c.id) || c.last_order_at).length
   return {
     day, label: fmtDay(day),
     counts: { yesterday: yday.length, week: week.length, prevWeek: prevWeek.length, month: last30.length,
       yesterdayWithCard: rows.filter(r => r.card).length, yesterdayBooked: rows.filter(r => r.orders > 0).length,
       weekBooked: weekWithOrder },
-    rows, sources, weekNoOrder,
+    rows, sources,
   }
 }
 
@@ -148,7 +146,7 @@ function renderHtml(r: Awaited<ReturnType<typeof buildReport>>): string {
 
   const signupTable = r.rows.length ? `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%">
 <tr><th ${th}>Name</th><th ${th}>Time</th><th ${th}>Source</th><th ${th}>Contact</th><th ${th}>Card</th><th ${th}>Last order</th></tr>
-${r.rows.map(x => `<tr><td ${td}><a href="${ADMIN}" style="color:#111;font-weight:bold;text-decoration:none">${esc(x.name)}</a>${x.business ? ' <span style="color:#888">(business)</span>' : ''}${x.plan ? `<br><span style="color:#888;font-size:12px">${esc(x.plan)}</span>` : ''}${x.address ? `<br><span style="color:#888;font-size:12px">${esc(x.address)}</span>` : ''}</td>
+${r.rows.map(x => `<tr><td ${td}><a href="${ADMIN}" style="color:#111;font-weight:bold;text-decoration:none">${esc(x.name)}</a>${x.business ? ' <span style="color:#888">(business)</span>' : ''}${x.address ? `<br><span style="color:#888;font-size:12px">${esc(x.address)}</span>` : ''}</td>
 <td ${td}>${esc(x.time)}</td><td ${td}>${esc(x.source)}</td>
 <td ${td}>${esc(x.phone)}${x.email ? `<br><span style="font-size:12px">${esc(x.email)}</span>` : ''}</td>
 <td ${td}>${x.card ? '✅' : '—'}</td>
@@ -156,11 +154,6 @@ ${r.rows.map(x => `<tr><td ${td}><a href="${ADMIN}" style="color:#111;font-weigh
 </table>` : '<p style="color:#555">No new sign-ups yesterday.</p>'
 
   const srcList = r.sources.length ? r.sources.map(([s, n]) => `${esc(s)} <b>${n}</b>`).join(' &nbsp;·&nbsp; ') : '—'
-  const followUp = r.weekNoOrder.length ? `<h3 style="font-size:15px;margin:24px 0 6px">Signed up earlier this week, no order yet (${r.weekNoOrder.length})</h3>
-<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%">
-<tr><th ${th}>Name</th><th ${th}>Signed up</th><th ${th}>Source</th><th ${th}>Phone</th><th ${th}>Card</th></tr>
-${r.weekNoOrder.map(x => `<tr><td ${td}>${esc(x.name)}</td><td ${td}>${esc(x.signedUp)}</td><td ${td}>${esc(x.source)}</td><td ${td}>${esc(x.phone)}</td><td ${td}>${x.card ? '✅' : '—'}</td></tr>`).join('\n')}
-</table>` : ''
 
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#111">
@@ -173,8 +166,7 @@ ${tile(c.yesterday, 'Yesterday')}${tile(`${c.yesterdayWithCard}/${c.yesterday}`,
 <h3 style="font-size:15px;margin:20px 0 6px">Yesterday's sign-ups (${c.yesterday})</h3>
 ${signupTable}
 <p style="font-size:13px;margin:16px 0 0"><b>Where they came from (7 days):</b> ${srcList}</p>
-${followUp}
-<p style="font-size:11.5px;color:#888;margin:24px 0 0">Times are Pacific. "Last order" ignores cancelled orders. POS walk-ins are left out of the no-order list. Sent daily at 7 am by WashRoute (daily-registrations).</p>
+<p style="font-size:11.5px;color:#888;margin:24px 0 0">Delivery customers only (retail / POS walk-ins excluded). Times are Pacific. "Last order" ignores cancelled orders. "ChatGPT / other AI" = the customer said an AI chatbot recommended us (not Maya). Sent daily at 7 am by WashRoute (daily-registrations).</p>
 </div></body></html>`
 }
 
@@ -183,7 +175,6 @@ function renderText(r: Awaited<ReturnType<typeof buildReport>>): string {
   return [`New registrations — ${r.label}`, `Yesterday: ${c.yesterday} (${c.yesterdayWithCard} with card) · 7 days: ${c.week} (prev ${c.prevWeek}) · 30 days: ${c.month}`, '',
     ...r.rows.map(x => `- ${x.name} · ${x.time} · ${x.source} · ${x.phone} ${x.email} · card ${x.card ? 'yes' : 'no'} · last order ${x.lastOrder ? fmtDate(x.lastOrder) : 'none yet'}`),
     '', 'Sources (7 days): ' + r.sources.map(([s, n]) => `${s} ${n}`).join(', '),
-    ...(r.weekNoOrder.length ? ['', `Earlier this week, no order yet (${r.weekNoOrder.length}):`, ...r.weekNoOrder.map(x => `- ${x.name} · ${x.signedUp} · ${x.source} · ${x.phone}`)] : []),
   ].join('\n')
 }
 
