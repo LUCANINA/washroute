@@ -29,6 +29,8 @@ import { streetSaid, lineMatches, saidSomething } from './street.ts';
 // No card on file: same process as an app booking with no card (David, 2026-10-09) — at charging the
 // order shows NO CARD in Issues and the customer gets the usual 'payment_failed' text if texts are on.
 const BOOKING_LIVE = true; // go-live 2026-10-09 (David: tonight, book for real)
+// Allowed answers to "how did you hear about us?" — the customer app's referral_source keys.
+const HEARD_ABOUT = ['google', 'yelp', 'friend_family', 'saw_van', 'nextdoor', 'instagram', 'ai', 'other'];
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SVC = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -461,6 +463,8 @@ async function toolBook(call: any, a: any, live: boolean) {
       phone_cache: fmtPhone(phone), risk_status: 'active', billing_type: 'automatic', pricelist: 'Delivery',
       address_cache: `${tok.line1}${tok.line2 ? ' ' + tok.line2 : ''}, ${tok.city}, ${tok.state} ${tok.zip}`,
       access_instructions: nc.access_notes || null, preferences: newPrefs,
+      // How they heard about us (Ad Performance report). Same lowercase keys the customer app saves.
+      referral_source: HEARD_ABOUT.includes(nc.heard_about) ? nc.heard_about : null,
       notes: `Signed up by phone with Maya on ${today}. No card on file — call to collect before delivery.`,
       // Texts only with the caller's yes on this call; they never agreed to marketing texts.
       sms_consent_at: okText ? now : null, sms_notifications_opt_out_at: okText ? null : now, sms_marketing_opt_out_at: now,
@@ -910,6 +914,7 @@ Share these only when asked, one or two sentences at a time, warmly. Then offer 
 1. Known caller: verify first (street name). Use the same street_name for every tool on this call.
    New caller: get their first and last name, then their full address: house number, street, apartment or unit, and city. Call check_new_address, read the address back, and confirm. If it's outside our area, say so kindly and name the cities we serve. If it says there may already be an account, don't sign them up; take a message.
    New caller: ask "Can we text this number with pickup reminders and updates?" and remember the answer (ok_to_text).
+   New caller: ask "And how did you hear about us?" and pick the closest answer for new_customer.heard_about (google, yelp, friend_family, saw_van, nextdoor, instagram, ai, other). Ask once; if they're unsure, use other and move on.
 2. Ask which day they'd like, or the soonest, and morning or evening if their area has both. Call find_pickup_times. Offer two or three options, clearly, one at a time if they seem unsure.
    Same-day: NEVER bring it up yourself, and never mention its fee unless the caller asks to get their laundry back the same day.
    Same-day only means a MORNING pickup that comes back that evening. A pickup this evening or tonight is never same-day: it comes back the next service day.
@@ -1025,6 +1030,7 @@ const BOOKING_TOOL_DEFS = [
         first_name: { type: 'string' }, last_name: { type: 'string' },
         address_token: { type: 'string', description: 'From check_new_address.' },
         ok_to_text: { type: 'boolean', description: 'Their answer to "Can we text this number with pickup reminders and updates?"' },
+        heard_about: { type: 'string', enum: ['google', 'yelp', 'friend_family', 'saw_van', 'nextdoor', 'instagram', 'ai', 'other'], description: 'Their answer to "How did you hear about us?" (ai = ChatGPT or another AI assistant).' },
         access_notes: { type: 'string', description: 'Gate code or where to find the bags, if they mention it.' },
         callback_phone: { type: 'string', description: 'Only if the call has no caller ID.' } } } } } },
   { name: 'save_delivery_notes', route: 'notes',

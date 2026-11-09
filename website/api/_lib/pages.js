@@ -1090,6 +1090,32 @@ function optOut() {
   };
 }
 
+// California "Do Not Sell or Share" (CPRA). Opting out, or a browser sending Global Privacy Control,
+// turns off Google Ads cookies for ads/retargeting (consent mode, see GOOGLE_TAG in layout.js and the
+// customer app <head>). Cookie fl_optout=1 on .familylaundry.com covers the website and the app.
+function privacyChoices() {
+  return {
+    path: '/privacy-choices', title: 'Your privacy choices | Family Laundry', description: 'Opt out of the sale or sharing of your personal information for advertising.',
+    body: `<section class="wrap section narrow">
+  <h1>Your privacy choices</h1>
+  <p>We use Google Ads cookies to measure our advertising and to show our ads to people who have visited our site. Under California law that can count as “sharing” personal information. You can opt out here at any time.</p>
+  <p id="pc-status"><strong>Status:</strong> checking…</p>
+  <p><button class="btn" id="pc-out" type="button">Opt out of sale/sharing</button> <button class="btn btn-ghost" id="pc-in" type="button">Opt back in</button></p>
+  <p>If your browser sends a Global Privacy Control signal, we treat it as an opt-out automatically. Your choice is saved in this browser, on this device. To opt out for your account everywhere, email <a href="mailto:info@familylaundry.com">info@familylaundry.com</a>. See our <a href="/privacy-policy">privacy policy</a> for more.</p>
+  <script>(function(){
+    var dom=/(^|\\.)familylaundry\\.com$/.test(location.hostname)?';domain=.familylaundry.com':'';
+    function set(v){document.cookie='fl_optout='+v+';path=/;max-age='+(v?31536000:0)+';samesite=lax'+dom+(location.protocol==='https:'?';secure':'');show();
+      if(window.gtag){var c=v?'denied':'granted';gtag('consent','update',{ad_storage:c,ad_user_data:c,ad_personalization:c});}}
+    function show(){var gpc=navigator.globalPrivacyControl===true,out=/(^|; )fl_optout=1/.test(document.cookie);
+      document.getElementById('pc-status').innerHTML='<strong>Status:</strong> '+(gpc?'Opted out (your browser sends Global Privacy Control).':out?'Opted out.':'Not opted out.');}
+    document.getElementById('pc-out').onclick=function(){set(1)};
+    document.getElementById('pc-in').onclick=function(){set(0)};
+    show();
+  })();</script>
+</section>`,
+  };
+}
+
 function thankYou() {
   return {
     path: '/thankyou', title: 'Thank you | Family Laundry', description: 'Thanks for contacting Family Laundry.', noindex: true,
@@ -1124,6 +1150,7 @@ const ROUTES = {
   '/download': download,
   '/gifts-cards': giftCards,
   '/opt-out': optOut,
+  '/privacy-choices': privacyChoices,
   '/thankyou': thankYou,
 };
 

@@ -26,6 +26,8 @@
       (function(){var s=document.createElement('script');s.async=true;s.src='https://www.googletagmanager.com/gtag/js?id=AW-763145104';document.head.appendChild(s);})();
       window.dataLayer = window.dataLayer || [];
       window.gtag = function(){ dataLayer.push(arguments); };
+      // CA privacy: Global Privacy Control or the website's 'Your privacy choices' opt-out (fl_optout) turns off ad cookies.
+      var _fo=navigator.globalPrivacyControl===true||/(^|; )fl_optout=1/.test(document.cookie)?'denied':'granted';gtag('consent','default',{ad_storage:_fo,ad_user_data:_fo,ad_personalization:_fo});
       gtag('js', new Date()); gtag('config', 'AW-763145104');
     }
   </script>

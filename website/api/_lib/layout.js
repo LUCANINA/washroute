@@ -89,7 +89,7 @@ function footer(v) {
     <details class="foot-col" open>
       <summary><h4>Company</h4></summary>
       <a href="/about-us">About us</a><a href="/blog">Our story</a><a href="/community">Community</a>
-      <a href="/privacy-policy">Privacy policy</a><a href="/terms-conditions">Terms &amp; conditions</a>
+      <a href="/privacy-policy">Privacy policy</a><a href="/privacy-choices">Your privacy choices</a><a href="/terms-conditions">Terms &amp; conditions</a>
     </details>
   </div>
   <script>if(matchMedia('(max-width:600px)').matches)document.querySelectorAll('.foot-col').forEach(d=>d.open=false)</script>
@@ -101,7 +101,7 @@ function footer(v) {
 // Conversions: contact form → forms.js; account sign-up → customer-app (app.familylaundry.com shares the
 // familylaundry.com cookie, so a click that lands here is credited when the visitor signs up in the app).
 const GOOGLE_TAG = `<script async src="https://www.googletagmanager.com/gtag/js?id=AW-763145104"></script>
-<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','AW-763145104');</script>`;
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}var _fo=navigator.globalPrivacyControl===true||/(^|; )fl_optout=1/.test(document.cookie)?'denied':'granted';gtag('consent','default',{ad_storage:_fo,ad_user_data:_fo,ad_personalization:_fo});gtag('js',new Date());gtag('config','AW-763145104');</script>`;
 
 // page: { path, title, description, body, jsonld?, noindex?, image? (site-relative, for link previews) }
 function layout(page, values, { indexable }) {
