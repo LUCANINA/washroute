@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="format-detection" content="address=no,telephone=no,email=no">
   <title>Family Laundry</title>
+  <!-- Google Ads tag (AW-763145104), Nov 9 2026. Production host only. Sign-up conversion fires from trackAdSignup(). -->
+  <script>
+    if (location.hostname === 'app.familylaundry.com') {
+      (function(){var s=document.createElement('script');s.async=true;s.src='https://www.googletagmanager.com/gtag/js?id=AW-763145104';document.head.appendChild(s);})();
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function(){ dataLayer.push(arguments); };
+      gtag('js', new Date()); gtag('config', 'AW-763145104');
+    }
+  </script>
   <link rel="apple-touch-icon" sizes="180x180" href="../assets/icon-customer-180.png" />
   <link rel="icon" type="image/png" sizes="512x512" href="../assets/icon-customer.png" />
   <link rel="preload" href="../assets/fonts/dmsans-latin.woff2" as="font" type="font/woff2" crossorigin />
@@ -3265,6 +3274,7 @@ async function handleSignup(e) {
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
   if (data.user) {
+    trackAdSignup();
     // Only call ensureProfile when we have an active session (email auto-confirmed
     // or instant login). Without a session, RLS blocks the writes and the data is
     // lost. loadUserData() will handle profile/customer creation after email
@@ -3283,6 +3293,12 @@ async function handleSignup(e) {
     }
     // If there IS a session, onAuthStateChange fires and navigates automatically
   }
+}
+
+// Google Ads "Family Laundry Sign Up Confirmation" conversion. Fired once, right after a NEW account is created
+// (both sign-up paths). Never blocks or throws: tracking must not be able to break sign-up.
+function trackAdSignup() {
+  try { if (window.gtag) window.gtag('event', 'conversion', { send_to: 'AW-763145104/ZLH3CPfl4bADEJDX8usC' }); } catch (e) {}
 }
 
 // Helper: find existing customer by phone (last 10 digits).
@@ -5991,6 +6007,7 @@ async function placeOrder() {
       if (errEl) { errEl.textContent = authErr.message; errEl.classList.add('show'); }
       return;
     }
+    if (authData.user) trackAdSignup();
     if (authData.user) await ensureProfile(authData.user, first, last, email, phone, smsConsent, referralSource, emailConsent);
   }
 

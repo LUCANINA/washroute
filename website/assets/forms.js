@@ -11,7 +11,7 @@
       fetch(form.action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
         .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
         .then(function (r) {
-          if (r.ok) { form.innerHTML = '<p class="lead">Thanks! We got your message and will reply within one business day.</p>'; return; }
+          if (r.ok) { if (window.gtag) gtag('event', 'conversion', { send_to: 'AW-763145104/vGokCLCnz7ADEJDX8usC' }); form.innerHTML = '<p class="lead">Thanks! We got your message and will reply within one business day.</p>'; return; }
           throw new Error(r.error || 'Sorry, that did not go through. Please call or text us.');
         })
         .catch(function (err) {
