@@ -19,7 +19,6 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 const CONVERSION_NAME = 'First order delivered'
-const TZ = 'America/Los_Angeles'
 const CLICK_WINDOW_DAYS = 90
 const DAY = 86_400_000
 
@@ -40,13 +39,11 @@ function authorized(req: Request): boolean {
   return diff === 0
 }
 
-// 'YYYY-MM-DD HH:mm:ss' in Pacific time (the file declares TimeZone=America/Los_Angeles).
+// 'YYYY-MM-DD HH:mm:ss+00:00' — UTC with an explicit offset. Google's Data Manager reads the
+// FIRST line as column names, so the old "Parameters:TimeZone=" line can't be used; the zone
+// travels inside every timestamp instead.
 function pt(ts: string): string {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }).formatToParts(new Date(ts)).map(x => [x.type, x.value]))
-  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`
+  return new Date(ts).toISOString().slice(0, 19).replace('T', ' ') + '+00:00'
 }
 
 const csvCell = (v: string) => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
@@ -107,9 +104,13 @@ Deno.serve(async (req) => {
                  Math.max(0, value).toFixed(2), 'USD'].join(','))
     }
 
-    const body = `Parameters:TimeZone=${TZ}\n`
-      + 'Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency\n'
-      + rows.join('\n') + (rows.length ? '\n' : '')
+    // Google's Data Manager can't learn the columns from a header-only file ("needs at least one row
+    // of valid data"), so while there are no real conversions yet, send one placeholder row. Its
+    // click id is not a real gclid, so Google rejects that row and credits nothing; it disappears
+    // as soon as a real conversion exists.
+    if (!rows.length) rows.push(['NO_CONVERSIONS_YET', CONVERSION_NAME, pt(new Date().toISOString()), '0.00', 'USD'].join(','))
+    const body = 'Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency\n'
+      + rows.join('\n') + '\n'
     return new Response(body, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store' } })
   } catch (e) {
     console.error('google-ads-conversions:', e)
