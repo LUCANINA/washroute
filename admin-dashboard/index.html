@@ -3389,6 +3389,53 @@
             </div>
           </div>
 
+          <!-- ── TAB: AD PERFORMANCE (Nov 9 2026) ──
+               Picks its own window (date row hidden): sign-up cohorts are whole months.
+               Spend: charges booked in Xero to each channel's contact (via xero-read, read-only).
+               Customers: public.ad_performance_report() — channel = tracked first-touch source
+               (customers.acquisition), else the customer's own "How did you hear" answer. -->
+          <div id="rpttab-ads" style="display:none">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
+              <label style="font-size:13px;color:var(--gray-600)">Sign-ups from</label>
+              <select id="ads-window" class="form-input" style="width:auto;padding:6px 10px;font-size:13px" onchange="renderAdsReport()">
+                <option value="3">the last 3 months</option>
+                <option value="6" selected>the last 6 months</option>
+                <option value="12">the last 12 months</option>
+              </select>
+              <span id="ads-status" style="font-size:13px;color:var(--gray-500)">Loading…</span>
+            </div>
+            <div class="rpt-kpi-grid" id="ads-kpis" style="margin-top:16px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))"></div>
+            <div class="card" style="margin-top:4px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">By channel</div>
+                  <div class="card-sub">Customers who signed up in the window, and everything they have spent since. Paid channels first. Green / amber / red follow common benchmarks for recurring local services (see the notes below).</div>
+                </div>
+              </div>
+              <div id="ads-channels"></div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Month by month</div>
+                  <div class="card-sub">Spend is what Xero shows charged in that month. "New customers" are sign-ups who went on to place an order.</div>
+                </div>
+              </div>
+              <div id="ads-monthly"></div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <div class="card-header"><div><div class="card-title">How to read this</div></div></div>
+              <div style="padding:4px 18px 16px;font-size:13px;color:var(--gray-600);line-height:1.6">
+                <b>CAC</b> (cost to acquire a customer) = spend ÷ new customers who placed an order. <b>Cost per sign-up</b> counts everyone who registered.<br>
+                <b>90-day ROAS</b> = revenue those customers brought in during their first 90 days ÷ spend. Only sign-ups at least 90 days old count, so recent months show "—". Benchmark: 1.0× or better means the ads paid for themselves within 90 days.<br>
+                <b>Payback</b> = months of a new customer's revenue needed to cover their CAC, from their first-90-day spending rate. Benchmark: under 6 months is strong, under 12 is acceptable. Revenue basis, before laundry and delivery costs.<br>
+                <b>Revenue to date ÷ spend</b> is the realised return so far. Benchmark: lifetime value at least 3× CAC.<br>
+                <b>Where the channel comes from:</b> since Nov 9 2026 the website records how each visitor arrived (Google Ads click, Yelp, Google search, other sites). Before that, and when nothing was recorded, the customer's own "How did you hear about us" answer is used. "Unknown" means neither exists; a large unknown share makes every channel's numbers look worse than they are.<br>
+                <b>Not counted:</b> Yelp leads that call or message you inside Yelp without visiting the website (they appear here only if they answer "Yelp" when signing up), POS walk-ins and on-account commercial customers.
+              </div>
+            </div>
+          </div>
+
           <!-- ── TAB: RETENTION (session 356, Oct 2026) ──
                Trailing windows, so it picks its own period (date row hidden).
                90-day retention = of customers who ordered 91-180 days ago, the share who
@@ -56343,6 +56390,7 @@ ${oneCopy}
     else if (rptTab === 'feedback')      loadFeedbackPage();
     else if (rptTab === 'referrals')     loadReferralPairs(true);
     else if (rptTab === 'arearequests')  loadAreaRequests();
+    else if (rptTab === 'ads')           loadAdsReport();
     else if (rptTab === 'cities')        loadCitiesReport();   // session 361
   }
 
@@ -56858,6 +56906,198 @@ ${oneCopy}
   }
   window.loadWinbackReport = loadWinbackReport;
 
+  // ── AD PERFORMANCE REPORT (Nov 9 2026) ──
+  // Two halves, merged here:
+  //   spend     — Xero bank transactions on each paid channel's contact, via the read-only
+  //               xero-read function (admin/manager/cpa). SPEND minus RECEIVE (refunds), by
+  //               transaction month in Xero.
+  //   customers — public.ad_performance_report(): sign-ups by month and channel, how many
+  //               ordered, and their 90-day / to-date revenue. Definitions live in that RPC.
+  // A Xero failure still shows the customer half, with spend marked unavailable.
+  const ADS_CHANNELS = [
+    // xero: the Xero contact every charge from that platform is coded to (found Nov 9 2026).
+    { key: 'google_ads',    label: 'Google Ads',      paid: true,  xero: 'facad8d9-bcd2-4e65-bff8-9b1869fb7c9b' },
+    { key: 'yelp',          label: 'Yelp',            paid: true,  xero: '5d2fc14a-7d30-4191-878e-1070f46a6777' },
+    { key: 'google_search', label: 'Google search',   paid: false },
+    { key: 'word_of_mouth', label: 'Friends & family', paid: false },
+    { key: 'other',         label: 'Other answers',   paid: false },
+    { key: 'unknown',       label: 'Unknown',         paid: false },
+  ];
+  const ADS_FIRST_MONTH = '2026-04';   // first whole month with order history in WashRoute
+  let _adsData = null;   // { rows, spend: {channel: {'YYYY-MM': amount}}, spendError }
+
+  async function _adsFetchSpend(contactId, fromYm) {
+    const [y, m] = fromYm.split('-').map(Number);
+    const byMonth = {};
+    for (let page = 1; page <= 10; page++) {
+      const { data, error } = await db.functions.invoke('xero-read', { body: {
+        mode: 'bank_transactions', page,
+        where: 'Contact.ContactID==guid("' + contactId + '") AND Date>=DateTime(' + y + ',' + m + ',1)'
+      } });
+      if (error) throw new Error(error.message || String(error));
+      if (!data || data.ok === false) throw new Error((data && (data.error || data.details)) || 'Xero read failed');
+      const res = data.results || [];
+      for (const t of res) {
+        if (t.status && t.status !== 'AUTHORISED') continue;
+        const ym = String(t.date || '').slice(0, 7);
+        const amt = Number(t.total || 0) * (t.type === 'RECEIVE' ? -1 : t.type === 'SPEND' ? 1 : 0);
+        if (ym && amt) byMonth[ym] = (byMonth[ym] || 0) + amt;
+      }
+      if (res.length < 100) break;
+    }
+    return byMonth;
+  }
+
+  async function loadAdsReport() {
+    const st = document.getElementById('ads-status');
+    if (!st) return;
+    st.textContent = 'Loading…';
+    _adsData = null;
+    // 12 whole months including this one, Pacific time (never UTC: rolls over at 5pm).
+    const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const d0 = new Date(todayPT.slice(0, 7) + '-15T12:00:00Z'); d0.setUTCMonth(d0.getUTCMonth() - 11);
+    const fromYm = d0.toISOString().slice(0, 7);
+    const [rpc, ...spends] = await Promise.allSettled([
+      db.rpc('ad_performance_report', { p_months: 12 }),
+      ...ADS_CHANNELS.filter(c => c.xero).map(c => _adsFetchSpend(c.xero, fromYm)),
+    ]);
+    if (rptTab !== 'ads') return;   // moved on while loading
+    if (rpc.status === 'rejected' || rpc.value.error) {
+      const e = rpc.status === 'rejected' ? rpc.reason : rpc.value.error;
+      st.innerHTML = '<span style="color:var(--red)">Could not load customers: ' + esc(e?.message || String(e)) + '</span>';
+      return;
+    }
+    const spend = {}; let spendError = null;
+    ADS_CHANNELS.filter(c => c.xero).forEach((c, i) => {
+      if (spends[i].status === 'fulfilled') spend[c.key] = spends[i].value;
+      else spendError = spends[i].reason?.message || String(spends[i].reason);
+    });
+    _adsData = { rows: rpc.value.data || [], spend, spendError };
+    renderAdsReport();
+  }
+
+  function renderAdsReport() {
+    if (!_adsData) return;
+    const st = document.getElementById('ads-status');
+    const win = Number(document.getElementById('ads-window')?.value || 6);
+    const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const months = [];
+    for (let i = win - 1; i >= 0; i--) {
+      const d = new Date(todayPT.slice(0, 7) + '-15T12:00:00Z'); d.setUTCMonth(d.getUTCMonth() - i);
+      const ym = d.toISOString().slice(0, 7);
+      // The orders table starts 2026-03-22 (Starchup migration). Earlier sign-ups' orders
+      // are not in it, so their revenue would read as near zero. Start at April 2026.
+      if (ym >= ADS_FIRST_MONTH) months.push(ym);
+    }
+    if (!months.length) months.push(todayPT.slice(0, 7));
+    const inWin = r => months.includes(String(r.cohort_month).slice(0, 7));
+    const rows = _adsData.rows.filter(inWin);
+    const N = v => Number(v || 0);
+    const m0 = v => (N(v) < 0 ? '-' : '') + '$' + Math.round(Math.abs(N(v))).toLocaleString();
+    const pct = (a, b) => b ? Math.round(100 * a / b) + '%' : '—';
+    const spendOf = (key, ms) => { const s = _adsData.spend[key]; return s ? ms.reduce((a, ym) => a + N(s[ym]), 0) : null; };
+    const agg = (key, ms) => {
+      const rs = _adsData.rows.filter(r => r.channel === key && ms.includes(String(r.cohort_month).slice(0, 7)));
+      const sum = k => rs.reduce((a, r) => a + N(r[k]), 0);
+      return { signups: sum('signups'), tracked: sum('tracked'), activated: sum('activated'),
+               matured: sum('matured'), r90: sum('revenue_90d'), rall: sum('revenue_to_date') };
+    };
+    // 90-day figures use only months whose every sign-up is 90+ days old, so they compare
+    // like with like: spend in those months against those customers' full first 90 days.
+    const maturedMonths = months.filter(ym => {
+      const end = new Date(ym + '-01T12:00:00Z'); end.setUTCMonth(end.getUTCMonth() + 1);
+      return (Date.now() - end.getTime()) >= 90 * 86400000;
+    });
+    // Benchmark colouring. good/ok thresholds; higher is better unless lowerBetter.
+    const tone = (v, good, ok, lowerBetter) => {
+      if (v == null || !isFinite(v)) return '';
+      const g = lowerBetter ? v <= good : v >= good, o = lowerBetter ? v <= ok : v >= ok;
+      return g ? 'color:var(--green,#15803d)' : o ? 'color:#b45309' : 'color:var(--red)';
+    };
+    const cell = (txt, style) => '<td style="text-align:right;font-variant-numeric:tabular-nums;' + (style || '') + '">' + txt + '</td>';
+    const small = t => '<div style="font-size:11px;color:var(--gray-500);font-weight:400">' + t + '</div>';
+
+    const stats = ADS_CHANNELS.map(c => {
+      const a = agg(c.key, months), am = agg(c.key, maturedMonths);
+      const sp = c.paid ? spendOf(c.key, months) : null;
+      const spM = c.paid ? spendOf(c.key, maturedMonths) : null;
+      const cac = sp != null && a.activated ? sp / a.activated : null;
+      const cps = sp != null && a.signups ? sp / a.signups : null;
+      const rev90PerCust = am.activated ? am.r90 / am.activated : null;
+      const roas90 = spM && spM > 0 ? am.r90 / spM : null;
+      const payback = cac != null && rev90PerCust ? cac / (rev90PerCust / 3) : null;
+      const realised = sp && sp > 0 ? a.rall / sp : null;
+      return { c, a, sp, cac, cps, rev90PerCust, roas90, payback, realised };
+    });
+    const paid = stats.filter(s => s.c.paid);
+    const totSpend = paid.reduce((t, s) => t + (s.sp || 0), 0);
+    const paidNew = paid.reduce((t, s) => t + s.a.activated, 0);
+    const allSign = stats.reduce((t, s) => t + s.a.signups, 0);
+    const unknownSign = stats.find(s => s.c.key === 'unknown').a.signups;
+
+    const xeroNote = _adsData.spendError
+      ? '<span style="color:var(--red)">Spend unavailable — Xero read failed: ' + esc(_adsData.spendError) + '</span>'
+      : 'Spend from Xero; customers from WashRoute.';
+    st.innerHTML = xeroNote + ' ' + months[0] + ' to ' + months[months.length - 1] + '.';
+
+    const tile = (label, value, sub, style) => '<div class="stat-card"><div class="stat-label">' + label
+      + '</div><div class="stat-value" style="' + (style || '') + '">' + value + '</div><div class="stat-sub">' + sub + '</div></div>';
+    const blendedCac = paidNew ? totSpend / paidNew : null;
+    document.getElementById('ads-kpis').innerHTML =
+      tile('Ad spend', _adsData.spendError ? '—' : m0(totSpend), paid.map(s => s.c.label + ' ' + (s.sp == null ? '—' : m0(s.sp))).join(' · ')) +
+      tile('New customers from ads', paidNew.toLocaleString(), 'signed up via Google Ads or Yelp and placed an order') +
+      tile('Cost per new customer', blendedCac == null ? '—' : m0(blendedCac), 'paid channels combined (CAC)') +
+      tile('Source unknown', pct(unknownSign, allSign), unknownSign + ' of ' + allSign + ' sign-ups. Lower is better: it hides where customers came from',
+           tone(allSign ? unknownSign / allSign : null, 0.15, 0.35, true));
+
+    // Channel table
+    const head = '<table><thead><tr><th>Channel</th><th style="text-align:right">Spend</th>'
+      + '<th style="text-align:right">Sign-ups</th><th style="text-align:right">Placed an order</th>'
+      + '<th style="text-align:right">Cost per sign-up</th><th style="text-align:right">CAC</th>'
+      + '<th style="text-align:right">90-day revenue / customer</th><th style="text-align:right">90-day ROAS</th>'
+      + '<th style="text-align:right">Payback</th><th style="text-align:right">Revenue to date</th>'
+      + '<th style="text-align:right">Revenue to date ÷ spend</th></tr></thead><tbody>';
+    const body = stats.map(s => {
+      const free = !s.c.paid;
+      return '<tr><td class="td-name"><div>' + esc(s.c.label) + '</div>'
+        + small((free ? 'unpaid' : 'paid') + (s.a.tracked ? ' · ' + s.a.tracked + ' tracked automatically' : '')) + '</td>'
+        + cell(free ? '—' : s.sp == null ? '?' : m0(s.sp))
+        + cell(s.a.signups.toLocaleString())
+        + cell(s.a.activated.toLocaleString() + small(pct(s.a.activated, s.a.signups)))
+        + cell(s.cps == null ? '—' : m0(s.cps))
+        + cell(s.cac == null ? '—' : m0(s.cac))
+        + cell(s.rev90PerCust == null ? '—' : m0(s.rev90PerCust))
+        + cell(s.roas90 == null ? '—' : s.roas90.toFixed(1) + '×', tone(s.roas90, 1, 0.5))
+        + cell(s.payback == null ? '—' : s.payback.toFixed(1) + ' mo', tone(s.payback, 6, 12, true))
+        + cell(m0(s.a.rall))
+        + cell(s.realised == null ? '—' : s.realised.toFixed(1) + '×', tone(s.realised, 3, 1))
+        + '</tr>';
+    }).join('');
+    document.getElementById('ads-channels').innerHTML = head + body + '</tbody></table>'
+      + (maturedMonths.length ? '' : '<div style="padding:10px 16px;font-size:12px;color:var(--gray-500)">No sign-up month in this window is 90 days old yet, so 90-day ROAS and payback show "—". Choose a longer window.</div>');
+
+    // Monthly table, newest first
+    const mlabel = ym => new Date(ym + '-15T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', year: 'numeric' });
+    const mt = '<table><thead><tr><th>Month</th>'
+      + paid.map(s => '<th style="text-align:right">' + esc(s.c.label) + ' spend</th><th style="text-align:right">' + esc(s.c.label) + ' new customers</th><th style="text-align:right">' + esc(s.c.label) + ' CAC</th>').join('')
+      + '<th style="text-align:right">All new customers</th><th style="text-align:right">Source unknown</th></tr></thead><tbody>'
+      + months.slice().reverse().map(ym => {
+          const all = stats.reduce((t, s) => t + agg(s.c.key, [ym]).activated, 0);
+          const sAll = stats.reduce((t, s) => t + agg(s.c.key, [ym]).signups, 0);
+          const unk = agg('unknown', [ym]).signups;
+          return '<tr><td class="td-name">' + mlabel(ym) + '</td>'
+            + paid.map(s => {
+                const sp = spendOf(s.c.key, [ym]), n = agg(s.c.key, [ym]).activated;
+                return cell(sp == null ? '?' : m0(sp)) + cell(n.toLocaleString()) + cell(sp && n ? m0(sp / n) : sp ? '<span style="color:var(--red)">no customers</span>' : '—');
+              }).join('')
+            + cell(all.toLocaleString()) + cell(pct(unk, sAll)) + '</tr>';
+        }).join('')
+      + '</tbody></table>';
+    document.getElementById('ads-monthly').innerHTML = mt;
+  }
+  window.loadAdsReport = loadAdsReport;
+  window.renderAdsReport = renderAdsReport;
+
   // ── BAD DEBT REPORT (session 291e) ──
   // Every write-off in the selected period: what was lost, from whom, when, why,
   // and who approved it. `written_off_by` distinguishes a human from the nightly
@@ -56961,11 +57201,14 @@ ${oneCopy}
         ['cities',        'Cities',        'Orders by city, month by month.'],
         ['arearequests',  'Area Requests', 'ZIPs we don\'t serve yet, asking us to come.'],
         ['feedback',      'Feedback',      'What customers actually said.'] ] },
+    { key: 'marketing',   label: 'Marketing',   tabs: [
+        ['ads',           'Ad Performance', 'What advertising costs, and what it brings back.'] ] },
   ];
 
   // A mark per report, so they are learned by shape instead of re-read every time.
   // currentColor so the current report's glyph takes the accent with its name.
   const RPT_GLYPH = {
+    ads:           '<path d="M4 10v6h3l7 4V6l-7 4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M18 9.5a4 4 0 0 1 0 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
     revenue:       '<path d="M5 21v-5M13 21v-11M21 21v-16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
     possales:      '<rect x="5.5" y="4.5" width="15" height="17" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M9 10h8M9 14h8M9 18h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
     items:         '<circle cx="7" cy="7" r="1.6" fill="currentColor"/><circle cx="13" cy="7" r="1.6" fill="currentColor"/><circle cx="19" cy="7" r="1.6" fill="currentColor"/><circle cx="7" cy="13" r="1.6" fill="currentColor"/><circle cx="13" cy="13" r="1.6" fill="currentColor"/><circle cx="19" cy="13" r="1.6" fill="currentColor"/><circle cx="7" cy="19" r="1.6" fill="currentColor"/><circle cx="13" cy="19" r="1.6" fill="currentColor"/><circle cx="19" cy="19" r="1.6" fill="currentColor"/>',
@@ -57235,7 +57478,7 @@ ${oneCopy}
     // Session 323: the Launderers report picks its own month, so the shared
     // Today / 7 days / Custom row is hidden while it is open. Session 336: the
     // Drivers report does the same.
-    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items' || tab === 'possales' || tab === 'arearequests' || tab === 'retention' || tab === 'cities');
+    document.getElementById('page-reports')?.classList.toggle('rpt-own-period', tab === 'launderer' || tab === 'drivers' || tab === 'items' || tab === 'possales' || tab === 'arearequests' || tab === 'retention' || tab === 'cities' || tab === 'ads');
     _rptSyncPeriodUI();
     runCurrentReport();
   }
