@@ -5,15 +5,34 @@
 // Answers may use live tokens ({site:dropoff_address}, {retail:Wash & Fold} …) — never type a price or a time.
 module.exports = {
   oakland: {
-    // East Oakland streets book into the Hayward zone (different windows), so the page shows none (Oct 13, 2026).
+    // Nov 9, 2026 (SEO): Search Console shows Oakland searches are "laundry service oakland" / "wash and fold oakland",
+    // not "pickup & delivery", so the title, H1 and description use those words.
+    title: 'Oakland Laundry Service & Wash and Fold | Family Laundry',
+    h1: 'Laundry service & wash and fold in Oakland',
+    description: 'Laundry service in Oakland: wash and fold pickup and delivery from our own plant in East Oakland. Fragrance-free, never outsourced, back the next day.',
+    // East Oakland streets book into the Hayward zone (different windows), so one city-wide list would be wrong
+    // (Oct 13, 2026). Since Nov 9 the page shows windows per part of the city instead, live from each zone.
     windows: false,
+    windowsByArea: [
+      { label: 'North & Central Oakland', zone: 'Oakland', note: 'Grand Lake, Rockridge, Temescal, Downtown, West Oakland' },
+      { label: 'East Oakland', zone: 'Hayward', note: 'ZIP codes 94603, 94605, 94619 and 94621' },
+    ],
+    windowsNote: 'Parts of 94601 and 94602 sit on either side of the line.',
+    plantPhoto: { src: 'facility.jpg', w: 1140, h: 766, alt: 'A Family Laundry team member in front of the commercial washers at our plant in East Oakland', caption: 'Our plant in East Oakland, where every Oakland order is washed and folded by our own team.' },
     households: 'more than 600',
     photo: 'porch-bag-1.jpg',
     about: [
       "Oakland is our biggest city. Most of our Oakland customers live around Lake Merritt, Grand Lake, Rockridge, Temescal and Glenview, but our vans cover the whole city, from West Oakland to the hills.",
     ],
-    hoods: ['Grand Lake', 'Lakeshore', 'Adams Point', 'Crocker Highlands', 'Trestle Glen', 'Piedmont Avenue', 'Rockridge', 'Temescal', 'Longfellow', 'Montclair', 'Glenview', 'Dimond', 'Oakmore', 'Redwood Heights', 'Laurel', 'Millsmont', 'Clinton', 'San Antonio', 'Eastlake', 'Fruitvale', 'Jingletown', 'Uptown', 'Downtown', 'Lake Merritt', 'Jack London Square', 'West Oakland'],
-    review: { who: 'Chimed D, Oakland', text: 'Amazing, a godsend, the bomb, so helpful, artistic and beautiful presentation of returned laundry - impressive!!! 5 shining stars!' },
+    hoods: ['Grand Lake', 'Lakeshore', 'Adams Point', 'Crocker Highlands', 'Trestle Glen', 'Piedmont Avenue', 'Rockridge', 'Temescal', 'Longfellow', 'Montclair', 'Glenview', 'Dimond', 'Oakmore', 'Redwood Heights', 'Laurel', 'Millsmont', 'Maxwell Park', 'Elmhurst', 'Clinton', 'San Antonio', 'Eastlake', 'Fruitvale', 'Jingletown', 'Uptown', 'Downtown', 'Lake Merritt', 'Jack London Square', 'West Oakland'],
+    // Several reviews that name Oakland neighborhoods (Nov 9). Same quotes as the neighborhood pages (5-star
+    // after-delivery ratings, order_feedback), plus Chimed D's Google review.
+    reviews: [
+      { who: 'Chimed D, Oakland', text: 'Amazing, a godsend, the bomb, so helpful, artistic and beautiful presentation of returned laundry - impressive!!! 5 shining stars!' },
+      { who: 'Katey W, Grand Lake', text: 'This was a fantastic experience! I had been avoiding my laundry for weeks and this provided the perfect reset.' },
+      { who: 'Kyja J, Temescal', text: 'Always excellent!!! Very thankful for the wash and dry option and fragrance free detergent.' },
+      { who: 'Joan & Ann H, Glenview', text: 'You did an outstanding job [...] on the blankets we included in that last order!' },
+    ],
     faqs: [
       ['Can I drop my laundry off myself in Oakland?', 'Yes. Our drop-off counter is at {site:dropoff_address}, open {site:dropoff_hours}. Drop-off wash & fold is {retail:Wash & Fold}.'],
       ['Do you pick up in the Oakland hills?', 'Yes. We serve Montclair, Crocker Highlands, Oakmore, Redwood Heights and the rest of the hills. Leave your bag wherever is easiest and note it in the app.'],

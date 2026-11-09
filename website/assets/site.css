@@ -517,3 +517,13 @@ strong { font-weight: 700; }
 .compare-table tbody th { background: transparent; }
 .compare-table tbody tr.us th { background: var(--cream); }
 .compare-link { margin: 20px 0; padding: 14px 16px; border-left: 4px solid var(--blue); background: var(--cream); }
+
+/* FAQ questions are <h3> inside <summary> (Nov 9, 2026): look like the old plain text */
+.faq-item summary .faq-q { display: inline; font: inherit; letter-spacing: inherit; margin: 0; }
+/* Oakland pickup times by part of the city */
+.area-windows { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 17px; }
+.area-windows th { text-align: left; font-size: 14px; color: var(--muted); font-weight: 600; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); }
+.area-windows td { vertical-align: top; padding: 12px 12px 12px 0; border-bottom: 1px solid var(--line); }
+.area-windows .muted { font-size: 14px; }
+.area-windows td:last-child { white-space: nowrap; }
+.area-windows .muted { line-height: 1.4; display: inline-block; margin-top: 2px; }

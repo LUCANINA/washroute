@@ -317,3 +317,18 @@ Non-brand ≈ 77 clicks/month. Oakland ~#5 on core searches; Berkeley #11–12; 
   instead of page text; one sentence in the van section linking Oakland, Berkeley, San Francisco and the service map
   (the homepage body had no links to any city page; only the footer did). Sitelink order can't be set directly.
   After publishing: Search Console → URL Inspection → Request indexing for `/` and `/laundry-delivery-sf`.
+
+- **Mon Nov 9, 2026 (Oakland page boost)** — Search Console (Aug 8 – Nov 7): the Oakland page got 15 clicks, nearly all
+  brand; non-brand Oakland searches ("laundry service oakland", "wash and fold oakland") went to the homepage.
+  Changes: (1) Oakland title "Oakland Laundry Service & Wash and Fold | Family Laundry", H1 and description use the
+  searched words (`title`/`h1`/`description` overrides in `city-details.js`, any city can use them). (2) Homepage
+  sentence links "laundry service in Oakland". (3) New neighborhood page `/laundry-delivery-oakland/east-oakland`
+  (94605 66 / 94621 17 / 94603 10 customers active in 12 months; `zone: 'Hayward'`, no review yet). (4) Every name in
+  "Neighborhoods we serve" links to the neighborhood page whose `areas` include it (`hoodPageFor()`; works for any
+  city). (5) "Pickup times in Oakland" table: North & Central (Oakland zone) vs East Oakland (Hayward zone), live
+  (`windowsByArea`). (6) Four reviews instead of one (`reviews:` array; quotes reused from the neighborhood pages)
+  and the plant photo (`plantPhoto`). (7) Every FAQ question on city, neighborhood, topic and cost pages is now an
+  `<h3 class="faq-q">` inside `<summary>` (`faqList()`), styled to look unchanged.
+  Pulling new 5-star review text by ZIP was blocked (customer names + comments), so East Oakland has no quote yet.
+  After publishing: URL Inspection → Request indexing for `/laundry-delivery-oakland` and
+  `/laundry-delivery-oakland/east-oakland`.

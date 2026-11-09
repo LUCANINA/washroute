@@ -149,7 +149,8 @@ module.exports = {
   // active in the past 12 months by address ZIP (94610 177; 94611 138; 94602 91; 94606 80; 94609 77; 94605 68;
   // 94618 65; 94608 62; 94612 56; 94601 52; 94607 51; 94619 50; 94705 43). Oakland has morning AND evening
   // windows, so never say "evening routes" here; the page renders the real windows live.
-  // Not covered yet: Millsmont, Maxwell Park and the rest of 94605 / 94621 / 94603.
+  // East Oakland (94605 / 94621 / 94603) added Nov 9, 2026: customers active in the past 12 months by ZIP
+  // 94605 66; 94621 17; 94603 10. All three book into the Hayward zone (Oct 13 ZIP audit), so zone: 'Hayward'.
   oakland: [
     {
       slug: 'grand-lake', index: true,
@@ -250,6 +251,22 @@ module.exports = {
       faqs: [
         ['Can I drop my laundry off myself?', 'Yes. Our drop-off counter is at {site:dropoff_address}, open {site:dropoff_hours}. Drop-off wash & fold is {retail:Wash & Fold}.'],
         ['Do you pick up in Cleveland Heights and Bella Vista?', 'Yes. Cleveland Heights and Bella Vista are on the same routes as Eastlake and San Antonio.'],
+      ],
+    },
+    {
+      slug: 'east-oakland', index: true, zone: 'Hayward', // 94603, 94605, 94621 book into the Hayward zone
+      name: 'Millsmont, Maxwell Park & East Oakland',
+      short: 'East Oakland',
+      zips: ['94605', '94621', '94603'],
+      intro: "We pick up across East Oakland: Millsmont, Maxwell Park, Seminary and Eastmont, up into the hills around Sheffield Village and Toler Heights, and down through Elmhurst, Sobrante Park and Brookfield Village.",
+      about: [
+        "Our plant is in East Oakland too, on Foothill Boulevard, so your laundry stays on this side of town. Our own team washes it fragrance-free and folds it, and it comes back the next service day.",
+        "Leave your bag on the porch, by the gate or wherever is easiest, and tell us where in the app. We bring it back to the same spot.",
+      ],
+      areas: ['Millsmont', 'Maxwell Park', 'Seminary', 'Eastmont', 'Sheffield Village', 'Toler Heights', 'Elmhurst', 'Sobrante Park', 'Brookfield Village'],
+      faqs: [
+        ['Do you pick up in Sobrante Park and Brookfield Village?', 'Yes. Sobrante Park, Brookfield Village and the rest of 94603 are on the same routes as Millsmont and Maxwell Park.'],
+        ['Can I drop my laundry off myself?', 'Yes. Our drop-off counter is at {site:dropoff_address}, open {site:dropoff_hours}. Drop-off wash & fold is {retail:Wash & Fold}.'],
       ],
     },
   ],

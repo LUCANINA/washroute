@@ -73,7 +73,7 @@ function home(v) {
   </div>
   <div class="h-van-copy">
     <h2>Delivering the freshest laundry in the Bay since ${esc(v.site?.founded || '2019')}.</h2>
-    <p>Imagine a service that picks up your dirty laundry, then returns it to you perfectly washed and folded. Within a day. Like magic. That's Family Laundry (learn more about what makes us <a href="/post/premium-laundry-delivery-at-your-doorstep">stand out</a>). We pick up and deliver in <a href="/laundry-delivery-oakland">Oakland</a>, <a href="/laundry-delivery-berkeley">Berkeley</a>, <a href="/laundry-delivery-sf">San Francisco</a> and <a href="/service-map">across the East Bay</a>.</p>
+    <p>Imagine a service that picks up your dirty laundry, then returns it to you perfectly washed and folded. Within a day. Like magic. That's Family Laundry (learn more about what makes us <a href="/post/premium-laundry-delivery-at-your-doorstep">stand out</a>). Our <a href="/laundry-delivery-oakland">laundry service in Oakland</a> covers the whole city, and we also pick up and deliver in <a href="/laundry-delivery-berkeley">Berkeley</a>, <a href="/laundry-delivery-sf">San Francisco</a> and <a href="/service-map">across the East Bay</a>.</p>
     <p>We're an Oakland-based family business with more than 30 employees. We operate our own laundering facilities (we never, ever outsource) and delivery vehicles. It's 100% Family Laundry, satisfaction guaranteed.</p>
     ${ZIPCHECK_SPOT === 'van' ? zipCheck(v, 'van') : `<p>Let us take care of your laundry. <a href="${APP}">Create an account</a>.</p>`}
   </div>
@@ -422,6 +422,25 @@ function cityWindows(c, v) {
   });
 }
 
+// FAQ accordion used on city, neighborhood, topic and cost pages. Each question is an <h3> inside <summary>
+// (Nov 9, 2026) so it counts as a heading; .faq-q in site.css keeps it looking like the old plain text.
+function faqList(faqs) {
+  return faqs.map(([q, a]) => `<details class="faq-item"><summary><h3 class="faq-q">${esc(q)}</h3></summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('');
+}
+
+// Window card for a city whose streets book into different zones (Oakland, Nov 9): one row per area, live per zone.
+function areaWindowsCard(name, d, v, days) {
+  const rows = (d.windowsByArea || []).map(a => ({ ...a, wins: cityWindows({ name: '', zone: a.zone }, v) })).filter(a => a.wins.length);
+  if (!rows.length) return '';
+  return `<div class="card">
+    <h2>Pickup times in ${esc(name)}</h2>
+    <table class="area-windows"><thead><tr><th>Part of ${esc(name)}</th><th>Pickup windows</th></tr></thead><tbody>
+    ${rows.map(a => `<tr><td><strong>${esc(a.label)}</strong>${a.note ? `<br><span class="muted">${esc(a.note)}</span>` : ''}</td><td>${a.wins.map(w => `${esc(w.label)}: ${esc(w.range)}`).join('<br>')}</td></tr>`).join('')}
+    </tbody></table>
+    <p class="muted">${esc(days)}.${d.windowsNote ? ' ' + esc(d.windowsNote) : ''} <a href="${APP}">Enter your address in the app</a> to see the exact windows for your street.</p>
+  </div>`;
+}
+
 function city(c, v) {
   const name = c.name;
   const d = DETAILS[c.slug] || {};
@@ -435,7 +454,9 @@ function city(c, v) {
   const faqs = [
     [`Do you pick up laundry in ${name}?`, wins.length
       ? `Yes. Family Laundry picks up and delivers in ${name} ${days}, with ${wins.length > 1 ? `${C.list(winText)} windows` : `${/^[aeiou]/.test(winText[0]) ? 'an' : 'a'} ${winText[0]} window`}. Pick yours when you book in the app.`
-      : `Yes. Family Laundry picks up and delivers in ${name} ${days}. Enter your address in the app to see the pickup windows for your street.`],
+      : d.windowsByArea
+        ? `Yes. Family Laundry picks up and delivers all over ${name} ${days}, with morning and evening windows. The exact times depend on your part of ${name}; enter your address in the app to see them.`
+        : `Yes. Family Laundry picks up and delivers in ${name} ${days}. Enter your address in the app to see the pickup windows for your street.`],
     ...(d.faqs || []).map(([q, a]) => [q, plain(a)]),
     ['When do I get my laundry back?', 'The next service day. We wash and fold it at our own plant in Oakland, so a Saturday pickup comes back Monday.'],
     ['Do I need to be home?', "No. Leave your bag at the door, with your building's front desk, or wherever you tell us in the app."],
@@ -443,16 +464,16 @@ function city(c, v) {
   ];
   const hoodsBlock = !hoodList.length ? '' : d.hoods
     ? `<h2>Neighborhoods we serve in ${esc(name)}</h2>
-  <ul class="city-list">${hoodList.map(h => `<li>${esc(h.replace(/^the /, 'The '))}</li>`).join('')}</ul>
+  <ul class="city-list">${hoodList.map(h => { const to = hoodPageFor(c, h); const t = esc(h.replace(/^the /, 'The ')); return `<li>${to ? `<a href="${to}">${t}</a>` : t}</li>`; }).join('')}</ul>
   <p class="muted">Not sure about your street? <a href="${APP}">Enter your address in the app</a> and we'll tell you right away.</p>`
     : `<p>We pick up all over ${esc(name)}, including ${esc(C.list(hoodList))}.</p>`;
   return {
     path: cityPath(c),
     noindex: !c.index,
-    title: `Laundry Pickup & Delivery in ${name} | Family Laundry`,
-    description: `Wash & fold laundry pickup and delivery in ${name}. Washed fragrance-free at our own plant in Oakland, never outsourced, and back the next day.`,
+    title: d.title || `Laundry Pickup & Delivery in ${name} | Family Laundry`,
+    description: d.description || `Wash & fold laundry pickup and delivery in ${name}. Washed fragrance-free at our own plant in Oakland, never outsourced, and back the next day.`,
     body: `<section class="wrap section narrow">
-  <h1>Laundry pickup &amp; delivery in ${esc(name)}</h1>
+  <h1>${esc(d.h1 || `Laundry pickup & delivery in ${name}`)}</h1>
   <p class="lead">${esc(c.intro)}</p>
   ${ratingBlock(v)}
   ${(d.about || []).map(p => `<p>${esc(p)}</p>`).join('\n  ')}
@@ -461,17 +482,18 @@ function city(c, v) {
     <h2>Pickup windows in ${esc(name)}</h2>
     <ul class="ticks">${wins.map(w => `<li><strong>${esc(w.label)}:</strong> ${esc(w.range)}</li>`).join('')}</ul>
     <p class="muted">${esc(days)}. Choose your window when you book; we text you when the driver is on the way.</p>
-  </div>` : ''}
+  </div>` : areaWindowsCard(name, d, v, days)}
   ${d.photo ? `<figure class="city-photo"><img src="/assets/img/${esc(d.photo)}" alt="A Family Laundry bag of folded, bundled laundry delivered to a doorstep" width="900" height="1200" loading="lazy"><figcaption>Back at your door, folded and bundled by family member.</figcaption></figure>` : ''}
   ${subHoodLinks(c)}
   ${hoodsBlock}
-  ${d.review ? `<figure class="city-quote"><blockquote>“${esc(d.review.text)}”</blockquote><figcaption>${esc(d.review.who)}</figcaption></figure>` : ''}
+  ${(d.reviews || (d.review ? [d.review] : [])).map(r => `<figure class="city-quote"><blockquote>“${esc(r.text)}”</blockquote><figcaption>${esc(r.who)}</figcaption></figure>`).join('\n  ')}
   <div class="why why-2">
     <div><h3>Cleaned in-house</h3><p>Washed by our own team at our Oakland plant. Never outsourced.</p></div>
     <div><h3>Fragrance-free</h3><p>Free &amp; Clear detergent and ozone. Nothing that lingers on skin.</p></div>
     <div><h3>Back the next day</h3><p>Folded neatly, socks balled, bundled by family member.</p></div>
     <div><h3>No need to be home</h3><p>Leave your bag at the door. We text you when we're on the way.</p></div>
   </div>
+  ${d.plantPhoto ? `<figure class="about-photo"><img src="/assets/img/${esc(d.plantPhoto.src)}" alt="${esc(d.plantPhoto.alt)}" width="${d.plantPhoto.w}" height="${d.plantPhoto.h}" loading="lazy"><figcaption>${esc(d.plantPhoto.caption)}</figcaption></figure>` : ''}
   <div class="card">
     <h2>Pricing in ${esc(name)}</h2>
     <ul class="ticks">
@@ -484,7 +506,7 @@ function city(c, v) {
   <h2>Schools, daycares and businesses in ${esc(name)}</h2>
   <p>We also handle laundry for schools, daycares, gyms, clinics and offices. <a href="/commercial-laundry">See commercial laundry</a>.</p>
   <h2>Questions from ${esc(name)} customers</h2>
-  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}
+  ${faqList(faqs)}
   ${nearby.length ? `<p class="muted nearby">We also serve ${nearby.map(o => `<a href="${cityPath(o)}">${esc(o.name)}</a>`).join(', ')}. <a href="/service-map">See the full service area</a>.</p>` : ''}
 </section>`,
     jsonld: {
@@ -509,6 +531,13 @@ function city(c, v) {
 const HOODS = require('../../content/neighborhoods.js');
 const hoodPath = (c, h) => `${cityPath(c)}/${h.slug}`;
 const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+
+// Neighborhood page that covers a name from a city's list (Nov 9): matches the page's areas, ignoring "the" and case.
+function hoodPageFor(c, label) {
+  const norm = t => String(t).toLowerCase().replace(/^the /, '').trim();
+  const h = (HOODS[c.slug] || []).find(x => x.index && (x.areas || []).some(a => norm(a) === norm(label)));
+  return h ? hoodPath(c, h) : '';
+}
 
 // Links from a city page to its neighborhood pages (only the ones open to Google, so we never point
 // people at thin pages).
@@ -573,7 +602,7 @@ function neighborhood(c, h, v) {
     <p>${cta()}</p>
   </div>
   <h2>Questions from customers in ${esc(name)}</h2>
-  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}
+  ${faqList(faqs)}
   ${h.related ? `<p>More on <a href="${esc(h.related)}">comforters &amp; bedding</a>.</p>` : ''}
   <p class="muted nearby">${siblings.length ? `Nearby: ${siblings.map(o => `<a href="${hoodPath(c, o)}">${esc(cap(o.name))}</a>`).join(', ')}. ` : ''}<a href="${cityPath(c)}">All of ${esc(c.name)}</a> · <a href="/service-map">Full service area</a>.</p>
 </section>`,
@@ -639,7 +668,7 @@ function topic(t, v) {
   ${t.sections.map(s => `<h2>${esc(s.h)}</h2>\n  ${md(s.md, v)}`).join('\n  ')}
   ${ctaBlock}
   ${faqs.length ? `<h2>Questions</h2>
-  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}` : ''}
+  ${faqList(faqs)}` : ''}
   ${relatedLinks(t.related)}
 </section>`,
     jsonld: graph.length ? { '@context': 'https://schema.org', '@graph': graph } : undefined,
@@ -697,7 +726,7 @@ function cost(v) {
   </ul>
   <div class="card"><h2>Try it</h2><p>New customers: your friend's referral code takes ${mdi('{referral:friend}', v)} off your first order.</p><p>${cta()}</p></div>
   <h2>Questions</h2>
-  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}
+  ${faqList(faqs)}
   ${relatedLinks(['/first-laundry-pickup', '/laundry-delivery-services', '/drop-off-laundry-oakland'])}
 </section>`,
     jsonld: { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
@@ -810,7 +839,7 @@ function compareSf(v) {
   </ol>
   <div class="card"><h2>Try us in San Francisco</h2><p>New customers: your friend's referral code takes ${mdi('{referral:friend}', v)} off your first order. <a href="/laundry-delivery-sf">Our San Francisco service</a>.</p><p>${cta()}</p></div>
   <h2>Questions</h2>
-  ${faqs.map(([q, a]) => `<details class="faq-item"><summary>${esc(q)}</summary><div class="faq-a"><p>${esc(a)}</p></div></details>`).join('')}
+  ${faqList(faqs)}
   ${relatedLinks(['/laundry-delivery-sf', '/laundry-service-cost', '/fragrance-free-laundry-service'])}
   </div>
 </section>`,
