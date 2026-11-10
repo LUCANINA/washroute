@@ -14,6 +14,12 @@ const REDIRECTS = {
   '/services-4': '/commercial-laundry',
 };
 
+// Short tracking links for listings and partners (temporary 302, so the target can change later). The utm_* tags
+// are picked up by the first-touch `fl_src` cookie (assets/forms.js) and saved to customers.acquisition on sign-up.
+const CAMPAIGN_LINKS = {
+  '/bpn': '/?utm_source=bpn&utm_medium=directory&utm_campaign=bpn_listing', // Berkeley Parents Network listing
+};
+
 function isProductionHost(host) {
   return /^(www\.)?(familylaundry|sudzee)\.com$/i.test(String(host || '').split(':')[0]);
 }
@@ -52,6 +58,10 @@ module.exports = async (req, res) => {
     return res.end(sudzee.page(d.values, { indexable }));
   }
 
+  if (CAMPAIGN_LINKS[path]) {
+    res.statusCode = 302; res.setHeader('Location', CAMPAIGN_LINKS[path]); res.setHeader('Cache-Control', 'no-store');
+    return res.end();
+  }
   if (REDIRECTS[path]) {
     res.statusCode = 301; res.setHeader('Location', REDIRECTS[path]); return res.end();
   }
