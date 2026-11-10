@@ -2,7 +2,7 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 369, 2026-11-06 17:5x UTC)
 >
-> **00. SESSION 371 (2026-11-10) — DEBT SCHEDULE UPDATES DAILY. WRITTEN, NOT DEPLOYED, NOT COMMITTED.**
+> **00. SESSION 371 (2026-11-10) — DEBT SCHEDULE UPDATES DAILY. LIVE.** Committed 7a18678; David deployed loan-bundle v68 + reconciliation-run v93 (verify_jwt false kept) 2026-11-10 18:30 UTC; both probed (403/401 in their own words); a manual run wrote 32 `xero_daily` rows as of 2026-11-09, month-end writes unchanged (64). Nothing left to do — delete this item next session.
 > `reconciliation-run` now also writes ONE row per loan at the end of YESTERDAY (Pacific) under a new
 > `loan_book_balances.basis = 'xero_daily'` (same `balanceAt()` rebuild; older daily rows deleted after a
 > successful write). `normaliseBookBalances()` drops `xero_daily`, so loan-bundle / carrying-basis never see
