@@ -711,7 +711,6 @@ function calcHtml(r, m) {
         <tr id="c-sb"${subWins ? ' class="win"' : ''}><th scope="row">Subscription</th><td id="c-sb-l">${mm(d.sub)}</td><td>Free</td><td class="calc-v" id="c-sb-v">${mm(d.sub)}</td></tr>
       </tbody>
     </table></div>
-    <p class="fine" id="c-note">Per bag: ${d.bags} × ${mm(r.bag)}, plus ${mm(r.del)} delivery on each of ${d.pickups} orders. Subscription: ${r.lbs} lbs included.</p>
     <p class="calc-verdict" id="c-verdict"><strong>${subWins ? 'Subscription' : 'Per bag'}</strong> saves you ${mm(diff)} a month.</p>
   </div>
   <script>(function(){
@@ -728,7 +727,6 @@ function calcHtml(r, m) {
       var fees=d.pickups*r.del;
       $('c-pb-l').textContent=money(d.perBag-fees);$('c-pb-f').textContent=money(fees);$('c-pb-v').textContent=money(d.perBag);
       $('c-sb-l').textContent=money(d.sub);$('c-sb-v').textContent=money(d.sub);
-      $('c-note').textContent='Per bag: '+bags+' × '+money(r.bag)+(d.overweight?' + '+money(d.overweight)+' overweight':'')+', plus '+money(r.del)+' delivery on each of '+d.pickups+' order'+(d.pickups>1?'s':'')+'. Subscription: '+(d.extraLbs?money(r.plan)+' + '+d.extraLbs+' extra lbs × '+money(r.over)+'.':r.lbs+' lbs included.');
       var sw=d.sub<d.perBag,diff=Math.abs(d.perBag-d.sub);
       $('c-pb').classList.toggle('win',!sw);$('c-sb').classList.toggle('win',sw);
       $('c-verdict').innerHTML=diff<0.005?'<strong>Same price</strong> either way.':'<strong>'+(sw?'Subscription':'Per bag')+'</strong> saves you '+money(diff)+' a month.';
@@ -752,6 +750,11 @@ function cost(v) {
     ['How much is laundry pickup and delivery per pound?', `A ${m(bag)} bag holds up to 25 lbs, about ${m(bag / 25)} per lb before delivery. Drop-off wash & fold at our Oakland counter is ${m(retail)}/lb.`],
     ['Is a laundry subscription worth it?', `From about four bags a month. Each bag costs ${m(perOrder)} with delivery, so four bags cost ${m(4 * perOrder)}, against ${m(plan)} for the subscription.`],
     ['Is there a minimum?', `One bag: ${m(bag)} plus ${m(del)} delivery. Subscribers have no minimum per order.`],
+    ['What happens if my bag is over 25 lbs?', `Per-bag orders pay an extra ${C.renderPlain('{site:overweight_rate}', v)} above 25 lbs. Subscribers pay by the pound instead: ${lbs} lbs a month are included, then ${m(over)}/lb.`],
+    ['What is included in the price?', `Pickup and delivery to your door ${C.renderPlain('{site:service_days}', v)}, back the next service day. Washed at our own plant in Oakland by our own team with Free & Clear hypoallergenic detergent, folded and bundled by family member, in bags that are yours to keep.`],
+    ['Do you charge for extras?', `Only if you ask for them: Air Dry ${C.renderPlain('{price:Air Dry}', v)} per delicates bag, shirts ${C.renderPlain('{price:Shirt Service}', v)} each, Vinegar or Oxi ${C.renderPlain('{price:Oxi}', v)} per bag, Double Wash ${C.renderPlain('{price:Double Wash}', v)} per bag, same-day delivery +${m(same)} where available.`],
+    ['Is it cheaper to drop off?', `Yes. Drop-off wash & fold at ${C.renderPlain('{site:dropoff_address}', v)} is ${m(retail)}/lb, with no delivery.`],
+    ['Do you have business pricing?', `Yes, from ${C.renderPlain('{commercial:Wash & Fold}', v)}, invoiced monthly.`],
   ];
   return {
     path: '/laundry-service-cost',
@@ -760,30 +763,21 @@ function cost(v) {
     body: `<section class="wrap section narrow topic">
   <p class="eyebrow">Getting started</p>
   <h1>How much does laundry service cost?</h1>
-  <p class="lead">Pickup and delivery wash &amp; fold in the Bay Area with Family Laundry costs ${esc(m(bag))} per bag (up to 25 lbs) plus ${esc(m(del))} delivery, or ${esc(m(plan))} a month for ${esc(String(lbs))} lbs with delivery included.</p>
-  ${ratingBlock(v)}
-  <h2>Our prices</h2>
-  <ul>
-    <li><strong>Per bag:</strong> ${esc(m(bag))} for up to 25 lbs (about 2–3 loads), plus ${esc(m(del))} delivery per order. Over 25 lbs: ${mdi('{site:overweight_rate}', v)}.</li>
-    <li><strong>Subscription:</strong> ${esc(m(plan))}/month for ${esc(String(lbs))} lbs, unlimited pickups, free next-day delivery, no minimum per order. Above ${esc(String(lbs))} lbs: ${esc(m(over))}/lb.</li>
-    <li><strong>Drop-off</strong> at ${mdi('{site:dropoff_address}', v)}: ${esc(m(retail))}/lb wash &amp; fold. <a href="/drop-off-laundry-oakland">Drop-off details</a>.</li>
-    <li><strong>Add-ons:</strong> Air Dry ${mdi('{price:Air Dry}', v)} per delicates bag, shirts ${mdi('{price:Shirt Service}', v)} each, Vinegar or Oxi ${mdi('{price:Oxi}', v)} per bag, Double Wash ${mdi('{price:Double Wash}', v)} per bag, same-day delivery +${esc(m(same))} where available.</li>
-    <li><strong>Businesses:</strong> from ${mdi('{commercial:Wash & Fold}', v)}. <a href="/commercial-laundry">Commercial laundry</a>.</li>
-  </ul>
-  <h2>What a month of laundry costs</h2>
-  <p>Set how often you'd order and how much you send. Prices come straight from our price list.</p>
+  <p class="lead">From ${esc(m(bag))} a bag, or ${esc(m(plan))} a month for ${esc(String(lbs))} lbs, picked up and delivered across the Bay Area.</p>
+  ${ratingBadge(v)}
+  <div class="cost-cards">
+    <div class="card"><h2>Per bag</h2><p class="cost-price">${esc(m(bag))}</p>
+      <ul class="ticks"><li>Up to 25 lbs (2–3 loads)</li><li>+ ${esc(m(del))} delivery per order</li><li>Best for occasional orders</li></ul></div>
+    <div class="card card-best"><h2>Subscription</h2><p class="cost-price">${esc(m(plan))}<span>/month</span></p>
+      <ul class="ticks"><li>${esc(String(lbs))} lbs included</li><li>Free delivery, unlimited pickups</li><li>Best from about 4 bags a month</li></ul></div>
+  </div>
+  <h2>Which is cheaper for you?</h2>
   ${calc}
-  <h2>What's included either way</h2>
-  <ul>
-    <li>Pickup and delivery to your door ${mdi('{site:service_days}', v)}, back the next service day</li>
-    <li>Washed at our own plant in Oakland by our own team, never outsourced</li>
-    <li>Free &amp; Clear hypoallergenic detergent and ozone, with no fragrance, bleach or softener</li>
-    <li>Folded, socks balled, bundled by family member, in bags that are yours to keep</li>
-  </ul>
-  <div class="card"><h2>Try it</h2><p>New customers: your friend's referral code takes ${mdi('{referral:friend}', v)} off your first order.</p><p>${cta()}</p></div>
+  <p class="cost-cta">${cta()}</p>
+  <p class="fine center">New customers: a friend's referral code takes ${mdi('{referral:friend}', v)} off the first order.</p>
   <h2>Questions</h2>
   ${faqList(faqs)}
-  ${relatedLinks(['/first-laundry-pickup', '/laundry-delivery-services', '/drop-off-laundry-oakland'])}
+  ${relatedLinks(['/first-laundry-pickup', '/drop-off-laundry-oakland', '/commercial-laundry'])}
 </section>`,
     jsonld: { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
   };

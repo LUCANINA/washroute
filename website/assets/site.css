@@ -355,6 +355,14 @@ strong { font-weight: 700; }
 .calc-table tr.win th, .calc-table tr.win td { background: var(--cream); }
 .calc-table tr.win .calc-v { color: var(--blue); }
 .calc-verdict { font-size: 20px; margin: 12px 0 0; }
+.cost-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 28px 0 36px; }
+.cost-cards .card { padding: 22px 24px; }
+.cost-cards h2 { font-size: 20px; margin: 0 0 4px; }
+.cost-price { font-family: var(--head); font-weight: 800; font-size: 36px; line-height: 1.1; margin: 0 0 12px; }
+.cost-price span { font-size: 18px; font-weight: 700; color: var(--muted); }
+.cost-cards .ticks { margin: 0; font-size: 16px; }
+.cost-cta { text-align: center; margin: 0 0 6px; }
+@media (max-width: 600px) { .cost-cards { grid-template-columns: 1fr; } }
 .calc-verdict strong { color: var(--blue); }
 
 /* About us */
