@@ -92,7 +92,6 @@ function home(v) {
       <li>Same-day Delivery: +${mdi('{fee:Same-Day Surcharge}', v)} (where available)</li>
     </ul>
     <p class="h-fine">*Bags weighing more than 25 lbs are an extra ${mdi('{site:overweight_rate}', v)}.</p>
-    <p class="h-tile-cta"><a class="btn" href="${APP}">Book one bag</a></p>
   </div>
   <div class="h-tile h-tile-2">
     <h2>Subscribe<br>${mdi('{plan:price}', v)}/month</h2>
@@ -108,7 +107,6 @@ function home(v) {
       <li>No minimum lbs. per order</li>
     </ul>
     <p class="h-fine">*Usage above ${mdi('{plan:lbs}', v)} lbs per month is ${mdi('{plan:overage}', v)} per lb.</p>
-    <p class="h-tile-cta"><a class="btn" href="${APP}">Subscribe</a></p>
   </div>
 </section>
 
