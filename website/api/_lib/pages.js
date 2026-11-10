@@ -757,12 +757,12 @@ function cost(v) {
     body: `<section class="wrap section narrow topic">
   <p class="eyebrow">Getting started</p>
   <h1>How much does laundry service cost?</h1>
-  <p class="lead">From ${esc(m(bag))} a bag, or ${esc(m(plan))} a month for ${esc(String(lbs))} lbs, picked up and delivered across the Bay Area.</p>
+  <p class="lead">From ${esc(m(bag))} a bag, or ${esc(m(plan))} a month for ${esc(String(lbs))} lbs, with pickup and delivery to your door.</p>
   ${ratingBadge(v)}
   <div class="cost-cards">
     <div class="card"><h2>Per bag</h2><p class="cost-price">${esc(m(bag))}</p>
       <ul class="ticks"><li>Up to 25 lbs (2–3 loads)</li><li>+ ${esc(m(del))} delivery per order</li><li>Best for occasional orders</li></ul></div>
-    <div class="card card-best"><h2>Subscription</h2><p class="cost-price">${esc(m(plan))}<span>/month</span></p>
+    <div class="card"><h2>Subscription</h2><p class="cost-price">${esc(m(plan))}<span>/month</span></p>
       <ul class="ticks"><li>${esc(String(lbs))} lbs included</li><li>Free delivery, unlimited pickups</li><li>Best from about 4 bags a month</li></ul></div>
   </div>
   <h2>Which is cheaper for you?</h2>
