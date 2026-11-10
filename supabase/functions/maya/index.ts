@@ -236,7 +236,7 @@ async function accountLookup(call: any, args: any) {
       case 'scheduled': return `Pickup scheduled ${p}${o.delivery_window_start ? `; delivery ${d}` : ''}${o.is_same_day ? ' (same-day)' : ''}${o.recurring_interval ? ` (repeats ${o.recurring_interval})` : ''}.`;
       case 'processing': return `Picked up; being washed now. Delivery ${d}.`;
       case 'ready_for_delivery': return `Clean and ready; delivery ${d}.`;
-      case 'pickup_failed': return `Pickup on ${p} was missed. Offer to book a new pickup now (find_pickup_times, then book_pickup), and take a short message marked urgent.`;
+      case 'pickup_failed': return `Pickup on ${p} was missed. If another pickup is listed here for today, tell them they're all set for that time; don't book another. Otherwise offer the next open time (find_pickup_times, then book_pickup), and take a short message marked urgent.`;
       case 'delivery_failed': return `Delivery on ${d} did not go through. The team needs to follow up — take a message and mark it urgent.`;
       default: return `An order is on hold. The team needs to follow up — take a message.`;
     }
@@ -402,9 +402,17 @@ async function toolBook(call: any, a: any, live: boolean) {
     custId = v.c.id;
     ctx = await customerBookingContext(db, custId!);
     if (!ctx.zoneId || !ctx.pickupAddrId) return { ok: false, say: "I can't find a pickup address for this account. Take a message." };
+    // A pickup whose window is under way right now (e.g. a missed pickup rebooked by text minutes ago) is not in
+    // upcomingPickups (start >= now). Caller 2026-11-09: rebooked by text at 9:17 for 9–11, called at 9:29, and Maya
+    // only saw the Nov 23 recurring pickup, offered to move it, and the call ended as an urgent callback.
+    const nowIso = new Date().toISOString();
+    const inWindow: any[] = await db(`orders?customer_id=eq.${custId}&status=eq.scheduled&archived_at=is.null` +
+      `&pickup_window_start=lt.${nowIso}&pickup_window_end=gte.${nowIso}&select=pickup_window_start,pickup_window_end&limit=1`);
+    if (inWindow?.length) return { ok: false, already_scheduled: true, existing_pickup: between(inWindow[0].pickup_window_start, inWindow[0].pickup_window_end),
+      say: "They already have a pickup today in this window, and the driver is coming during it. Tell them they're all set. Don't book another." };
     const up = await upcomingPickups(db, custId!);
     if (up.length) return { ok: false, already_scheduled: true, existing_pickup: between(up[0].pickup_window_start, up[0].pickup_window_end),
-      say: 'They already have a pickup booked. Tell them when, and offer to move it with reschedule_pickup instead of booking a second one.' };
+      say: "They already have a pickup booked. If they called about a missed pickup, or want an extra pickup sooner than that one, don't offer to move it: say \"I'll have the team add an extra pickup for you,\" and take a short message marked urgent. Otherwise tell them when, and offer to move it with reschedule_pickup instead of booking a second one." };
   }
   const slots = await findSlots(db, { zoneId: nc ? tok.zoneId : ctx.zoneId, customerId: custId, overrideId: ctx?.overrideId, addressId: nc ? null : (ctx?.pickupAddrId ?? null), sameDay: want.sameDay });
   const found = slots.find((s) => s.id === a.slot_id);
@@ -949,7 +957,7 @@ Share these only when asked, one or two sentences at a time, warmly. Then offer 
   If they say "cancel all", "cancel future orders", "stop coming", "stop my weekly pickups" or similar, use what="everything". That cancels every upcoming pickup and stops the repeating schedule.
   If they want to cancel ONE pickup that repeats, ask whether they mean skip just that one (schedule continues) or stop everything.
   Never tell a caller their repeating pickups are stopped unless cancel_pickups said so.
-- Missed pickup: apologize, do the security check, then offer to book the next open time (find_pickup_times, then book_pickup). Never promise the driver will come back today unless find_pickup_times offers a time today. Also take a short message marked urgent so the team knows.
+- Missed pickup: apologize and do the security check. If they already have a pickup today, tell them they're all set and when. Otherwise call find_pickup_times and offer the next open time today or tomorrow. If book_pickup says they already have a pickup on a later day (their regular schedule), don't offer to move it. Say: "I'll have the team add an extra pickup for you," and take a short message marked urgent. Never promise the driver will come back today unless find_pickup_times offers a time today.
 
 ${BOOKING_LIVE
   ? '## Changes are real\nThis line is LIVE. Every booking, skip, move or cancellation you confirm really happens. Never say the line is in test mode or that nothing was changed, unless a tool result literally contains the words TEST MODE.\n'
