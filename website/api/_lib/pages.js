@@ -721,7 +721,11 @@ function calcHtml(r, m) {
     function calc(bags,lpb,pp){var pickups=Math.ceil(bags/pp),tl=bags*lpb,ovw=bags*Math.max(0,lpb-25)*r.ow,
       pb=bags*r.bag+ovw+pickups*r.del,xl=Math.max(0,tl-r.lbs);return{pickups:pickups,totalLbs:tl,overweight:ovw,perBag:pb,extraLbs:xl,sub:r.plan+xl*r.over}}
     function run(){
-      var bags=+$('c-bags').value,lpb=+$('c-lbs').value,pp=+el.querySelector('input[name=c-pp]:checked').value,d=calc(bags,lpb,pp);
+      var bags=+$('c-bags').value,lpb=+$('c-lbs').value,rs=el.querySelectorAll('input[name=c-pp]'),pp=1;
+      // Can't send more bags per pickup than bags per month: grey those out and step the choice down.
+      for(var i=0;i<rs.length;i++){rs[i].disabled=+rs[i].value>bags;if(rs[i].checked)pp=+rs[i].value}
+      if(pp>bags){pp=bags;rs[bags-1].checked=true}
+      var d=calc(bags,lpb,pp);
       $('c-bags-o').textContent=bags;$('c-lbs-o').textContent=lpb+' lbs';
       $('c-sum').textContent=d.totalLbs+' lbs a month, '+d.pickups+' pickup'+(d.pickups>1?'s':'');
       var fees=d.pickups*r.del;
@@ -732,7 +736,7 @@ function calcHtml(r, m) {
       $('c-pb').classList.toggle('win',!sw);$('c-sb').classList.toggle('win',sw);
       $('c-verdict').innerHTML=diff<0.005?'<strong>Same price</strong> either way.':'<strong>'+(sw?'Subscription':'Per bag')+'</strong> saves you '+money(diff)+' a month.';
     }
-    el.addEventListener('input',run);run();
+    el.addEventListener('input',run);el.addEventListener('change',run);run();
   })();</script>
 </div>`;
 }

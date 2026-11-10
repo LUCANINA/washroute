@@ -348,6 +348,7 @@ strong { font-weight: 700; }
 .calc-seg input { position: absolute; opacity: 0; pointer-events: none; }
 .calc-seg span { display: block; text-align: center; padding: 8px 0; border: 2px solid var(--line); border-radius: 999px; cursor: pointer; }
 .calc-seg input:checked + span { border-color: var(--blue); background: var(--blue); color: #fff; }
+.calc-seg input:disabled + span { opacity: .35; cursor: not-allowed; }
 .calc-seg input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
 .calc-table { min-width: 0; }
 .calc-table th[scope=row] { background: none; }
