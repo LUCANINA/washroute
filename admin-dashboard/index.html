@@ -6093,7 +6093,6 @@
                 <span style="display:flex;align-items:center;gap:8px" class="cv-noprint">
                   <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtScheduleCSV()" title="Save the schedule as a spreadsheet">⤓ Spreadsheet</button>
                   <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportDebtSchedulePDF()" title="Print-ready page to email a lender">📄 PDF</button>
-                  <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="refreshDebtSchedule(this)">↻ Refresh</button>
                 </span>
               </div>
               <div id="debtsched-table-wrap" style="overflow-x:auto"></div>
@@ -19616,23 +19615,11 @@
       : `Balances as of ${fmtDatePlain(newest)} (some earlier)`;
   }
 
-  // Refresh re-reads what is stored; it does not call Xero. Balances move when the
-  // nightly reconciliation-run (5am Pacific) writes new ones. Say that it ran, and
-  // what date the figures are, so an unchanged table doesn't read as a dead button.
-  async function refreshDebtSchedule(btn) {
-    const label = btn ? btn.textContent : '';
-    if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
-    try {
-      await loadLoans();
-      if (!_bkLoansLoaded) return;   // loadLoans already showed its own error
-      showToast(`Refreshed — ${_debtSchedBalanceDateText().replace(/^B/, 'b')}. Balances update every morning.`, 'success', 4000);
-    } catch (err) {
-      console.error('refreshDebtSchedule failed:', err);
-      showToast('Could not refresh the debt schedule.', 'error');
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = label; }
-    }
-  }
+  // Session 371: the Refresh button and refreshDebtSchedule() were removed. Refresh
+  // re-read stored rows only; balances change once a day (the 5am reconciliation-run
+  // writes 'xero_daily'), and opening the page already loads them -- a button that
+  // cannot fetch anything new reads as broken.
+
 
   // ── Debt Schedule ─────────────────────────────────────────────────────────
   // A live replacement for the manual spreadsheet David re-checked against the
