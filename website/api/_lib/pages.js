@@ -674,15 +674,15 @@ function topic(t, v) {
 }
 
 // Monthly cost calculator for /laundry-service-cost. The server renders the default result (4 bags of
-// 25 lbs, one bag per pickup) so the numbers are there without JavaScript; the inline script recomputes
+// 25 lbs, one bag per pickup = 4 orders) so the numbers are there without JavaScript; the inline script recomputes
 // when a slider moves. Same formula both places — keep calcMonth() and the script's calc() in step.
-function calcMonth(r, bags, lbsPerBag, perPickup) {
-  const pickups = Math.ceil(bags / perPickup), totalLbs = bags * lbsPerBag;
+function calcMonth(r, orders, lbsPerBag, perPickup) {
+  const pickups = orders, bags = orders * perPickup, totalLbs = bags * lbsPerBag;
   const overweight = bags * Math.max(0, lbsPerBag - 25) * r.ow;
   const perBag = bags * r.bag + overweight + pickups * r.del;
   const extraLbs = Math.max(0, totalLbs - r.lbs);
   const sub = r.plan + extraLbs * r.over;
-  return { pickups, totalLbs, overweight, perBag, extraLbs, sub };
+  return { pickups, bags, totalLbs, overweight, perBag, extraLbs, sub };
 }
 function calcHtml(r, m) {
   const d = calcMonth(r, 4, 25, 1);
@@ -690,8 +690,8 @@ function calcHtml(r, m) {
   const mm = x => esc(m(x));
   return `<div class="calc" id="calc" data-r='${esc(JSON.stringify(r))}'>
   <div class="calc-in">
-    <label class="calc-row"><span>Bags per month <output id="c-bags-o">4</output></span>
-      <input type="range" id="c-bags" min="1" max="12" step="1" value="4"></label>
+    <label class="calc-row"><span>Orders per month <output id="c-ord-o">4</output></span>
+      <input type="range" id="c-ord" min="1" max="12" step="1" value="4"></label>
     <label class="calc-row"><span>Pounds per bag <output id="c-lbs-o">25 lbs</output></span>
       <input type="range" id="c-lbs" min="10" max="40" step="1" value="25"></label>
     <div class="calc-row"><span>Bags per pickup</span>
@@ -701,7 +701,7 @@ function calcHtml(r, m) {
         <label><input type="radio" name="c-pp" value="3"><span>3</span></label>
         <label><input type="radio" name="c-pp" value="4"><span>4</span></label>
       </div></div>
-    <p class="fine" id="c-sum">${d.totalLbs} lbs a month, ${d.pickups} pickup${d.pickups > 1 ? 's' : ''}</p>
+    <p class="fine" id="c-sum">${d.bags} bag${d.bags > 1 ? 's' : ''}, about ${d.totalLbs} lbs a month</p>
   </div>
   <div class="calc-out">
     <div class="table-wrap"><table class="price-table calc-table">
@@ -711,27 +711,24 @@ function calcHtml(r, m) {
         <tr id="c-sb"${subWins ? ' class="win"' : ''}><th scope="row">Subscription</th><td id="c-sb-l">${mm(d.sub)}</td><td>Free</td><td class="calc-v" id="c-sb-v">${mm(d.sub)}</td></tr>
       </tbody>
     </table></div>
-    <p class="fine" id="c-note">Per bag: ${4} × ${mm(r.bag)}, plus ${mm(r.del)} delivery on each of ${d.pickups} pickups. Subscription: ${r.lbs} lbs included.</p>
+    <p class="fine" id="c-note">Per bag: ${d.bags} × ${mm(r.bag)}, plus ${mm(r.del)} delivery on each of ${d.pickups} orders. Subscription: ${r.lbs} lbs included.</p>
     <p class="calc-verdict" id="c-verdict"><strong>${subWins ? 'Subscription' : 'Per bag'}</strong> saves you ${mm(diff)} a month.</p>
   </div>
   <script>(function(){
     var el=document.getElementById('calc'),r=JSON.parse(el.getAttribute('data-r'));
     function $(i){return document.getElementById(i)}
     function money(x){x=Math.round(x*100)/100;return '$'+(x%1?x.toFixed(2):String(x)).replace(/\B(?=(\d{3})+(?!\d))/g,',')}
-    function calc(bags,lpb,pp){var pickups=Math.ceil(bags/pp),tl=bags*lpb,ovw=bags*Math.max(0,lpb-25)*r.ow,
-      pb=bags*r.bag+ovw+pickups*r.del,xl=Math.max(0,tl-r.lbs);return{pickups:pickups,totalLbs:tl,overweight:ovw,perBag:pb,extraLbs:xl,sub:r.plan+xl*r.over}}
+    function calc(ord,lpb,pp){var pickups=ord,bags=ord*pp,tl=bags*lpb,ovw=bags*Math.max(0,lpb-25)*r.ow,
+      pb=bags*r.bag+ovw+pickups*r.del,xl=Math.max(0,tl-r.lbs);return{pickups:pickups,bags:bags,totalLbs:tl,overweight:ovw,perBag:pb,extraLbs:xl,sub:r.plan+xl*r.over}}
     function run(){
-      var bags=+$('c-bags').value,lpb=+$('c-lbs').value,rs=el.querySelectorAll('input[name=c-pp]'),pp=1;
-      // Can't send more bags per pickup than bags per month: grey those out and step the choice down.
-      for(var i=0;i<rs.length;i++){rs[i].disabled=+rs[i].value>bags;if(rs[i].checked)pp=+rs[i].value}
-      if(pp>bags){pp=bags;rs[bags-1].checked=true}
-      var d=calc(bags,lpb,pp);
-      $('c-bags-o').textContent=bags;$('c-lbs-o').textContent=lpb+' lbs';
-      $('c-sum').textContent=d.totalLbs+' lbs a month, '+d.pickups+' pickup'+(d.pickups>1?'s':'');
+      var ord=+$('c-ord').value,lpb=+$('c-lbs').value,pp=+el.querySelector('input[name=c-pp]:checked').value;
+      var d=calc(ord,lpb,pp),bags=d.bags;
+      $('c-ord-o').textContent=ord;$('c-lbs-o').textContent=lpb+' lbs';
+      $('c-sum').textContent=bags+' bag'+(bags>1?'s':'')+', about '+d.totalLbs+' lbs a month';
       var fees=d.pickups*r.del;
       $('c-pb-l').textContent=money(d.perBag-fees);$('c-pb-f').textContent=money(fees);$('c-pb-v').textContent=money(d.perBag);
       $('c-sb-l').textContent=money(d.sub);$('c-sb-v').textContent=money(d.sub);
-      $('c-note').textContent='Per bag: '+bags+' × '+money(r.bag)+(d.overweight?' + '+money(d.overweight)+' overweight':'')+', plus '+money(r.del)+' delivery on each of '+d.pickups+' pickup'+(d.pickups>1?'s':'')+'. Subscription: '+(d.extraLbs?money(r.plan)+' + '+d.extraLbs+' extra lbs × '+money(r.over)+'.':r.lbs+' lbs included.');
+      $('c-note').textContent='Per bag: '+bags+' × '+money(r.bag)+(d.overweight?' + '+money(d.overweight)+' overweight':'')+', plus '+money(r.del)+' delivery on each of '+d.pickups+' order'+(d.pickups>1?'s':'')+'. Subscription: '+(d.extraLbs?money(r.plan)+' + '+d.extraLbs+' extra lbs × '+money(r.over)+'.':r.lbs+' lbs included.');
       var sw=d.sub<d.perBag,diff=Math.abs(d.perBag-d.sub);
       $('c-pb').classList.toggle('win',!sw);$('c-sb').classList.toggle('win',sw);
       $('c-verdict').innerHTML=diff<0.005?'<strong>Same price</strong> either way.':'<strong>'+(sw?'Subscription':'Per bag')+'</strong> saves you '+money(diff)+' a month.';
@@ -774,7 +771,7 @@ function cost(v) {
     <li><strong>Businesses:</strong> from ${mdi('{commercial:Wash & Fold}', v)}. <a href="/commercial-laundry">Commercial laundry</a>.</li>
   </ul>
   <h2>What a month of laundry costs</h2>
-  <p>Move the sliders to match your household. Prices come straight from our price list.</p>
+  <p>Set how often you'd order and how much you send. Prices come straight from our price list.</p>
   ${calc}
   <h2>What's included either way</h2>
   <ul>
