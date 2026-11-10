@@ -195,9 +195,9 @@ function ratingBadge(v) {
 }
 // Google/Yelp line plus our own rating with its count, high on the page. The own figure is what the page's
 // rating markup says, and Google trusts markup more when the same numbers are prominent on the page (Oct 6).
+// Nov 10 (David: pages too busy): one rating line per page. Our own after-delivery rating stays in the footer.
 function ratingBlock(v) {
-  const own = ownRatingLine(v);
-  return ratingBadge(v) + (own ? `\n  <p class="rating-own">${own}</p>` : '');
+  return ratingBadge(v);
 }
 // One @id for the business, so every page's markup points at the same entity (Oct 6).
 const BIZ_ID = ORIGIN + '/#business';
@@ -460,10 +460,15 @@ function city(c, v) {
     ['Do I need to be home?', "No. Leave your bag at the door, with your building's front desk, or wherever you tell us in the app."],
     ['What detergent do you use?', 'Free & Clear hypoallergenic detergent and ozone. We never use bleach, softener or fragrance.'],
   ];
+  // Nov 10: one neighborhoods section. Neighborhood-page links first; the full list (kept for search, every name
+  // links to its page via hoodPageFor) folds away under them when there are links; then the ZIP check.
+  const groups = (HOODS[c.slug] || []).filter(h => h.index);
+  const fullList = `<ul class="city-list">${hoodList.map(h => { const to = hoodPageFor(c, h); const t = esc(h.replace(/^the /, 'The ')); return `<li>${to ? `<a href="${to}">${t}</a>` : t}</li>`; }).join('')}</ul>`;
   const hoodsBlock = !hoodList.length ? '' : d.hoods
     ? `<h2>Neighborhoods we serve in ${esc(name)}</h2>
-  <ul class="city-list">${hoodList.map(h => { const to = hoodPageFor(c, h); const t = esc(h.replace(/^the /, 'The ')); return `<li>${to ? `<a href="${to}">${t}</a>` : t}</li>`; }).join('')}</ul>
-  <p class="muted">Not sure about your street? <a href="${APP}">Enter your address in the app</a> and we'll tell you right away.</p>`
+  ${groups.length ? `<ul class="city-list hood-links">${groups.map(h => `<li><a href="${hoodPath(c, h)}">${esc(cap(h.name))}</a></li>`).join('')}</ul>
+  <details class="more-hoods"><summary>All ${hoodList.length} neighborhoods</summary>${fullList}</details>` : fullList}
+  ${zipCheck(v, 'city')}`
     : `<p>We pick up all over ${esc(name)}, including ${esc(C.list(hoodList))}.</p>`;
   return {
     path: cityPath(c),
@@ -481,8 +486,15 @@ function city(c, v) {
     <ul class="ticks">${wins.map(w => `<li><strong>${esc(w.label)}:</strong> ${esc(w.range)}</li>`).join('')}</ul>
     <p class="muted">${esc(days)}. Choose your window when you book; we text you when the driver is on the way.</p>
   </div>` : areaWindowsCard(name, d, v, days)}
+  <div class="card">
+    <h2>Pricing in ${esc(name)}</h2>
+    <ul class="ticks">
+      <li>Per bag: ${mdi('{price:Wash & Fold}', v)} for up to 25 lbs, plus ${mdi('{fee:Delivery Fee}', v)} delivery</li>
+      <li>Subscription: ${mdi('{plan:price}', v)}/month for ${mdi('{plan:lbs}', v)} lbs, delivery included</li>
+    </ul>
+    <p>${cta()}</p>
+  </div>
   ${d.photo ? `<figure class="city-photo"><img src="/assets/img/${esc(d.photo)}" alt="A Family Laundry bag of folded, bundled laundry delivered to a doorstep" width="900" height="1200" loading="lazy"><figcaption>Back at your door, folded and bundled by family member.</figcaption></figure>` : ''}
-  ${subHoodLinks(c)}
   ${hoodsBlock}
   ${(d.reviews || (d.review ? [d.review] : [])).map(r => `<figure class="city-quote"><blockquote>“${esc(r.text)}”</blockquote><figcaption>${esc(r.who)}</figcaption></figure>`).join('\n  ')}
   <div class="why why-2">
@@ -492,17 +504,8 @@ function city(c, v) {
     <div><h3>No need to be home</h3><p>Leave your bag at the door. We text you when we're on the way.</p></div>
   </div>
   ${d.plantPhoto ? `<figure class="about-photo"><img src="/assets/img/${esc(d.plantPhoto.src)}" alt="${esc(d.plantPhoto.alt)}" width="${d.plantPhoto.w}" height="${d.plantPhoto.h}" loading="lazy"><figcaption>${esc(d.plantPhoto.caption)}</figcaption></figure>` : ''}
-  <div class="card">
-    <h2>Pricing in ${esc(name)}</h2>
-    <ul class="ticks">
-      <li>Per bag: ${mdi('{price:Wash & Fold}', v)} for up to 25 lbs, plus ${mdi('{fee:Delivery Fee}', v)} delivery</li>
-      <li>Subscription: ${mdi('{plan:price}', v)}/month for ${mdi('{plan:lbs}', v)} lbs, delivery included</li>
-    </ul>
-    <p>${cta()}</p>
-  </div>
   ${d.compare ? `<p class="compare-link">Comparing services? <a href="${esc(d.compare.path)}">${esc(d.compare.label)}</a>, with prices, turnaround and where others fit better.</p>` : ''}
-  <h2>Schools, daycares and businesses in ${esc(name)}</h2>
-  <p>We also handle laundry for schools, daycares, gyms, clinics and offices. <a href="/commercial-laundry">See commercial laundry</a>.</p>
+  <p class="muted">Schools, daycares and businesses in ${esc(name)}: <a href="/commercial-laundry">see commercial laundry</a>.</p>
   <h2>Questions from ${esc(name)} customers</h2>
   ${faqList(faqs)}
   ${nearby.length ? `<p class="muted nearby">We also serve ${nearby.map(o => `<a href="${cityPath(o)}">${esc(o.name)}</a>`).join(', ')}. <a href="/service-map">See the full service area</a>.</p>` : ''}
@@ -535,15 +538,6 @@ function hoodPageFor(c, label) {
   const norm = t => String(t).toLowerCase().replace(/^the /, '').trim();
   const h = (HOODS[c.slug] || []).find(x => x.index && (x.areas || []).some(a => norm(a) === norm(label)));
   return h ? hoodPath(c, h) : '';
-}
-
-// Links from a city page to its neighborhood pages (only the ones open to Google, so we never point
-// people at thin pages).
-function subHoodLinks(c) {
-  const list = (HOODS[c.slug] || []).filter(h => h.index);
-  if (!list.length) return '';
-  return `<h2>${esc(c.name)} neighborhoods</h2>
-  <ul class="city-list hood-links">${list.map(h => `<li><a href="${hoodPath(c, h)}">${esc(cap(h.name))}</a></li>`).join('')}</ul>`;
 }
 
 function neighborhood(c, h, v) {
@@ -581,6 +575,14 @@ function neighborhood(c, h, v) {
     <ul class="ticks">${wins.map(w => `<li><strong>${esc(w.label)}:</strong> ${esc(w.range)}</li>`).join('')}</ul>
     <p class="muted">${esc(days)}. Choose your window when you book; we text you when the driver is on the way.</p>
   </div>` : ''}
+  <div class="card">
+    <h2>Pricing</h2>
+    <ul class="ticks">
+      <li>Per bag: ${mdi('{price:Wash & Fold}', v)} for up to 25 lbs, plus ${mdi('{fee:Delivery Fee}', v)} delivery</li>
+      <li>Subscription: ${mdi('{plan:price}', v)}/month for ${mdi('{plan:lbs}', v)} lbs, delivery included</li>
+    </ul>
+    <p>${cta()}</p>
+  </div>
   <h2>Where we pick up</h2>
   <ul class="city-list">${h.areas.map(a => `<li>${esc(cap(a))}</li>`).join('')}</ul>
   <p class="muted">ZIP code${h.zips.length > 1 ? 's' : ''} ${esc(C.list(h.zips))}. Not sure about your street? <a href="${APP}">Enter your address in the app</a> and we'll tell you right away.</p>
@@ -590,14 +592,6 @@ function neighborhood(c, h, v) {
     <div><h3>Fragrance-free</h3><p>Free &amp; Clear detergent and ozone. Nothing that lingers on skin.</p></div>
     <div><h3>Back the next day</h3><p>Folded neatly, socks balled, bundled by family member.</p></div>
     <div><h3>No need to be home</h3><p>Leave your bag at the door. We text you when we're on the way.</p></div>
-  </div>
-  <div class="card">
-    <h2>Pricing</h2>
-    <ul class="ticks">
-      <li>Per bag: ${mdi('{price:Wash & Fold}', v)} for up to 25 lbs, plus ${mdi('{fee:Delivery Fee}', v)} delivery</li>
-      <li>Subscription: ${mdi('{plan:price}', v)}/month for ${mdi('{plan:lbs}', v)} lbs, delivery included</li>
-    </ul>
-    <p>${cta()}</p>
   </div>
   <h2>Questions from customers in ${esc(name)}</h2>
   ${faqList(faqs)}
@@ -800,7 +794,6 @@ function compareSf(v) {
   const byName = k => comp.find(c => c.name === k) || {};
   const total = comp.length + 1;
   const year = (asOf.match(/\d{4}/) || [''])[0];
-  const since = ((DETAILS.sf || {}).about || [])[0] || '';
   const us = {
     name: 'Family Laundry (us)',
     price: `${m(bag)} per bag (up to 25 lbs), or ${m(plan)}/month for ${lbs} lbs`,
@@ -828,8 +821,7 @@ function compareSf(v) {
   <div class="narrow">
   <p class="eyebrow">San Francisco</p>
   <h1>Best laundry delivery services in San Francisco: ${total} options compared</h1>
-  <p class="lead">Looking for laundry pickup and delivery in San Francisco? We compared ${total} services offering wash &amp; fold, from on-demand pickups to next-day delivery and subscription plans. Below are published prices, turnaround times and the differences worth knowing before you book.</p>
-  <p>We're Family Laundry, one of the companies on this list, so we're not pretending to be neutral. We'll tell you where our competitors do better, too.</p>
+  <p class="lead">We compared ${total} San Francisco wash &amp; fold services on price, turnaround and who actually washes your laundry. We're Family Laundry, one of them, so we also say where others do better.</p>
   <p class="muted">Competitor details as of ${esc(asOf)}, from each company's website (linked below). Prices change, so check before you book.</p>
   <h2>Which laundry delivery service should you choose?</h2>
   <ul>
@@ -848,19 +840,13 @@ function compareSf(v) {
   </table></div>
   <div class="narrow">
   <p class="muted">"About 25 lbs" is roughly 2–3 home loads. Our subscription figure assumes you use the full ${esc(String(lbs))} lbs each month; with less laundry, the effective price per bag is higher. Bag sizes, minimums, fees and first-order offers differ between services, so compare the total for your own amount of laundry. Where a company doesn't publish a price, we say so rather than guess.</p>
-  <div class="card compare-cta">
-    <h2>Considering Family Laundry?</h2>
-    <p>Our own employees wash your laundry at our plant in Oakland, fragrance-free by default. San Francisco pickups run in the evening, ${esc(days)}${wins.length ? ` (${esc(wins.map(w => w.range).join(', '))})` : ''}, and come back the next service day.</p>
-    <p class="muted">${esc(m(bag))} per 25-lb bag plus ${esc(m(del))} delivery, or a monthly subscription.</p>
-    <p>${cta()} <a class="btn btn-ghost" href="/laundry-delivery-sf">San Francisco service details</a></p>
-  </div>
-  <h2>What San Francisco customers should look for</h2>
+  <h2>What to look for in San Francisco</h2>
   <ul>
-    <li><strong>Building access.</strong> Many SF apartments have a doorman, a front desk or a locked lobby. Ask whether the driver can leave and collect bags there. We can: add instructions in the app.</li>
-    <li><strong>Pickup times that fit your day.</strong> Some services pick up during work hours, others in the evening. Our San Francisco routes run in the evening.</li>
-    <li><strong>Parking and hills.</strong> Street parking is tight in much of the city. Ask how a service handles pickups on streets with no loading zone.</li>
-    <li><strong>Where your laundry is washed.</strong> It might be a plant, a laundromat or an individual washer's machine, in the city or across the Bay. Ours crosses the Bay Bridge to our own plant in Oakland.</li>
-    <li><strong>Turnaround versus price.</strong> Same-day costs more almost everywhere. If you can wait until the next day, you have more choice.</li>
+    <li><strong>Building access.</strong> Doorman, front desk or locked lobby? Ask whether the driver can leave and collect bags there. We can: add instructions in the app.</li>
+    <li><strong>Pickup times.</strong> Some services pick up during work hours, others in the evening. Our San Francisco routes run in the evening.</li>
+    <li><strong>Speed versus price.</strong> Same-day costs more almost everywhere. At a few bags a month, a subscription often beats paying per bag.</li>
+    <li><strong>Who washes it.</strong> A plant, a laundromat or an individual's home machine, in the city or across the Bay. Ours goes to our own plant in Oakland.</li>
+    <li><strong>Dry cleaning and sensitive skin.</strong> Need both services in one pickup? Is fragrance-free the default or an add-on?</li>
   </ul>
   <h2>Where we're not the best fit</h2>
   <ul>
@@ -869,25 +855,19 @@ function compareSf(v) {
     <li><strong>Price is what matters most.</strong> Per pound, several services above cost less than we do.</li>
     <li><strong>You want a Sunday pickup.</strong> We pick up ${esc(days)}.</li>
   </ul>
-  <h2>Why San Francisco customers choose us anyway</h2>
-  ${since ? `<p>${esc(since)}</p>` : ''}
-  ${ratingBlock(v)}
-  <ul>
-    <li><strong>One team, one plant.</strong> Our own employees wash and fold everything at our plant in Oakland. Your laundry never goes to a third party.</li>
-    <li><strong>Fragrance-free by default.</strong> Free &amp; Clear hypoallergenic detergent and ozone, with no bleach, softener or fragrance.</li>
-    <li><strong>Back the next service day,</strong> folded, socks balled, and bundled by family member.</li>
-    <li><strong>A local family business,</strong> family-owned since 2018 and delivering since 2019.</li>
-  </ul>
-  ${hh ? `<p class="city-stat"><strong>${esc(hh.charAt(0).toUpperCase() + hh.slice(1))} San Francisco households</strong> used Family Laundry in the past year.</p>` : ''}
-  <h2>How to choose</h2>
-  <ol>
-    <li><strong>How fast do you need it?</strong> Same-day, next-day and 3–4 days are all common.</li>
-    <li><strong>Do you need dry cleaning?</strong> If so, pick a service that does both, so it's one pickup.</li>
-    <li><strong>How much laundry a month?</strong> At a few bags a month, a subscription often beats paying per bag.</li>
-    <li><strong>Who washes it?</strong> Some services wash everything at one plant; others use individual washers with residential machines. Ask.</li>
-    <li><strong>Sensitive skin?</strong> Ask whether fragrance-free detergent is the default or an add-on.</li>
-  </ol>
-  <div class="card"><h2>Try us in San Francisco</h2><p>New customers: your friend's referral code takes ${mdi('{referral:friend}', v)} off your first order. <a href="/laundry-delivery-sf">Our San Francisco service</a>.</p><p>${cta()}</p></div>
+  <div class="card compare-cta">
+    <h2>Why San Francisco customers choose us anyway</h2>
+    ${ratingBlock(v)}
+    <ul class="ticks">
+      <li>Our own team washes everything at our own plant in Oakland, never a third party</li>
+      <li>Fragrance-free by default: Free &amp; Clear detergent and ozone, no bleach or softener</li>
+      <li>Back the next service day, folded and bundled by family member</li>
+      <li>Family-owned since 2018, delivering since 2019</li>
+    </ul>
+    ${hh ? `<p class="city-stat"><strong>${esc(hh.charAt(0).toUpperCase() + hh.slice(1))} San Francisco households</strong> used Family Laundry in the past year.</p>` : ''}
+    <p>${cta()} <a class="btn btn-ghost" href="/laundry-delivery-sf">San Francisco service details</a></p>
+    <p class="fine">New customers: a friend's referral code takes ${mdi('{referral:friend}', v)} off the first order.</p>
+  </div>
   <h2>Questions</h2>
   ${faqList(faqs)}
   ${relatedLinks(['/laundry-delivery-sf', '/laundry-service-cost', '/fragrance-free-laundry-service'])}
