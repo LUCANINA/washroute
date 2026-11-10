@@ -64,6 +64,9 @@ export interface NormalisedBalance {
 export function normaliseBookBalances(rows: BookBalanceRow[] | null | undefined): NormalisedBalance[] {
   return (rows || [])
     .filter(r => r && r.as_of && Number.isFinite(Number(r.balance)))
+    // 'xero_daily' (session 371) is a rolling Debt Schedule figure, one row per loan,
+    // replaced every night. It is not a dated observation any check should keep.
+    .filter(r => String(r.basis || 'xero_rebuild') !== 'xero_daily')
     .map(r => ({
       statement_date: String(r.as_of).slice(0, 10),
       principal_balance: Number(r.balance),

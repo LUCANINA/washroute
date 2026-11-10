@@ -2,6 +2,20 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 369, 2026-11-06 17:5x UTC)
 >
+> **00. SESSION 371 (2026-11-10) — DEBT SCHEDULE UPDATES DAILY. WRITTEN, NOT DEPLOYED, NOT COMMITTED.**
+> `reconciliation-run` now also writes ONE row per loan at the end of YESTERDAY (Pacific) under a new
+> `loan_book_balances.basis = 'xero_daily'` (same `balanceAt()` rebuild; older daily rows deleted after a
+> successful write). `normaliseBookBalances()` drops `xero_daily`, so loan-bundle / carrying-basis never see
+> it; every dashboard month-end reader already filters `basis === 'xero_rebuild'`. Dashboard: new
+> `_debtSchedBalance()` used ONLY by the Debt Schedule (screen, PDF, CSV via the rendered table, the
+> "Balances as of" line). Loans page + KPI tiles stay month-end (s367). No migration (basis has no CHECK).
+> Deploy ORDER matters — loan-bundle first so its filter is live before any daily row exists. Both are
+> `verify_jwt: false` (checked via list_edge_functions 2026-11-10): `loan-bundle` then `reconciliation-run`,
+> each with `--no-verify-jwt`. Deployed loan-bundle (v66, 9-15) = HEAD for its whole import tree; deployed
+> reconciliation-run (v91, 9-22 21:51) postdates every commit in its tree — so each deploy ships only this
+> change. Verify next morning: `select basis, as_of, count(*) from loan_book_balances where basis='xero_daily' group by 1,2`.
+> two-surfaces has 3 red that are PRE-EXISTING (measured against HEAD's index.html, same 3).
+>
 > **0. DONE (session 370, 2026-11-06 19:27 UTC): the Nov 4 payout is POSTED.** David had deployed
 > both functions at 18:30 UTC (`xero-payout-sync` v34, `-reallocate` v27, verify_jwt false). Before that,
 > someone hand-entered the bank line in Xero as ONE line, all $12,133.07 to 405 Subscription Fees

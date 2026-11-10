@@ -19607,7 +19607,7 @@
   // date the balances are actually true. If loans disagree, say the newest and
   // that some are older — never round a mixed sheet up to one date.
   function _debtSchedBalanceDateText() {
-    const dates = _debtScheduleRows().map(a => _debtBalance(a)?.asOf).filter(Boolean).map(d => String(d).slice(0, 10));
+    const dates = _debtScheduleRows().map(a => _debtSchedBalance(a)?.asOf).filter(Boolean).map(d => String(d).slice(0, 10));
     if (!dates.length) return `As of ${_cvTodayLong()}`;
     const uniq = [...new Set(dates)].sort();
     const newest = uniq[uniq.length - 1];
@@ -19625,7 +19625,7 @@
     try {
       await loadLoans();
       if (!_bkLoansLoaded) return;   // loadLoans already showed its own error
-      showToast(`Refreshed — ${_debtSchedBalanceDateText().replace(/^B/, 'b')}. Xero balances update nightly.`, 'success', 4000);
+      showToast(`Refreshed — ${_debtSchedBalanceDateText().replace(/^B/, 'b')}. Balances update every morning.`, 'success', 4000);
     } catch (err) {
       console.error('refreshDebtSchedule failed:', err);
       showToast('Could not refresh the debt schedule.', 'error');
@@ -19821,7 +19821,7 @@
     const rows = _debtScheduleRows();
 
     const enriched = rows.map(a => {
-      const bal = _debtBalance(a);
+      const bal = _debtSchedBalance(a);
       const staleness = (() => {
         if (!bal) return 'missing';
         const days = (Date.now() - new Date(bal.asOf + 'T00:00:00').getTime()) / 86400000;
@@ -20061,7 +20061,7 @@
   function exportDebtSchedulePDF() {
     const money = (n) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const rows = _debtScheduleRows().map(a => {
-      const bal = _debtBalance(a);
+      const bal = _debtSchedBalance(a);
       const pmt = _isNoteAccount(a) ? null : _loanRecurringPayment(a.id);
       const rate = _loanMeasuredRate(a);
       return { a, bal, pmt, rate };
@@ -22338,6 +22338,22 @@
     const b = _lsXeroBalance(a.id);
     if (b) return { amount: Number(b.balance), asOf: String(b.as_of), source: 'xero', authoritative: false, xero: true };
     return _loanOutstandingBalance(a);
+  }
+  // Session 371 (David: "I'd like this debt schedule to be updated daily"). The Debt
+  // Schedule ONLY -- screen, PDF and spreadsheet -- reads the nightly 'xero_daily'
+  // row: the same Xero rebuild, taken at the end of yesterday. The Loans page and
+  // the KPI tiles stay on month-end (session 367's decision). No daily row yet, or
+  // one older than the month-end figure, falls back to _debtBalance().
+  function _debtSchedBalance(a) {
+    let d = null;
+    (_allLoanBookBalances || []).forEach(b => {
+      if (b.loan_account_id !== a.id || b.basis !== 'xero_daily' || b.balance == null) return;
+      if (!d || String(b.as_of) > String(d.as_of)) d = b;
+    });
+    const m = _debtBalance(a);
+    if (d && (!m || String(d.as_of) >= String(m.asOf).slice(0, 10)))
+      return { amount: Number(d.balance), asOf: String(d.as_of), source: 'xero', authoritative: false, xero: true, daily: true };
+    return m;
   }
   function _lsSchedule(loanId) {
     const by = new Map();

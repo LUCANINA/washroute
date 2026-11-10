@@ -2119,6 +2119,18 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
     const tieOuts: TieOut[] = []
     // Month-end books balances, and the refusals. See the block beside tieOuts.push().
     const bookBalances: any[] = []
+    // ── DAILY BALANCE FOR THE DEBT SCHEDULE (session 371, David: "updated daily") ──
+    // The same balanceAt() rebuild, taken at the end of YESTERDAY (Pacific) rather than
+    // a month end. Yesterday, not today: this run starts at 5am and anything entered in
+    // Xero later today would be missing from a figure labelled with today's date.
+    // Its OWN basis, 'xero_daily', so every reader of month-end rows -- the rollforward,
+    // the close band, loan-bundle, the carrying-basis check -- is untouched: they all
+    // filter on 'xero_rebuild' or go through normaliseBookBalances(), which drops it.
+    // ONE row per loan is kept (older daily rows are deleted after the write), so the
+    // table does not grow by a row per loan per day.
+    const DAILY_BASIS = 'xero_daily'
+    const dailyAsOf = addDays(today, -1)
+    const dailyBalances: any[] = []
     const bookBalanceSkips: Array<{ loan_account_id: string; code: string; as_of: string; reason: string }> = []
     // The month's measured movement, and its refusals. Kept separate from the balance
     // skips because the two can diverge: an explicit `from_date` inside the closing
@@ -2327,6 +2339,17 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
           if (movement) drawsMeasured++
           else drawSkips.push({ loan_account_id: loan.id, code, month: closingMonthEnd, reason: 'window_not_covered' })
         }
+      }
+      // Same coverage refusals as the month-end rows above; a refused daily row simply
+      // leaves the Debt Schedule on the month-end figure, which states its own date.
+      if (haveCheckpoint && dailyAsOf >= addDays(windowFrom, -1) && cpDate >= addDays(windowFrom, -1)) {
+        dailyBalances.push({
+          loan_account_id: loan.id, as_of: dailyAsOf,
+          balance: balanceAt(code, dailyAsOf, ledger, cp, cpDate),
+          basis: DAILY_BASIS, run_id: run.id, computed_at: new Date().toISOString(),
+          detail: { code, checkpoint: cp, checkpoint_date: cpDate, window_from: windowFrom,
+                    entries_counted: entriesWalked(code, dailyAsOf, ledger, cpDate) },
+        })
       }
       // The closing balance row itself was refused, so there is nowhere to record the
       // month's movement. Counted here so that measured + skipped always equals one
@@ -2540,6 +2563,24 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
         bookBalanceWriteError = bbErr.message
       }
     }
+    // Daily rows: write, then (only if the write landed) drop older daily rows. Errors
+    // are logged and summarised, never thrown -- a missed day leaves the previous figure
+    // standing with its own date on it, which is honest.
+    let dailyBalancesWritten = 0
+    let dailyBalanceError: string | null = null
+    if (dailyBalances.length) {
+      const { error: dErr } = await supa.from('loan_book_balances')
+        .upsert(dailyBalances, { onConflict: 'loan_account_id,as_of,basis' })
+      if (dErr) {
+        console.error('daily balance write failed (run continues):', dErr.message)
+        dailyBalanceError = dErr.message
+      } else {
+        dailyBalancesWritten = dailyBalances.length
+        const { error: pErr } = await supa.from('loan_book_balances')
+          .delete().eq('basis', DAILY_BASIS).lt('as_of', dailyAsOf)
+        if (pErr) { console.error('old daily balance cleanup failed:', pErr.message); dailyBalanceError = 'cleanup: ' + pErr.message }
+      }
+    }
 
     const meta = { loansChecked: active.length, previousRunAt: prev?.started_at ?? null, changedOldCount: relevantChangedOld.length }
     const html = renderReport({ ...run, mode, period_from: windowFrom, period_to: today }, enriched, {}, meta)
@@ -2562,6 +2603,8 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
         // reason the guard refuses instead of writing.
         book_balance_month_ends: { closing: closingMonthEnd, prior: priorMonthEnd },
         book_balances_written: bookBalancesWritten,
+        daily_balances_written: dailyBalancesWritten, daily_balance_as_of: dailyAsOf,
+        ...(dailyBalanceError ? { daily_balance_error: dailyBalanceError } : {}),
         book_balances_skipped: bookBalanceSkips.length,
         book_balance_skips: bookBalanceSkips,
         // The month's movement, measured or refused. draws_measured + draws_skipped is
@@ -2586,6 +2629,8 @@ async function handle(req: Request, meter: XeroMeter): Promise<Response> {
       ...counts, report_path: reportPath,
       changed_old_entries: relevantChangedOld.length,
       book_balances_written: bookBalancesWritten,
+      daily_balances_written: dailyBalancesWritten, daily_balance_as_of: dailyAsOf,
+      ...(dailyBalanceError ? { daily_balance_error: dailyBalanceError } : {}),
       book_balances_skipped: bookBalanceSkips.length,
       draws_measured: drawsMeasured,
       draws_skipped: drawSkips.length,
