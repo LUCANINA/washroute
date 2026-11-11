@@ -60270,7 +60270,11 @@ async function _dvIframeLoaded() {
           // backfill gave 762 of them one, which would have double-counted them the
           // moment it ran. Exclude them explicitly, on purpose, not by side effect.
           .neq('source', 'walk_in')
-          .gt('total_amount', 0)
+          // Session 360: a $0 order is still real money when it carries a tip — a
+          // subscription order (plan pays the laundry) or one fully covered by credit.
+          // Skipping every $0 order dropped $571 of October tips. Only true $0
+          // placeholders (no total AND no tip) stay out.
+          .or('total_amount.gt.0,tip_amount.gt.0')
           .not('racked_at', 'is', null)
           .gte('racked_at', fromISO)
           .lte('racked_at', toISO)
@@ -60481,19 +60485,26 @@ async function _dvIframeLoaded() {
 
       // POS sales. total_amount includes sales tax — the tax is stripped out of
       // revenue and added to the tax total, which is what the Sales Tax pill reports.
-      let pos = 0, posCount = 0, cash = 0;
+      let pos = 0, posCount = 0, cash = 0, tipsPos = 0;
+      const tipsDeliv = tips;
       (posByDate[date] || []).forEach(o => {
         const gross_ = parseFloat(o.total_amount || 0);
         const taxAmt = parseFloat(o.tax_amount || 0);
+        // Session 360: POS tips live in tip_amount, OUTSIDE total_amount (verified on
+        // October counter sales), so they were missing from this report entirely.
+        // They go in the Tips stream, not POS counter, so tips stay one figure.
+        const posTip = _tipToDollars(o);
         pos += gross_ - taxAmt;
         tax += taxAmt;
+        tips += posTip; tipsPos += posTip;
+        total += posTip;
         posCount++;
         // Cash never touches Stripe — tracked so the page can say what was on cards.
-        if (o.billing_payment_method === 'cash') cash += gross_ - taxAmt;
+        if (o.billing_payment_method === 'cash') cash += gross_ - taxAmt + posTip;
         if (o.billing_status === 'paid' && o.stripe_payment_intent_id) {
           const actualCents = feesByPI[o.stripe_payment_intent_id]?.fee_cents;
           if (actualCents !== undefined) procFees += actualCents / 100;
-          else { procFees += _estFee(gross_); feeEstimated = true; }
+          else { procFees += _estFee(gross_ + posTip); feeEstimated = true; }
         }
       });
 
@@ -60506,7 +60517,7 @@ async function _dvIframeLoaded() {
       total += subs + pos + comm;
       count += posCount;
       const net   = total - refunds - procFees;
-      rows.push({ date, service, addons, overages, fees, tips, subs, pos, cash, comm, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count, tax });
+      rows.push({ date, service, addons, overages, fees, tips, tipsDeliv, tipsPos, subs, pos, cash, comm, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count, tax });
     });
 
     _revReportData = rows;
@@ -60518,6 +60529,8 @@ async function _dvIframeLoaded() {
       acc.overages  += r.overages;
       acc.fees      += r.fees;
       acc.tips      += r.tips;
+      acc.tipsDeliv += r.tipsDeliv || 0;
+      acc.tipsPos   += r.tipsPos   || 0;
       acc.subs      += r.subs;
       acc.pos       += r.pos;
       acc.comm      += r.comm;
@@ -60533,7 +60546,7 @@ async function _dvIframeLoaded() {
       acc.count     += r.count;
       acc.tax       += r.tax;
       return acc;
-    }, { service:0, addons:0, overages:0, fees:0, tips:0, subs:0, pos:0, cash:0, comm:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0, tax:0 });
+    }, { service:0, addons:0, overages:0, fees:0, tips:0, tipsDeliv:0, tipsPos:0, subs:0, pos:0, cash:0, comm:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0, tax:0 });
 
     const $fmt = _rvNum;   // one money formatter, shared with the folded table
     // ── Session 300: visual-first render ──────────────────────────────────
@@ -60552,7 +60565,7 @@ async function _dvIframeLoaded() {
       { k:'subs',     label:'Subscriptions', c:'#2B3D66', t:'Monthly plan fees, counted the day the money arrived — a renewal never reaches the rack.' },
       { k:'pos',      label:'POS counter',   c:'#3A5183', t:'Walk-in counter sales, net of sales tax, counted on the day of sale.' },
       { k:'fees',     label:'Delivery fees', c:'#4C67A0', t:'Pickup and delivery fees on delivery orders.' },
-      { k:'tips',     label:'Tips',          c:'#6280B8', t:'Driver tips, converted to dollars where the customer left a percentage.' },
+      { k:'tips',     label:'Tips',          c:'#6280B8', t:'All tips — delivery orders (including $0 subscription/credit-covered orders) and POS counter sales. Percentages converted to dollars.' },
       { k:'comm',     label:'Commercial',    c:'#7F97C6', t:'On-account funds actually received — check, ACH or wire. Those orders are left out of the other streams so no job is counted twice.' },
       { k:'overages', label:'Overages',      c:'#A0B2D5', t:'Weight above the plan allowance.' },
       { k:'addons',   label:'Add-ons',       c:'#C2CDE4', t:'Extras added to a delivery order.' },
@@ -60589,7 +60602,7 @@ async function _dvIframeLoaded() {
     const _totSub = [ `$${$fmt(_cards)} on cards` ];
     if (_live(tot.cash)) _totSub.push(`$${$fmt(tot.cash)} cash`);
     if (_live(tot.comm)) _totSub.push(`$${$fmt(tot.comm)} commercial (check/ACH)`);
-    if (_live(tot.tips)) _totSub.push(`incl. $${$fmt(tot.tips)} tips`);
+    if (_live(tot.tips)) _totSub.push(`incl. $${$fmt(tot.tips)} tips` + (_live(tot.tipsPos) ? ` ($${$fmt(tot.tipsDeliv)} delivery, $${$fmt(tot.tipsPos)} POS)` : ''));
     ledgerHtml += `<div class="rev2-led-row" style="border-top:1px solid #E3E1DC;padding-top:10px"><span><strong>Total revenue</strong><span style="display:block;font-size:12.5px;color:#63666D">${_totSub.join(' · ')}</span></span><span><strong>$${$fmt(tot.total)}</strong></span></div>`;
     if (_live(tot.refunds))  ledgerHtml += `<div class="rev2-led-row"><span class="rev2-alert">Refunds</span><span class="rev2-alert">−$${$fmt(tot.refunds)}</span></div>`;
     if (_live(tot.procFees)) ledgerHtml += `<div class="rev2-led-row"><span>Processing fees${tot.feeEstimated ? ' <span style="color:#63666D;font-size:13px">(part estimated)</span>' : ''}</span><span>−$${$fmt(tot.procFees)}</span></div>`;
@@ -60687,7 +60700,7 @@ async function _dvIframeLoaded() {
   let _revSparkKey = null, _revSparkData = null;
 
   async function _fetchChargedByDay(from, to) {
-    const cacheKey = 'wr-revspark2|' + from + '|' + to; // v2: Charged includes tips (session 300b)
+    const cacheKey = 'wr-revspark3|' + from + '|' + to; // v3: $0 tipped orders + POS tips (session 360)
     const cached = _reportCacheGet(cacheKey, _reportTtl(to, 15 * 60e3, 7 * 864e5)); // 15m live / 7d closed
     if (cached) return cached;
 
@@ -60706,7 +60719,7 @@ async function _dvIframeLoaded() {
             .select('total_amount, tip_amount, tip_type, racked_at, actual_delivery_at, customers(billing_type)')
             .not('status', 'in', '(cancelled,skipped,pickup_failed)')
             .neq('source', 'walk_in')
-            .gt('total_amount', 0)
+            .or('total_amount.gt.0,tip_amount.gt.0') // session 360: keep $0 orders with tips
             .not('racked_at', 'is', null)
             .gte('racked_at', fromISO).lte('racked_at', toISO)
             .order('racked_at')
@@ -60718,7 +60731,7 @@ async function _dvIframeLoaded() {
         } }
 
       const [posRes, subRes, commRes] = await Promise.all([
-        db.from('orders').select('total_amount, tax_amount, created_at')
+        db.from('orders').select('total_amount, tax_amount, tip_amount, tip_type, created_at')
           .eq('source', 'walk_in').in('billing_status', ['paid', 'refunded'])
           .gte('created_at', fromISO).lte('created_at', toISO),
         db.from('customer_transactions').select('amount, created_at')
@@ -60741,7 +60754,7 @@ async function _dvIframeLoaded() {
         // Same definition as the table: order total + tip, settled as one charge.
         if (ts) add(pac(ts), parseFloat(o.total_amount || 0) + _tipToDollars(o));
       });
-      (posRes.data  || []).forEach(o => add(pac(o.created_at), parseFloat(o.total_amount || 0) - parseFloat(o.tax_amount || 0)));
+      (posRes.data  || []).forEach(o => add(pac(o.created_at), parseFloat(o.total_amount || 0) - parseFloat(o.tax_amount || 0) + _tipToDollars(o)));
       (subRes.data  || []).forEach(t => add(pac(t.created_at), parseFloat(t.amount || 0)));
       (commRes.data || []).forEach(p => add(p.received_date, parseFloat(p.amount || 0)));
 
@@ -66639,7 +66652,13 @@ ${orderSections}
   function _erDirectory() {
     return `<div class="er-section">Emergency contacts</div>` + Object.values(ER_CONTACTS).map(c =>
       `<div class="er-contact"><div><div class="er-contact-name">${_erEsc(c.name)}</div><div class="er-contact-note">${_erEsc(c.note)}</div></div><a href="${_erTel(c.phone)}">${_erEsc(c.phone)}</a></div>`
-    ).join('');
+    ).join('') + _erPayment();
+  }
+  // Emergency payments — last 4 digits ONLY. Never put the full card number or security code in this file.
+  function _erPayment() {
+    return `<div class="er-section">Emergency payments</div>` +
+      `<div class="er-rule">Company Amex Business ending <b>9333</b> (Luis G Lemus / Young &amp; Foolish LLC). Call Luis for the full card details. If he doesn't answer, call David.</div>` +
+      `<div class="er-step-actions">${_erCallBtn('luis')}${_erCallBtn('david')}</div>`;
   }
 
   function erOpen() { document.getElementById('er-overlay').classList.add('open'); erHome(); }
