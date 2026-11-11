@@ -66539,7 +66539,10 @@ ${orderSections}
       const g = groupMap[gid], members = grouped[gid].slice().sort((a, b) => b[1].outstanding - a[1].outstanding);
       const badge = g.invoice_style === 'consolidated' ? 'Consolidated' : 'Separate';
       row(`${g.name}  (${badge}, ${members.length} account${members.length !== 1 ? 's' : ''})`, addUp(members), { bold: true, shade: true });
-      members.forEach(([, r]) => row(r.name, flat(r), { indent: true }));
+      // Match the screen: members print only when that group is expanded in the table.
+      const firstMember = document.querySelector(`.oa-member-row[data-group="${gid}"]`);
+      const expanded = !!firstMember && firstMember.style.display !== 'none';
+      if (expanded) members.forEach(([, r]) => row(r.name, flat(r), { indent: true }));
     });
     if (ungrouped.length && groupIds.length) row('Standalone Accounts', null, { bold: true, shade: true });
     ungrouped.forEach(([, r]) => row(r.name, flat(r)));
