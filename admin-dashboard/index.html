@@ -3811,6 +3811,7 @@
                 <div class="card-title">Customer Balances</div>
                 <div class="card-sub" id="oa-period-label" style="flex:1"></div>
                 <button class="rev-export-btn" id="oa-export-btn" style="display:none" onclick="exportOnAccountCSV()">Export CSV</button>
+                <button class="rev-export-btn" id="oa-export-pdf-btn" style="display:none" onclick="exportOnAccountPDF()">Export PDF</button>
               </div>
               <!-- Session 316: sent invoices whose orders no longer add up to what was sent. -->
               <div id="oa-drift-banner" style="display:none;margin:0 16px 12px;font-size:12.5px;line-height:1.55;background:#fef3c7;border:1px solid #fcd34d;color:#92400e;border-radius:8px;padding:10px 12px"></div>
@@ -64842,6 +64843,8 @@ async function _dvIframeLoaded() {
     // Show/hide export button
     const exportBtn = document.getElementById('oa-export-btn');
     if (exportBtn) exportBtn.style.display = allRows.length ? '' : 'none';
+    const exportPdfBtn = document.getElementById('oa-export-pdf-btn');
+    if (exportPdfBtn) exportPdfBtn.style.display = allRows.length ? '' : 'none';
 
     // KPI cards
     document.getElementById('oa-cust-count').textContent = allRows.length;
@@ -66440,6 +66443,123 @@ ${orderSections}
     URL.revokeObjectURL(url);
   }
   window.exportOnAccountCSV = exportOnAccountCSV;
+
+  // Session 361: PDF of the Customer Balances table, laid out like the screen —
+  // billing groups (with subtotal + indented members), Standalone Accounts, TOTAL.
+  // jsPDF standard fonts are WinAnsi: plain hyphens only, no em dashes.
+  function exportOnAccountPDF() {
+    if (!_oaReportRows || !_oaReportRows.length) return;
+    if (!window.jspdf) { showToast('PDF library not loaded — refresh and try again', 'error'); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'letter', orientation: 'landscape' });
+    const pw = 279.4, ph = 215.9, ml = 12, mr = 12;
+    const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const ageCell = n => n > 0 ? money(n) : '-';
+    const zero = () => ({ orders: 0, invoiced: 0, paid: 0, outstanding: 0, current: 0, d30: 0, d60: 0, d90: 0 });
+    const addUp = (rows) => rows.reduce((t, [, r]) => {
+      t.orders += r.orders; t.invoiced += r.invoiced; t.paid += r.paid; t.outstanding += r.outstanding;
+      t.current += r.aging.current; t.d30 += r.aging.d30; t.d60 += r.aging.d60; t.d90 += r.aging.d90;
+      return t;
+    }, zero());
+    const flat = r => ({ orders: r.orders, invoiced: r.invoiced, paid: r.paid, outstanding: r.outstanding,
+      current: r.aging.current, d30: r.aging.d30, d60: r.aging.d60, d90: r.aging.d90 });
+
+    // Same grouping as renderOASummary
+    const groupMap = {}; (_oaBillingGroups || []).forEach(g => { groupMap[g.id] = g; });
+    const grouped = {}, ungrouped = [];
+    _oaReportRows.forEach(row => {
+      const gid = row[1].groupId;
+      if (gid && groupMap[gid]) (grouped[gid] = grouped[gid] || []).push(row); else ungrouped.push(row);
+    });
+    const groupIds = Object.keys(grouped).sort((a, b) => addUp(grouped[b]).outstanding - addUp(grouped[a]).outstanding);
+
+    // Columns: name + 8 right-aligned numbers (x = right edge)
+    const cols = [
+      { k: 'orders', h: 'Orders', x: 100, f: v => String(v) },
+      { k: 'invoiced', h: 'Invoiced', x: 125, f: money },
+      { k: 'paid', h: 'Paid', x: 150, f: money },
+      { k: 'outstanding', h: 'Outstanding', x: 175, f: money },
+      { k: 'current', h: '0-30 Days', x: 198, f: ageCell },
+      { k: 'd30', h: '31-60 Days', x: 221, f: ageCell },
+      { k: 'd60', h: '61-90 Days', x: 244, f: ageCell },
+      { k: 'd90', h: '90+ Days', x: pw - mr, f: ageCell },
+    ];
+    const nameMax = 86 - ml;
+    const fit = (txt, maxW) => {
+      let t = String(txt || '');
+      if (doc.getTextWidth(t) <= maxW) return t;
+      while (t.length > 1 && doc.getTextWidth(t + '...') > maxW) t = t.slice(0, -1);
+      return t + '...';
+    };
+
+    const periodLabel = (document.getElementById('oa-period-label')?.textContent || '').replace(/—/g, '-');
+    const generated = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ });
+    const all = addUp(_oaReportRows);
+    let y = 0;
+
+    const tableHeader = () => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(100);
+      doc.text('Customer', ml + 2, y);
+      cols.forEach(c => doc.text(c.h, c.x, y, { align: 'right' }));
+      y += 2; doc.setDrawColor(200); doc.line(ml, y, pw - mr, y); y += 5;
+      doc.setTextColor(20);
+    };
+    const newPage = () => { doc.addPage(); y = 14; tableHeader(); };
+    const row = (name, vals, opts = {}) => {
+      if (y > ph - 14) newPage();
+      if (opts.shade) { doc.setFillColor(245, 246, 248); doc.rect(ml, y - 4.2, pw - ml - mr, 6.2, 'F'); }
+      doc.setFont('helvetica', opts.bold ? 'bold' : 'normal'); doc.setFontSize(8.5);
+      const nx = ml + 2 + (opts.indent ? 5 : 0);
+      doc.text(fit(name, nameMax - (opts.indent ? 5 : 0)), nx, y);
+      if (vals) cols.forEach(c => doc.text(c.f(vals[c.k]), c.x, y, { align: 'right' }));
+      y += 6.2;
+    };
+
+    // Title block
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(20);
+    doc.text('On-Account Report', ml, 16);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(100);
+    doc.text('Family Laundry  |  Customer Balances  |  ' + periodLabel, ml, 22);
+    doc.text('Generated ' + generated, pw - mr, 16, { align: 'right' });
+
+    // KPI strip
+    const kpis = [['On-Account Customers', String(_oaReportRows.length)], ['Total Invoiced', money(all.invoiced)],
+                  ['Total Paid', money(all.paid)], ['Outstanding Balance', money(all.outstanding)]];
+    const kw = (pw - ml - mr - 3 * 4) / 4;
+    kpis.forEach(([label, val], i) => {
+      const x = ml + i * (kw + 4);
+      doc.setDrawColor(220); doc.roundedRect(x, 27, kw, 15, 1.5, 1.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(100); doc.text(label, x + 4, 32.5);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(20); doc.text(val, x + 4, 39.5);
+    });
+    y = 51;
+    tableHeader();
+
+    groupIds.forEach(gid => {
+      const g = groupMap[gid], members = grouped[gid].slice().sort((a, b) => b[1].outstanding - a[1].outstanding);
+      const badge = g.invoice_style === 'consolidated' ? 'Consolidated' : 'Separate';
+      row(`${g.name}  (${badge}, ${members.length} account${members.length !== 1 ? 's' : ''})`, addUp(members), { bold: true, shade: true });
+      members.forEach(([, r]) => row(r.name, flat(r), { indent: true }));
+    });
+    if (ungrouped.length && groupIds.length) row('Standalone Accounts', null, { bold: true, shade: true });
+    ungrouped.forEach(([, r]) => row(r.name, flat(r)));
+
+    if (y > ph - 18) newPage();
+    doc.setDrawColor(160); doc.line(ml, y - 4.5, pw - mr, y - 4.5); y += 0.5;
+    row('TOTAL', all, { bold: true });
+
+    // Page numbers
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(140);
+      doc.text(`Page ${i} of ${n}`, pw - mr, ph - 7, { align: 'right' });
+    }
+
+    const from = document.getElementById('rpt-from').value || 'all';
+    const to   = document.getElementById('rpt-to').value || 'all';
+    doc.save(`on-account-report-${from}-to-${to}.pdf`);
+  }
+  window.exportOnAccountPDF = exportOnAccountPDF;
 </script>
 <!-- ── Emergency Protocols drawer ── -->
 <div class="er-overlay" id="er-overlay" onclick="if(event.target===this)erClose()">
