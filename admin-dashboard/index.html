@@ -64724,6 +64724,12 @@ async function _dvIframeLoaded() {
   }
   window.voidAdjustment = voidAdjustment;
 
+  // Owners' household accounts stay on_account (so their orders never hit the card
+  // gate) but are not receivables — keep them out of the On-Account report, KPIs and CSV.
+  const OA_REPORT_EXCLUDED_CUSTOMER_IDS = [
+    'a2b0e3b3-1ece-4591-aeb0-359b2f5caaee', // Laura Guevara (owner)
+  ];
+
   async function loadOnAccountReport() {
     // Use the shared Reports date pickers
     const startVal = document.getElementById('rpt-from').value;
@@ -64767,7 +64773,7 @@ async function _dvIframeLoaded() {
     const { data, error } = await query;
     if (error) { showToast('Error loading on-account data: ' + error.message, 'error'); return; }
 
-    oaData = (data || []).map(o => {
+    oaData = (data || []).filter(o => !OA_REPORT_EXCLUDED_CUSTOMER_IDS.includes(o.customer_id)).map(o => {
       const now = new Date();
       // Fall back to created_at (not "now") for counter drop-offs with no
       // pickup_window_start, so unpaid counter orders age into the 30/60/90-day
