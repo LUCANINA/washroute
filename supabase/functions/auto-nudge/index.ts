@@ -35,6 +35,7 @@ const TRIGGER_ROLES = new Set(['admin', 'manager'])
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SVC_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
+const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '+15105884102'   // same source send-sms uses
 const db = createClient(SUPABASE_URL, SVC_KEY)
 
 const CORS = {
@@ -147,8 +148,36 @@ Deno.serve(async (req) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
         body: JSON.stringify({ to: e164(c.phone_cache), body: text, customer_id: c.id }),
       })
-      if (r.ok) sent.push(name)
-      else { failed.push(name); console.error('auto-nudge send failed', c.id, await r.text()) }
+      if (r.ok) { sent.push(name); continue }
+
+      // A FAILED SEND MUST LEAVE A ROW. Eligibility is "no nudge in sms_messages"
+      // (alreadyNudged), and send-sms returns 400 WITHOUT writing a row when Twilio
+      // rejects the number — so a permanently unsendable number stayed eligible and
+      // was retried on every dashboard open. Found 2026-11-12: 152 wasted Twilio
+      // calls in 24h for two bad numbers (one 99 times), climbing forever.
+      // winback and signup-texts already log a 'failed' attempt in their own tables;
+      // sms_messages is this function's only ledger, so the attempt is recorded here.
+      // There is no trigger on sms_messages — this writes history, it sends nothing.
+      failed.push(name)
+      const why = (await r.text()).slice(0, 500)
+      console.error('auto-nudge send failed', c.id, why)
+      const { error: le } = await db.from('sms_messages').insert({
+        customer_id: c.id,
+        direction: 'outbound',
+        body: text,
+        from_number: TWILIO_FROM,
+        to_number: e164(c.phone_cache) || String(c.phone_cache || 'unknown'),
+        status: 'failed',
+        error_message: why,
+        sent_by_user_id: staff.id,
+        sent_by_name: sender,
+      })
+      // Log first, then stop if the log fails (CLAUDE.md). If we cannot record the
+      // attempt we must not keep sending — that is exactly the loop above.
+      if (le) {
+        console.error('auto-nudge: could not log failed attempt, stopping batch', c.id, le.message)
+        break
+      }
     }
     console.log(`auto-nudge by ${sender}: sent ${sent.length}, failed ${failed.length}, eligible ${list.length}`)
     return json({ sent: sent.length, failed: failed.length, names: sent })
