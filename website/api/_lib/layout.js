@@ -97,11 +97,13 @@ function footer(v) {
 </footer>`;
 }
 
+// GA4 (G-5MT4GNP9J8), Nov 12 2026, rides the same gtag.js below: website traffic
+// reporting only; ad conversions stay on the Ads tag + WashRoute's offline import.
 // Google Ads tag (AW-763145104), Nov 9 2026. Production host only, so preview deploys don't pollute ad data.
 // Conversions: contact form → forms.js; account sign-up → customer-app (app.familylaundry.com shares the
 // familylaundry.com cookie, so a click that lands here is credited when the visitor signs up in the app).
 const GOOGLE_TAG = `<script async src="https://www.googletagmanager.com/gtag/js?id=AW-763145104"></script>
-<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}var _fo=navigator.globalPrivacyControl===true||/(^|; )fl_optout=1/.test(document.cookie)?'denied':'granted';gtag('consent','default',{ad_storage:_fo,ad_user_data:_fo,ad_personalization:_fo});gtag('js',new Date());gtag('config','AW-763145104');</script>`;
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}var _fo=navigator.globalPrivacyControl===true||/(^|; )fl_optout=1/.test(document.cookie)?'denied':'granted';gtag('consent','default',{ad_storage:_fo,ad_user_data:_fo,ad_personalization:_fo});gtag('js',new Date());gtag('config','AW-763145104');gtag('config','G-5MT4GNP9J8');</script>`;
 
 // page: { path, title, description, body, jsonld?, noindex?, image? (site-relative, for link previews) }
 function layout(page, values, { indexable }) {
