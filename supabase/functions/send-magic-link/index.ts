@@ -77,8 +77,14 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const { email, redirectTo, linkOnly, purpose } = await req.json();
-    if (!email) throw new Error('email is required');
+    const { email: rawEmail, redirectTo, linkOnly, purpose } = await req.json();
+    if (!rawEmail) throw new Error('email is required');
+    // v20 (session 3xx): normalise. Auth stores emails lowercased; 181 Starchup
+    // email_cache values are mixed-case, so an exact .eq() missed them and told
+    // real customers "we don't have an account for that email".
+    const email = String(rawEmail).trim().toLowerCase();
+    // ilike with LIKE wildcards escaped = case-insensitive exact match.
+    const emailPattern = email.replace(/[\\%_]/g, (c) => '\\' + c);
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -112,33 +118,43 @@ Deno.serve(async (req: Request) => {
     const { data: customers } = await supabase
       .from('customers')
       .select('id, profile_id, first_name_cache, last_name_cache, email_cache, phone_cache, total_orders')
-      .eq('email_cache', email)
+      .ilike('email_cache', emailPattern)
       .not('profile_id', 'is', null)
       .order('total_orders', { ascending: false, nullsFirst: false })
       .limit(1);
 
+    // v20: a LEGACY customer (Starchup import, no profile_id yet) can now sign in
+    // by email too. v18 sent them to phone OTP instead, which locked out anyone
+    // whose phone code didn't arrive (Stacy Kyles, 2026-11-13). Safe because the
+    // link only goes to the email already on their record, and on first sign-in
+    // claim_existing_customer (step 2) attaches the customer row to the new
+    // email-auth user — it requires email_confirmed_at, which clicking the link sets.
+    let isLegacy = false;
     if (!customers || customers.length === 0) {
-      // Nobody with a linked auth user. Check if there's a LEGACY customer
-      // (imported from Starchup) with this email but no profile_id yet.
       const { data: legacy } = await supabase
         .from('customers')
-        .select('id, phone_cache')
-        .eq('email_cache', email)
+        .select('id')
+        .ilike('email_cache', emailPattern)
         .is('profile_id', null)
         .limit(1);
-
-      if (legacy && legacy.length > 0 && legacy[0].phone_cache) {
-        console.log(`[send-magic-link v18] Legacy customer for ${email} — directing to phone OTP.`);
-        return new Response(JSON.stringify({
-          ok: false,
-          noAccount: true,
-          legacyCustomer: true,
-          error: "We have your account on file but haven't set it up for email sign-in yet. Please sign in with your phone number instead — we'll link everything up automatically.",
-        }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      isLegacy = !!(legacy && legacy.length > 0);
+      // Never hand a staff login's email a customer link: the customer row would
+      // get attached to the staff account (blanca@familylaundry.com matches an
+      // old customer record as of 2026-11-13).
+      if (isLegacy) {
+        const { data: staff } = await supabase
+          .from('profiles').select('id').ilike('email', emailPattern).neq('role', 'customer').limit(1);
+        if (staff && staff.length > 0) {
+          console.log(`[send-magic-link v20] ${email} belongs to a staff login — not sending a customer link.`);
+          isLegacy = false;
+        }
       }
+      if (isLegacy) console.log(`[send-magic-link v20] Legacy customer for ${email} — sending email link (links on first sign-in).`);
+    }
 
+    if (!isLegacy && (!customers || customers.length === 0)) {
       // No customer at all with this email. Refuse to create an orphan auth user.
-      console.log(`[send-magic-link v18] No account for ${email} — refusing to generate link.`);
+      console.log(`[send-magic-link v20] No account for ${email} — refusing to generate link.`);
       return new Response(JSON.stringify({
         ok: false,
         noAccount: true,
@@ -148,7 +164,15 @@ Deno.serve(async (req: Request) => {
 
     // Step B: Delete any stale orphan email auth user for this email (same as v17).
     const { data: orphanCheck } = await supabase.rpc('find_orphan_email_auth_user', { p_email: email }).maybeSingle();
+    let orphanIsStaff = false;
     if (orphanCheck?.orphan_auth_id) {
+      // v20: an email login with no customer row may be a STAFF login (managers,
+      // attendants). Never delete those.
+      const { data: orphanProf } = await supabase
+        .from('profiles').select('role').eq('id', orphanCheck.orphan_auth_id).maybeSingle();
+      orphanIsStaff = !!orphanProf && orphanProf.role !== 'customer';
+    }
+    if (orphanCheck?.orphan_auth_id && !orphanIsStaff) {
       console.log(`[send-magic-link v18] Deleting orphan email auth user ${orphanCheck.orphan_auth_id} for ${email}`);
       const { error: delErr } = await supabase.auth.admin.deleteUser(orphanCheck.orphan_auth_id);
       if (delErr) console.warn(`[send-magic-link v18] Orphan delete failed: ${delErr.message}`);
@@ -156,9 +180,11 @@ Deno.serve(async (req: Request) => {
 
     // Step C: Link the email to the customer's existing phone-auth user so
     // generateLink uses THAT user (not a fresh one).
-    const customer = customers[0];
-    const profileId = customer.profile_id;
-    const { data: authUser } = await supabase.auth.admin.getUserById(profileId);
+    // Legacy customers have no auth user yet — generateLink below creates one.
+    const profileId = isLegacy ? null : customers![0].profile_id;
+    const { data: authUser } = profileId
+      ? await supabase.auth.admin.getUserById(profileId)
+      : { data: null as any };
 
     if (authUser?.user && !authUser.user.email) {
       console.log(`[send-magic-link v18] Linking ${email} to existing phone auth user ${profileId}`);
