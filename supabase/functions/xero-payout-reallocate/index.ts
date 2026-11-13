@@ -217,7 +217,10 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
   // reversed sale AND the dispute fee. Negative for a loss, positive for a win.
   const disputesAmt = dollars(disputesBucket.net); if (disputesAmt !== 0) lineItems.push({ Description: `Chargebacks — Stripe payout ${payout.id}`, UnitAmount: disputesAmt, AccountCode: DISPUTE_ACCOUNT.code })
   const perChargeFees = dollars(Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee); if (perChargeFees !== 0) lineItems.push({ Description: `Stripe processing fees (per-transaction) — payout ${payout.id}`, UnitAmount: -Math.abs(perChargeFees), AccountCode: '605' })
-  const acctFee = dollars(nonRevenue.stripe_fee.net); if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, UnitAmount: -Math.abs(acctFee), AccountCode: '828' })
+  // Session 372: see the long comment in xero-payout-sync/index.ts. `net` is
+  // already correctly signed and goes POSITIVE when Stripe credits fees back;
+  // -Math.abs() here silently halved such a payout. Do NOT re-wrap it.
+  const acctFee = dollars(nonRevenue.stripe_fee.net); if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, UnitAmount: acctFee, AccountCode: '828' })
   const loanPaydown = dollars(nonRevenue.financing_paydown.net); if (loanPaydown !== 0) lineItems.push({ Description: `Stripe Capital loan repayment — payout ${payout.id}`, UnitAmount: -Math.abs(loanPaydown), AccountCode: '304' })
 
   const total = dollars(lineItems.reduce((s, li) => s + li.UnitAmount * 100, 0))

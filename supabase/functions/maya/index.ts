@@ -488,7 +488,7 @@ async function toolBook(call: any, a: any, live: boolean) {
       console.log(`maya: NEW customer ${cust.id} booked order #${o.order_number} via ${call?.call_id}`);
       if (okText) await sendConfirmation(o.id);
       return { ok: true, booked: true, order_number: o.order_number, summary,
-        say: 'Booked.' + repeatSay(okText) + ' Tell them to leave the bags outside before the pickup window starts (sealed trash bags are fine for the first pickup).' + missed + payment(false, okText) };
+        say: 'Booked.' + repeatSay(okText) + ' Repeat the pickup day and time once more, saying "in the morning" or "in the evening". Tell them to put the bags outside shortly before the pickup window starts, not earlier in the day (sealed trash bags are fine for the first pickup).' + missed + payment(false, okText) };
     } catch (e) {
       console.error('maya: new-customer booking failed, rolling back', (e as Error).message);
       if (addr?.id) await db(`addresses?id=eq.${addr.id}`, { method: 'DELETE' }).catch(() => {});
@@ -505,7 +505,7 @@ async function toolBook(call: any, a: any, live: boolean) {
   if (!ctx.textsOff) await sendConfirmation(o.id);
   return { ok: true, booked: true, order_number: o.order_number, summary,
     say: 'Booked.' + repeatSay(!ctx.textsOff) + (addons.length || notes ? " Tell them you've saved their add-ons and notes for future orders too." : '') +
-      ' Remind them to leave the bags outside before the window starts.' + missed + payment(ctx.hasCard, !ctx.textsOff) };
+      ' Repeat the pickup day and time once more, saying "in the morning" or "in the evening". Remind them to put the bags outside shortly before the window starts, not earlier in the day.' + missed + payment(ctx.hasCard, !ctx.textsOff) };
 }
 
 function pickUpcoming(up: any[], day: unknown) {
@@ -852,7 +852,7 @@ const PROMPT = `You are Maya, the phone assistant for Family Laundry, a family-r
 - Say prices and numbers clearly, e.g. "sixty-five dollars per bag".
 - Speak the caller's language. If they speak Spanish (or another language you support), switch to it and stay in it.
 - If asked whether you are a person, say you are Family Laundry's virtual assistant.
-- If a caller asks for a real person, a representative or "someone", say: "I can help with most things myself, like booking a pickup, prices, or when your laundry comes back. What do you need?" If they tell you, help them. If they ask again or sound upset, don't push. Say: "Of course. I'll have someone from the team call you back." Then take a message, but in this order: confirm the callback number first, then ask briefly what it's about, then their name. If they hang up, that's fine; the team still sees the call.
+- If a caller asks for a real person, a representative, customer service or "someone" (in any language, e.g. "servicio al cliente"), say: "I can help with most things myself, like booking a pickup, prices, or when your laundry comes back. What do you need?" If they tell you, help them. If they ask again or sound upset, don't push. Say: "Of course. I'll have someone from the team call you back." Then take a message, but in this order: confirm the callback number first, then ask briefly what it's about, then their name. If they hang up, that's fine; the team still sees the call.
 - If a caller asks for David or Laura by name, don't offer to help first. Say: "They're not available right now, but I'll make sure they get your message." Then take a message: callback number first, then what it's about, then their name.
 - After answering a price or service question from a caller who isn't booked yet, offer once: "Would you like me to book a pickup for you now?"
 - If the caller is quiet after your greeting, say: "Hello? I'm here, take your time. Are you calling about our laundromat or about pickup and delivery?"
@@ -885,6 +885,7 @@ const PROMPT = `You are Maya, the phone assistant for Family Laundry, a family-r
 - When a caller mentions their city, check that area's pickup windows and same-day availability before answering.
 - Only if the facts truly don't cover it: don't guess, say you'll have the team follow up, and take a message.
 - Never invent prices, times, discounts or policies.
+- Bags: there's no limit on how many bags, for drop-off or pickup. Orders with more than 2 bags may take longer to process. Mention that only if they have more than 2 bags or ask.
 
 ## About Family Laundry (only if the caller asks)
 Share these only when asked, one or two sentences at a time, warmly. Then offer to help with anything else. Never add details that aren't here.

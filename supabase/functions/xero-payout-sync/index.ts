@@ -337,8 +337,17 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
 
   const perChargeFees = dollars(Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee)
   if (perChargeFees !== 0) lineItems.push({ Description: `Stripe processing fees (per-transaction) — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(perChargeFees), AccountCode: '605', TaxType: 'NONE' })
+  // Session 372: Stripe reports an account fee as a NEGATIVE net, so -Math.abs()
+  // here was a no-op for every payout up to 2026-11-12. On 2026-11-13 Stripe
+  // CREDITED account fees back (6 transactions, net +$185.61). Forcing that
+  // negative subtracted $185.61 instead of adding it, so the journal came out
+  // exactly $371.22 (2 x $185.61) short of the $6,730.11 payout and the whole
+  // posting was blocked. `net` is already correctly signed -- post it as-is,
+  // exactly like the chargeback line above. Do NOT re-wrap this in -Math.abs().
+  // perChargeFees above is NOT the same case: it sums Stripe's `fee` field,
+  // which is always positive, so its -Math.abs() is load-bearing. Leave it.
   const acctFee = dollars(nonRevenue.stripe_fee.net)
-  if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(acctFee), AccountCode: '828', TaxType: 'NONE' })
+  if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, Quantity: 1, UnitAmount: acctFee, AccountCode: '828', TaxType: 'NONE' })
   const loanPaydown = dollars(nonRevenue.financing_paydown.net)
   if (loanPaydown !== 0) lineItems.push({ Description: `Stripe Capital loan repayment — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(loanPaydown), AccountCode: STRIPE_CAPITAL_ACCOUNT_CODE, TaxType: 'NONE' })
 
