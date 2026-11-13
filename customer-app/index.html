@@ -2547,12 +2547,26 @@ function orderPendingDiscount(o) {
 function orderPricedSubtotal(o) {
   return Math.round((Number(o?.total_amount || 0) - orderPendingDiscount(o).amount) * 100) / 100;
 }
+// Credit already written into line_items at Intake. total_amount is ALREADY net
+// of it (charge-order treats it as "already deducted"), so it must not be
+// subtracted from the total a second time. Michael Les #18926 (2026-11-13):
+// app showed $83.95, card was correctly charged $103.95.
+function orderLineItemCredit(o) {
+  const items = Array.isArray(o?.line_items) ? o.line_items : [];
+  const c = items.filter(li => li && li.type === 'credit')
+                 .reduce((t, li) => t + Math.abs(Number(li.amount || 0)), 0);
+  return Math.round(c * 100) / 100;
+}
+// Credit still to come off total_amount (the part not already inside it).
+function orderCreditToSubtract(o) {
+  return Math.max(0, Math.round((orderCreditInfo(o).amount - orderLineItemCredit(o)) * 100) / 100);
+}
 function orderChargedTotal(o) {
   const sub = orderPricedSubtotal(o);
   const tip = Number(o?.tip_amount || 0);
   // Session 2026-10-20: net out account credit (Madeline Zepeda #17988 saw
   // $79.95 with no credit after booking and thought her $20 had vanished).
-  const cr  = orderCreditInfo(o).amount;
+  const cr  = orderCreditToSubtract(o);
   if (!tip) return Math.round((sub - cr) * 100) / 100;
   const tipDol = (o.tip_type === 'pct')
     ? Math.round(sub * tip) / 100
@@ -2601,8 +2615,11 @@ function orderCreditInfo(o) {
     const amt = m ? parseFloat(m[1].replace(/,/g, '')) : 0;
     return { amount: amt > 0 ? amt : 0, pending: false };
   }
+  // Credit already applied at Intake (inside total_amount) + any balance
+  // charge-order will still apply on top of it.
+  const liCr = orderLineItemCredit(o);
   const bal = Math.max(0, parseFloat(currentCustomer?.credits || 0));
-  if (!(bal > 0) || !orderIsCreditPending(o)) return { amount: 0, pending: false };
+  if (!(bal > 0) || !orderIsCreditPending(o)) return { amount: liCr, pending: false };
   const byId = new Map();
   [...(window._cachedOrders || []), ...(window._homeActiveOrders || [])].forEach(x => { if (x?.id) byId.set(x.id, x); });
   byId.set(o.id, o);
@@ -2611,11 +2628,11 @@ function orderCreditInfo(o) {
   let left = bal;
   for (const x of pool) {
     const use = Math.round(Math.min(left, orderPricedSubtotal(x)) * 100) / 100;
-    if (x.id === o.id) return { amount: use, pending: use > 0 };
+    if (x.id === o.id) return { amount: Math.round((liCr + use) * 100) / 100, pending: use > 0 };
     left = Math.round((left - use) * 100) / 100;
     if (left <= 0) break;
   }
-  return { amount: 0, pending: false };
+  return { amount: liCr, pending: false };
 }
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ }) : '—'; }
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:BIZ_TZ}).toLowerCase() : ''; }
@@ -6732,7 +6749,7 @@ async function openDetail(orderId) {
       const isSub = o.subscription_id || o.is_subscription_order;
       const ta = parseFloat(o.tip_amount || 0);
       const td = ta > 0 ? (o.tip_type === 'pct' ? Math.round(orderPricedSubtotal(o) * ta) / 100 : ta) : 0;
-      const ttl = Math.round((orderPricedSubtotal(o) - orderCreditInfo(o).amount + td) * 100) / 100;
+      const ttl = Math.round((orderPricedSubtotal(o) - orderCreditToSubtract(o) + td) * 100) / 100;
       if (isSub) return ttl === 0 ? '$0.00' : $m(ttl);
       return o.total_amount ? $m(ttl) : 'Confirmed at pickup';
     })()}</span></div>`;
