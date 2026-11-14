@@ -53829,13 +53829,20 @@ ${oneCopy}
         .eq('folded_by_id', launHistLaunId)
         .gte('folded_at', start)
         .lte('folded_at', end),
+      // 2026-11-13: scoped to THIS day via the order's folded_at. Unscoped, it
+      // returned every row this launderer ever had and PostgREST's 1,000-row cap
+      // silently dropped the newest — #20031 (Najia Kaddoura, split Margarita /
+      // Rocio) showed in full for Margarita and not at all for Rocio.
       db.from('order_folding_assignments')
-        .select('order_id, bags, weight_lbs')
+        .select('order_id, bags, weight_lbs, orders!inner(folded_at)')
         .eq('launderer_id', launHistLaunId)
+        .gte('orders.folded_at', start)
+        .lte('orders.folded_at', end)
     ]);
 
-    if (primaryRes.error) {
-      ordersEl.innerHTML = `<div style="padding:32px;text-align:center;color:var(--red);font-size:13px">${primaryRes.error.message}</div>`;
+    const _histErr = primaryRes.error || asgnRes.error;
+    if (_histErr) {
+      ordersEl.innerHTML = `<div style="padding:32px;text-align:center;color:var(--red);font-size:13px">${_histErr.message}</div>`;
       return;
     }
 
