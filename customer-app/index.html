@@ -2547,11 +2547,18 @@ function orderPendingDiscount(o) {
 function orderPricedSubtotal(o) {
   return Math.round((Number(o?.total_amount || 0) - orderPendingDiscount(o).amount) * 100) / 100;
 }
-// Credit already written into line_items at Intake. total_amount is ALREADY net
-// of it (charge-order treats it as "already deducted"), so it must not be
-// subtracted from the total a second time. Michael Les #18926 (2026-11-13):
+// Credit already inside total_amount (applied at Intake, or legacy). It must not
+// be subtracted from the total a second time. Michael Les #18926 (2026-11-13):
 // app showed $83.95, card was correctly charged $103.95.
-function orderLineItemCredit(o) {
+function orderCreditInTotal(o) {
+  // Ledger is the source of truth once loaded: a credit line item alone doesn't
+  // prove total_amount is net (#19451: credit line + credit applied at billing).
+  const used = window._orderCreditUsed, bill = window._orderBillingCredit;
+  if (used && bill && o?.id) {
+    const u = used[o.id] || 0;
+    const inside = o.billing_status === 'paid' ? u - (bill[o.id] || 0) : u;
+    return Math.max(0, Math.round(inside * 100) / 100);
+  }
   const items = Array.isArray(o?.line_items) ? o.line_items : [];
   const c = items.filter(li => li && li.type === 'credit')
                  .reduce((t, li) => t + Math.abs(Number(li.amount || 0)), 0);
@@ -2559,7 +2566,7 @@ function orderLineItemCredit(o) {
 }
 // Credit still to come off total_amount (the part not already inside it).
 function orderCreditToSubtract(o) {
-  return Math.max(0, Math.round((orderCreditInfo(o).amount - orderLineItemCredit(o)) * 100) / 100);
+  return Math.max(0, Math.round((orderCreditInfo(o).amount - orderCreditInTotal(o)) * 100) / 100);
 }
 function orderChargedTotal(o) {
   const sub = orderPricedSubtotal(o);
@@ -2590,14 +2597,26 @@ async function loadOrderCreditUse() {
   if (!currentCustomer?.id) return;
   try {
     const { data, error } = await db.from('customer_transactions')
-      .select('order_id, amount')
+      .select('order_id, amount, type, description')
       .eq('customer_id', currentCustomer.id)
-      .eq('type', 'credit_use')
+      .in('type', ['credit_use', 'credit_refund'])
       .not('order_id', 'is', null);
     if (error) throw error;
-    const map = {};
-    (data || []).forEach(r => { map[r.order_id] = Math.round(((map[r.order_id] || 0) + Number(r.amount || 0)) * 100) / 100; });
+    // Net of credit_refund: every re-intake refunds the prior Intake credit and
+    // applies it again, so credit_use alone counts it 2-3x (#19625: 3 x $20 used,
+    // 2 x $20 refunded = $20 net). 47 orders showed a too-low total from this.
+    // Only charge-order's rows ("Applied to order #N", exact) come off at billing.
+    // Every other credit (Intake, legacy/migration batch rows) is already inside
+    // total_amount. Replayed on 12,048 card-paid orders: 1,043 wrong -> 77.
+    const map = {}, billing = {};
+    const add = (m, id, v) => { m[id] = Math.round(((m[id] || 0) + v) * 100) / 100; };
+    (data || []).forEach(r => {
+      const v = (r.type === 'credit_refund' ? -1 : 1) * Number(r.amount || 0);
+      add(map, r.order_id, v);
+      if (r.type === 'credit_use' && /^Applied to order #\d+$/.test(r.description || '')) add(billing, r.order_id, v);
+    });
     window._orderCreditUsed = map;
+    window._orderBillingCredit = billing;
   } catch (e) { console.warn('loadOrderCreditUse:', e); }
 }
 function orderIsCreditPending(o) {
@@ -2617,7 +2636,7 @@ function orderCreditInfo(o) {
   }
   // Credit already applied at Intake (inside total_amount) + any balance
   // charge-order will still apply on top of it.
-  const liCr = orderLineItemCredit(o);
+  const liCr = orderCreditInTotal(o);
   const bal = Math.max(0, parseFloat(currentCustomer?.credits || 0));
   if (!(bal > 0) || !orderIsCreditPending(o)) return { amount: liCr, pending: false };
   const byId = new Map();
