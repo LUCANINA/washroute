@@ -2824,10 +2824,34 @@ async function _loadDriverDataInner() {
   // admin-dashboard) -- a 'failed' billing_status on one of their orders would be
   // stale/unrelated to card payment, so exempt them the same way the Overview >
   // Unpaid Orders widget does.
+  //
+  // 2026-11-16: this used to test `billing_status === 'failed'` ONLY, which let an
+  // unpaid order out of the door. Order 19998 ($139.95) was delivered because its
+  // customer had NO card on file: chargeOnReady got 'no_card_on_file' back, treated
+  // it as not-attempted and left billing_status NULL for the retry sweep, and
+  // sweep_autocharge_ready_orders deliberately SKIPS cardless customers -- so it
+  // stayed NULL forever and NULL is not 'failed'. The gate now asks the question
+  // that actually matters: has this order been settled? Anything not settled (NULL
+  // included) is held back. Deliberately NOT a card-on-file lookup: 11 customers
+  // have a customer_payment_methods row but a NULL legacy
+  // stripe_default_payment_method_id, and the driver app can only see the latter,
+  // so a card check here would wrongly hide THEIR deliveries.
+  // Backtested over 60 days: of 2,832 delivered orders this would have held exactly
+  // one -- 19998. The 8 other NULLs were $0 orders, which the amount test exempts.
+  // Same list, same name as admin-dashboard's SETTLED_BILLING_STATUSES (line ~9531)
+  // so the two surfaces stay greppable together.
+  const SETTLED_BILLING_STATUSES = ['paid', 'refunded', 'written_off'];
+  const _isUnsettledDelivery = o => {
+    if (!o) return false;
+    if (o.customers?.billing_type === 'on_account') return false;  // invoiced, not card-charged
+    if (o.source === 'walk_in') return false;                      // paid at the counter
+    if (o.is_rewash) return false;                                 // free rewash, never charged
+    if ((Number(o.total_amount) || 0) <= 0) return false;          // nothing to collect
+    return !SETTLED_BILLING_STATUSES.includes(o.billing_status || '');
+  };
   const isGhostDelivery = s =>
     s.stop_type === 'delivery' &&
-    (NOT_READY_FOR_DELIVERY.includes(s.orders?.status) ||
-      (s.orders?.billing_status === 'failed' && s.orders?.customers?.billing_type !== 'on_account'));
+    (NOT_READY_FOR_DELIVERY.includes(s.orders?.status) || _isUnsettledDelivery(s.orders));
 
   // ── Group 2: today's routes + messages in parallel ──
   const [{ data: routes, error: routesErr }] = await Promise.all([
