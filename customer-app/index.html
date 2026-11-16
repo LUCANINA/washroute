@@ -770,6 +770,8 @@
     .rate-note { width: 100%; box-sizing: border-box; min-height: 84px; padding: 10px 12px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 15px; font-family: inherit; resize: vertical; outline: none; }
     /* Session 321: the review link is the primary action on the thank-you screen for EVERY rater
        (never only happy ones — Google/FTC review gating); "Done" is the quiet secondary action. */
+    .rate-private { font-size: 13px; color: var(--gray-500); margin: 0 0 6px 2px; }
+    .rate-copied { display: none; font-size: 14px; color: #059669; font-weight: 600; text-align: center; margin-top: 10px; line-height: 1.4; }
     .rate-review { display: block; width: 100%; box-sizing: border-box; margin-top: 14px; padding: 14px; border-radius: 10px; border: none; background: var(--navy); color: white; font-size: 17px; font-weight: 700; text-align: center; text-decoration: none; font-family: inherit; }
     .rate-done { display: block; width: 100%; margin-top: 8px; padding: 12px; background: none; border: none; color: var(--gray-600); font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; }
     .d-rated { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -9889,6 +9891,32 @@ async function renderOrderRating(order) {
   renderPostDeliveryAsk(order);
 }
 
+/* Review hand-off (2026-11-16). Same for EVERY rater, whatever the stars — no review gating.
+   The note box is labelled private; if they typed something, the Google button copies it
+   so they paste instead of retyping. Mirrors customer-app/rate.html. */
+let _rateWords = '';
+function rateReviewAsk(low, isGoogle, hasWords) {
+  const where = isGoogle ? ' on Google' : '';
+  if (low) return `Your note above stays private with our team. You’re also welcome to share your experience${where}.`;
+  return hasWords ? `Your note above was private to us. Would you post it${where} too? It helps neighbors find us.`
+                  : `Would you share it${where}? It helps neighbors find us.`;
+}
+function rateReviewLabel(isGoogle, hasWords) {
+  if (hasWords) return isGoogle ? 'Copy my words & open Google' : 'Copy my words & write a review';
+  return isGoogle ? 'Write a Google review' : 'Write a review';
+}
+function onRateReviewClick(orderId) {
+  if (_rateWords) {
+    const s = _rateWords;
+    const legacy = () => { try { const ta = document.createElement('textarea'); ta.value = s; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); ta.remove(); } catch (_) {} };
+    try { if (navigator.clipboard?.writeText) navigator.clipboard.writeText(s).catch(legacy); else legacy(); } catch (_) { legacy(); }
+    const c = document.getElementById('rate-copied'); if (c) c.style.display = 'block';
+  }
+  db.rpc('mark_review_link_clicked', { p_order_id: orderId }).then(() => {}, () => {});
+}
+
 function openRatingSheet(orderId, stars) {
   _rateOrderId = orderId;
   _rateStars = stars || 0;
@@ -9904,6 +9932,7 @@ function openRatingSheet(orderId, stars) {
         ${[1,2,3,4,5].map(n => `<button class="rate-star" data-n="${n}" aria-label="${n} star${n>1?'s':''}" onclick="setRatingStars(${n})">★</button>`).join('')}
       </div>
       <div class="rate-hint" id="rate-hint"></div>
+      <div class="rate-private">🔒 Private note to our team — not posted publicly.</div>
       <textarea class="rate-note" id="rate-note" maxlength="2000" placeholder="Anything we should know? (optional)"></textarea>
       <div class="sheet-err" id="rate-err"></div>
       <button class="rw-send" id="rate-submit" style="margin-top:12px" onclick="submitRating()">Send</button>
@@ -9928,7 +9957,7 @@ async function submitRating() {
   const err = document.getElementById('rate-err');
   if (err) err.style.display = 'none';
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-  const comment = document.getElementById('rate-note')?.value || '';
+  const comment = (document.getElementById('rate-note')?.value || '').trim();
   const { data, error } = await db.rpc('submit_order_feedback', {
     p_order_id: _rateOrderId, p_rating: _rateStars, p_comment: comment, p_source: 'app',
   });
@@ -9938,6 +9967,7 @@ async function submitRating() {
     return;
   }
   const orderId = _rateOrderId;
+  _rateWords = comment;
   const link = data.review_link;
   const isGoogle = /g\.page|google\./i.test(link || '');
   const body = document.getElementById('rate-body');
@@ -9946,10 +9976,11 @@ async function submitRating() {
       <div style="font-size:41px;line-height:1">${data.low ? '🙏' : '💙'}</div>
       <div style="font-size:18px;font-weight:700;color:var(--navy);margin-top:8px">${escHtml(data.message)}</div>
       ${link ? `<div style="font-size:14.5px;color:var(--gray-600);margin-top:10px;line-height:1.5">
-        ${data.low ? 'You’re also welcome to share your experience publicly.' : `Would you share it${isGoogle ? ' on Google' : ''}? It helps neighbors find us.`}
+        ${rateReviewAsk(data.low, isGoogle, !!comment)}
       </div>` : ''}
     </div>
-    ${link ? `<a class="rate-review" href="${escHtml(link)}" target="_blank" rel="noopener" onclick="db.rpc('mark_review_link_clicked',{p_order_id:'${orderId}'}).then(()=>{},()=>{})">${isGoogle ? 'Write a Google review' : 'Write a review'}</a>` : ''}
+    ${link ? `<a class="rate-review" href="${escHtml(link)}" target="_blank" rel="noopener" onclick="onRateReviewClick('${orderId}')">${rateReviewLabel(isGoogle, !!comment)}</a>
+    <div class="rate-copied" id="rate-copied">✓ Copied. On Google, tap the review box and paste.</div>` : ''}
     <div id="rate-ref"></div>
     <button class="${link ? 'rate-done' : 'rw-send'}" style="margin-top:10px" onclick="closeSheet('rate-sheet')">Done</button>`;
   if (!data.low) fillRateReferral(orderId);

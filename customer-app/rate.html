@@ -44,6 +44,8 @@
     .err { display:none; background:#fef2f2; color:#b91c1c; border-radius:8px; padding:10px 12px; font-size:14px; margin-top:12px; }
     .center { text-align:center; }
     .big { font-size:44px; line-height:1; }
+    .private { font-size:13px; color:var(--gray-500); margin:0 0 6px 2px; }
+    .copied { display:none; font-size:14px; color:#059669; font-weight:600; text-align:center; margin-top:10px; line-height:1.4; }
     .loading { text-align:center; color:var(--gray-500); padding:30px 0; font-size:15px; }
   </style>
 </head>
@@ -98,6 +100,7 @@
       <p class="sub">${editing ? 'You already rated this order — you can change it below.' : 'Tap a star — it takes a few seconds.'}</p>
       <div class="stars">${[1,2,3,4,5].map(n => `<button class="star" data-n="${n}" aria-label="${n} star${n>1?'s':''}">★</button>`).join('')}</div>
       <div class="hint" id="hint"></div>
+      <div class="private">🔒 Private note to our team — not posted publicly.</div>
       <textarea id="note" maxlength="2000"></textarea>
       <div class="err" id="err"></div>
       <button class="btn" id="send">Send</button>`;
@@ -112,7 +115,8 @@
     const btn = document.getElementById('send'), err = document.getElementById('err');
     err.style.display = 'none'; btn.disabled = true; btn.textContent = 'Sending…';
     let data;
-    try { data = await call('submit', { rating: stars, comment: document.getElementById('note').value || '' }); }
+    const words = (document.getElementById('note').value || '').trim();
+    try { data = await call('submit', { rating: stars, comment: words }); }
     catch (_) { data = { ok:false, message:'No connection. Please try again.' }; }
     if (!data.ok) {
       err.textContent = data.message || 'Could not send your rating.'; err.style.display = 'block';
@@ -124,12 +128,38 @@
       <div class="center">
         <div class="big">${data.low ? '🙏' : '💙'}</div>
         <h1 style="margin-top:10px">${esc(data.message)}</h1>
-        ${link ? `<p class="sub" style="margin-top:10px">${data.low ? 'You’re also welcome to share your experience publicly.' : `Would you share it${isGoogle ? ' on Google' : ''}? It helps neighbors find us.`}</p>` : ''}
+        ${link ? `<p class="sub" style="margin-top:10px">${reviewAsk(data.low, isGoogle, !!words)}</p>` : ''}
       </div>
-      ${link ? `<a class="btn" id="review" href="${esc(link)}" target="_blank" rel="noopener">${isGoogle ? 'Write a Google review' : 'Write a review'}</a>` : ''}
+      ${link ? `<a class="btn" id="review" href="${esc(link)}" target="_blank" rel="noopener">${reviewLabel(isGoogle, !!words)}</a>
+      <div class="copied" id="copied">✓ Copied. On Google, tap the review box and paste.</div>` : ''}
       <a class="${link ? 'btn-plain' : 'btn'}" href="${APP}">Open the Family Laundry app</a>`;
     const rv = document.getElementById('review');
-    if (rv) rv.addEventListener('click', () => { call('clicked').catch(() => {}); });
+    if (rv) rv.addEventListener('click', () => {
+      if (words) { copyText(words); const c = document.getElementById('copied'); if (c) c.style.display = 'block'; }
+      call('clicked').catch(() => {});
+    });
+  }
+
+  // Review hand-off (2026-11-16). Same for EVERY rater, whatever the stars — no review gating.
+  // If they typed a note, the button copies it so they can paste it on Google instead of retyping.
+  function reviewAsk(low, isGoogle, hasWords) {
+    const where = isGoogle ? ' on Google' : '';
+    if (low) return `Your note above stays private with our team. You’re also welcome to share your experience${where}.`;
+    return hasWords ? `Your note above was private to us. Would you post it${where} too? It helps neighbors find us.`
+                    : `Would you share it${where}? It helps neighbors find us.`;
+  }
+  function reviewLabel(isGoogle, hasWords) {
+    if (hasWords) return isGoogle ? 'Copy my words & open Google' : 'Copy my words & write a review';
+    return isGoogle ? 'Write a Google review' : 'Write a review';
+  }
+  function copyText(s) {
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(s).catch(() => legacyCopy(s)); return; } } catch (_) {}
+    legacyCopy(s);
+  }
+  function legacyCopy(s) {
+    try { const ta = document.createElement('textarea'); ta.value = s; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); ta.remove(); } catch (_) {}
   }
 
   (async function start() {
