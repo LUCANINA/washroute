@@ -48806,7 +48806,10 @@ ${oneCopy}
     // the confusion this exists to prevent.
     if (c.cancelled_at) return '<span class="badge" style="background:#fee2e2;color:#991b1b">Cancelled</span>';
     if (c.frozen_at)    return '<span class="badge badge-amber">Frozen</span>';
-    if (!c.last_delivered_order_at) return '<span class="badge badge-gray">No orders</span>';
+    // 2026-11-18 (David): a booked-but-not-yet-delivered customer read "No orders" next to "Orders: 1".
+    if (!c.last_delivered_order_at) return (Number(c.total_orders) || 0) > 0
+      ? '<span class="badge badge-gray">Not delivered yet</span>'
+      : '<span class="badge badge-gray">No orders</span>';
     const days = Math.floor((Date.now() - new Date(c.last_delivered_order_at).getTime()) / 86_400_000);
     if (days <= 7)  return '<span class="badge badge-green">7 days</span>';
     if (days <= 30) return '<span class="badge badge-green">30 days</span>';

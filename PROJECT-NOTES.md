@@ -1,5 +1,25 @@
 # WashRoute — Project Notes
 
+## Session 372 — Nov 18, 2026: Maya texts the card link right after a cardless phone booking — maya v48 LIVE
+
+**Trigger:** Kipling James (order #20510, $74.95) booked by phone with Maya on Nov 17, no card. The session-348 card gate
+lives only in `customer-app` `placeOrder()`; Maya books cardless callers by design (David, 2026-10-09) and nobody was
+texted a card link, so the order reached ready_for_delivery unpaid. (Not given away: the driver-app unsettled-delivery
+hold from Nov 16 keeps it off the van.) Only cardless sign-up-and-book in 30 days: him.
+
+**Decision (David, option 3):** keep phone booking open, text the link automatically; the backup is the existing
+driver-app hold + Unpaid Orders stalled list (Request card). `customers.card_needed_since` stays UNUSED.
+- `maya/index.ts`: `cardLinkBody()` + `textCardLink()` shared helper (one number, 10-min dedupe, via send-sms).
+  `toolBook`: after the 'confirmed' text, if no card and texts are on → one 'add' text ("sign in with this phone
+  number, then open Account" — claim_existing_customer links the confirmed phone to the login-less Maya row).
+  Maya's spoken payment line now says the link was just texted, or falls back to "team will call" if the send failed.
+  `toolCardLink` refactored onto the same helper, behaviour unchanged.
+- Preflight: 5 Maya sign-ups / 30 days, 2 cardless with texts on → ~2 extra texts/month, one per booking caller only.
+- Deployed by David via CLI with `--no-verify-jwt` (verify_jwt was false, checked by probe) → v48, still false.
+- Kipling sent a Request card text from admin at 15:59 (delivered).
+- Admin Customers list: activity badge reads "Not delivered yet" (not "No orders") when total_orders > 0 but nothing delivered.
+- English only on the post-booking text: `book_pickup` has no language arg (adding one needs a Maya `/setup` re-run).
+
 ## Session 371 — Nov 6, 2026: 25 lb minimum on commercial per-lb orders — DB LIVE, apps committed (David pushing)
 
 **Decision (David):** commercial orders under 25 lbs bill as 25 lbs, from pickups on **2026-12-01**. Modelled first:

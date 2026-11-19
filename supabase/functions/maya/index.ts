@@ -458,10 +458,12 @@ async function toolBook(call: any, a: any, live: boolean) {
   const missed = est.missedFee ? ` Gently mention: please have the bags out by the start of the window; if the driver can't find them there's a ${'$' + est.missedFee} missed-pickup fee.` : '';
   // Payment wording (David, 2026-10-09): charged after processing, by weight. No card → the usual
   // 'update your card' text link arrives then (if texts are on); otherwise staff call.
-  const payment = (hasCard: boolean, texts: boolean) => hasCard
+  // 2026-11-18: no card + texts on → the link is texted right after booking (cardText = what happened).
+  const payment = (hasCard: boolean, texts: boolean, cardText?: string) => hasCard
     ? ' Payment: it is charged to the card on file after we process the laundry.'
-    : texts ? " Payment: tell them they're charged after we process the laundry, by weight, and we'll text them a secure link to add a card."
-            : " Payment: tell them they're charged after we process the laundry, by weight, and our team will call them to set up a card.";
+    : texts && cardText !== 'failed'
+      ? " Payment: tell them they're charged after we process the laundry, by weight, and we've just texted them a secure link to add a card. Ask them to add it before their laundry comes back; we can't deliver until it's paid."
+      : " Payment: tell them they're charged after we process the laundry, by weight, and our team will call them to set up a card.";
 
   if (nc) {
     const okText = !!nc.ok_to_text;
@@ -486,9 +488,13 @@ async function toolBook(call: any, a: any, live: boolean) {
       if (!addr?.id) throw new Error('address insert returned no row');
       const o = await insertOrder(db, { customerId: cust.id, serviceId, bags, slot, zoneId: tok.zoneId, pickupAddrId: addr.id, deliveryAddrId: addr.id, notes, repeat, addonLines, usualDeliveryStart: found.deliveryStart });
       console.log(`maya: NEW customer ${cust.id} booked order #${o.order_number} via ${call?.call_id}`);
-      if (okText) await sendConfirmation(o.id);
+      let cardText: string | undefined;
+      if (okText) {
+        await sendConfirmation(o.id);
+        cardText = await textCardLink(cust.id, phone, String(nc.first_name).trim(), 'add', undefined, call?.call_id);
+      }
       return { ok: true, booked: true, order_number: o.order_number, summary,
-        say: 'Booked.' + repeatSay(okText) + ' Repeat the pickup day and time once more, saying "in the morning" or "in the evening". Tell them to put the bags outside shortly before the pickup window starts, not earlier in the day (sealed trash bags are fine for the first pickup).' + missed + payment(false, okText) };
+        say: 'Booked.' + repeatSay(okText) + ' Repeat the pickup day and time once more, saying "in the morning" or "in the evening". Tell them to put the bags outside shortly before the pickup window starts, not earlier in the day (sealed trash bags are fine for the first pickup).' + missed + payment(false, okText, cardText) };
     } catch (e) {
       console.error('maya: new-customer booking failed, rolling back', (e as Error).message);
       if (addr?.id) await db(`addresses?id=eq.${addr.id}`, { method: 'DELETE' }).catch(() => {});
@@ -502,10 +508,15 @@ async function toolBook(call: any, a: any, live: boolean) {
   await db(`customers?id=eq.${custId}`, { method: 'PATCH', body: JSON.stringify({ preferences: newPrefs }) })
     .catch((e) => console.error('maya: saving preferences failed', (e as Error).message));
   console.log(`maya: customer ${custId} booked order #${o.order_number} via ${call?.call_id}`);
-  if (!ctx.textsOff) await sendConfirmation(o.id);
+  let cardText: string | undefined;
+  if (!ctx.textsOff) {
+    await sendConfirmation(o.id);
+    const ph = d10(ctx.phone);
+    if (!ctx.hasCard && ph) cardText = await textCardLink(custId!, ph, String((await db(`customers?id=eq.${custId}&select=first_name_cache&limit=1`).catch(() => []))?.[0]?.first_name_cache || '').trim(), 'add', undefined, call?.call_id);
+  }
   return { ok: true, booked: true, order_number: o.order_number, summary,
     say: 'Booked.' + repeatSay(!ctx.textsOff) + (addons.length || notes ? " Tell them you've saved their add-ons and notes for future orders too." : '') +
-      ' Repeat the pickup day and time once more, saying "in the morning" or "in the evening". Remind them to put the bags outside shortly before the window starts, not earlier in the day.' + missed + payment(ctx.hasCard, !ctx.textsOff) };
+      ' Repeat the pickup day and time once more, saying "in the morning" or "in the evening". Remind them to put the bags outside shortly before the window starts, not earlier in the day.' + missed + payment(ctx.hasCard, !ctx.textsOff, ctx.hasCard ? undefined : (d10(ctx.phone) ? cardText : 'failed')) };
 }
 
 function pickUpcoming(up: any[], day: unknown) {
@@ -640,6 +651,37 @@ async function toolDeliveryNotes(call: any, a: any, live: boolean) {
 // texts, at most once per 10 minutes. Sent through send-sms, so it shows in the Admin inbox and obeys its
 // staging kill-switch. Maya never takes card details.
 const CARD_LINK = 'https://app.familylaundry.com/#account';
+// 'add' = right after a phone booking with no card (David, 2026-11-18: text it automatically, don't wait
+// for the charge to fail). 'update' = the caller asked for it. Phone-only Maya customers have no login yet:
+// "sign in with this phone number" works because claim_existing_customer links a confirmed phone to them.
+function cardLinkBody(kind: 'add' | 'update', first: string, lang?: string) {
+  const hi = first ? ' ' + first : '';
+  if (lang === 'es') return kind === 'add'
+    ? `Hola${hi}, gracias por reservar con Family Laundry. Agregue la tarjeta que cobraremos después de lavar su ropa: ${CARD_LINK} (inicie sesión con este número y abra Account).`
+    : `Hola${hi}, aquí está el enlace para actualizar su tarjeta con Family Laundry: ${CARD_LINK} (inicie sesión y abra Account).`;
+  return kind === 'add'
+    ? `Hi${hi}, thanks for booking with Family Laundry! Please add the card we'll charge after we process your laundry: ${CARD_LINK} (sign in with this phone number, then open Account).`
+    : `Hi${hi}, here's the link to update your card with Family Laundry: ${CARD_LINK} (sign in, then open Account).`;
+}
+// One text to ONE number (10 digits), at most once per 10 minutes, through send-sms (Admin inbox + kill-switch).
+async function textCardLink(customerId: string, phone10: string, first: string, kind: 'add' | 'update', lang?: string, callId?: string):
+    Promise<'sent' | 'recent' | 'failed'> {
+  const to = `+1${phone10}`;
+  const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const recent = await db(`sms_messages?to_number=eq.${encodeURIComponent(to)}&body=ilike.*app.familylaundry.com%2F%23account*` +
+    `&created_at=gte.${since}&select=id&limit=1`).catch(() => []);
+  if (recent?.length) return 'recent';
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/send-sms`, { method: 'POST',
+    headers: { Authorization: `Bearer ${SVC}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to, body: cardLinkBody(kind, first, lang), customer_id: customerId }) })
+    .catch((e) => { console.error('maya: card link text failed', (e as Error).message); return null; });
+  if (!r || !r.ok) {
+    if (r) console.error('maya: card link text failed', r.status, (await r.text()).slice(0, 200));
+    return 'failed';
+  }
+  console.log(`maya: customer ${customerId} texted card link (${kind}) via ${callId}`);
+  return 'sent';
+}
 async function toolCardLink(call: any, a: any, live: boolean) {
   const v = await verifiedCaller(call, a?.street_name);
   if (v.fail) return v.fail;
@@ -648,24 +690,11 @@ async function toolCardLink(call: any, a: any, live: boolean) {
   const spoken = 'go to app dot family laundry dot com, sign in, and open Account';
   if (!phone || cust.sms_notifications_opt_out_at) return { ok: false, texts_off: true,
     say: `They have our texts turned off, so don't text them. Tell them to ${spoken} to update their card. If they can't sign in, take a message.` };
-  const to = `+1${phone}`;
-  const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-  const recent = await db(`sms_messages?to_number=eq.${encodeURIComponent(to)}&body=ilike.*app.familylaundry.com%2F%23account*` +
-    `&created_at=gte.${since}&select=id&limit=1`).catch(() => []);
-  if (recent?.length) return { ok: true, already_sent: true, say: 'The link was just texted to them. Ask them to check their messages.' };
   const first = String(cust.first_name_cache || '').trim();
-  const body = a?.language === 'es'
-    ? `Hola${first ? ' ' + first : ''}, aquí está el enlace para actualizar su tarjeta con Family Laundry: ${CARD_LINK} (inicie sesión y abra Account).`
-    : `Hi${first ? ' ' + first : ''}, here's the link to update your card with Family Laundry: ${CARD_LINK} (sign in, then open Account).`;
-  if (!live) return { ok: true, test_mode: true, text: body, say: TEST };
-  const r = await fetch(`${SUPABASE_URL}/functions/v1/send-sms`, { method: 'POST',
-    headers: { Authorization: `Bearer ${SVC}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ to, body, customer_id: v.c.id }) }).catch((e) => { console.error('maya: card link text failed', (e as Error).message); return null; });
-  if (!r || !r.ok) {
-    if (r) console.error('maya: card link text failed', r.status, (await r.text()).slice(0, 200));
-    return { ok: false, say: `The text didn't go through. Tell them to ${spoken} to update their card. If they can't sign in, take a message.` };
-  }
-  console.log(`maya: customer ${v.c.id} texted card link via ${call?.call_id}`);
+  if (!live) return { ok: true, test_mode: true, text: cardLinkBody('update', first, a?.language), say: TEST };
+  const res = await textCardLink(v.c.id, phone, first, 'update', a?.language, call?.call_id);
+  if (res === 'recent') return { ok: true, already_sent: true, say: 'The link was just texted to them. Ask them to check their messages.' };
+  if (res === 'failed') return { ok: false, say: `The text didn't go through. Tell them to ${spoken} to update their card. If they can't sign in, take a message.` };
   return { ok: true, sent: true,
     say: "Texted. Tell them the link is on its way to this phone: they sign in and update their card under Account. Their card details stay private; never take them yourself." };
 }
