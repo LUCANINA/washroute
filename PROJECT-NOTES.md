@@ -289,7 +289,8 @@ Retail (Foothill) reported: can't split an order between launderers; can't edit 
   - 352e: storage SELECT policy `voicemails_admin_select` (is_admin).
   - **352f APPLIED Oct 20 ~17:10 UTC** (after push 42bbeb2 + maya v32): voicemails + sms-media private; David confirmed
     the inbox plays/shows them. First 17 photo texts after the change all used /functions/v1/photo links.
-    **stop-photos flips ~Nov 20** (reminder scheduled; texts before Oct 20 carry raw URLs and will break then).
+    **352g APPLIED Nov 20: stop-photos private** (David confirmed). Verified: old raw link 400, new text link -> photo 200.
+    The 18,182 photo texts sent Mar 23-Oct 20 no longer open their photo (accepted).
   - Noted, not changed: drivers/attendants (is_staff) can read/list every stop photo.
 
 ## Session 352 — Oct 20, 2026: closed 6 public-endpoint holes from the safety check — ALL LIVE (admin pushed aab7a36, 352b applied)
