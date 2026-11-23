@@ -8426,7 +8426,7 @@ async function showSubscribeNewCardModal(planId) {
     _peClientSecret = clientSecret;
 
     _peElements = _stripeInstance.elements({ clientSecret, appearance: { theme: 'stripe' } });
-    _peElement = _peElements.create('payment', { layout: 'tabs' });
+    _peElement = _peElements.create('payment', { layout: 'tabs', wallets: { link: 'never' } });   // cards only: Link adds a Bank tab our card-only SetupIntent rejects
     _peElement.mount('#subnewcard-payment-element');
 
     _peElement.on('ready', () => {
@@ -9249,7 +9249,7 @@ async function openAddCardSheet(opts = {}) {
     });
     _acElement = _acElements.create('payment', {
       layout: { type: 'tabs' },
-      wallets: { applePay: 'auto', googlePay: 'auto' },
+      wallets: { applePay: 'auto', googlePay: 'auto', link: 'never' },   // cards only: Link adds a Bank tab our card-only SetupIntent rejects
     });
     document.getElementById('addcard-pe').innerHTML = '';
     _acElement.mount('#addcard-pe');
