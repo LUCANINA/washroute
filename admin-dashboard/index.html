@@ -9720,6 +9720,13 @@
     const offset = 12 - ptHour; // positive = behind UTC
     return (offset >= 0 ? '-' : '+') + String(Math.abs(offset)).padStart(2, '0') + ':00';
   };
+  // Pacific wall-clock time -> ISO instant. `mins` = minutes after midnight PACIFIC.
+  // Slot builders must use this, never new Date(yr, mo-1, dy, h, m): that reads the
+  // BROWSER's zone, so booking from Toronto stored 9am as 6am PT (order #21078, Nov 2026).
+  const pacificWallToIso = (iso, mins) => {
+    const hh = String(Math.floor(mins/60)).padStart(2,'0'), mm = String(mins%60).padStart(2,'0');
+    return new Date(`${iso}T${hh}:${mm}:00${pacificOffsetStr(iso)}`).toISOString();
+  };
   // Returns a Date instant at the start (00:00:00) of the given Pacific date.
   // Use for query filters / start-of-day boundaries that need to be Pacific-anchored.
   const pacificDayStart = (iso) => new Date(`${iso}T00:00:00${pacificOffsetStr(iso)}`);
@@ -35170,9 +35177,8 @@ ${noActivityNote}
     };
     const slots = [];
     for (let m = startM; m + slotSz <= endM; m += slotSz) {
-      const sDate = new Date(yr, mo-1, dy, Math.floor(m/60), m%60, 0);
-      const eDate = new Date(yr, mo-1, dy, Math.floor((m+slotSz)/60), (m+slotSz)%60, 0);
-      slots.push({ start: sDate.toISOString(), end: eDate.toISOString(), label: `${fmtHM(m)} – ${fmtHM(m+slotSz)}` });
+      const _pIso = `${yr}-${String(mo).padStart(2,'0')}-${String(dy).padStart(2,'0')}`;
+      slots.push({ start: pacificWallToIso(_pIso, m), end: pacificWallToIso(_pIso, m+slotSz), label: `${fmtHM(m)} – ${fmtHM(m+slotSz)}` });
     }
 
     // On today's date, hide slots whose window has already ended.
@@ -43542,9 +43548,7 @@ ${oneCopy}
     const [yr, mo, dy] = iso.split('-').map(Number);
     const slots = [];
     for (let m=startMins; m+slotSize<=endMins; m+=slotSize) {
-      const sDate = new Date(yr, mo-1, dy, Math.floor(m/60),          m%60,          0);
-      const eDate = new Date(yr, mo-1, dy, Math.floor((m+slotSize)/60), (m+slotSize)%60, 0);
-      slots.push({ start: sDate.toISOString(), end: eDate.toISOString(), label: `${fmtHM(m)} – ${fmtHM(m+slotSize)}` });
+      slots.push({ start: pacificWallToIso(iso, m), end: pacificWallToIso(iso, m+slotSize), label: `${fmtHM(m)} – ${fmtHM(m+slotSize)}` });
     }
     return slots;
   }
@@ -48713,9 +48717,7 @@ ${oneCopy}
     const [yr, mo, dy] = iso.split('-').map(Number);
     const slots = [];
     for (let m = startMins; m + slotSize <= endMins; m += slotSize) {
-      const sDate = new Date(yr, mo-1, dy, Math.floor(m/60), m%60, 0);
-      const eDate = new Date(yr, mo-1, dy, Math.floor((m+slotSize)/60), (m+slotSize)%60, 0);
-      slots.push({ start: sDate.toISOString(), end: eDate.toISOString(), startMins: m, endMins: m+slotSize });
+      slots.push({ start: pacificWallToIso(iso, m), end: pacificWallToIso(iso, m+slotSize), startMins: m, endMins: m+slotSize });
     }
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
     document.getElementById('sp-slot-label').textContent = `Time Slots for ${dayFmt}`;
