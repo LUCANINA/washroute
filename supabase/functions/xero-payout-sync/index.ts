@@ -7,6 +7,7 @@ import { rechain, toCents, fromCents, type ChainEntry } from '../_shared/balance
 import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
 import { isRefundTxn, isFailedRefundTxn } from '../_shared/refund-classify.ts'
 import { isDisputeTxn, DISPUTE_ACCOUNT } from '../_shared/dispute-classify.ts'
+import { isProcessingFeeTxn } from '../_shared/stripe-fee-classify.ts'
 import { getOrderByPaymentIntent } from '../_shared/order-lookup.ts'
 import { findConflictingDeposit } from '../_shared/existing-deposit.ts'
 import { canWriteBookkeeping } from '../_shared/bk-write-roles.ts'
@@ -145,6 +146,8 @@ async function classifyPayout(payout: any) {
 
   const nonRevenue: Record<string, any> = {}
   for (const t of NON_REVENUE_TYPES) nonRevenue[t] = emptyBucket()
+  // Session 373: separately-billed processing fees, split out of stripe_fee -- see _shared/stripe-fee-classify.ts.
+  nonRevenue.stripe_processing_fee = emptyBucket()
 
   // Session 202 additions: refunds get their own flat bucket (see comment on
   // REFUNDS_ACCOUNT above -- they no longer need to be traced back to a
@@ -163,6 +166,11 @@ async function classifyPayout(payout: any) {
   const creditDiscountExamples: any[] = []
 
   for (const bt of btxns) {
+    if (isProcessingFeeTxn(bt)) {
+      const b = nonRevenue.stripe_processing_fee
+      b.gross += bt.amount; b.fee += bt.fee; b.net += bt.net; b.count += 1
+      continue
+    }
     if (NON_REVENUE_TYPES.has(bt.type)) {
       nonRevenue[bt.type].gross += bt.amount; nonRevenue[bt.type].fee += bt.fee
       nonRevenue[bt.type].net += bt.net; nonRevenue[bt.type].count += 1
@@ -335,8 +343,13 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
   const disputesAmt = dollars(disputesBucket.net)
   if (disputesAmt !== 0) lineItems.push({ Description: `Chargebacks — Stripe payout ${payout.id}`, Quantity: 1, UnitAmount: disputesAmt, AccountCode: DISPUTE_ACCOUNT.code, TaxType: 'NONE' })
 
-  const perChargeFees = dollars(Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee)
-  if (perChargeFees !== 0) lineItems.push({ Description: `Stripe processing fees (per-transaction) — payout ${payout.id}`, Quantity: 1, UnitAmount: -Math.abs(perChargeFees), AccountCode: '605', TaxType: 'NONE' })
+  // Session 373: 605 carries BOTH shapes of processing fee -- the per-charge `fee`
+  // field (always positive, so -Math.abs is load-bearing) and the fees Stripe now
+  // bills separately (`net`, already signed; positive when Stripe credits fees back).
+  // Missing on breakdowns stored before session 373, hence `?.`.
+  const perChargeFeeCents = Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee
+  const processingFees = dollars(-Math.abs(perChargeFeeCents) + (nonRevenue.stripe_processing_fee?.net ?? 0))
+  if (processingFees !== 0) lineItems.push({ Description: `Stripe processing fees — payout ${payout.id}`, Quantity: 1, UnitAmount: processingFees, AccountCode: '605', TaxType: 'NONE' })
   // Session 372: Stripe reports an account fee as a NEGATIVE net, so -Math.abs()
   // here was a no-op for every payout up to 2026-11-12. On 2026-11-13 Stripe
   // CREDITED account fees back (6 transactions, net +$185.61). Forcing that
@@ -344,7 +357,7 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
   // exactly $371.22 (2 x $185.61) short of the $6,730.11 payout and the whole
   // posting was blocked. `net` is already correctly signed -- post it as-is,
   // exactly like the chargeback line above. Do NOT re-wrap this in -Math.abs().
-  // perChargeFees above is NOT the same case: it sums Stripe's `fee` field,
+  // perChargeFeeCents above is NOT the same case: it sums Stripe's `fee` field,
   // which is always positive, so its -Math.abs() is load-bearing. Leave it.
   const acctFee = dollars(nonRevenue.stripe_fee.net)
   if (acctFee !== 0) lineItems.push({ Description: `Stripe account fees — payout ${payout.id}`, Quantity: 1, UnitAmount: acctFee, AccountCode: '828', TaxType: 'NONE' })

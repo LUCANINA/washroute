@@ -2,6 +2,15 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 369, 2026-11-06 17:5x UTC)
 >
+> **000. SESSION 373 (2026-11-23) — STRIPE PROCESSING FEES NOW GO TO 605. NOT DEPLOYED (as of 03:30 UTC 11-24).**
+> Stripe switched to billing processing fees separately from 2026-11-13 (charges carry fee=0; daily `stripe_fee`
+> lines "Card (date)", "Terminal (date)…"). They were landing in 828 Stripe Fees ($1,705.21 Nov vs $222 Oct).
+> Fix: `_shared/stripe-fee-classify.ts`, imported by xero-payout-sync + -reallocate; 605 line now = per-charge + billed.
+> Deploy BOTH, each `--no-verify-jwt` (both verify_jwt false, checked 11-23). Deployed v37/v30 (11-13 19:51) postdate
+> every commit in their trees, so this ships only s373. Must land before the next payout posts, or add it to the reclass.
+> Verify by ROWS: next payout's category_breakdown has `nonRevenue.stripe_processing_fee`. November reclass: Dr 605 /
+> Cr 828 $1,512.33 for payouts 11-13 … 11-23 (see session entry).
+>
 > **00. SESSION 371 (2026-11-10) — DEBT SCHEDULE UPDATES DAILY. LIVE.** Committed 7a18678; David deployed loan-bundle v68 + reconciliation-run v93 (verify_jwt false kept) 2026-11-10 18:30 UTC; both probed (403/401 in their own words); a manual run wrote 32 `xero_daily` rows as of 2026-11-09, month-end writes unchanged (64). Nothing left to do — delete this item next session.
 > `reconciliation-run` now also writes ONE row per loan at the end of YESTERDAY (Pacific) under a new
 > `loan_book_balances.basis = 'xero_daily'` (same `balanceAt()` rebuild; older daily rows deleted after a
@@ -14401,6 +14410,23 @@ the Loans tab directly instead, which is the real test of whether the display
 picked up the new anchor.
 
 ## Session Log
+
+### Session 373 — 2026-11-23 — Stripe processing fees misfiled to 828
+
+David: "Stripe Fees seem suspiciously high this month." 828 = $1,705.21 Nov vs $222.44 Oct. Not a parsing error:
+the payout journals tie to the cent. Total Stripe fees held at 3.24% of gross (Oct 3.24, Nov 1–12 3.24, Nov 13–23
+3.26). From 2026-11-13 Stripe stopped netting fees per charge and bills them as daily `stripe_fee` balance
+transactions, which buildPlan sent to 828 with the real account fees. 605 fell by the same amount.
+
+Fix: `isProcessingFeeTxn` (description `^(Card|Card Present|Terminal) \(`) peels those into
+`nonRevenue.stripe_processing_fee`; the 605 line is `-|per-charge fee| + processing net` (net is signed — a Stripe
+credit reduces 605). Unknown descriptions stay in 828 (fail-safe = old behaviour). "Card Account Updater" begins
+with "Card " and is deliberately NOT matched. Test: `tests/stripe-fee-classify.test.mjs` (20, real 11-23 payout,
+discriminates); payout-dispute 31 and payout-recovery 43 still green.
+
+November reclass, measured per payout from the Stripe API (processing portion of stripe_fee; 828 keeps $192.88):
+11-13 +193.64 (the 11-12 monthly card/card-present CREDIT less Terminal), 11-16 −590.93, 11-17 −24.80,
+11-18 −201.41, 11-19 −184.95, 11-20 −182.45, 11-23 −521.43 → net **$1,512.33 Dr 605 / Cr 828**.
 
 ### 2026-11-02 — DEXTER 2 RATE CHANGE; NEWEST SCHEDULE WINS; COST OF DEBT
 

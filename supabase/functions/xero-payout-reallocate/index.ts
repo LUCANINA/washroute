@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { loadTxnOverrides, applyTxnOverride } from '../_shared/txn-overrides.ts'
 import { isRefundTxn } from '../_shared/refund-classify.ts'
 import { isDisputeTxn, DISPUTE_ACCOUNT } from '../_shared/dispute-classify.ts'
+import { isProcessingFeeTxn } from '../_shared/stripe-fee-classify.ts'
 import { getOrderByPaymentIntent } from '../_shared/order-lookup.ts'
 
 // Retroactively fixes a Stripe payout that was already posted to Xero as a single
@@ -130,6 +131,8 @@ async function classifyPayout(payout: any) {
   const unclassifiedDetail: any[] = []
   const nonRevenue: Record<string, any> = {}
   for (const t of NON_REVENUE_TYPES) nonRevenue[t] = emptyBucket()
+  // Session 373: separately-billed processing fees, split out of stripe_fee -- see _shared/stripe-fee-classify.ts.
+  nonRevenue.stripe_processing_fee = emptyBucket()
   const refundsBucket = emptyBucket()
   // Session 330: mirrors xero-payout-sync. This function carries its own copy of
   // classifyPayout, and in session 266 a fix applied only to the sync was refused
@@ -142,6 +145,11 @@ async function classifyPayout(payout: any) {
   const creditDiscountExamples: any[] = []
 
   for (const bt of btxns) {
+    if (isProcessingFeeTxn(bt)) {
+      const b = nonRevenue.stripe_processing_fee
+      b.gross += bt.amount; b.fee += bt.fee; b.net += bt.net; b.count += 1
+      continue
+    }
     if (NON_REVENUE_TYPES.has(bt.type)) { nonRevenue[bt.type].gross += bt.amount; nonRevenue[bt.type].fee += bt.fee; nonRevenue[bt.type].net += bt.net; nonRevenue[bt.type].count += 1; continue }
     // Session 369: shared with xero-payout-sync -- see _shared/refund-classify.ts.
     if (isRefundTxn(bt)) { refundsBucket.gross += bt.amount; refundsBucket.fee += bt.fee; refundsBucket.net += bt.net; refundsBucket.count += 1; continue }
@@ -216,7 +224,13 @@ function buildPlan(payout: any, buckets: any, nonRevenue: any, refundsBucket: an
   // `net`, not `gross`: Stripe's net is amount - fee, so this one line carries the
   // reversed sale AND the dispute fee. Negative for a loss, positive for a win.
   const disputesAmt = dollars(disputesBucket.net); if (disputesAmt !== 0) lineItems.push({ Description: `Chargebacks — Stripe payout ${payout.id}`, UnitAmount: disputesAmt, AccountCode: DISPUTE_ACCOUNT.code })
-  const perChargeFees = dollars(Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee); if (perChargeFees !== 0) lineItems.push({ Description: `Stripe processing fees (per-transaction) — payout ${payout.id}`, UnitAmount: -Math.abs(perChargeFees), AccountCode: '605' })
+  // Session 373: 605 carries BOTH shapes of processing fee -- the per-charge `fee`
+  // field (always positive, so -Math.abs is load-bearing) and the fees Stripe now
+  // bills separately (`net`, already signed; positive when Stripe credits fees back).
+  // Missing on breakdowns stored before session 373, hence `?.`.
+  const perChargeFeeCents = Object.keys(CATS).reduce((s, k) => s + buckets[k].fee, 0) + refundsBucket.fee
+  const processingFees = dollars(-Math.abs(perChargeFeeCents) + (nonRevenue.stripe_processing_fee?.net ?? 0))
+  if (processingFees !== 0) lineItems.push({ Description: `Stripe processing fees — payout ${payout.id}`, UnitAmount: processingFees, AccountCode: '605' })
   // Session 372: see the long comment in xero-payout-sync/index.ts. `net` is
   // already correctly signed and goes POSITIVE when Stripe credits fees back;
   // -Math.abs() here silently halved such a payout. Do NOT re-wrap it.
