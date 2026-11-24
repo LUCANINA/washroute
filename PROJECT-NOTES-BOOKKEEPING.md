@@ -2,7 +2,7 @@
 
 > ## ⏭️ START HERE — first thing, next session (left by session 369, 2026-11-06 17:5x UTC)
 >
-> **000. SESSION 373 (2026-11-23) — STRIPE PROCESSING FEES NOW GO TO 605. NOT DEPLOYED (as of 03:30 UTC 11-24).**
+> **000. SESSION 373 (2026-11-23) — STRIPE PROCESSING FEES NOW GO TO 605. DEPLOYED by David 11-24 ~03:08 UTC (both probed: answer in own words, gateway off). Reclass journal saved in Xero as DRAFT 11-24 — David to post.**
 > Stripe switched to billing processing fees separately from 2026-11-13 (charges carry fee=0; daily `stripe_fee`
 > lines "Card (date)", "Terminal (date)…"). They were landing in 828 Stripe Fees ($1,705.21 Nov vs $222 Oct).
 > Fix: `_shared/stripe-fee-classify.ts`, imported by xero-payout-sync + -reallocate; 605 line now = per-charge + billed.
