@@ -7287,7 +7287,7 @@
 </div>
 
 <!-- Record Payment Modal (On Account) -->
-<div id="oa-payment-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1055;align-items:center;justify-content:center;">
+<div id="oa-payment-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1150;align-items:center;justify-content:center;">
   <div class="modal" style="max-width:880px;width:96%;max-height:94vh;display:flex;flex-direction:column">
     <div class="modal-header">
       <div class="modal-title">
@@ -7338,15 +7338,18 @@
         </div>
         <div style="flex:1;min-width:140px">
           <label class="form-label">Method</label>
-          <select id="oap-method" class="form-input">
+          <select id="oap-method" class="form-input" onchange="oaPaymentMethodChanged()">
             <option value="check">Check</option>
             <option value="ach">ACH</option>
             <option value="wire">Wire</option>
             <option value="other">Other</option>
+            <!-- Session 374: "Card on file" is ADDED by oaPaymentOpenFor only for a
+                 standalone on-account customer with a card (hidden <option> is ignored by Safari) -->
           </select>
         </div>
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div id="oap-card-note" style="display:none;font-size:12.5px;line-height:1.45;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:8px;padding:8px 10px"></div>
+      <div id="oap-ref-row" style="display:flex;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:140px">
           <label class="form-label">Reference / check #</label>
           <input type="text" id="oap-reference" class="form-input" placeholder="Optional">
@@ -44802,6 +44805,9 @@ ${oneCopy}
     }
     const b = [];
     if (bal > 0 && auto && card && live) b.push(`<button type="button" class="btn btn-primary" id="cp2-charge-again" onclick="cp2ChargeAgain(this)">Charge card again</button>`);
+    // Session 374: on-account customer with a card → pay the unpaid orders by card
+    // (opens Record Payment with the card preselected; stays On Account).
+    if (bal > 0 && !auto && card && live && !c.billing_group_id) b.push(`<button type="button" class="btn btn-primary" onclick="cp2PayAccountByCard()">Charge ${esc(cp2CardLabel(card))}</button>`);
     if (bal > 0) b.push(`<button type="button" class="btn btn-ghost" onclick="cpTab('orders')">View unpaid orders</button>`);
     b.push(`<button type="button" class="btn btn-ghost" onclick="showCreditAdjust('add')">Add credit</button>`);
     if (credits > 0) b.push(`<button type="button" class="btn btn-ghost" onclick="showCreditAdjust('remove')">Remove credit</button>`);
@@ -44809,6 +44815,14 @@ ${oneCopy}
     if (auto && card && live) b.push(`<button type="button" class="btn btn-ghost" onclick="cp2OpenCustomCharge(true)">Custom charge</button>`);
     acts.innerHTML = b.join('');
   }
+
+  function cp2PayAccountByCard() {
+    const c = _panelCustomerData || {};
+    if (!panelCustomerId) return;
+    const name = `${c.first_name_cache || c.first_name || ''} ${c.last_name_cache || c.last_name || ''}`.trim() || 'Customer';
+    oaPaymentOpenFor({ type: 'standalone', id: panelCustomerId, name, source: 'panel' }, { method: 'card' });
+  }
+  window.cp2PayAccountByCard = cp2PayAccountByCard;
 
   function cp2ShowPromo() {
     const el = document.getElementById('cp2-promo-row');
@@ -45013,6 +45027,7 @@ ${oneCopy}
       if (t.payment_method === 'ach') return 'ACH';
       if (t.payment_method === 'check') return 'Check';
       if (t.payment_method === 'wire') return 'Wire transfer';
+      if (t.payment_method === 'card') return 'Card on file';
       if (t.payment_method === 'cash') return 'Cash';
       if (t.type === 'account_payment') return 'Other';
       if (String(t.type).startsWith('credit')) return 'Account credit';
@@ -46452,7 +46467,7 @@ ${oneCopy}
       (more || []).forEach(p => { pays[p.id] = p; });
     }
 
-    const methodLabel = { check: 'Check', ach: 'ACH', wire: 'Wire', other: 'Payment' };
+    const methodLabel = { check: 'Check', ach: 'ACH', wire: 'Wire', other: 'Payment', card: 'Card payment' };
     return Object.values(pays).filter(p => !p.voided_at).map(p => {
       const myOrders = (byPay[p.id] || []).slice().sort((a, b) => (a.order_number || 0) - (b.order_number || 0));
       const isGroup = !!p.billing_group_id && p.customer_id !== customerId;
@@ -65115,19 +65130,89 @@ async function _dvIframeLoaded() {
     if (!checked.length) { showToast('Select an account first', 'error'); return; }
     if (checked.length > 1) { showToast('Select one account to record a payment', 'error'); return; }
     const cb = checked[0];
-    _oapState = { type: cb.dataset.type, id: cb.dataset.id, name: cb.dataset.name, orders: [], loc: '' };
-    document.getElementById('oap-account-label').textContent = cb.dataset.name;
-    document.getElementById('oap-from').value = document.getElementById('rpt-from').value || '';
-    document.getElementById('oap-to').value = document.getElementById('rpt-to').value || '';
+    oaPaymentOpenFor({ type: cb.dataset.type, id: cb.dataset.id, name: cb.dataset.name, source: 'report' }, {
+      from: document.getElementById('rpt-from').value || '',
+      to:   document.getElementById('rpt-to').value || '',
+    });
+  }
+  window.openOAPaymentModal = openOAPaymentModal;
+
+  // Session 374: shared opener — the On-Account report and the customer Billing
+  // tab ("Charge card") both land here. opts.method 'card' preselects the card.
+  async function oaPaymentOpenFor(acct, opts = {}) {
+    _oapState = { type: acct.type, id: acct.id, name: acct.name, source: acct.source || 'report', orders: [], loc: '', card: null, reqId: null };
+    document.getElementById('oap-account-label').textContent = acct.name;
+    document.getElementById('oap-from').value = opts.from || '';
+    document.getElementById('oap-to').value = opts.to || '';
     document.getElementById('oap-received').value = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
     document.getElementById('oap-reference').value = '';
+    document.getElementById('oap-method-card')?.remove();
     document.getElementById('oap-method').value = 'check';
     document.getElementById('oap-mismatch').style.display = 'none';
+    oaPaymentMethodChanged();
     document.getElementById('oa-payment-modal').style.display = 'flex';
     oaPaymentLoadOrders();
     oaPaymentRenderHistory();
+    // Card on file: standalone on-account customers only (a billing group spans
+    // several customers' cards). The server re-checks all of this.
+    if (acct.type === 'standalone') {
+      const st = _oapState;
+      const card = await oaPaymentLoadCard(acct.id);
+      if (_oapState !== st) return;          // window closed / reopened meanwhile
+      st.card = card;
+      if (card) {
+        const cardOpt = document.createElement('option');
+        cardOpt.value = 'card'; cardOpt.id = 'oap-method-card';
+        cardOpt.textContent = `Card on file — ${card.label}`;
+        document.getElementById('oap-method').appendChild(cardOpt);
+        if (opts.method === 'card') { document.getElementById('oap-method').value = 'card'; oaPaymentMethodChanged(); }
+      } else if (opts.method === 'card') {
+        showToast('No card on file for this customer', 'error');
+      }
+    }
   }
-  window.openOAPaymentModal = openOAPaymentModal;
+  window.oaPaymentOpenFor = oaPaymentOpenFor;
+
+  async function oaPaymentLoadCard(customerId) {
+    const { data: c, error } = await db.from('customers')
+      .select('billing_type, billing_group_id, cancelled_at, stripe_customer_id, card_brand, card_last4')
+      .eq('id', customerId).maybeSingle();
+    if (error || !c || c.billing_type !== 'on_account' || c.billing_group_id || c.cancelled_at || !c.stripe_customer_id) return null;
+    const { data: pms } = await db.from('customer_payment_methods')
+      .select('card_brand, card_last4, is_default')
+      .eq('customer_id', customerId)
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const pm = (pms && pms[0]) || (c.card_last4 ? { card_brand: c.card_brand, card_last4: c.card_last4 } : null);
+    if (!pm || !pm.card_last4) return null;
+    const brand = pm.card_brand ? pm.card_brand.charAt(0).toUpperCase() + pm.card_brand.slice(1) : 'Card';
+    return { label: `${brand} •••• ${pm.card_last4}` };
+  }
+
+  function oaPaymentIsCard() { return document.getElementById('oap-method').value === 'card'; }
+
+  // Card: the amount IS the ticked orders' total (no partial / over-payment),
+  // no reference to type (Stripe's id is used), date is today.
+  function oaPaymentMethodChanged() {
+    const isCard = oaPaymentIsCard();
+    const st = _oapState;
+    if (isCard && st && !st.reqId) st.reqId = cp2NewReqId();   // one per window: double-click safe
+    document.getElementById('oap-ref-row').style.display = isCard ? 'none' : 'flex';
+    const amtEl = document.getElementById('oap-amount');
+    amtEl.readOnly = isCard;
+    amtEl.style.background = isCard ? 'var(--gray-50)' : '';
+    const note = document.getElementById('oap-card-note');
+    if (isCard && st?.card) {
+      note.style.display = '';
+      note.innerHTML = `Charges <strong>${esc(st.card.label)}</strong> right away for exactly the ticked orders, then marks them paid. ` +
+        `The customer stays On Account. Card fees (~3%) apply. No text or email is sent to the customer.`;
+    } else {
+      note.style.display = 'none';
+    }
+    oaPaymentRecalc();
+  }
+  window.oaPaymentMethodChanged = oaPaymentMethodChanged;
 
   function closeOAPaymentModal() {
     document.getElementById('oa-payment-modal').style.display = 'none';
@@ -65260,6 +65345,15 @@ async function _dvIframeLoaded() {
     document.getElementById('oap-apply-total').textContent = fmtMoney(applyTotal);
     document.getElementById('oap-select-all').checked = cbs.length > 0 && checked.length === cbs.length;
 
+    const submitBtn = document.getElementById('oap-submit-btn');
+    if (oaPaymentIsCard()) {
+      document.getElementById('oap-amount').value = applyTotal ? applyTotal.toFixed(2) : '';
+      document.getElementById('oap-mismatch').style.display = 'none';
+      submitBtn.textContent = applyTotal > 0 ? `Charge ${fmtMoney(applyTotal)} & Record` : 'Charge & Record';
+      submitBtn.disabled = checked.length === 0 || !(applyTotal > 0) || !_oapState?.card;
+      return;
+    }
+    submitBtn.textContent = 'Record Payment';
     const amt = parseFloat(document.getElementById('oap-amount').value || 0);
     const mm = document.getElementById('oap-mismatch');
     const diff = Math.round((amt - applyTotal) * 100) / 100;
@@ -65288,7 +65382,7 @@ async function _dvIframeLoaded() {
       .order('received_date', { ascending: false }).order('created_at', { ascending: false });
     if (error || !data || !data.length) { wrap.style.display = 'none'; return; }
     wrap.style.display = '';
-    const methodLabels = { check: 'Check', ach: 'ACH', wire: 'Wire', other: 'Other' };
+    const methodLabels = { check: 'Check', ach: 'ACH', wire: 'Wire', other: 'Other', card: 'Card' };
     listEl.innerHTML = data.map(p => {
       const voided = !!p.voided_at;
       const ml = methodLabels[p.method] || p.method;
@@ -65299,12 +65393,13 @@ async function _dvIframeLoaded() {
           ${voided ? '<span style="color:var(--red);font-weight:600"> · VOIDED</span>' : ''}
           <br><span style="font-size:11.5px;color:var(--gray-500)">Applied ${fmtMoney(p.applied_amount)}</span>
         </span>
-        ${voided ? '' : `<button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="oaVoidPayment('${escJS(p.id)}', this)">Void</button>`}
+        ${voided ? '' : `<button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="oaVoidPayment('${escJS(p.id)}', this, '${escJS(p.method)}')">Void</button>`}
       </div>`;
     }).join('');
   }
 
   async function submitOAPayment() {
+    if (oaPaymentIsCard()) return oaPaymentChargeCard();
     const st = _oapState; if (!st) return;
     const checked = [...document.querySelectorAll('.oap-order-cb:checked')];
     if (!checked.length) { showToast('Select at least one order', 'error'); return; }
@@ -65337,13 +65432,79 @@ async function _dvIframeLoaded() {
     showToast(`Payment recorded — ${data.settled_count} order(s) marked paid ✓`, 'success');
     // Close once the payment is in — staying open reloaded the list with the
     // remaining (other-location) orders all ticked, inviting a second payment.
+    const src = st.source, custId = st.id;
     closeOAPaymentModal();
-    loadOnAccountReport();
+    oaPaymentRefreshAfter(src, custId);
   }
   window.submitOAPayment = submitOAPayment;
 
-  async function oaVoidPayment(paymentId, btn) {
-    if (!confirm('Void this payment? The orders it settled will return to outstanding (unpaid).')) return;
+  function oaPaymentRefreshAfter(source, customerId) {
+    if (source === 'panel') {
+      if (panelCustomerId === customerId) openCustomerPanel(customerId, 'billing');
+    } else {
+      loadOnAccountReport();
+    }
+  }
+
+  // Session 374: card on file for an on-account customer → charge-account-payment.
+  // The server computes the amount from the orders and refuses if it differs from
+  // what this window shows; it records the payment exactly like a check.
+  async function oaPaymentChargeCard() {
+    const st = _oapState; if (!st || !st.card) return;
+    const checked = [...document.querySelectorAll('.oap-order-cb:checked')];
+    if (!checked.length) { showToast('Select at least one order', 'error'); return; }
+    const ids = checked.map(c => c.dataset.id);
+    const total = Math.round(checked.reduce((s, c) => s + parseFloat(c.dataset.amt || 0), 0) * 100) / 100;
+    if (!(total > 0)) { showToast('Nothing to charge', 'error'); return; }
+    if (!confirm(`Charge ${fmtMoney(total)} to ${st.card.label} for ${st.name}?\n\nThis charges the card now and marks ${ids.length} order(s) as paid.`)) return;
+
+    const btn = document.getElementById('oap-submit-btn');
+    btn.disabled = true; btn.textContent = 'Charging…';
+    const jwt = await _staffJwt();
+    if (!jwt) { btn.disabled = false; oaPaymentRecalc(); return; }
+    let res = null, httpOk = false;
+    try {
+      const r = await fetch(`${SUPA_URL}/functions/v1/charge-account-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+        body: JSON.stringify({ customerId: st.id, orderIds: ids, expectedAmount: total, requestId: st.reqId }),
+      });
+      httpOk = r.ok;
+      res = await r.json().catch(() => null);
+    } catch (e) {
+      res = { error: 'Network error — check Stripe before trying again: ' + (e?.message || e) };
+    }
+    if (_oapState !== st) return;
+    if (!httpOk || !res?.success) {
+      btn.disabled = false; oaPaymentRecalc();
+      // A decline or a refusal: nothing was charged. New attempt = new request id.
+      if (res?.code === 'card_declined') st.reqId = cp2NewReqId();
+      showToast(res?.error || 'Charge failed', 'error');
+      return;
+    }
+    const src = st.source, custId = st.id;
+    if (!res.recorded) {
+      // Money moved, record didn't. The server already texted the alert phone.
+      alert(`The card WAS charged ${fmtMoney(res.amount)} (Stripe ${res.paymentIntentId}), but the payment could not be recorded:\n\n${res.recordError}\n\nDo NOT charge again by hand. Reopening Record Payment and charging the same orders is safe — it finds this charge and records it instead of charging twice.`);
+      closeOAPaymentModal();
+      oaPaymentRefreshAfter(src, custId);
+      return;
+    }
+    const skipped = Number(res.skippedCount || 0);
+    if (skipped > 0) {
+      showToast(`Charged ${fmtMoney(res.amount)} — but ${skipped} order(s) were already paid. Check for an overpayment.`, 'error');
+    } else {
+      showToast(`Charged ${fmtMoney(res.amount)} to ${res.card || st.card.label} — ${res.settledCount ?? ids.length} order(s) paid ✓${res.replay ? ' (already recorded)' : ''}`, 'success');
+    }
+    closeOAPaymentModal();
+    oaPaymentRefreshAfter(src, custId);
+  }
+
+  async function oaVoidPayment(paymentId, btn, method) {
+    const msg = method === 'card'
+      ? 'Void this CARD payment?\n\nThis does NOT refund the card — the orders just go back to unpaid. Refund the charge in Stripe separately if the money should go back.'
+      : 'Void this payment? The orders it settled will return to outstanding (unpaid).';
+    if (!confirm(msg)) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Voiding…'; }
     const { data, error } = await db.rpc('void_account_payment', {
       p_payment_id: paymentId,

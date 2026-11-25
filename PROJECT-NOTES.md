@@ -1,5 +1,17 @@
 # WashRoute — Project Notes
 
+## Session 374 — Nov 25, 2026: On-account customers can pay by card on file — DB LIVE, 3 functions + admin awaiting David's deploy/push
+
+**Why:** Institute on Aging-Geary (on_account, Mastercard •••• 3482 on file, #7190 + #13701 = $409.90 unpaid) asked to pay by card. Record Payment only offered check/ACH/wire/other, and charge-order / charge-custom refuse on_account by design.
+
+**What shipped:**
+- **DB (applied, migration name `session_373_card_account_payments`; file `migrations/session_374_card_account_payments.sql`):** `payments.method` accepts `'card'`; `record_account_payment` accepts `'card'` ONLY from the backend (auth.uid() NULL) and only with a reference; unique index one card payments row per PaymentIntent. Old def in `_archive._backup_function_defs`.
+- **New edge function `charge-account-payment`** (verify_jwt TRUE, like charge-custom): staff roles admin/manager/laundry_tech; standalone on-account only (not billing groups); computes the amount server-side and refuses if it differs from the screen; charges the default card; then `record_account_payment(method 'card', reference = PI id)`. Double-charge guards: requestId idempotency key + reuse of a succeeded PI for the same order set in the last 30 min (metadata.order_set) + the unique index. If Stripe succeeds but recording fails → success:true, recorded:false, and alert SMS. No customer message is sent. Customer stays on_account.
+- **Xero:** `xero-payout-sync` + `xero-payout-reallocate` book `metadata.kind='account_payment'` / "Account payment:" charges to new category `commercial` = 402 Delivery - Commercial (David: where on-account checks are booked) — without this they'd be unclassified and hold the payout. **Deploy these BEFORE the first card charge.** Revenue report counts it once, via `payments`, cash basis.
+- **Admin:** Record Payment gets "Card on file — Brand •••• 1234" (standalone + card only); amount locked to ticked orders; button "Charge $X & Record". Customer Billing tab gets "Charge Brand •••• 1234" for on-account customers with a card + balance → opens the same window, card preselected. Void on a card payment warns it does NOT refund the card. Modal z-index 1055 → 1150 (above the side panel).
+
+**Not done / later:** refunds of account card payments are Stripe-dashboard only (no customer_transactions row, so the Payments-list Refund button doesn't apply). Billing-group accounts can't pay by card.
+
 ## Session 372 — Nov 18, 2026: Maya texts the card link right after a cardless phone booking — maya v48 LIVE
 
 **Trigger:** Kipling James (order #20510, $74.95) booked by phone with Maya on Nov 17, no card. The session-348 card gate

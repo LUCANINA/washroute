@@ -36,6 +36,9 @@ const CATS: Record<string, { code: string; name: string }> = {
   retail_wf:    { code: '404', name: 'Retail - Wash & Fold' },
   retail_vend:  { code: '401', name: 'Retail - Vending' },
   gift_card:    { code: '461', name: 'Delivery - Gift card sales' },
+  // Session 374: on-account customers paying by card (charge-account-payment).
+  // David: on-account revenue is booked to Commercial (402), like their checks.
+  commercial:   { code: '402', name: 'Delivery - Commercial' },
 }
 
 // Session 202: Credits and Discounts are WashRoute-side concepts (order line
@@ -231,6 +234,13 @@ async function classifyPayout(payout: any) {
       // the metadata tag first (set by charge-custom), description prefix as a
       // fallback; both are written by our own function, never typed by a user.
       category = 'delivery'
+    } else if ((charge.metadata && charge.metadata.kind === 'account_payment') ||
+               (charge.description && charge.description.startsWith('Account payment:'))) {
+      // Session 374: an on-account (invoiced) customer paying their unpaid orders
+      // with the card on file (charge-account-payment). No order carries this
+      // PaymentIntent, so it would land in 'unclassified' and hold the payout.
+      // Booked to Commercial (402) — where on-account checks are booked (David).
+      category = 'commercial'
     } else if (charge.payment_intent) {
       order = await getOrderByPI(charge.payment_intent as string)
       if (order) {

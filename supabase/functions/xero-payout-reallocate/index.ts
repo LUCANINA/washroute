@@ -64,6 +64,9 @@ const CATS: Record<string, { code: string; name: string }> = {
   retail_wf:    { code: '404', name: 'Retail - Wash & Fold' },
   retail_vend:  { code: '401', name: 'Retail - Vending' },
   gift_card:    { code: '461', name: 'Delivery - Gift card sales' },
+  // Session 374: on-account customers paying by card (charge-account-payment).
+  // David: on-account revenue is booked to Commercial (402), like their checks.
+  commercial:   { code: '402', name: 'Delivery - Commercial' },
 }
 const CREDITS_ACCOUNT = { code: '345', name: 'Credits - Delivery' }
 const DISCOUNTS_ACCOUNT = { code: '346', name: 'Coupons - Delivery' }
@@ -166,6 +169,8 @@ async function classifyPayout(payout: any) {
     // Session 329: staff custom charges (charge-custom) have no order -- book to
     // 403 Delivery like xero-payout-sync does. Keep the two classifiers identical.
     else if ((charge.metadata && charge.metadata.kind === 'custom_charge') || (charge.description && charge.description.startsWith('Custom charge:'))) category = 'delivery'
+    // Session 374: on-account card payments (charge-account-payment) — same as xero-payout-sync.
+    else if ((charge.metadata && charge.metadata.kind === 'account_payment') || (charge.description && charge.description.startsWith('Account payment:'))) category = 'commercial'
     else if (charge.payment_intent) {
       order = await getOrderByPI(charge.payment_intent as string)
       if (order) {
